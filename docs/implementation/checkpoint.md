@@ -7,3 +7,5 @@ Windows final packaged executable runs from build/GoIM.exe; GoIM.lnk is the norm
 All six final packages are in dist/releases/alpha6 and locally hash verified. Final Windows screenshots are artifacts/final-ci-windows/screenshots, real-process screenshots artifacts/final-ci-windows/headless. Viva has separate histories/patches and two open upstream contributions; no merge performed. All workers ended. Both scheduled continuation automations deleted. No quota reset credit used.
 
 Do not repeat completed implementation or create new automations unless requested. Next user input may request manual native acceptance after they handle OS permission, further changes, or publication; the current release is intentionally private and Draft.
+
+User steering: Viva PR155 and PR157 are both Draft. Keep both Draft pending the user's evaluation; no automatic ready/merge actions.
