@@ -226,7 +226,7 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 					f.Row().Grow(1).Height(theme.Metrics.ControlHeight).PadX(10).
 						Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl).
 						Clip().Items(flex.Center).Children(func() {
-						f.Text(display).FontSize(theme.Metrics.FontSizeS + 1).Grow(1).Ellipsis()
+						f.Text(display).FontSize(theme.Metrics.FontSizeS + 1).PadX(4).Grow(1).Ellipsis()
 					})
 					if f.Button(p.ids.settingsChooseDir, "更改…").Small().Outline().Clicked() {
 						p.chooseDownloadDirectory(f.Canvas(), submit, state)
