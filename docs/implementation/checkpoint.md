@@ -1,6 +1,6 @@
 # GoIM execution checkpoint
 
-Updated: 2026-11-07 00:46 Asia/Shanghai.
+Updated: 2026-11-07 00:51 Asia/Shanghai.
 
 - Stage: core implemented and tests pass; desktop UI workers still implementing their owned files. No executable built yet.
 - Automation: goim at 01:30 and goim-2 at 06:00, bound to this chat, one scheduled occurrence each.
@@ -19,5 +19,10 @@ Updated: 2026-11-07 00:46 Asia/Shanghai.
 - Known follow-ups: network setting is currently persisted but doesn't recreate the multicast listener until restart; receiver state completion can race sender's final verifying status; default GUI main currently RunCanvas, so tray runtime still needs RunApplication; global shortcut registration not yet implemented; avatar propagation not yet implemented. Read-only reviewer may find additional issues. Do not claim complete until resolved.
 - Later: create private Ezreal-byte/GoIM, CI six native platforms, private draft release. No repo or release has been created yet.
 - Quota checked around 00:45: 97% of 5-hour window consumed; resets 01:16:07 Asia/Shanghai. Do not spend the user's optional reset credit. Automatic wakeups already created for 01:30 and 06:00.
+- Quota now reports 100% (ordinaryUsageAllowed still true); main should resume after reset via 01:30 heartbeat. Last root fix commit 9378c1a: ownership consent bound to the target group; terminal-transfer late-progress guard and file ID/path validation regression tests.
+- Additional PASS: full original core integration suite repeated 20 times (30 seconds), then core suite including two safety tests passed.
+- Panels worker COMPLETE: panels.go/settings.go/transfers.go/panels_test.go; its targeted Driver tests and vet pass, it rendered offscreen QA. It exposes Panels.Key/Shortcut/Wheel; main shell MUST forward these. Network enumeration is init-only; active-network deferral and OS global shortcut registration remain integration tasks.
+- Shell worker still active, all app.go/chat.go/groups.go/icons.go now exist; it is fixing exact Viva API mismatches and adding tests. Do NOT edit these while it runs. Its main file was ~63KB when last observed. Reviewer still active.
+- Attempts to queue updates to ephemeral workers failed (no rollout); no instructions were delivered. Future CLI workers needing follow-up should omit --ephemeral. Root must apply panel forwarding after shell finishes.
 
 Do not restart an existing worker. Inspect scripts/worker-*.jsonl and running codex processes first. Normal launch must use genuine peer data; only explicitly labelled demo/test fixtures may seed sample contacts.
