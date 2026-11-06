@@ -55,6 +55,9 @@ func (n *Node) receiveFileStatus(peer string, e envelope) error {
 			return nil
 		}
 		t.Status = e.Status
+		if len(e.Error) <= 2048 {
+			t.Error = e.Error
+		}
 		t.Speed = 0
 		t.UpdatedAt = time.Now()
 		return nil
@@ -95,28 +98,33 @@ func (n *Node) receiveFileRetry(peer string, e envelope) error {
 		return errors.New("无效的重新接收请求")
 	}
 	if t.Revoked {
-		return errors.New("发送方已取消，请等待重新发送")
+		return n.denyFileRetry(peer, e.TransferID, "发送方已取消，请等待重新发送")
 	}
 	if t.Status == "transferring" {
 		return nil
 	}
 	f := s.File(t.FileID)
 	if t.FromShare && !f.Shared {
-		return errors.New("分享已撤回")
+		return n.denyFileRetry(peer, e.TransferID, "分享已撤回")
 	}
 	if f.SourcePath == "" {
-		return errors.New("源文件不可用")
+		return n.denyFileRetry(peer, e.TransferID, "源文件不可用")
 	}
 	hash, err := fileHashContext(n.ctx, f.SourcePath)
 	if err != nil || hash != f.Hash {
-		return errors.New("源文件已变化，请重新发送")
+		return n.denyFileRetry(peer, e.TransferID, "源文件已变化，请重新发送")
 	}
 	if c := s.Conversation(t.ConversationID); c.Kind == "group" {
 		g := s.Group(c.GroupID)
 		if g.Dissolved || !contains(g.Members, peer) || !contains(g.Members, s.Self.ID) {
-			return errors.New("群文件权限已失效")
+			return n.denyFileRetry(peer, e.TransferID, "群文件权限已失效")
 		}
 	}
 	n.offerFile(peer, t.ConversationID, f, "")
 	return nil
+}
+func (n *Node) denyFileRetry(peer, id, reason string) error {
+	return n.durable(func(*persisted) []pending {
+		return []pending{{PeerID: peer, Envelope: envelope{Type: "file_status", TransferID: id, Status: "cancelled", Error: reason}}}
+	})
 }

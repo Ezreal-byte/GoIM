@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFormerOwnerCannotTruncateAdoptedOwnership(t *testing.T) {
@@ -85,9 +86,23 @@ func TestSenderCancellationRevokesRecipientRetry(t *testing.T) {
 	if err := a.execute(domain.Command{Kind: domain.CancelTransfer, TransferID: task.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.receiveFileRetry(b.Snapshot().Self.ID, envelope{TransferID: task.ID, File: domain.File{ID: task.FileID}}); err == nil {
-		t.Fatal("recipient bypassed sender revocation")
+	eventually(t, "sender cancellation received", func() bool { return b.Snapshot().Transfers[0].Status == "cancelled" })
+	if err := b.retryTransfer(b.Snapshot().Transfers[0]); err != nil {
+		t.Fatal(err)
 	}
+	eventually(t, "revoked retry terminates", func() bool {
+		return b.Snapshot().Transfers[0].Status == "cancelled" && b.Snapshot().Transfers[0].Error != ""
+	})
+	eventually(t, "retry acknowledged", func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		for _, d := range b.data.Outbox {
+			if d.Envelope.Type == "file_retry" {
+				return false
+			}
+		}
+		return true
+	})
 	if len(a.Snapshot().Transfers) != 1 {
 		t.Fatal("revoked retry created a new task")
 	}
@@ -106,7 +121,71 @@ func TestShareRevocationRejectsHistoricalRetry(t *testing.T) {
 	}
 	task := a.Snapshot().Transfers[0]
 	_ = a.execute(domain.Command{Kind: domain.RemoveShare, FileID: f.ID})
-	if err := a.receiveFileRetry(b.Snapshot().Self.ID, envelope{TransferID: task.ID, File: domain.File{ID: f.ID}}); err == nil {
-		t.Fatal("unshared file granted a historical retry")
+	if err := a.receiveFileRetry(b.Snapshot().Self.ID, envelope{TransferID: task.ID, File: domain.File{ID: f.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Snapshot().Transfers) != 1 {
+		t.Fatal("unshared file granted a new transfer")
+	}
+}
+
+func TestReplacedOwnershipOfferReconcilesOfflineAcceptedTarget(t *testing.T) {
+	a, b, c := testNode(t, "甲"), testNode(t, "乙"), testNode(t, "丙")
+	id := createTestGroup(t, a, b, c)
+	if err := a.manageGroup(domain.Command{Kind: domain.TransferOwner, GroupID: id, PeerID: b.Snapshot().Self.ID}); err != nil {
+		t.Fatal(err)
+	}
+	invID := ""
+	eventually(t, "old handoff offer", func() bool {
+		for _, v := range b.Snapshot().Invitations {
+			if v.Kind == "ownership" {
+				invID = v.ID
+				return true
+			}
+		}
+		return false
+	})
+	aDir, bDir := a.dir, b.dir
+	_ = a.Close()
+	if err := b.answerInvite(invID, true); err != nil {
+		t.Fatal(err)
+	}
+	_ = b.Close()
+	a2 := testNodeAt(t, "甲", aDir)
+	connectNodes(t, a2, c)
+	_ = a2.durable(func(p *persisted) []pending {
+		v := p.OwnerOffers[invID]
+		v.CreatedAt = time.Now().Add(-6 * time.Minute)
+		p.OwnerOffers[invID] = v
+		return nil
+	})
+	if err := a2.manageGroup(domain.Command{Kind: domain.TransferOwner, GroupID: id, PeerID: c.Snapshot().Self.ID}); err != nil {
+		t.Fatal(err)
+	}
+	cInv := ""
+	eventually(t, "new handoff offer", func() bool {
+		for _, v := range c.Snapshot().Invitations {
+			if v.Kind == "ownership" {
+				cInv = v.ID
+				return true
+			}
+		}
+		return false
+	})
+	if err := c.answerInvite(cInv, false); err != nil {
+		t.Fatal(err)
+	}
+	b2 := testNodeAt(t, "乙", bDir)
+	connectNodes(t, a2, b2)
+	eventually(t, "old accepted invitation expires", func() bool {
+		for _, v := range b2.Snapshot().Invitations {
+			if v.ID == invID {
+				return v.Status == "expired"
+			}
+		}
+		return false
+	})
+	if err := b2.manageGroup(domain.Command{Kind: domain.LeaveGroup, GroupID: id}); err != nil {
+		t.Fatal(err)
 	}
 }

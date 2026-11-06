@@ -832,7 +832,7 @@ func transferFraction(transfer domain.Transfer) float32 {
 
 func transferNeedsAttention(transfer domain.Transfer) bool {
 	switch transfer.Status {
-	case "transferring", "verifying", "offered", "waiting":
+	case "transferring", "verifying", "offered", "waiting", "retry_requested":
 		return true
 	}
 	return false
@@ -850,6 +850,9 @@ func (u *UI) transferProgressLabel(transfer domain.Transfer) string {
 	}
 	if transfer.Status == "waiting" {
 		return prefix + "等待连接 · " + label
+	}
+	if transfer.Status == "retry_requested" {
+		return prefix + "等待对方确认重试"
 	}
 	if transfer.Direction == "receive" {
 		return prefix + "接收中 · " + label
@@ -869,7 +872,7 @@ func (u *UI) transferSummary(file domain.File) string {
 			received++
 		case "transferring", "verifying":
 			transferring++
-		case "waiting", "offered":
+		case "waiting", "offered", "retry_requested":
 			waiting++
 		case "failed":
 			failed++

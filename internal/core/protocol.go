@@ -33,6 +33,7 @@ type envelope struct {
 	TransferID string
 	Offset     int64
 	Status     string
+	Error      string
 	Target     string
 	Proof      domain.Ownership
 	Avatar     []byte

@@ -951,6 +951,8 @@ func transferStatusText(transfer domain.Transfer) string {
 		return "等待接收"
 	case "waiting":
 		return "等待连接"
+	case "retry_requested":
+		return "等待对方确认重试"
 	case "transferring":
 		return "传输中 · " + intString(int(transferFraction(transfer)*100)) + "%"
 	case "verifying":

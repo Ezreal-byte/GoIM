@@ -624,7 +624,7 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer) panelTrans
 		} else {
 			entry.cancel = true
 		}
-	case "transferring", "verifying", "waiting":
+	case "transferring", "verifying", "waiting", "retry_requested":
 		entry.cancel = true
 	case "failed", "cancelled", "rejected":
 		entry.retry = true
@@ -660,6 +660,8 @@ func panelTransferStatus(status, direction string) string {
 		return "已拒绝"
 	case "waiting":
 		return "等待连接"
+	case "retry_requested":
+		return "等待对方确认重试"
 	case "cancelled":
 		return "已取消"
 	case "failed":

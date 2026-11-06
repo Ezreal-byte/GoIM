@@ -348,15 +348,22 @@ func (n *Node) manageGroup(c domain.Command) error {
 		}
 		inv := domain.Invitation{ID: newID(), GroupID: g.ID, GroupName: g.Name, FromID: s.Self.ID, FromName: s.Self.Name, ToID: target.ID, Kind: "ownership", Status: "pending", CreatedAt: time.Now()}
 		return n.durable(func(p *persisted) []pending {
+			var out []pending
 			for id, v := range p.OwnerOffers {
 				if v.GroupID == g.ID {
 					delete(p.OwnerOffers, id)
+					out = append(out, pending{PeerID: v.PeerID, Envelope: envelope{Type: "ownership_result", Invitation: domain.Invitation{ID: id, GroupID: g.ID}, Status: "expired"}})
+					for i := range p.State.Invitations {
+						if p.State.Invitations[i].ID == id {
+							p.State.Invitations[i].Status = "expired"
+						}
+					}
 				}
 			}
 			p.OwnerOffers[inv.ID] = ownershipOffer{PeerID: target.ID, GroupID: g.ID, Stage: "offered", CreatedAt: time.Now()}
 			p.State.Invitations = append(p.State.Invitations, inv)
 			p.State.Notice = "已发送群主转让请求"
-			return []pending{{PeerID: target.ID, Envelope: envelope{Type: "ownership_offer", Group: g, Invitation: inv}}}
+			return append(out, pending{PeerID: target.ID, Envelope: envelope{Type: "ownership_offer", Group: g, Invitation: inv}})
 		})
 	default:
 		return errors.New("未知群管理操作")
@@ -533,7 +540,17 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 		n.mu.Lock()
 		offer, ok := n.data.OwnerOffers[e.Invitation.ID]
 		n.mu.Unlock()
-		if !ok || offer.PeerID != peer || offer.GroupID != g.ID || offer.Stage != "offered" || e.Invitation.Kind != "ownership" || e.Invitation.FromID != s.Self.ID {
+		if !ok {
+			for _, v := range s.Invitations {
+				if v.ID == e.Invitation.ID && v.GroupID == g.ID && v.Kind == "ownership" && v.FromID == s.Self.ID && v.ToID == peer {
+					return n.durable(func(*persisted) []pending {
+						return []pending{{PeerID: peer, Envelope: envelope{Type: "ownership_result", Invitation: v, Status: "expired"}}}
+					})
+				}
+			}
+			return nil
+		}
+		if offer.PeerID != peer || offer.GroupID != g.ID || offer.Stage != "offered" || e.Invitation.Kind != "ownership" || e.Invitation.FromID != s.Self.ID {
 			return nil
 		}
 		if time.Since(offer.CreatedAt) > 5*time.Minute || g.OwnerID != s.Self.ID || g.Dissolved || !contains(g.Members, peer) {

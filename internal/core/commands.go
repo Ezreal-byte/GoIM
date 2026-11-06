@@ -96,7 +96,7 @@ func (n *Node) execute(c domain.Command) error {
 			}
 			p.TransferTombstones[t.PeerID+":"+t.ID] = status
 			for id, d := range p.Outbox {
-				if d.PeerID == t.PeerID && d.Envelope.Type == "file_offer" && d.Envelope.TransferID == t.ID {
+				if d.PeerID == t.PeerID && (d.Envelope.Type == "file_offer" || d.Envelope.Type == "file_retry") && d.Envelope.TransferID == t.ID {
 					delete(p.Outbox, id)
 				}
 			}

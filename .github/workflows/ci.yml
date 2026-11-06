@@ -18,7 +18,7 @@ jobs:
         with: {go-version: '1.27.3', cache-dependency-path: GoIM/go.sum}
       - run: |
           git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
-          git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch
+          git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch ../GoIM/framework/0002-windows-arm64-text-origin.patch
       - name: Chinese font coverage for the native painter
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
       - run: |
