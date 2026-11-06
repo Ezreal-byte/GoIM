@@ -59,15 +59,15 @@ jobs:
           test -z "$(gofmt -l cmd internal)"
           go vet ./...
           go test ./... -count=1 -timeout=180s
-      - name: Concurrent core race tests
+      - name: Core and background media race tests
         if: matrix.os == 'linux' && matrix.arch == 'amd64'
-        run: go test -race ./internal/core -count=1 -timeout=180s
+        run: go test -race ./internal/core ./internal/desktop -count=1 -timeout=180s
       - name: Shared catalog ordering regression on macOS Intel
         if: matrix.os == 'darwin' && matrix.arch == 'amd64'
         run: go test ./internal/core -run 'TestCatalogRejectsOutOfOrderInitialSnapshot|TestUnsharingPreservesDownloadedMetadata' -count=20 -timeout=120s
       - name: Offscreen UI screenshots
         env:
-          GOIM_QA_SCREENSHOTS: artifacts/screenshots
+          GOIM_QA_SCREENSHOTS: ${{ github.workspace }}/GoIM/artifacts/screenshots
         run: go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix' -count=1 -timeout=180s
       - name: Native Direct2D point ABI and rendering benchmark
         if: matrix.os == 'windows'

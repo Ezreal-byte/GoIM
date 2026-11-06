@@ -235,7 +235,11 @@ func recipients(s domain.State, c domain.Conversation) ([]string, error) {
 		if g.Dissolved || g.Left || !contains(g.Members, s.Self.ID) {
 			return nil, errors.New("你已不在此群聊中")
 		}
-		return without(g.Members, s.Self.ID), nil
+		peers := without(g.Members, s.Self.ID)
+		if len(peers) == 0 {
+			return nil, errors.New("等待成员确认邀请后再发送消息或文件")
+		}
+		return peers, nil
 	}
 	return []string{c.PeerID}, nil
 }

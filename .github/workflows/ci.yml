@@ -25,4 +25,4 @@ jobs:
           test -z "$(gofmt -l cmd internal)"
           go vet ./...
           go test ./... -count=1 -timeout=180s
-          go test -race ./internal/core -count=1 -timeout=180s
+          go test -race ./internal/core ./internal/desktop -count=1 -timeout=180s

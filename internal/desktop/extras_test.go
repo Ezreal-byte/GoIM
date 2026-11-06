@@ -65,6 +65,9 @@ func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
 		len(request.Filters) == 0 || request.Filters[0].Pattern != "*.png;*.jpg;*.jpeg;*.gif" {
 		t.Fatalf("profile image picker request = %+v", request)
 	}
+	harness.waitFor(func() bool {
+		return harness.ui.avatarBitmap(avatar).Width > 1
+	})
 	if bitmap := harness.ui.avatarBitmap(avatar); bitmap.Width <= 0 {
 		t.Fatal("chosen avatar was not decoded outside Paint")
 	}
@@ -88,6 +91,15 @@ func TestStateAvatarsAreDecodedOnWake(t *testing.T) {
 	state.Self.Avatar = selfAvatar
 	state.Peers[0].Avatar = peerAvatar
 	harness.publish(state)
+	harness.waitFor(func() bool {
+		for _, path := range []string{selfAvatar, peerAvatar} {
+			bitmap := harness.ui.avatarBitmap(path)
+			if bitmap.Width <= 1 || bitmap.Height <= 1 {
+				return false
+			}
+		}
+		return true
+	})
 
 	for _, path := range []string{selfAvatar, peerAvatar} {
 		if bitmap := harness.ui.avatarBitmap(path); bitmap.Width <= 0 || bitmap.Height <= 0 {

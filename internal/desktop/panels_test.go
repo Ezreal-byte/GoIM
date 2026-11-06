@@ -27,6 +27,8 @@ type panelTestHarness struct {
 	theme    ui.Theme
 	bounds   ui.Rect
 	commands []domain.Command
+	media    *mediaWorker
+	mediaGen uint64
 }
 
 func panelTestDefaultState(t *testing.T) domain.State {
@@ -70,7 +72,7 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 		OnShortcut:  h.panels.Shortcut,
 		OnScroll:    h.panels.Wheel,
 		TextInput:   h.panels.TextInput(),
-		OnWake:      func() { h.panels.OnWake(h.state) },
+		OnWake:      h.onWake,
 		Invalidator: &h.wake,
 	}, nil)
 	if err != nil {
@@ -78,6 +80,11 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 	}
 	h.driver = driver
 	t.Cleanup(driver.Close)
+	h.media = newMediaWorker(func() { h.wake.Invalidate() })
+	h.panels.setMediaSubmit(h.media.submitOne)
+	t.Cleanup(h.media.close)
+	h.requestMediaAvailability()
+	h.waitMedia()
 	return h
 }
 
@@ -92,6 +99,53 @@ func (h *panelTestHarness) clearCommands() {
 func (h *panelTestHarness) publish(state domain.State) {
 	h.t.Helper()
 	h.state = state
+	h.panels.OnWake(state)
+	h.requestMediaAvailability()
+	h.wake.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
+	h.waitMedia()
+}
+
+func (h *panelTestHarness) onWake() {
+	h.panels.OnWake(h.state)
+	if batch, ok := h.media.take(); ok {
+		h.panels.setLocalFileAvailability(batch.files)
+		h.panels.applyMediaActions(batch.actions)
+	}
+}
+
+func (h *panelTestHarness) requestMediaAvailability() {
+	for fileID, file := range h.panels.localFiles {
+		if file.path == "" {
+			continue
+		}
+		h.mediaGen++
+		h.media.submitOne(mediaJob{
+			key:  mediaJobKey{kind: mediaJobFileAvailability, name: fileID},
+			kind: mediaJobFileAvailability, path: file.path, fileID: fileID,
+			generation:        h.mediaGen,
+			previousAvailable: file.available, previousAvailableSet: file.known,
+		})
+	}
+}
+
+func (h *panelTestHarness) waitMedia() {
+	h.t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !h.media.settled() {
+		select {
+		case <-h.driver.Wakes():
+			if err := h.driver.Pump(); err != nil {
+				h.t.Fatal(err)
+			}
+		case <-time.After(time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			h.t.Fatal("media worker did not settle")
+		}
+	}
 	h.wake.Invalidate()
 	if err := h.driver.Pump(); err != nil {
 		h.t.Fatal(err)
@@ -652,10 +706,12 @@ func TestPanelTransfersSubmitActionsAndOpenCompletedFiles(t *testing.T) {
 	}
 
 	h.click(h.panels.ids.transferOpen.At(completedIndex))
+	h.waitMedia()
 	if path, ok := h.driver.LastOpenedPath(); !ok || path != completedPath {
 		t.Fatalf("opened path = %q, observed %v", path, ok)
 	}
 	h.click(h.panels.ids.transferReveal.At(completedIndex))
+	h.waitMedia()
 	if path, ok := h.driver.LastRevealedPath(); !ok || path != completedPath {
 		t.Fatalf("revealed path = %q, observed %v", path, ok)
 	}
@@ -739,10 +795,12 @@ func TestPanelSharesAddFilterGetRemoveAndOpen(t *testing.T) {
 		t.Fatal("own share was rendered with a remote-only Get action")
 	}
 	h.click(h.panels.ids.shareOpen.At(0))
+	h.waitMedia()
 	if path, ok := h.driver.LastOpenedPath(); !ok || path != ownPath {
 		t.Fatalf("opened share path = %q, observed %v", path, ok)
 	}
 	h.click(h.panels.ids.shareReveal.At(0))
+	h.waitMedia()
 	if path, ok := h.driver.LastRevealedPath(); !ok || path != ownPath {
 		t.Fatalf("revealed share path = %q, observed %v", path, ok)
 	}
@@ -826,6 +884,7 @@ func TestPanelSharesUseWakeCachedTransferPathsAndUnavailableOwnFiles(t *testing.
 
 	h.click(h.panels.ids.sharesFilters.At(panelSharesRemote))
 	h.click(h.panels.ids.shareOpen.At(0))
+	h.waitMedia()
 	if path, ok := h.driver.LastOpenedPath(); !ok || path != latestPath {
 		t.Fatalf("opened remote share = %q, observed %v", path, ok)
 	}
@@ -842,6 +901,7 @@ func TestPanelSharesUseWakeCachedTransferPathsAndUnavailableOwnFiles(t *testing.
 		t.Fatal(err)
 	}
 	h.click(h.panels.ids.shareReveal.At(0))
+	h.waitMedia()
 	if path, ok := h.driver.LastRevealedPath(); ok {
 		t.Fatalf("missing file was revealed at stale cached path %q", path)
 	}

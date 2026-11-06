@@ -116,6 +116,9 @@ func newShellTestHarnessAtSize(t *testing.T, state domain.State, width, height i
 		t.Fatal(err)
 	}
 	harness := &shellTestHarness{t: t, ui: shell, backend: backend, driver: driver}
+	// Run wakes once after OpenWindow binds the invalidator. Model that same
+	// startup lifecycle so results completed before binding are collected.
+	shell.invalidator.Invalidate()
 	t.Cleanup(shell.Close)
 	t.Cleanup(driver.Close)
 	return harness
@@ -224,19 +227,39 @@ func (harness *shellTestHarness) hasHit(id ui.ID) bool {
 func (harness *shellTestHarness) publish(state domain.State) {
 	harness.t.Helper()
 	harness.backend.setState(state)
-	select {
-	case <-harness.driver.Wakes():
-	case <-time.After(2 * time.Second):
-		harness.t.Fatal("backend update did not wake the shell")
-	}
-	if err := harness.driver.Pump(); err != nil {
-		harness.t.Fatal(err)
-	}
+	// Media and backend results share a coalescing wake source. A queued wake
+	// can predate this publication; observe the revision, not the next token.
+	harness.waitFor(func() bool { return harness.ui.state.Revision == state.Revision })
 }
 
 func (harness *shellTestHarness) settle() {
 	harness.t.Helper()
 	if err := harness.driver.Advance(600 * time.Millisecond); err != nil {
+		harness.t.Fatal(err)
+	}
+}
+
+func (harness *shellTestHarness) waitFor(predicate func() bool) {
+	harness.t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for !predicate() {
+		select {
+		case <-harness.driver.Wakes():
+			if err := harness.driver.Pump(); err != nil {
+				harness.t.Fatal(err)
+			}
+		case <-time.After(time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			harness.t.Fatal("timed out waiting for background media")
+		}
+	}
+}
+
+func (harness *shellTestHarness) wake() {
+	harness.t.Helper()
+	harness.ui.invalidator.Invalidate()
+	if err := harness.driver.Pump(); err != nil {
 		harness.t.Fatal(err)
 	}
 }

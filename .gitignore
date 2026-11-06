@@ -7,3 +7,4 @@
 /scripts/worker-*.jsonl
 /scripts/worker-*.stderr.log
 /scripts/worker-*.stderr
+/*.lnk

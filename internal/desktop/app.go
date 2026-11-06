@@ -348,6 +348,8 @@ type UI struct {
 	transfersFor     map[string][]domain.Transfer
 	fileLocalPath    map[string]string
 	fileAvailable    map[string]bool
+	mediaFiles       map[string]mediaFileRequest
+	mediaFileGen     uint64
 
 	peerRowIDs          map[string]ui.ID
 	convRowIDs          map[string]ui.ID
@@ -378,6 +380,12 @@ type UI struct {
 	imageCache  map[string]ui.Bitmap
 	imageStamps map[string]imageStamp
 	nextImageID uint64
+
+	media               *mediaWorker
+	mediaImageGen       uint64
+	mediaImageQueued    map[string]uint64
+	mediaDesiredImages  map[string]bool
+	mediaPendingBitmaps map[string]ui.Bitmap
 
 	iconMessage       ui.Icon
 	iconUsers         ui.Icon
@@ -454,6 +462,7 @@ func New(backend domain.Backend) *UI {
 		transfersFor:        make(map[string][]domain.Transfer),
 		fileLocalPath:       make(map[string]string),
 		fileAvailable:       make(map[string]bool),
+		mediaFiles:          make(map[string]mediaFileRequest),
 		peerRowIDs:          make(map[string]ui.ID),
 		convRowIDs:          make(map[string]ui.ID),
 		groupHeadIDs:        make(map[string]ui.ID),
@@ -481,6 +490,9 @@ func New(backend domain.Backend) *UI {
 		emojiIDs:            make(map[string]ui.ID),
 		imageCache:          make(map[string]ui.Bitmap),
 		imageStamps:         make(map[string]imageStamp),
+		mediaImageQueued:    make(map[string]uint64),
+		mediaDesiredImages:  make(map[string]bool),
+		mediaPendingBitmaps: make(map[string]ui.Bitmap),
 		compose: composeState{
 			selected:    make(map[string]bool),
 			knownGroups: make(map[string]bool),
@@ -544,11 +556,14 @@ func New(backend domain.Backend) *UI {
 	u.windowVisible.Store(true)
 	u.palette = paletteFor(u.theme)
 	u.titleLeading, u.titleTrailing = app.TitlebarInsets()
+	u.media = newMediaWorker(func() { u.invalidator.Invalidate() })
 	u.initIDs()
 	u.panels.Init(&u.tree)
+	u.panels.setMediaSubmit(u.media.submitOne)
 	u.panelInput = u.panels.TextInput()
 	if backend != nil {
 		u.refresh()
+		u.queueMediaJobs()
 		go u.watchUpdates()
 	}
 	return u
@@ -584,6 +599,7 @@ func (u *UI) Config() app.Config {
 // intentionally safe to call both directly and from Config.OnClosed.
 func (u *UI) Close() {
 	u.closeOnce.Do(func() {
+		u.media.close()
 		u.saveCurrentDraft()
 		close(u.done)
 	})
@@ -618,6 +634,8 @@ func (u *UI) watchUpdates() {
 
 func (u *UI) onWake() {
 	u.refresh()
+	u.applyMediaResults()
+	u.queueMediaJobs()
 }
 
 // SetWindowVisible tells the shell whether its main window is currently shown
@@ -639,6 +657,106 @@ func (u *UI) refresh() {
 	u.panels.OnWake(u.state)
 	u.rebuildPresentation(oldError)
 	u.markSelectedConversationRead()
+}
+
+func (u *UI) requestFileAvailability(fileID, path string, previous bool, previousSet bool) {
+	if fileID == "" || path == "" {
+		return
+	}
+	if queued, ok := u.mediaFiles[fileID]; ok && queued.path == path {
+		return
+	}
+	u.mediaFileGen++
+	generation := u.mediaFileGen
+	u.mediaFiles[fileID] = mediaFileRequest{path: path, generation: generation}
+	u.media.submitOne(mediaJob{
+		key:  mediaJobKey{kind: mediaJobFileAvailability, name: fileID},
+		kind: mediaJobFileAvailability, path: path, fileID: fileID, generation: generation,
+		previousAvailable: previous, previousAvailableSet: previousSet,
+	})
+}
+
+func (u *UI) queueMediaJobs() {
+	for fileID, path := range u.fileLocalPath {
+		available, known := u.fileAvailable[fileID]
+		u.requestFileAvailability(fileID, path, available, known)
+	}
+	for path := range u.mediaDesiredImages {
+		u.queueImage(path)
+	}
+}
+
+func (u *UI) applyMediaResults() {
+	if u.media == nil {
+		return
+	}
+	batch, ok := u.media.take()
+	if !ok {
+		return
+	}
+	u.applyMediaBatch(batch)
+}
+
+func (u *UI) applyMediaBatch(batch mediaResultBatch) {
+	availability := make([]mediaFileResult, 0, len(batch.files))
+	for _, result := range batch.files {
+		queued, ok := u.mediaFiles[result.fileID]
+		if !ok || queued.generation != result.generation {
+			continue
+		}
+		delete(u.mediaFiles, result.fileID)
+		if queued.path != result.path || u.fileLocalPath[result.fileID] != result.path {
+			continue
+		}
+		u.fileAvailable[result.fileID] = result.available
+		availability = append(availability, result)
+	}
+	if len(availability) > 0 {
+		u.panels.setLocalFileAvailability(availability)
+	}
+
+	for _, result := range batch.images {
+		generation, queued := u.mediaImageQueued[result.path]
+		if !queued || generation != result.generation {
+			continue
+		}
+		delete(u.mediaImageQueued, result.path)
+		if !u.mediaDesiredImages[result.path] {
+			delete(u.mediaPendingBitmaps, result.path)
+			continue
+		}
+		delete(u.mediaPendingBitmaps, result.path)
+		u.imageStamps[result.path] = result.stamp
+		if result.unchanged {
+			if u.profile.open && u.profile.avatar == result.path {
+				if _, ok := u.imageCache[result.path]; ok {
+					u.profile.err = ""
+				} else {
+					u.profile.err = "无法读取这张图片"
+				}
+			}
+			continue
+		}
+		if !result.decoded {
+			delete(u.imageCache, result.path)
+			if u.profile.open && u.profile.avatar == result.path {
+				u.profile.err = "无法读取这张图片"
+			}
+			continue
+		}
+		u.nextImageID++
+		bitmap := result.bitmap
+		bitmap.ID = u.nextImageID
+		bitmap.Version = 1
+		u.imageCache[result.path] = bitmap
+		if u.profile.open && u.profile.avatar == result.path {
+			u.profile.err = ""
+		}
+	}
+
+	if len(batch.actions) > 0 {
+		u.panels.applyMediaActions(batch.actions)
+	}
 }
 
 func (u *UI) markSelectedConversationRead() {
@@ -1659,23 +1777,17 @@ func (u *UI) rebuildPresentation(oldError string) {
 			return transfers[i].ID < transfers[j].ID
 		})
 	}
-	u.fileLocalPath = make(map[string]string)
-	u.fileAvailable = make(map[string]bool)
-	for _, file := range u.state.Files {
-		if file.SourcePath != "" {
-			u.fileLocalPath[file.ID] = file.SourcePath
+	oldPaths := u.fileLocalPath
+	oldAvailable := u.fileAvailable
+	u.fileLocalPath = localFilePaths(u.state)
+	u.fileAvailable = make(map[string]bool, len(u.fileLocalPath))
+	for id, path := range u.fileLocalPath {
+		if oldPaths[id] != path {
 			continue
 		}
-		for _, transfer := range u.transfersFor[file.ID] {
-			if transfer.Direction == "receive" && transfer.Status == "completed" && transfer.Path != "" {
-				u.fileLocalPath[file.ID] = transfer.Path
-				break
-			}
+		if available, ok := oldAvailable[id]; ok {
+			u.fileAvailable[id] = available
 		}
-	}
-	for id, path := range u.fileLocalPath {
-		info, err := os.Stat(path)
-		u.fileAvailable[id] = err == nil && !info.IsDir()
 	}
 
 	oldSelected := u.selected
@@ -2352,58 +2464,72 @@ func (u *UI) ensureID(cache map[string]ui.ID, scope ui.Scope, prefix, key string
 }
 
 func (u *UI) refreshImages() {
+	u.mediaDesiredImages = make(map[string]bool)
 	for _, peer := range u.state.Peers {
-		u.ensureImage(peer.Avatar)
+		u.markImage(peer.Avatar)
 	}
-	u.ensureImage(u.state.Self.Avatar)
+	u.markImage(u.state.Self.Avatar)
+	u.markImage(u.profile.avatar)
 	for _, message := range u.messages {
 		if message.Kind != "image" && message.Kind != "file" {
 			continue
 		}
 		file := u.state.File(message.FileID)
 		if fileIsImage(file) {
-			u.ensureImage(u.fileLocalPath[file.ID])
+			u.markImage(u.fileLocalPath[file.ID])
 		}
 	}
 	for _, file := range u.files {
 		if fileIsImage(file) {
-			u.ensureImage(u.fileLocalPath[file.ID])
+			u.markImage(u.fileLocalPath[file.ID])
 		}
 	}
 }
 
-func (u *UI) ensureImage(path string) {
+func (u *UI) markImage(path string) {
 	if path == "" {
 		return
 	}
-	stamp := imageStamp{modified: -1}
-	if info, err := os.Stat(path); err == nil {
-		stamp = imageStamp{modified: info.ModTime().UnixNano(), size: info.Size()}
-	}
-	if u.imageStamps[path] == stamp {
+	u.mediaDesiredImages[path] = true
+}
+
+func (u *UI) ensureImage(path string) {
+	u.markImage(path)
+	u.queueImage(path)
+}
+
+func (u *UI) queueImage(path string) {
+	if path == "" {
 		return
 	}
-	u.imageStamps[path] = stamp
-	if stamp.modified < 0 {
-		delete(u.imageCache, path)
+	if _, queued := u.mediaImageQueued[path]; queued {
 		return
 	}
-	bitmap, ok := decodeBitmap(path, 512)
-	if !ok {
-		delete(u.imageCache, path)
-		return
-	}
-	u.nextImageID++
-	bitmap.ID = u.nextImageID
-	bitmap.Version = 1
-	u.imageCache[path] = bitmap
+	u.mediaImageGen++
+	generation := u.mediaImageGen
+	u.mediaImageQueued[path] = generation
+	previous, previousSet := u.imageStamps[path]
+	u.media.submitOne(mediaJob{
+		key: mediaJobKey{kind: mediaJobImage, name: path}, kind: mediaJobImage,
+		path: path, generation: generation, imageLimit: 512,
+		imagePrevious: previous, imagePreviousSet: previousSet,
+		notifyUnchanged: u.profile.open,
+	})
 }
 
 func (u *UI) avatarBitmap(path string) ui.Bitmap {
 	if path == "" {
 		return ui.Bitmap{}
 	}
-	return u.imageCache[path]
+	if bitmap, ok := u.imageCache[path]; ok {
+		return bitmap
+	}
+	if u.profile.open {
+		if _, queued := u.mediaImageQueued[path]; queued {
+			return u.pendingBitmap(path)
+		}
+	}
+	return ui.Bitmap{}
 }
 
 func (u *UI) fileBitmap(path string) ui.Bitmap {
@@ -2411,6 +2537,19 @@ func (u *UI) fileBitmap(path string) ui.Bitmap {
 		return ui.Bitmap{}
 	}
 	return u.imageCache[path]
+}
+
+func (u *UI) pendingBitmap(path string) ui.Bitmap {
+	if bitmap, ok := u.mediaPendingBitmaps[path]; ok {
+		return bitmap
+	}
+	u.nextImageID++
+	bitmap := ui.Bitmap{
+		Pix: make([]byte, 4), Width: 1, Height: 1, Stride: 4,
+		ID: u.nextImageID, Version: 1,
+	}
+	u.mediaPendingBitmaps[path] = bitmap
+	return bitmap
 }
 
 func (u *UI) isDark() bool { return u.theme.Background.Red < 0.5 }

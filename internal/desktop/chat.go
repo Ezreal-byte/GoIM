@@ -545,6 +545,10 @@ func (u *UI) drawComposer(f *flex.Frame, conversation domain.Conversation) {
 }
 
 func (u *UI) drawChatReadOnly(f *flex.Frame, reason string) {
+	title := "该群聊已关闭"
+	if strings.HasPrefix(reason, "等待成员") {
+		title = "正在等待成员加入"
+	}
 	f.Column().FillWidth().Height(104).PadSides(8, 28, 8, 28).
 		Background(u.palette.header).Justify(flex.Center).Children(func() {
 		f.Row().Fill().PadSides(10, 14, 10, 14).Radius(10).Background(u.palette.incoming).
@@ -554,7 +558,7 @@ func (u *UI) drawChatReadOnly(f *flex.Frame, reason string) {
 				f.Icon(u.iconLock).Size(15, 15).Color(u.palette.secondaryText)
 			})
 			f.Column().Grow(1).Gap(2).Children(func() {
-				f.Text("该群聊已关闭").FontSize(12.5).Weight(ui.WeightMedium)
+				f.Text(title).FontSize(12.5).Weight(ui.WeightMedium)
 				f.Text(reason).FontSize(10.5).Muted().Ellipsis()
 			})
 		})
@@ -573,6 +577,8 @@ func (u *UI) chatReadOnlyReason(conversation domain.Conversation) string {
 		return "群聊已解散，本机历史仍可查看。"
 	case group.Left:
 		return "你已退出该群聊，本机历史仍可查看。"
+	case len(group.Members) < 2:
+		return "等待成员确认邀请后即可发送消息或文件。"
 	default:
 		return ""
 	}

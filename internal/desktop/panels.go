@@ -1,10 +1,8 @@
 package desktop
 
 import (
-	"errors"
 	"fmt"
 	"net"
-	"os"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -129,6 +127,13 @@ type panelNetworkChange struct {
 type panelLocalFile struct {
 	path      string
 	available bool
+	known     bool
+}
+
+type panelLocalAction struct {
+	id     uint64
+	path   string
+	reveal bool
 }
 
 type panelTransferEntry struct {
@@ -221,7 +226,11 @@ type Panels struct {
 	listNetworks     func() ([]net.Interface, error)
 	networkChange    panelNetworkChange
 
-	localFiles map[string]panelLocalFile
+	localFiles  map[string]panelLocalFile
+	mediaSubmit func(mediaJob)
+
+	localActions    map[uint64]panelLocalAction
+	nextLocalAction uint64
 
 	transferPending  []panelTransferEntry
 	transferFinished []panelTransferEntry
@@ -251,6 +260,7 @@ func (p *Panels) Init(tree *ui.Tree) {
 	p.tree = tree
 	p.initialized = true
 	p.shortcutEdit = -1
+	p.localActions = make(map[uint64]panelLocalAction)
 
 	settings := tree.Feature("settings-panels")
 	p.ids.settingsFeature = settings
@@ -363,42 +373,70 @@ func (p *Panels) Draw(canvas *ui.Canvas, theme ui.Theme, bounds ui.Rect, module 
 	canvas.Unclip()
 }
 
-// OnWake caches local-path availability before the next paint. The shell calls
-// this from Config.OnWake; Draw only reads the cache and never touches disk.
-// A receive path is eligible only after its latest transfer completed.
+// OnWake resolves local paths from the detached snapshot. Filesystem probes
+// run on the shared media worker; Draw only reads the cached result.
 func (p *Panels) OnWake(state domain.State) {
-	p.localFiles = make(map[string]panelLocalFile, len(state.Files))
-	latestReceive := make(map[string]domain.Transfer)
-	for _, transfer := range state.Transfers {
-		if transfer.Direction != "receive" || transfer.Status != "completed" ||
-			strings.TrimSpace(transfer.Path) == "" || transfer.FileID == "" {
-			continue
+	previous := p.localFiles
+	paths := localFilePaths(state)
+	p.localFiles = make(map[string]panelLocalFile, len(paths))
+	for fileID, path := range paths {
+		entry := panelLocalFile{path: path}
+		if old, ok := previous[fileID]; ok && old.path == path {
+			entry.available = old.available
+			entry.known = old.known
 		}
-		previous, ok := latestReceive[transfer.FileID]
-		if !ok || !transfer.UpdatedAt.Before(previous.UpdatedAt) {
-			latestReceive[transfer.FileID] = transfer
-		}
-	}
-	for _, file := range state.Files {
-		path := ""
-		if file.SenderID == state.Self.ID {
-			path = strings.TrimSpace(file.SourcePath)
-		}
-		if path == "" {
-			if transfer, ok := latestReceive[file.ID]; ok {
-				path = strings.TrimSpace(transfer.Path)
-			}
-		}
-		if path == "" {
-			continue
-		}
-		info, err := os.Stat(path)
-		p.localFiles[file.ID] = panelLocalFile{
-			path:      path,
-			available: err == nil && info != nil && !info.IsDir(),
-		}
+		p.localFiles[fileID] = entry
 	}
 	p.cacheReady = false
+}
+
+func (p *Panels) setMediaSubmit(submit func(mediaJob)) {
+	p.mediaSubmit = submit
+}
+
+func (p *Panels) setLocalFileAvailability(entries []mediaFileResult) {
+	for _, result := range entries {
+		entry, ok := p.localFiles[result.fileID]
+		if !ok || entry.path != result.path {
+			continue
+		}
+		if entry.known && entry.available == result.available {
+			continue
+		}
+		entry.available = result.available
+		entry.known = true
+		p.localFiles[result.fileID] = entry
+		p.cacheReady = false
+	}
+}
+
+func (p *Panels) applyMediaActions(actions []mediaActionResult) {
+	for _, result := range actions {
+		action, ok := p.localActions[result.id]
+		if !ok {
+			continue
+		}
+		delete(p.localActions, result.id)
+		if action.path != result.path || action.reveal != result.reveal {
+			continue
+		}
+		if !result.available {
+			message := "本地文件不可用"
+			if result.err != "" {
+				message += "：" + result.err
+			}
+			p.localError = message
+			continue
+		}
+		if result.canceled {
+			continue
+		}
+		if result.err != "" {
+			p.localError = result.err
+		} else {
+			p.localError = ""
+		}
+	}
 }
 
 // TextInput returns a function instead of nil so the shell can combine every
@@ -1088,26 +1126,28 @@ func panelCopy(canvas *ui.Canvas, p *Panels, text string) {
 	})
 }
 
-func panelOpenLocal(canvas *ui.Canvas, p *Panels, path string, reveal bool) {
-	canvas.AfterPaint(func() {
-		_, err := os.Stat(path)
-		if err != nil {
-			p.localError = "本地文件不可用：" + err.Error()
-			return
-		}
-		if reveal {
-			err = app.RevealPath(path)
-		} else {
-			err = app.OpenPath(path)
-		}
-		switch {
-		case errors.Is(err, app.ErrCanceled):
-			return
-		case err != nil:
-			p.localError = err.Error()
-		default:
-			p.localError = ""
-		}
+func panelOpenLocal(_ *ui.Canvas, p *Panels, path string, reveal bool) {
+	p.requestLocalAction(path, reveal)
+}
+
+func (p *Panels) requestLocalAction(path string, reveal bool) {
+	if path == "" {
+		return
+	}
+	p.nextLocalAction++
+	action := panelLocalAction{id: p.nextLocalAction, path: path, reveal: reveal}
+	if p.localActions == nil {
+		p.localActions = make(map[uint64]panelLocalAction)
+	}
+	p.localActions[action.id] = action
+	if p.mediaSubmit == nil {
+		delete(p.localActions, action.id)
+		p.localError = "本地文件检查服务不可用"
+		return
+	}
+	p.mediaSubmit(mediaJob{
+		key:  mediaJobKey{kind: mediaJobLocalAction, id: action.id},
+		kind: mediaJobLocalAction, path: path, actionID: action.id, reveal: reveal,
 	})
 }
 

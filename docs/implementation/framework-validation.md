@@ -16,3 +16,9 @@ Windows amd64 / Ryzen 7 7735HS / Go 1.27.3:
 The full suite excluding only the symlink-privilege fixture passed on rerun. Windows, Linux and Web vet targets passed. Darwin vet from Windows cannot resolve the Objective-C native application/mainpump and is left to the native macOS runner. The GitHub connector could read issues but returned 403 on issue creation; the user's explicitly authorized logged-in gh CLI successfully created Issue 154 and Draft PR 155.
 
 The patch is supplied for upstream review; no automatic merge.
+
+## Additional Windows ARM64 renderer fix
+
+Issue https://github.com/vivaui/viva/issues/156 and PR https://github.com/vivaui/viva/pull/157 independently fix Direct2D's by-value two-float origin ABI. Code commit 09fe72d, documentation 73980a7; local integration branch contains the fix at 4d752c5. The ARM64 target's cached typed function adds 8 bytes per render target; x64 target storage is unchanged. Native ARM64 real-renderer frames at both themes and all three scales plus the translated-ink regression now pass. Native ARM64 rasterization benchmark reports 295703–349122 ns/op, 358–380 B/op and 10 allocs/op. The previous native ARM64 path crashes, so no prior timing is valid.
+
+The x64 stripped hello grows +512 bytes (4,280,320 → 4,280,832); x64 rasterization remains 5 allocs/op. Three short loaded samples measured 159327–159972 ns/op before and 163917–166752 ns/op after. Full local integrated framework tests pass except the independently confirmed baseline symlink-privilege fixture. The first upstream Darwin run hit an unrelated hdiutil Resource busy fixture failure; contributor rerun was denied for missing repository admin rights. The subsequent normal CI run following the evidence documentation commit passed every check, including Darwin, cross-vet, native platforms and benchmarks. No framework PR was merged by this task.
