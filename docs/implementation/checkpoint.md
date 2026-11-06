@@ -1,8 +1,8 @@
 # GoIM execution checkpoint
 
-Updated: 2026-11-07 00:25 Asia/Shanghai.
+Updated: 2026-11-07 00:46 Asia/Shanghai.
 
-- Stage: bootstrap and shared interfaces. No user-facing executable yet.
+- Stage: core implemented and tests pass; desktop UI workers still implementing their owned files. No executable built yet.
 - Automation: goim at 01:30 and goim-2 at 06:00, bound to this chat, one scheduled occurrence each.
 - Main model: GPT-6.1 Sol. UI and review workers: workbuddy/deepseek-v4.1-flash, max, via codex exec (probe verified).
 - Viva clean baseline: c59ef885063db72ef197e0bb5f5f292c60665f1c, sibling ../viva.
@@ -10,7 +10,14 @@ Updated: 2026-11-07 00:25 Asia/Shanghai.
 - Baseline verification: viva headless/... and examples/guides/hello tests passed.
 - Core and framework owned by root. Desktop shell/chat worker and panels/settings worker must own separate files.
 - Contract: internal/domain/types.go, Backend Snapshot/Submit/Updates. Snapshot refresh on OnWake, not per-paint.
-- Next: launch UI workers after publishing desktop worker contract; implement persistence, TLS peer engine, message/group/file operations, then integrated headless verification.
+- Commits: 0296208 (design/contracts), 01fc087 (real persistent TLS engine, group operations and resumable files + main entry).
+- PASS: go test ./internal/core -count=1 -timeout=100s -v. Five integration tests cover real TLS messaging/dedup/restart/offline replay, resumed file bytes/hash, 3-member group without owner, ownership transfer and member removal, private-path-free shared file catalog and rejection.
+- Active CLI workers (exact WorkBuddy model/max): shell session 26826, thread 01a1b1ad-fc5c-7073-b5bd-59f56903c5d8; panels session 65150, thread 01a1b1ad-fc6c-7183-918e-4cc7d4cc6bd0; read-only core reviewer session 96066. Logs scripts/worker-{shell,panels,review}.jsonl. They are EPHEMERAL: codex queue cannot address them, so inspect logs and existing processes; do not assume CLI thread IDs can be resumed. PTY session IDs can be polled by write_stdin within this tool session.
+- Shell has app.go (~56KB) but still owes chat/groups/icons/tests. Panels has its 3 source files and tests, generating native offscreen QA. Root must wait for files before compiling whole application; current compile failure is incomplete shell methods, not core.
+- CRITICAL integration TODO: shell must forward Panels.Key, Panels.Shortcut and Panels.Wheel for panel sections. These methods exist in panels.go, but current shell handlers return empty for panel input. Do not change worker-owned files while they are writing them.
+- Root next: inspect finished reviewer findings, fix concrete engine issues; finish native runtime/tray/notifications; integrate complete desktop, go test/vet; build vivahead, use tree/layout/shot and compare actual screen. Add tests for cancellation races and bad file paths; enforce monotonic terminal transfer status so late progress cannot override completed/cancelled/rejected.
+- Known follow-ups: network setting is currently persisted but doesn't recreate the multicast listener until restart; receiver state completion can race sender's final verifying status; default GUI main currently RunCanvas, so tray runtime still needs RunApplication; global shortcut registration not yet implemented; avatar propagation not yet implemented. Read-only reviewer may find additional issues. Do not claim complete until resolved.
 - Later: create private Ezreal-byte/GoIM, CI six native platforms, private draft release. No repo or release has been created yet.
+- Quota checked around 00:45: 97% of 5-hour window consumed; resets 01:16:07 Asia/Shanghai. Do not spend the user's optional reset credit. Automatic wakeups already created for 01:30 and 06:00.
 
 Do not restart an existing worker. Inspect scripts/worker-*.jsonl and running codex processes first. Normal launch must use genuine peer data; only explicitly labelled demo/test fixtures may seed sample contacts.
