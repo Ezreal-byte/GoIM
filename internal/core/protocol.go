@@ -90,17 +90,19 @@ func (p *peerConn) send(e envelope) error {
 	return writeFrame(p.conn, e)
 }
 func (n *Node) hello() envelope {
-	s := n.Snapshot()
-	p := s.Self
-	p.Address = n.advertisedAddress()
-	p.Avatar = ""
-	return envelope{Type: "hello", Peer: p}
+	e := n.profileEnvelope()
+	e.Type = "hello"
+	return e
 }
 func (n *Node) advertisedAddress() string {
 	_, port, _ := net.SplitHostPort(n.Address())
 	return net.JoinHostPort("", port)
 }
 func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
+	if !n.allowedRemote(conn.RemoteAddr()) {
+		conn.Close()
+		return
+	}
 	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
 	if err := conn.HandshakeContext(n.ctx); err != nil {
 		conn.Close()
@@ -131,6 +133,14 @@ func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
 	}
 	hello.Peer.PublicKey = append([]byte(nil), key...)
 	hello.Peer.Avatar = ""
+	if len(hello.Avatar) > 0 {
+		path, err := n.cacheAvatar(hello.Peer.ID, hello.Avatar)
+		if err != nil {
+			conn.Close()
+			return
+		}
+		hello.Peer.Avatar = path
+	}
 	host, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
 	_, port, _ := net.SplitHostPort(hello.Peer.Address)
 	if port != "" {
@@ -221,23 +231,7 @@ func (n *Node) send(peer string, e envelope) error {
 	return nil
 }
 func (n *Node) reliable(peer string, e envelope) {
-	if e.ID == "" {
-		e.ID = newID()
-	}
-	e.Version = protocolVersion
-	n.mu.Lock()
-	if n.closing {
-		n.mu.Unlock()
-		return
-	}
-	n.data.Outbox[e.ID] = pending{PeerID: peer, Envelope: e}
-	err := saveStore(n.db, &n.data)
-	n.mu.Unlock()
-	if err != nil {
-		n.report(err)
-		return
-	}
-	_ = n.send(peer, e)
+	_ = n.durable(func(*persisted) []pending { return []pending{{PeerID: peer, Envelope: e}} })
 }
 func (n *Node) replay(peer string) {
 	n.mu.Lock()
@@ -277,6 +271,12 @@ func (n *Node) receive(peer string, e envelope) error {
 				m := &n.data.State.Messages[i]
 				if m.ID == p.Envelope.Message.ID {
 					m.Status = "delivered"
+					for _, remaining := range n.data.Outbox {
+						if remaining.Envelope.Type == "message" && remaining.Envelope.Message.ID == m.ID {
+							m.Status = "sent"
+							break
+						}
+					}
 				}
 			}
 			_ = saveStore(n.db, &n.data)
@@ -297,46 +297,35 @@ func (n *Node) receive(peer string, e envelope) error {
 	switch e.Type {
 	case "message":
 		err = n.receiveMessage(peer, e)
-	case "group_invite", "group_state", "invite_reply", "group_leave", "ownership_offer", "ownership_accept":
+	case "profile":
+		err = n.receiveProfile(peer, e)
+	case "group_invite", "group_state", "invite_reply", "group_leave", "ownership_offer", "ownership_accept", "group_nickname":
 		err = n.receiveGroup(peer, e)
 	case "file_offer":
 		err = n.receiveOffer(peer, e)
+	case "file_retry":
+		err = n.receiveFileRetry(peer, e)
 	case "file_status":
-		n.mu.Lock()
-		i := transferIndex(&n.data.State, e.TransferID)
-		authorized := i >= 0 && n.data.State.Transfers[i].PeerID == peer
-		if authorized && (e.Status == "cancelled" || e.Status == "rejected") {
-			if cancel := n.transfers[e.TransferID]; cancel != nil {
-				cancel()
-			}
-		}
-		n.mu.Unlock()
-		if authorized {
-			n.change(func(s *domain.State) {
-				if i := transferIndex(s, e.TransferID); i >= 0 {
-					s.Transfers[i].Status = e.Status
-					if e.Status == "completed" {
-						s.Transfers[i].Done = s.Transfers[i].Size
-					}
-					s.Transfers[i].UpdatedAt = time.Now()
-				}
-			})
-		}
+		err = n.receiveFileStatus(peer, e)
 	case "catalog":
 		n.change(func(s *domain.State) {
-			var files []domain.File
-			for _, f := range s.Files {
-				if f.SenderID != peer || !f.Shared {
-					files = append(files, f)
+			for i := range s.Files {
+				if s.Files[i].SenderID == peer {
+					s.Files[i].Shared = false
 				}
 			}
 			for _, f := range e.Files {
 				if f.SenderID == peer && f.Shared && validFile(f) {
 					f.SourcePath = ""
-					files = append(files, f)
+					if i := fileIndex(s, f.ID); i >= 0 {
+						if s.Files[i].SenderID == peer {
+							s.Files[i].Shared = true
+						}
+					} else {
+						s.Files = append(s.Files, f)
+					}
 				}
 			}
-			s.Files = files
 		})
 	case "catalog_request":
 		n.sendCatalog(peer)
@@ -397,94 +386,4 @@ type announcement struct {
 	Version   int
 	Peer      domain.Peer
 	Signature []byte
-}
-
-func (n *Node) discoveryLoop() {
-	defer n.wg.Done()
-	address := &net.UDPAddr{IP: net.IPv4(239, 192, 77, 77), Port: 47841}
-	var iface *net.Interface
-	if name := n.Snapshot().Settings.Network; name != "" && name != "auto" {
-		iface, _ = net.InterfaceByName(name)
-	}
-	var conn *net.UDPConn
-	var err error
-	if n.discovery {
-		conn, err = net.ListenMulticastUDP("udp4", iface, address)
-	}
-	if err != nil {
-		n.notice("自动发现暂不可用，可输入 IP 连接")
-	} else if conn != nil {
-		defer conn.Close()
-		_ = conn.SetReadBuffer(64 << 10)
-		n.async(func() {
-			buf := make([]byte, 8192)
-			for {
-				_ = conn.SetReadDeadline(time.Now().Add(time.Second))
-				size, remote, e := conn.ReadFromUDP(buf)
-				if e != nil {
-					if n.ctx.Err() != nil {
-						return
-					}
-					continue
-				}
-				var a announcement
-				if json.Unmarshal(buf[:size], &a) != nil || a.Version != protocolVersion || a.Peer.ID == n.Snapshot().Self.ID || len(a.Peer.PublicKey) != ed25519.PublicKeySize || a.Peer.ID != keyID(a.Peer.PublicKey) {
-					continue
-				}
-				signature := a.Signature
-				a.Signature = nil
-				raw, _ := json.Marshal(a)
-				if !ed25519.Verify(a.Peer.PublicKey, raw, signature) {
-					continue
-				}
-				_, port, _ := net.SplitHostPort(a.Peer.Address)
-				if port == "" {
-					continue
-				}
-				n.mu.Lock()
-				connected := n.connections[a.Peer.ID] != nil
-				n.mu.Unlock()
-				if !connected {
-					n.Connect(net.JoinHostPort(remote.IP.String(), port))
-				}
-			}
-		})
-	}
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	announce := func() {
-		s := n.Snapshot()
-		if n.discovery {
-			p := s.Self
-			p.Avatar = ""
-			p.Address = n.advertisedAddress()
-			a := announcement{Version: protocolVersion, Peer: p}
-			raw, _ := json.Marshal(a)
-			a.Signature = ed25519.Sign(n.key, raw)
-			raw, _ = json.Marshal(a)
-			if c, e := net.DialUDP("udp4", nil, address); e == nil {
-				_, _ = c.Write(raw)
-				c.Close()
-			}
-		}
-		n.mu.Lock()
-		var ids []string
-		for id := range n.connections {
-			ids = append(ids, id)
-		}
-		n.mu.Unlock()
-		for _, id := range ids {
-			_ = n.send(id, envelope{Type: "ping"})
-			n.replay(id)
-		}
-	}
-	announce()
-	for {
-		select {
-		case <-ticker.C:
-			announce()
-		case <-n.ctx.Done():
-			return
-		}
-	}
 }

@@ -16,8 +16,10 @@ type pending struct {
 	Envelope envelope
 }
 type ownershipOffer struct {
-	PeerID  string
-	GroupID string
+	PeerID    string
+	GroupID   string
+	Stage     string
+	CreatedAt time.Time
 }
 type persisted struct {
 	Version     int

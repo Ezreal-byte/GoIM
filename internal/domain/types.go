@@ -37,6 +37,7 @@ type Message struct {
 	FileID         string
 	CreatedAt      time.Time
 	Status         string // pending, sent, delivered, failed
+	Nickname       string
 }
 
 type Group struct {
@@ -72,6 +73,13 @@ type Invitation struct {
 	Kind      string // join or ownership
 	Status    string // pending, accepted, rejected, withdrawn
 	CreatedAt time.Time
+	ToID      string
+}
+
+type GroupNickname struct {
+	GroupID string
+	PeerID  string
+	Name    string
 }
 
 type File struct {
@@ -118,6 +126,7 @@ type Settings struct {
 	DuplicatePolicy      string
 	AutoAccept           bool
 	Network              string
+	PendingNetwork       string
 	CloseToTray          bool
 	SendKey              string
 	Shortcuts            []Shortcut
@@ -135,20 +144,21 @@ func DefaultSettings(downloadDir string) Settings {
 }
 
 type State struct {
-	Self          Peer
-	Peers         []Peer
-	Conversations []Conversation
-	Messages      []Message
-	Groups        []Group
-	Invitations   []Invitation
-	Files         []File
-	Transfers     []Transfer
-	Settings      Settings
-	Error         string
-	Notice        string
-	ListenAddress string
-	Version       string
-	Revision      uint64
+	Self           Peer
+	Peers          []Peer
+	Conversations  []Conversation
+	Messages       []Message
+	Groups         []Group
+	Invitations    []Invitation
+	Files          []File
+	Transfers      []Transfer
+	Settings       Settings
+	Error          string
+	Notice         string
+	ListenAddress  string
+	Version        string
+	Revision       uint64
+	GroupNicknames []GroupNickname
 }
 
 func (s State) Peer(id string) Peer {
@@ -199,35 +209,37 @@ func (s State) ChatMessages(id string) []Message {
 type CommandKind string
 
 const (
-	Connect         CommandKind = "connect"
-	StartChat       CommandKind = "start_chat"
-	SendText        CommandKind = "send_text"
-	SendFiles       CommandKind = "send_files"
-	AcceptTransfer  CommandKind = "accept_transfer"
-	RejectTransfer  CommandKind = "reject_transfer"
-	CancelTransfer  CommandKind = "cancel_transfer"
-	RetryTransfer   CommandKind = "retry_transfer"
-	CreateGroup     CommandKind = "create_group"
-	InviteMembers   CommandKind = "invite_members"
-	AcceptInvite    CommandKind = "accept_invite"
-	RejectInvite    CommandKind = "reject_invite"
-	RenameGroup     CommandKind = "rename_group"
-	RemoveMember    CommandKind = "remove_member"
-	LeaveGroup      CommandKind = "leave_group"
-	TransferOwner   CommandKind = "transfer_owner"
-	DissolveGroup   CommandKind = "dissolve_group"
-	SetSetting      CommandKind = "set_setting"
-	SetProfile      CommandKind = "set_profile"
-	SetContactGroup CommandKind = "set_contact_group"
-	TogglePin       CommandKind = "toggle_pin"
-	ToggleMute      CommandKind = "toggle_mute"
-	MarkRead        CommandKind = "mark_read"
-	SaveDraft       CommandKind = "save_draft"
-	ShareFiles      CommandKind = "share_files"
-	RemoveShare     CommandKind = "remove_share"
-	RefreshShares   CommandKind = "refresh_shares"
-	GetShared       CommandKind = "get_shared"
-	ClearError      CommandKind = "clear_error"
+	Connect          CommandKind = "connect"
+	StartChat        CommandKind = "start_chat"
+	SendText         CommandKind = "send_text"
+	SendFiles        CommandKind = "send_files"
+	AcceptTransfer   CommandKind = "accept_transfer"
+	RejectTransfer   CommandKind = "reject_transfer"
+	CancelTransfer   CommandKind = "cancel_transfer"
+	RetryTransfer    CommandKind = "retry_transfer"
+	CreateGroup      CommandKind = "create_group"
+	InviteMembers    CommandKind = "invite_members"
+	AcceptInvite     CommandKind = "accept_invite"
+	RejectInvite     CommandKind = "reject_invite"
+	RenameGroup      CommandKind = "rename_group"
+	RemoveMember     CommandKind = "remove_member"
+	LeaveGroup       CommandKind = "leave_group"
+	TransferOwner    CommandKind = "transfer_owner"
+	DissolveGroup    CommandKind = "dissolve_group"
+	SetSetting       CommandKind = "set_setting"
+	SetProfile       CommandKind = "set_profile"
+	SetContactGroup  CommandKind = "set_contact_group"
+	SetGroupNickname CommandKind = "set_group_nickname"
+	WithdrawInvite   CommandKind = "withdraw_invite"
+	TogglePin        CommandKind = "toggle_pin"
+	ToggleMute       CommandKind = "toggle_mute"
+	MarkRead         CommandKind = "mark_read"
+	SaveDraft        CommandKind = "save_draft"
+	ShareFiles       CommandKind = "share_files"
+	RemoveShare      CommandKind = "remove_share"
+	RefreshShares    CommandKind = "refresh_shares"
+	GetShared        CommandKind = "get_shared"
+	ClearError       CommandKind = "clear_error"
 )
 
 type Command struct {

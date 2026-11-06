@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"goim/internal/domain"
 )
@@ -45,8 +44,10 @@ func (n *Node) execute(c domain.Command) error {
 		return n.answerInvite(c.InvitationID, true)
 	case domain.RejectInvite:
 		return n.answerInvite(c.InvitationID, false)
-	case domain.RenameGroup, domain.RemoveMember, domain.LeaveGroup, domain.TransferOwner, domain.DissolveGroup:
+	case domain.RenameGroup, domain.RemoveMember, domain.LeaveGroup, domain.TransferOwner, domain.DissolveGroup, domain.WithdrawInvite:
 		return n.manageGroup(c)
+	case domain.SetGroupNickname:
+		return n.setGroupNickname(c.GroupID, c.Value)
 	case domain.AcceptTransfer:
 		path := ""
 		if len(c.Paths) > 0 {
@@ -60,15 +61,7 @@ func (n *Node) execute(c domain.Command) error {
 			return errors.New("找不到传输任务")
 		}
 		t := s.Transfers[i]
-		if t.Direction == "receive" {
-			n.startReceive(t.ID, t.Path)
-		} else {
-			f := s.File(t.FileID)
-			if f.SourcePath == "" {
-				return errors.New("源文件不可用")
-			}
-			n.offerFile(t.PeerID, t.ConversationID, f, t.ID)
-		}
+		return n.retryTransfer(t)
 	case domain.RejectTransfer, domain.CancelTransfer:
 		s := n.Snapshot()
 		i := transferIndex(&s, c.TransferID)
@@ -93,19 +86,7 @@ func (n *Node) execute(c domain.Command) error {
 	case domain.SetSetting:
 		return n.setting(c)
 	case domain.SetProfile:
-		name := strings.TrimSpace(c.Name)
-		if name == "" || utf8.RuneCountInString(name) > 40 {
-			return errors.New("昵称需为 1 至 40 个字符")
-		}
-		n.change(func(s *domain.State) {
-			s.Settings.Nickname = name
-			s.Self.Name = name
-			if c.Value != "" {
-				s.Settings.Avatar = c.Value
-				s.Self.Avatar = c.Value
-			}
-		})
-		n.broadcastProfile()
+		return n.setProfile(c.Name, c.Value)
 	case domain.SetContactGroup:
 		n.change(func(s *domain.State) {
 			if i := peerIndex(s, c.PeerID); i >= 0 {
@@ -163,6 +144,8 @@ func (n *Node) execute(c domain.Command) error {
 		n.reliable(f.SenderID, envelope{Type: "get_shared", File: domain.File{ID: f.ID}})
 	case domain.ClearError:
 		n.change(func(s *domain.State) { s.Error = ""; s.Notice = "" })
+	case domain.ReportError:
+		n.change(func(s *domain.State) { s.Error = c.Text })
 	default:
 		return fmt.Errorf("未知操作 %s", c.Kind)
 	}
@@ -186,18 +169,19 @@ func (n *Node) sendText(convID, text string) error {
 		return err
 	}
 	m := domain.Message{ID: newID(), ConversationID: convID, SenderID: s.Self.ID, Kind: "text", Text: text, CreatedAt: time.Now(), Status: "pending"}
-	n.change(func(s *domain.State) {
-		s.Messages = append(s.Messages, m)
-		if i := convIndex(s, convID); i >= 0 {
-			s.Conversations[i].Draft = ""
-			s.Conversations[i].Preview = text
-			s.Conversations[i].UpdatedAt = m.CreatedAt
+	for _, v := range s.GroupNicknames {
+		if v.GroupID == conv.GroupID && v.PeerID == s.Self.ID {
+			m.Nickname = v.Name
 		}
-	})
-	for _, id := range targets {
-		n.reliable(id, envelope{Type: "message", Message: m})
 	}
-	return nil
+	return n.durable(func(p *persisted) []pending {
+		addMessageState(&p.State, m)
+		var deliveries []pending
+		for _, id := range targets {
+			deliveries = append(deliveries, pending{PeerID: id, Envelope: envelope{Type: "message", Message: m}})
+		}
+		return deliveries
+	})
 }
 func recipients(s domain.State, c domain.Conversation) ([]string, error) {
 	if c.Kind == "group" {
@@ -257,12 +241,16 @@ func (n *Node) setting(c domain.Command) error {
 				return errors.New("网络接口不存在")
 			}
 		}
+		settings.PendingNetwork = ""
 		for _, t := range s.Transfers {
 			if t.Status == "transferring" || t.Status == "verifying" {
-				return errors.New("请等待进行中的传输结束后再切换网络")
+				settings.PendingNetwork = c.Value
+				break
 			}
 		}
-		settings.Network = c.Value
+		if settings.PendingNetwork == "" {
+			settings.Network = c.Value
+		}
 	case "shortcuts":
 		var keys []domain.Shortcut
 		if err := json.Unmarshal([]byte(c.Value), &keys); err != nil {
@@ -290,13 +278,11 @@ func (n *Node) setting(c domain.Command) error {
 	return nil
 }
 func (n *Node) broadcastProfile() {
-	n.mu.Lock()
-	var connections []*peerConn
-	for _, pc := range n.connections {
-		connections = append(connections, pc)
-	}
-	n.mu.Unlock()
-	for _, pc := range connections {
-		pc.conn.Close()
+	s := n.Snapshot()
+	e := n.profileEnvelope()
+	for _, p := range s.Peers {
+		if p.Online {
+			n.reliable(p.ID, e)
+		}
 	}
 }

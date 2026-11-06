@@ -6,8 +6,6 @@ import (
 	"log"
 	"strings"
 
-	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
 	"goim/internal/core"
 	"goim/internal/desktop"
 )
@@ -37,10 +35,7 @@ func main() {
 			n.Connect(address)
 		}
 	}
-	window := desktop.New(n)
-	defer window.Close()
-	var canvas ui.Canvas
-	if err = app.RunCanvas(window.Config(), &canvas); err != nil {
+	if err = desktop.Run(n); err != nil {
 		log.Print(err)
 	}
 }

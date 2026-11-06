@@ -19,20 +19,46 @@ import (
 	"goim/internal/domain"
 )
 
+func terminalTransfer(status string) bool {
+	return status == "completed" || status == "cancelled" || status == "rejected"
+}
 func validFile(f domain.File) bool {
 	identifier, e := hex.DecodeString(f.ID)
 	hash, he := hex.DecodeString(f.Hash)
-	return e == nil && len(identifier) == 16 && he == nil && len(hash) == 32 && f.Name != "" && f.Name != "." && f.Name != ".." && len(f.Name) <= 255 && !strings.ContainsAny(f.Name, "/\\:*?\"<>|\x00") && f.Size >= 0
+	name := strings.ToUpper(strings.Split(f.Name, ".")[0])
+	reserved := name == "CON" || name == "PRN" || name == "AUX" || name == "NUL" || len(name) == 4 && (strings.HasPrefix(name, "COM") || strings.HasPrefix(name, "LPT")) && name[3] >= '1' && name[3] <= '9'
+	for _, r := range f.Name {
+		if r < 32 || r == 127 {
+			return false
+		}
+	}
+	return e == nil && len(identifier) == 16 && he == nil && len(hash) == 32 && f.Name != "" && f.Name != "." && f.Name != ".." && len(f.Name) <= 255 && !strings.ContainsAny(f.Name, "/\\:*?\"<>|\x00") && !reserved && !strings.HasSuffix(f.Name, ".") && !strings.HasSuffix(f.Name, " ") && f.Size >= 0
 }
 func fileHash(path string) (string, error) {
+	return fileHashContext(context.Background(), path)
+}
+func fileHashContext(ctx context.Context, path string) (string, error) {
 	f, e := os.Open(path)
 	if e != nil {
 		return "", e
 	}
 	defer f.Close()
 	h := sha256.New()
-	if _, e = io.Copy(h, f); e != nil {
-		return "", e
+	buf := make([]byte, 256<<10)
+	for {
+		if e = ctx.Err(); e != nil {
+			return "", e
+		}
+		nr, err := f.Read(buf)
+		if nr > 0 {
+			_, _ = h.Write(buf[:nr])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
@@ -49,7 +75,7 @@ func (n *Node) sendFile(convID, path string, shared bool, target string) error {
 	if !info.Mode().IsRegular() {
 		return errors.New("首期仅支持文件，请先将文件夹打包")
 	}
-	hash, err := fileHash(path)
+	hash, err := fileHashContext(n.ctx, path)
 	if err != nil {
 		return err
 	}
@@ -69,7 +95,11 @@ func (n *Node) sendFile(convID, path string, shared bool, target string) error {
 			return err
 		}
 	}
-	n.change(func(s *domain.State) {
+	if target != "" {
+		targets = []string{target}
+	}
+	return n.durable(func(p *persisted) []pending {
+		s := &p.State
 		s.Files = append(s.Files, f)
 		if !shared {
 			kind := "file"
@@ -82,35 +112,39 @@ func (n *Node) sendFile(convID, path string, shared bool, target string) error {
 				s.Conversations[i].UpdatedAt = f.CreatedAt
 			}
 		}
+		var out []pending
+		for _, id := range targets {
+			out = append(out, appendFileOffer(s, id, convID, f, ""))
+		}
+		return out
 	})
-	if target != "" {
-		targets = []string{target}
-	}
-	for _, id := range targets {
-		n.offerFile(id, convID, f, "")
-	}
-	return nil
 }
 func (n *Node) offerFile(peer, convID string, f domain.File, tid string) {
+	_ = n.durable(func(p *persisted) []pending { return []pending{appendFileOffer(&p.State, peer, convID, f, tid)} })
+}
+func appendFileOffer(s *domain.State, peer, convID string, f domain.File, tid string) pending {
 	if tid == "" {
-		tid = f.ID + "-" + peer
+		tid = newID()
 	}
-	n.change(func(s *domain.State) {
-		t := domain.Transfer{ID: tid, FileID: f.ID, ConversationID: convID, PeerID: peer, Direction: "send", Status: "offered", Name: f.Name, Size: f.Size, Path: f.SourcePath, UpdatedAt: time.Now()}
-		if i := transferIndex(s, tid); i < 0 {
-			s.Transfers = append(s.Transfers, t)
-		} else {
-			s.Transfers[i].Status = "offered"
-			s.Transfers[i].Error = ""
-		}
-	})
+	t := domain.Transfer{ID: tid, FileID: f.ID, ConversationID: convID, PeerID: peer, Direction: "send", Status: "offered", Name: f.Name, Size: f.Size, Path: f.SourcePath, UpdatedAt: time.Now()}
+	if i := transferIndex(s, tid); i < 0 {
+		s.Transfers = append(s.Transfers, t)
+	} else {
+		s.Transfers[i].Status = "offered"
+		s.Transfers[i].Error = ""
+	}
 	f.ConversationID = convID
-	n.reliable(peer, envelope{Type: "file_offer", File: publicFile(f), TransferID: tid})
+	return pending{PeerID: peer, Envelope: envelope{Type: "file_offer", File: publicFile(f), TransferID: tid}}
 }
 func (n *Node) receiveOffer(peer string, e envelope) error {
 	f := e.File
+	f.SourcePath = ""
 	s := n.Snapshot()
-	if !validFile(f) || f.SenderID != peer || e.TransferID != f.ID+"-"+s.Self.ID {
+	if old := s.File(f.ID); old.ID != "" && old.SenderID != peer {
+		return errors.New("文件身份冲突")
+	}
+	transferBytes, transferErr := hex.DecodeString(e.TransferID)
+	if !validFile(f) || f.SenderID != peer || transferErr != nil || len(transferBytes) != 16 {
 		return errors.New("无效文件邀请")
 	}
 	if strings.HasPrefix(f.ConversationID, "group:") {
@@ -122,7 +156,16 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 		f.ConversationID = directID(s.Self.ID, peer)
 		n.change(func(st *domain.State) { ensureDirect(st, s.Peer(peer)) })
 	}
+	requested := false
 	n.change(func(s *domain.State) {
+		for i := range s.Transfers {
+			v := &s.Transfers[i]
+			if v.FileID == f.ID && v.PeerID == peer && v.Direction == "receive" && v.Status == "retry_requested" {
+				v.Status = "cancelled"
+				v.Error = "已重新发起接收"
+				requested = true
+			}
+		}
 		if fileIndex(s, f.ID) < 0 {
 			s.Files = append(s.Files, f)
 		}
@@ -132,7 +175,16 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 			if strings.HasPrefix(f.MIME, "image/") {
 				kind = "image"
 			}
-			s.Messages = append(s.Messages, domain.Message{ID: f.ID, ConversationID: f.ConversationID, SenderID: peer, Kind: kind, Text: f.Name, FileID: f.ID, Status: "delivered", CreatedAt: f.CreatedAt})
+			found := false
+			for _, m := range s.Messages {
+				if m.ID == f.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				s.Messages = append(s.Messages, domain.Message{ID: f.ID, ConversationID: f.ConversationID, SenderID: peer, Kind: kind, Text: f.Name, FileID: f.ID, Status: "delivered", CreatedAt: f.CreatedAt})
+			}
 			if i := convIndex(s, f.ConversationID); i >= 0 {
 				s.Conversations[i].Unread++
 				s.Conversations[i].Preview = "[文件] " + f.Name
@@ -140,7 +192,7 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 			}
 		}
 	})
-	if s.Settings.AutoAccept || strings.HasPrefix(f.MIME, "image/") && f.Size <= 20<<20 {
+	if s.Settings.AutoAccept || requested {
 		n.startReceive(e.TransferID, "")
 	}
 	return nil
@@ -151,7 +203,7 @@ func (n *Node) setTransfer(id, status string, done int64, speed float64, problem
 			t := &s.Transfers[i]
 			// Control acknowledgements and data-stream completion run independently.
 			// A late progress update must not undo a terminal task state.
-			if t.Status == "completed" || (t.Status == "cancelled" || t.Status == "rejected") && status != "completed" {
+			if terminalTransfer(t.Status) {
 				return
 			}
 			t.Status = status
@@ -202,6 +254,7 @@ func (n *Node) startReceive(id, destination string) {
 					status = "waiting"
 				}
 				n.setTransfer(id, status, t.Done, 0, err.Error())
+				n.reliable(t.PeerID, envelope{Type: "file_status", TransferID: id, Status: status})
 			}
 		}
 	}) {
@@ -215,6 +268,9 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 		return errors.New("找不到任务")
 	}
 	t := s.Transfers[i]
+	if t.Direction != "receive" {
+		return errors.New("此任务不是接收任务")
+	}
 	if t.Status == "completed" {
 		return nil
 	}
@@ -229,6 +285,13 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 	}
 	if destination == "" {
 		destination = t.Path
+	}
+	if destination != "" {
+		if info, e := os.Stat(destination); e == nil && info.Mode().IsRegular() && info.Size() == f.Size {
+			if hash, e := fileHashContext(ctx, destination); e == nil && hash == f.Hash {
+				return n.completeReceive(t, destination)
+			}
+		}
 	}
 	if destination == "" {
 		destination = filepath.Join(s.Settings.DownloadDir, f.Name)
@@ -354,7 +417,7 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 		return err
 	}
 	n.setTransfer(id, "verifying", done, 0, "")
-	hash, err := fileHash(partial)
+	hash, err := fileHashContext(ctx, partial)
 	if err != nil {
 		return err
 	}
@@ -371,9 +434,7 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 	if err = installFile(partial, destination); err != nil {
 		return err
 	}
-	n.setTransfer(id, "completed", done, 0, "")
-	n.reliable(p.ID, envelope{Type: "file_status", TransferID: id, Status: "completed"})
-	return nil
+	return n.completeReceive(t, destination)
 }
 func installFile(source, dest string) error {
 	in, e := os.Open(source)
@@ -381,16 +442,14 @@ func installFile(source, dest string) error {
 		return e
 	}
 	defer in.Close()
-	out, e := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	out, e := os.CreateTemp(filepath.Dir(dest), ".goim-install-*")
 	if e != nil {
 		return e
 	}
-	success := false
+	temporary := out.Name()
 	defer func() {
 		out.Close()
-		if !success {
-			_ = os.Remove(dest)
-		}
+		_ = os.Remove(temporary)
 	}()
 	if _, e = io.Copy(out, in); e != nil {
 		return e
@@ -401,7 +460,11 @@ func installFile(source, dest string) error {
 	if e = out.Close(); e != nil {
 		return e
 	}
-	success = true
+	// Linking a completed same-volume temporary file atomically refuses an
+	// existing destination on all supported hosts; it never overwrites user data.
+	if e = os.Link(temporary, dest); e != nil {
+		return fmt.Errorf("无法安全完成文件（请选择支持硬链接的本地目录）: %w", e)
+	}
 	in.Close()
 	return os.Remove(source)
 }
@@ -422,10 +485,6 @@ func (n *Node) serveFile(conn *tls.Conn, e envelope, peer string) {
 			return
 		}
 	}
-	hash, err := fileHash(f.SourcePath)
-	if err != nil || hash != f.Hash {
-		return
-	}
 	ctx, finish, ok := n.transferContext(t.ID)
 	if !ok {
 		return
@@ -433,6 +492,15 @@ func (n *Node) serveFile(conn *tls.Conn, e envelope, peer string) {
 	defer finish()
 	stop := watchConnection(ctx, conn)
 	defer stop()
+	hash, err := fileHashContext(ctx, f.SourcePath)
+	if err != nil || hash != f.Hash {
+		_ = writeFrame(conn, envelope{Type: "file_error", Status: "源文件已变化或不可用"})
+		return
+	}
+	current := n.Snapshot()
+	if i := transferIndex(&current, t.ID); i < 0 || current.Transfers[i].Status == "cancelled" || current.Transfers[i].Status == "rejected" {
+		return
+	}
 	file, err := os.Open(f.SourcePath)
 	if err != nil {
 		return
@@ -452,6 +520,13 @@ func (n *Node) serveFile(conn *tls.Conn, e envelope, peer string) {
 	for done < f.Size {
 		if ctx.Err() != nil {
 			return
+		}
+		if strings.HasPrefix(t.ConversationID, "group:") {
+			now := n.Snapshot()
+			g := now.Group(strings.TrimPrefix(t.ConversationID, "group:"))
+			if g.Left || g.Dissolved || !contains(g.Members, peer) || !contains(g.Members, now.Self.ID) {
+				return
+			}
 		}
 		count := int64(len(buf))
 		if remain := f.Size - done; remain < count {

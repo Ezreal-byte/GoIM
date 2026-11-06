@@ -141,18 +141,7 @@ func (n *Node) Submit(c domain.Command) {
 	}
 }
 func (n *Node) change(fn func(*domain.State)) {
-	n.mu.Lock()
-	if n.closing {
-		n.mu.Unlock()
-		return
-	}
-	fn(&n.data.State)
-	n.data.State.Revision++
-	if err := saveStore(n.db, &n.data); err != nil {
-		n.data.State.Error = "保存失败: " + err.Error()
-	}
-	n.mu.Unlock()
-	n.signal()
+	_ = n.durable(func(p *persisted) []pending { fn(&p.State); return nil })
 }
 func (n *Node) signal() {
 	select {
@@ -233,6 +222,9 @@ func (n *Node) acceptLoop() {
 	}
 }
 func (n *Node) Connect(address string) {
+	n.dialTo(address, "", false)
+}
+func (n *Node) dialTo(address, expected string, quiet bool) {
 	address = strings.TrimSpace(address)
 	if _, _, e := net.SplitHostPort(address); e != nil {
 		address = net.JoinHostPort(address, "47842")
@@ -247,12 +239,17 @@ func (n *Node) Connect(address string) {
 	n.async(func() {
 		defer func() { n.mu.Lock(); delete(n.dialing, address); n.mu.Unlock() }()
 		d := net.Dialer{Timeout: 4 * time.Second}
+		if ip := n.selectedIP(); ip != nil {
+			d.LocalAddr = &net.TCPAddr{IP: ip}
+		}
 		raw, err := d.DialContext(n.ctx, "tcp", address)
 		if err != nil {
-			n.report(fmt.Errorf("连接 %s 失败: %w", address, err))
+			if !quiet {
+				n.report(fmt.Errorf("连接 %s 失败: %w", address, err))
+			}
 			return
 		}
-		n.establish(tls.Client(raw, n.tls.Clone()), true, "")
+		n.establish(tls.Client(raw, n.tls.Clone()), true, expected)
 	})
 }
 func peerIndex(s *domain.State, id string) int {
