@@ -33,6 +33,8 @@ func (n *Node) durable(mutator func(*persisted) []pending) error {
 		}
 	}
 	for i := range deliveries {
+		n.data.NextSequence++
+		deliveries[i].Sequence = n.data.NextSequence
 		e := &deliveries[i].Envelope
 		if e.ID == "" {
 			e.ID = newID()
@@ -53,8 +55,12 @@ func (n *Node) durable(mutator func(*persisted) []pending) error {
 	if err != nil {
 		return err
 	}
+	var flushed = make(map[string]bool)
 	for _, d := range deliveries {
-		_ = n.send(d.PeerID, d.Envelope)
+		if !flushed[d.PeerID] {
+			flushed[d.PeerID] = true
+			n.flushPeer(d.PeerID)
+		}
 	}
 	return nil
 }

@@ -29,6 +29,7 @@ type Options struct {
 type Node struct {
 	mu          sync.Mutex
 	groupMu     sync.Mutex
+	flushMu     sync.Mutex
 	data        persisted
 	db          *bolt.DB
 	key         ed25519.PrivateKey
@@ -122,6 +123,11 @@ func New(opts Options) (*Node, error) {
 	go n.acceptLoop()
 	go n.commandLoop()
 	go n.discoveryLoop()
+	for _, t := range n.Snapshot().Transfers {
+		if t.Direction == "receive" && t.Status == "waiting" && t.Path != "" {
+			n.startReceive(t.ID, "")
+		}
+	}
 	return n, nil
 }
 

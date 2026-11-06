@@ -81,8 +81,27 @@ func (n *Node) execute(c domain.Command) error {
 		if c.Kind == domain.RejectTransfer {
 			status = "rejected"
 		}
-		n.setTransfer(t.ID, status, t.Done, 0, "")
-		n.reliable(t.PeerID, envelope{Type: "file_status", TransferID: t.ID, Status: status})
+		return n.durable(func(p *persisted) []pending {
+			if i := transferIndex(&p.State, t.ID); i >= 0 {
+				v := &p.State.Transfers[i]
+				if terminalTransfer(v.Status) {
+					return nil
+				}
+				v.Status = status
+				v.Speed = 0
+				v.UpdatedAt = time.Now()
+				if v.Direction == "send" {
+					v.Revoked = true
+				}
+			}
+			p.TransferTombstones[t.PeerID+":"+t.ID] = status
+			for id, d := range p.Outbox {
+				if d.PeerID == t.PeerID && d.Envelope.Type == "file_offer" && d.Envelope.TransferID == t.ID {
+					delete(p.Outbox, id)
+				}
+			}
+			return []pending{{PeerID: t.PeerID, Envelope: envelope{Type: "file_status", TransferID: t.ID, Status: status}}}
+		})
 	case domain.SetSetting:
 		return n.setting(c)
 	case domain.SetProfile:
@@ -119,11 +138,38 @@ func (n *Node) execute(c domain.Command) error {
 			n.broadcastCatalog()
 		})
 	case domain.RemoveShare:
-		n.change(func(s *domain.State) {
-			if i := fileIndex(s, c.FileID); i >= 0 && s.Files[i].SenderID == s.Self.ID {
+		if err := n.durable(func(p *persisted) []pending {
+			s := &p.State
+			if i := fileIndex(s, c.FileID); i < 0 || s.Files[i].SenderID != s.Self.ID {
+				return nil
+			} else {
 				s.Files[i].Shared = false
 			}
-		})
+			var out []pending
+			for i := range s.Transfers {
+				t := &s.Transfers[i]
+				if t.FileID != c.FileID || !t.FromShare || t.Direction != "send" || terminalTransfer(t.Status) {
+					continue
+				}
+				t.Revoked = true
+				t.Status = "cancelled"
+				t.Speed = 0
+				t.Error = "分享已撤回"
+				if cancel := n.transfers[t.ID]; cancel != nil {
+					cancel()
+				}
+				p.TransferTombstones[t.PeerID+":"+t.ID] = "cancelled"
+				for id, d := range p.Outbox {
+					if d.Envelope.Type == "file_offer" && d.Envelope.TransferID == t.ID {
+						delete(p.Outbox, id)
+					}
+				}
+				out = append(out, pending{PeerID: t.PeerID, Envelope: envelope{Type: "file_status", TransferID: t.ID, Status: "cancelled"}})
+			}
+			return out
+		}); err != nil {
+			return err
+		}
 		n.broadcastCatalog()
 	case domain.RefreshShares:
 		s := n.Snapshot()

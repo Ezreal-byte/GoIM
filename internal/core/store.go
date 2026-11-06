@@ -12,6 +12,7 @@ import (
 )
 
 type pending struct {
+	Sequence uint64
 	PeerID   string
 	Envelope envelope
 }
@@ -22,11 +23,13 @@ type ownershipOffer struct {
 	CreatedAt time.Time
 }
 type persisted struct {
-	Version     int
-	State       domain.State
-	Outbox      map[string]pending
-	Seen        map[string]bool
-	OwnerOffers map[string]ownershipOffer
+	NextSequence       uint64
+	TransferTombstones map[string]string
+	Version            int
+	State              domain.State
+	Outbox             map[string]pending
+	Seen               map[string]bool
+	OwnerOffers        map[string]ownershipOffer
 }
 
 func openStore(dir string) (*bolt.DB, persisted, error) {
@@ -58,6 +61,9 @@ func openStore(dir string) (*bolt.DB, persisted, error) {
 		return nil, data, fmt.Errorf("数据库版本 %d 高于当前应用支持版本", data.Version)
 	}
 	data.Version = 1
+	if data.TransferTombstones == nil {
+		data.TransferTombstones = make(map[string]string)
+	}
 	if data.OwnerOffers == nil {
 		data.OwnerOffers = make(map[string]ownershipOffer)
 	}

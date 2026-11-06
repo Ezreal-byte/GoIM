@@ -96,6 +96,8 @@ type File struct {
 }
 
 type Transfer struct {
+	Revoked        bool
+	FromShare      bool
 	ID             string
 	FileID         string
 	ConversationID string

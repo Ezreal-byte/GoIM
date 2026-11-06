@@ -54,6 +54,18 @@ func verifyGroup(g domain.Group) bool {
 	}
 	return g.Epoch >= epoch && g.OwnerID == keyID(key) && bytes.Equal(g.OwnerKey, key) && contains(g.Members, g.OwnerID) && ed25519.Verify(key, groupBody(g), g.Signature)
 }
+func extendsOwnership(old, next domain.Group) bool {
+	if !bytes.Equal(old.RootKey, next.RootKey) || len(next.Ownership) < len(old.Ownership) {
+		return false
+	}
+	for i, p := range old.Ownership {
+		q := next.Ownership[i]
+		if p.FromID != q.FromID || p.ToID != q.ToID || p.Epoch != q.Epoch || !bytes.Equal(p.ToKey, q.ToKey) || !bytes.Equal(p.Signature, q.Signature) {
+			return false
+		}
+	}
+	return true
+}
 func groupPeers(s domain.State, g domain.Group) []domain.Peer {
 	var list []domain.Peer
 	for _, id := range g.Members {
@@ -245,6 +257,12 @@ func (n *Node) answerInvite(id string, accept bool) error {
 	if inv.ID == "" || inv.Status != "pending" || inv.FromID == s.Self.ID {
 		return errors.New("邀请已失效")
 	}
+	if inv.Kind == "ownership" && accept {
+		g := s.Group(inv.GroupID)
+		if g.Left || g.Dissolved || g.OwnerID != inv.FromID || !contains(g.Members, s.Self.ID) || time.Since(inv.CreatedAt) > 5*time.Minute {
+			return errors.New("群主转让邀请已失效")
+		}
+	}
 	status := "rejected"
 	if accept {
 		status = "accepted"
@@ -276,6 +294,11 @@ func (n *Node) manageGroup(c domain.Command) error {
 		return errors.New("群聊已不可用")
 	}
 	if c.Kind == domain.LeaveGroup {
+		for _, v := range s.Invitations {
+			if v.GroupID == g.ID && v.Kind == "ownership" && v.FromID == g.OwnerID && v.Status == "accepted" {
+				return errors.New("群主转让确认中，请等待完成后再退出")
+			}
+		}
 		if g.OwnerID == s.Self.ID {
 			return errors.New("群主需先转让群主或解散群聊")
 		}
@@ -365,6 +388,9 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 		if old := s.Group(g.ID); old.ID != "" && old.Epoch > g.Epoch {
 			return nil
 		}
+		if old := s.Group(g.ID); old.ID != "" && !extendsOwnership(old, g) {
+			return errors.New("群主历史不能回退或分叉")
+		}
 		if err := n.durable(func(p *persisted) []pending {
 			installGroupState(&p.State, g)
 			for _, v := range p.State.Invitations {
@@ -444,16 +470,31 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 			if !accepted {
 				return errors.New("未确认群主转让")
 			}
+			if old.Left || old.Dissolved || !contains(old.Members, s.Self.ID) {
+				return errors.New("已退出的成员不能接任群主")
+			}
 			g = old
 			g.Ownership = append(g.Ownership, proof)
 			g.OwnerID = s.Self.ID
 			g.OwnerKey = s.Self.PublicKey
 			g.Epoch = proof.Epoch
 			signGroup(&g, n.key)
-			if err := n.durable(func(p *persisted) []pending { installGroupState(&p.State, g); return groupDeliveries(p.State, g) }); err != nil {
+			if err := n.durable(func(p *persisted) []pending {
+				installGroupState(&p.State, g)
+				for i := range p.State.Invitations {
+					v := &p.State.Invitations[i]
+					if v.GroupID == g.ID && v.Kind == "ownership" && v.FromID == peer && v.Status == "accepted" {
+						v.Status = "completed"
+					}
+				}
+				return groupDeliveries(p.State, g)
+			}); err != nil {
 				return err
 			}
 		} else if g.Epoch > old.Epoch {
+			if !extendsOwnership(old, g) {
+				return errors.New("群主历史不能回退或分叉")
+			}
 			if err := n.durable(func(p *persisted) []pending {
 				installGroupState(&p.State, g)
 				for id, v := range p.OwnerOffers {
@@ -492,8 +533,19 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 		n.mu.Lock()
 		offer, ok := n.data.OwnerOffers[e.Invitation.ID]
 		n.mu.Unlock()
-		if !ok || offer.PeerID != peer || offer.GroupID != g.ID || offer.Stage != "offered" || time.Since(offer.CreatedAt) > 5*time.Minute || e.Invitation.Kind != "ownership" || e.Invitation.FromID != s.Self.ID || g.OwnerID != s.Self.ID || !contains(g.Members, peer) {
+		if !ok || offer.PeerID != peer || offer.GroupID != g.ID || offer.Stage != "offered" || e.Invitation.Kind != "ownership" || e.Invitation.FromID != s.Self.ID {
 			return nil
+		}
+		if time.Since(offer.CreatedAt) > 5*time.Minute || g.OwnerID != s.Self.ID || g.Dissolved || !contains(g.Members, peer) {
+			return n.durable(func(p *persisted) []pending {
+				delete(p.OwnerOffers, e.Invitation.ID)
+				for i := range p.State.Invitations {
+					if p.State.Invitations[i].ID == e.Invitation.ID {
+						p.State.Invitations[i].Status = "failed"
+					}
+				}
+				return []pending{{PeerID: peer, Envelope: envelope{Type: "ownership_result", Invitation: e.Invitation, Status: "expired"}}}
+			})
 		}
 		if e.Status != "accepted" {
 			return n.durable(func(p *persisted) []pending {
@@ -522,6 +574,18 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 		}); err != nil {
 			return err
 		}
+	case "ownership_result":
+		if e.Status != "expired" {
+			return errors.New("无效的群主转让结果")
+		}
+		return n.change(func(s *domain.State) {
+			for i := range s.Invitations {
+				v := &s.Invitations[i]
+				if v.ID == e.Invitation.ID && v.GroupID == e.Invitation.GroupID && v.FromID == peer && v.Kind == "ownership" && (v.Status == "pending" || v.Status == "accepted") {
+					v.Status = "expired"
+				}
+			}
+		})
 	case "group_nickname":
 		g = s.Group(g.ID)
 		if g.ID == "" || !contains(g.Members, peer) || g.Dissolved || utf8.RuneCountInString(e.Peer.Name) > 40 {

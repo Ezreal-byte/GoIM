@@ -200,7 +200,7 @@ func TestCancelledHashAndWindowsNames(t *testing.T) {
 	if _, err := fileHashContext(ctx, path); err == nil {
 		t.Fatal("hash ignored cancellation")
 	}
-	for _, name := range []string{"CON", "NUL.txt", "COM1.log", "LPT9.txt", "name.", "name ", "a\nb"} {
+	for _, name := range []string{"CON", "NUL.txt", "COM1.log", "LPT9.txt", "CON .txt", "name.", "name ", "a\nb"} {
 		if validFile(domain.File{ID: strings.Repeat("a", 32), Name: name, Hash: strings.Repeat("b", 64)}) {
 			t.Fatalf("reserved name accepted: %s", name)
 		}

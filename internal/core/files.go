@@ -23,6 +23,9 @@ func terminalTransfer(status string) bool {
 	return status == "completed" || status == "cancelled" || status == "rejected"
 }
 func validFile(f domain.File) bool {
+	if f.ID != strings.ToLower(f.ID) || f.Hash != strings.ToLower(f.Hash) {
+		return false
+	}
 	identifier, e := hex.DecodeString(f.ID)
 	hash, he := hex.DecodeString(f.Hash)
 	name := strings.ToUpper(strings.TrimSpace(strings.Split(f.Name, ".")[0]))
@@ -126,7 +129,7 @@ func appendFileOffer(s *domain.State, peer, convID string, f domain.File, tid st
 	if tid == "" {
 		tid = newID()
 	}
-	t := domain.Transfer{ID: tid, FileID: f.ID, ConversationID: convID, PeerID: peer, Direction: "send", Status: "offered", Name: f.Name, Size: f.Size, Path: f.SourcePath, UpdatedAt: time.Now()}
+	t := domain.Transfer{ID: tid, FileID: f.ID, ConversationID: convID, PeerID: peer, Direction: "send", Status: "offered", Name: f.Name, Size: f.Size, Path: f.SourcePath, UpdatedAt: time.Now(), FromShare: f.Shared}
 	if i := transferIndex(s, tid); i < 0 {
 		s.Transfers = append(s.Transfers, t)
 	} else {
@@ -140,11 +143,17 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 	f := e.File
 	f.SourcePath = ""
 	s := n.Snapshot()
+	n.mu.Lock()
+	tombstone := n.data.TransferTombstones[peer+":"+e.TransferID]
+	n.mu.Unlock()
+	if tombstone != "" {
+		return nil
+	}
 	if old := s.File(f.ID); old.ID != "" && old.SenderID != peer {
 		return errors.New("文件身份冲突")
 	}
 	transferBytes, transferErr := hex.DecodeString(e.TransferID)
-	if !validFile(f) || f.SenderID != peer || transferErr != nil || len(transferBytes) != 16 {
+	if !validFile(f) || f.SenderID != peer || transferErr != nil || len(transferBytes) != 16 || e.TransferID != strings.ToLower(e.TransferID) {
 		return errors.New("无效文件邀请")
 	}
 	if strings.HasPrefix(f.ConversationID, "group:") {
@@ -284,10 +293,6 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 		return errors.New("文件信息不完整")
 	}
 	p := s.Peer(t.PeerID)
-	if !p.Online {
-		n.setTransfer(id, "waiting", t.Done, 0, "")
-		return nil
-	}
 	if destination == "" {
 		destination = t.Path
 	}
@@ -297,6 +302,10 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 				return n.completeReceive(t, destination)
 			}
 		}
+	}
+	if !p.Online {
+		n.setTransfer(id, "waiting", t.Done, 0, "")
+		return nil
 	}
 	if destination == "" {
 		destination = filepath.Join(s.Settings.DownloadDir, f.Name)
@@ -481,7 +490,7 @@ func (n *Node) serveFile(conn *tls.Conn, e envelope, peer string) {
 	}
 	t := s.Transfers[i]
 	f := s.File(e.File.ID)
-	if t.Direction != "send" || t.PeerID != peer || t.FileID != f.ID || f.SenderID != s.Self.ID || e.Offset < 0 || e.Offset > f.Size || t.Status == "cancelled" || t.Status == "rejected" {
+	if t.Direction != "send" || t.PeerID != peer || t.FileID != f.ID || f.SenderID != s.Self.ID || e.Offset < 0 || e.Offset > f.Size || t.Status == "cancelled" || t.Status == "rejected" || t.Revoked || t.FromShare && !f.Shared {
 		return
 	}
 	if strings.HasPrefix(t.ConversationID, "group:") {

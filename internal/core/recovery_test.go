@@ -2,11 +2,53 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"goim/internal/domain"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestOfflineOutboxReplaysInCommittedMessageOrder(t *testing.T) {
+	a, b := testNode(t, "甲"), testNode(t, "乙")
+	peer := b.Snapshot().Self
+	_ = a.change(func(s *domain.State) { s.Peers = append(s.Peers, peer); ensureDirect(s, peer) })
+	conv := directID(a.Snapshot().Self.ID, peer.ID)
+	for i := 0; i < 12; i++ {
+		if err := a.sendText(conv, fmt.Sprintf("ordered-%02d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	connectNodes(t, a, b)
+	eventually(t, "ordered replay", func() bool { return len(b.Snapshot().Messages) == 12 })
+	for i, m := range b.Snapshot().Messages {
+		if m.Text != fmt.Sprintf("ordered-%02d", i) {
+			t.Fatalf("message %d arrived as %q", i, m.Text)
+		}
+	}
+}
+func TestRestartFinalizesInstalledFileWithSenderOffline(t *testing.T) {
+	a, b := testNode(t, "甲"), testNode(t, "乙")
+	connectNodes(t, a, b)
+	path := filepath.Join(t.TempDir(), "installed.txt")
+	content := []byte("verified local copy")
+	_ = os.WriteFile(path, content, 0600)
+	if err := a.sendFile(direct(t, a, b), path, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "offer", func() bool { return len(b.Snapshot().Transfers) == 1 })
+	dest := filepath.Join(b.dir, "installed.txt")
+	_ = os.WriteFile(dest, content, 0600)
+	_ = b.change(func(s *domain.State) { s.Transfers[0].Path = dest; s.Transfers[0].Status = "verifying" })
+	dir := b.dir
+	_ = b.Close()
+	_ = a.Close()
+	restarted := testNodeAt(t, "乙", dir)
+	eventually(t, "offline installed recovery", func() bool { return restarted.Snapshot().Transfers[0].Status == "completed" })
+	if restarted.Snapshot().Peer(a.Snapshot().Self.ID).Online {
+		t.Fatal("test unexpectedly relied on sender online")
+	}
+}
 
 func TestReceivePersistenceFailureDoesNotAdvanceSeen(t *testing.T) {
 	n := testNode(t, "我")

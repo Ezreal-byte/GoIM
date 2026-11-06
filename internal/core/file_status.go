@@ -27,6 +27,9 @@ func (n *Node) receiveFileStatus(peer string, e envelope) error {
 	return n.durable(func(p *persisted) []pending {
 		i := transferIndex(&p.State, e.TransferID)
 		if i < 0 {
+			if e.Status == "cancelled" || e.Status == "rejected" {
+				p.TransferTombstones[peer+":"+e.TransferID] = e.Status
+			}
 			return nil
 		}
 		t := &p.State.Transfers[i]
@@ -40,6 +43,7 @@ func (n *Node) receiveFileStatus(peer string, e envelope) error {
 			}
 			t.Done = t.Size
 		case "cancelled", "rejected":
+			p.TransferTombstones[peer+":"+e.TransferID] = e.Status
 			if cancel := n.transfers[t.ID]; cancel != nil {
 				cancel()
 			}
@@ -90,10 +94,23 @@ func (n *Node) receiveFileRetry(peer string, e envelope) error {
 	if t.Direction != "send" || t.PeerID != peer || t.FileID != e.File.ID {
 		return errors.New("无效的重新接收请求")
 	}
+	if t.Revoked {
+		return errors.New("发送方已取消，请等待重新发送")
+	}
 	if t.Status == "transferring" {
 		return nil
 	}
 	f := s.File(t.FileID)
+	if t.FromShare && !f.Shared {
+		return errors.New("分享已撤回")
+	}
+	if f.SourcePath == "" {
+		return errors.New("源文件不可用")
+	}
+	hash, err := fileHashContext(n.ctx, f.SourcePath)
+	if err != nil || hash != f.Hash {
+		return errors.New("源文件已变化，请重新发送")
+	}
 	if c := s.Conversation(t.ConversationID); c.Kind == "group" {
 		g := s.Group(c.GroupID)
 		if g.Dissolved || !contains(g.Members, peer) || !contains(g.Members, s.Self.ID) {

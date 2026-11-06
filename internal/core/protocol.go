@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -234,13 +235,8 @@ func (n *Node) reliable(peer string, e envelope) {
 	_ = n.durable(func(*persisted) []pending { return []pending{{PeerID: peer, Envelope: e}} })
 }
 func (n *Node) replay(peer string) {
+	n.flushPeer(peer)
 	n.mu.Lock()
-	var list []envelope
-	for _, p := range n.data.Outbox {
-		if p.PeerID == peer {
-			list = append(list, p.Envelope)
-		}
-	}
 	var resume []string
 	for _, t := range n.data.State.Transfers {
 		if t.PeerID == peer && t.Direction == "receive" && t.Status == "waiting" {
@@ -248,11 +244,31 @@ func (n *Node) replay(peer string) {
 		}
 	}
 	n.mu.Unlock()
-	for _, e := range list {
-		_ = n.send(peer, e)
-	}
 	for _, id := range resume {
 		n.startReceive(id, "")
+	}
+}
+func (n *Node) flushPeer(peer string) {
+	n.flushMu.Lock()
+	defer n.flushMu.Unlock()
+	n.mu.Lock()
+	var list []pending
+	for _, p := range n.data.Outbox {
+		if p.PeerID == peer {
+			list = append(list, p)
+		}
+	}
+	n.mu.Unlock()
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].Sequence == list[j].Sequence {
+			return list[i].Envelope.ID < list[j].Envelope.ID
+		}
+		return list[i].Sequence < list[j].Sequence
+	})
+	for _, p := range list {
+		if err := n.send(peer, p.Envelope); err != nil {
+			return
+		}
 	}
 }
 func (n *Node) receive(peer string, e envelope) error {
@@ -297,7 +313,7 @@ func (n *Node) receive(peer string, e envelope) error {
 		err = n.receiveMessage(peer, e)
 	case "profile":
 		err = n.receiveProfile(peer, e)
-	case "group_invite", "group_state", "invite_reply", "group_leave", "ownership_offer", "ownership_accept", "group_nickname":
+	case "group_invite", "group_state", "invite_reply", "group_leave", "ownership_offer", "ownership_accept", "ownership_result", "group_nickname":
 		err = n.receiveGroup(peer, e)
 	case "file_offer":
 		err = n.receiveOffer(peer, e)
