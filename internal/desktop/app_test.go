@@ -1,6 +1,9 @@
 package desktop
 
 import (
+	"encoding/binary"
+	"errors"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
@@ -42,6 +45,7 @@ func cloneShellState(state domain.State) domain.State {
 	clone.Invitations = slices.Clone(state.Invitations)
 	clone.Files = slices.Clone(state.Files)
 	clone.Transfers = slices.Clone(state.Transfers)
+	clone.GroupNicknames = slices.Clone(state.GroupNicknames)
 	clone.Settings.Shortcuts = slices.Clone(state.Settings.Shortcuts)
 	for index := range clone.Groups {
 		clone.Groups[index].Members = slices.Clone(clone.Groups[index].Members)
@@ -78,6 +82,15 @@ func (backend *shellTestBackend) commandLog() []domain.Command {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	return slices.Clone(backend.commands)
+}
+
+func hasCommandKind(commands []domain.Command, kind domain.CommandKind) bool {
+	for _, command := range commands {
+		if command.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 type shellTestHarness struct {
@@ -285,6 +298,13 @@ func TestMinimumWindowLayoutsRemainClean(t *testing.T) {
 	harness := newShellTestHarnessAtSize(t, shellTestState(t), 1000, 700)
 	requireShellLayout(t, harness.snapshot())
 
+	harness.clickID(harness.ui.ids.chatHeaderSearch)
+	harness.settle()
+	requireShellLayout(t, harness.snapshot())
+	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+		t.Fatal(err)
+	}
+
 	harness.clickID(harness.ui.ids.chatHeaderMembers)
 	harness.settle()
 	requireShellLayout(t, harness.snapshot())
@@ -465,7 +485,7 @@ func TestChatIMEConfirmationDoesNotSendAndEnterSendsText(t *testing.T) {
 	if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
-	if len(harness.backend.commandLog()) != 0 {
+	if commands := harness.backend.commandLog(); hasCommandKind(commands, domain.SendText) {
 		t.Fatalf("Enter during IME composition submitted commands: %+v", harness.backend.commandLog())
 	}
 	if err := harness.driver.Type("你"); err != nil {
@@ -500,7 +520,7 @@ func TestChatSendKeyModes(t *testing.T) {
 	if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
-	if len(harness.backend.commandLog()) != 0 {
+	if commands := harness.backend.commandLog(); hasCommandKind(commands, domain.SendText) {
 		t.Fatalf("Enter sent while Ctrl+Enter mode was active: %+v", harness.backend.commandLog())
 	}
 	if err := harness.driver.Type("第二行"); err != nil {
@@ -529,7 +549,7 @@ func TestChatSendKeyModes(t *testing.T) {
 	if err := enterHarness.driver.Key(ui.KeyEnter, ui.ModifierShift); err != nil {
 		t.Fatal(err)
 	}
-	if len(enterHarness.backend.commandLog()) != 0 {
+	if commands := enterHarness.backend.commandLog(); hasCommandKind(commands, domain.SendText) {
 		t.Fatalf("Shift+Enter sent a message: %+v", enterHarness.backend.commandLog())
 	}
 	if err := enterHarness.driver.Type("第二行"); err != nil {
@@ -825,6 +845,626 @@ func TestBackendUpdateRefreshesOnWake(t *testing.T) {
 	}
 }
 
+func TestDirtyGroupRenameIsScopedAndDiscardedOnNavigation(t *testing.T) {
+	state := shellTestState(t)
+	state.Groups = append(state.Groups, domain.Group{
+		ID: "group-2", Name: "工程同步组", OwnerID: "self",
+		Members: []string{"self", "peer-b"},
+	})
+	state.Conversations = append(state.Conversations, domain.Conversation{
+		ID: "conv-group-2", Kind: "group", GroupID: "group-2",
+		UpdatedAt: state.Conversations[0].UpdatedAt.Add(-time.Second),
+	})
+	harness := newShellTestHarness(t, state)
+
+	harness.clickID(harness.ui.ids.chatHeaderMembers)
+	harness.settle()
+	harness.clickID(harness.ui.ids.memberStartRename)
+	harness.clickID(harness.ui.ids.memberRename)
+	if err := harness.driver.Type("A 的未保存群名"); err != nil {
+		t.Fatal(err)
+	}
+
+	harness.ui.setSection(sectionSettings)
+	harness.ui.invalidator.Invalidate()
+	waitForShellWake(t, harness)
+	if !harness.ui.confirm.open || harness.ui.section != sectionContacts ||
+		harness.ui.selected != "conv-group" || !harness.ui.renameOpen {
+		t.Fatalf("switching to settings lost the dirty-name guard: confirm=%v section=%q selected=%q rename=%v dirty=%v field=%q",
+			harness.ui.confirm.open, harness.ui.section, harness.ui.selected,
+			harness.ui.renameOpen, harness.ui.groupRenameDirty(), harness.ui.renameField.Text())
+	}
+	harness.clickID(harness.ui.ids.confirmCancel)
+	harness.settle()
+
+	harness.clickID(harness.ui.ids.memberInvite)
+	harness.settle()
+	if !harness.ui.confirm.open || harness.ui.compose.open {
+		t.Fatal("opening the invite picker discarded a dirty group name without confirmation")
+	}
+	harness.clickID(harness.ui.ids.confirmCancel)
+	harness.settle()
+
+	harness.ui.selectConversation("conv-group-2")
+	harness.ui.invalidator.Invalidate()
+	waitForShellWake(t, harness)
+	if !harness.ui.confirm.open || harness.ui.selected != "conv-group" {
+		t.Fatal("navigating to another group bypassed the dirty-name confirmation")
+	}
+	harness.clickID(harness.ui.ids.confirmRun)
+	harness.settle()
+	if harness.ui.selected != "conv-group-2" || harness.ui.drawer != "" || harness.ui.renameOpen {
+		t.Fatal("confirmed navigation did not reset the old group's rename state")
+	}
+
+	harness.clickID(harness.ui.ids.chatHeaderMembers)
+	harness.settle()
+	harness.clickID(harness.ui.ids.memberStartRename)
+	if got := harness.ui.renameField.Text(); got != "工程同步组" {
+		t.Fatalf("group B rename field = %q, want its own name", got)
+	}
+	harness.clickID(harness.ui.ids.memberSaveRename)
+	for _, command := range harness.backend.commandLog() {
+		if command.Kind == domain.RenameGroup && command.GroupID == "group-2" {
+			t.Fatalf("saving an unchanged group B submitted a stale rename: %+v", command)
+		}
+	}
+}
+
+func TestNonOwnerMemberMenuOpensProfileAndDirectChat(t *testing.T) {
+	state := shellTestState(t)
+	state.Groups[0].OwnerID = "peer-a"
+	harness := newShellTestHarness(t, state)
+
+	harness.clickID(harness.ui.ids.chatHeaderMembers)
+	harness.settle()
+	harness.clickID(harness.ui.memberMenuIDs["peer-b"])
+	harness.settle()
+	if harness.ui.memberMenu != "peer-b" || !harness.hasHit(harness.ui.memberInfoIDs["peer-b"]) {
+		t.Fatal("an ordinary member could not open another member's actions")
+	}
+	harness.clickID(harness.ui.memberInfoIDs["peer-b"])
+	harness.settle()
+	if harness.ui.memberProfile != "peer-b" || !harness.hasText("成员资料") {
+		t.Fatal("an ordinary member could not open a member profile")
+	}
+	harness.clickID(harness.ui.ids.memberProfileTalk)
+	command := harness.lastCommand()
+	if command.Kind != domain.StartChat || command.PeerID != "peer-b" {
+		t.Fatalf("member profile direct-chat command = %+v", command)
+	}
+	if harness.ui.section != sectionMessages || harness.ui.drawer != "" {
+		t.Fatal("member profile direct-chat action did not return to messages")
+	}
+}
+
+func TestLeaveOrDissolveWarnsAndCancelsOnlyThisGroupsTransfers(t *testing.T) {
+	tests := []struct {
+		name  string
+		owner string
+		leave bool
+	}{
+		{name: "leave", owner: "peer-a", leave: true},
+		{name: "dissolve", owner: "self"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := shellTestState(t)
+			state.Groups[0].OwnerID = test.owner
+			state.Conversations[0].ID = "group:group-1"
+			for index := range state.Messages {
+				if state.Messages[index].ConversationID == "conv-group" {
+					state.Messages[index].ConversationID = "group:group-1"
+				}
+			}
+			state.Files[0].ConversationID = "group:group-1"
+			state.Transfers[0].ConversationID = "group:group-1"
+			state.Files = append(state.Files, domain.File{
+				ID: "file-other", Name: "其他会话.txt", Size: 10,
+				SenderID: "self", ConversationID: "conv-alice", CreatedAt: time.Now(),
+			})
+			state.Transfers = []domain.Transfer{
+				{
+					ID: "transfer-group", FileID: "file-1", ConversationID: "group:group-1",
+					PeerID: "peer-b", Direction: "send", Status: "transferring",
+					Name: "设计素材.zip", Size: 100, Done: 40,
+				},
+				{
+					ID: "transfer-other", FileID: "file-other", ConversationID: "conv-alice",
+					PeerID: "peer-a", Direction: "send", Status: "transferring",
+					Name: "其他会话.txt", Size: 10, Done: 5,
+				},
+			}
+			harness := newShellTestHarness(t, state)
+			harness.clickID(harness.ui.ids.chatHeaderMembers)
+			harness.settle()
+			if test.leave {
+				harness.clickID(harness.ui.ids.memberLeave)
+			} else {
+				harness.clickID(harness.ui.ids.memberDissolve)
+			}
+			harness.settle()
+			if !harness.ui.confirm.open ||
+				!harness.hasText("仍有 1 个未完成文件任务（Bob）") ||
+				!harness.hasText("其他会话不受影响") {
+				t.Fatal("group exit did not warn about active transfers")
+			}
+			harness.clickID(harness.ui.ids.confirmRun)
+			harness.settle()
+
+			canceled := make(map[string]bool)
+			left, dissolved := false, false
+			for _, command := range harness.backend.commandLog() {
+				switch command.Kind {
+				case domain.CancelTransfer:
+					canceled[command.TransferID] = true
+				case domain.LeaveGroup:
+					left = true
+				case domain.DissolveGroup:
+					dissolved = true
+				}
+			}
+			if !canceled["transfer-group"] || canceled["transfer-other"] {
+				t.Fatalf("group exit canceled the wrong transfers: %+v", canceled)
+			}
+			if left != test.leave || dissolved == test.leave {
+				t.Fatalf("leave/dissolve commands = leave:%v dissolve:%v", left, dissolved)
+			}
+		})
+	}
+}
+
+func TestCreateGroupReconcilesBeforePartialInviteError(t *testing.T) {
+	state := shellMinimalState(t)
+	state.Peers = []domain.Peer{
+		{ID: "peer-a", Name: "Alice", ContactGroup: "产品", Online: true},
+		{ID: "peer-b", Name: "Bob", ContactGroup: "产品", Online: true},
+	}
+	harness := newShellTestHarness(t, state)
+
+	harness.clickID(harness.ui.ids.sidebarCreate)
+	harness.clickID(harness.ui.groupSelectRows["peer-a"])
+	harness.clickID(harness.ui.groupSelectRows["peer-b"])
+	harness.clickID(harness.ui.ids.composeCreate)
+
+	state.Groups = append(state.Groups, domain.Group{
+		ID: "group-new", Name: "Alice、Bob", OwnerID: "self",
+		Members: []string{"self"}, Pending: []string{"peer-a", "peer-b"}, Epoch: 1,
+	})
+	state.Conversations = append(state.Conversations, domain.Conversation{
+		ID: "conv-new", Kind: "group", GroupID: "group-new", Title: "Alice、Bob",
+		UpdatedAt: time.Now(),
+	})
+	state.Error = "邀请 Alice 失败"
+	state.Revision++
+	harness.publish(state)
+
+	if harness.ui.compose.open || harness.ui.compose.pending {
+		t.Fatal("the create dialog stayed open after the group was created")
+	}
+	if harness.ui.selected != "conv-new" {
+		t.Fatalf("selected conversation = %q after partial success", harness.ui.selected)
+	}
+	if !harness.hasText("群聊已创建；部分邀请发送失败：邀请 Alice 失败") {
+		t.Fatal("the partial invite failure was not shown as a notice")
+	}
+	var createCount, clearCount int
+	for _, command := range harness.backend.commandLog() {
+		switch command.Kind {
+		case domain.CreateGroup:
+			createCount++
+		case domain.ClearError:
+			clearCount++
+		}
+	}
+	if createCount != 1 || clearCount == 0 {
+		t.Fatalf("create/clear commands = %d/%d, want one create and a cleared error", createCount, clearCount)
+	}
+}
+
+func TestMultiRecipientFileDetailsUseTransferSpecificActions(t *testing.T) {
+	state := shellTestState(t)
+	state.Conversations[0].ID = "group:group-1"
+	for index := range state.Messages {
+		if state.Messages[index].ConversationID == "conv-group" {
+			state.Messages[index].ConversationID = "group:group-1"
+		}
+	}
+	state.Files[0].ConversationID = "group:group-1"
+	state.Transfers = []domain.Transfer{
+		{ID: "transfer-a", FileID: "file-1", ConversationID: "group:group-1", PeerID: "peer-a",
+			Direction: "send", Status: "completed", Name: "设计素材.zip", Size: 100, Done: 100},
+		{ID: "transfer-b", FileID: "file-1", ConversationID: "group:group-1", PeerID: "peer-b",
+			Direction: "send", Status: "transferring", Name: "设计素材.zip", Size: 100, Done: 50},
+		{ID: "transfer-c", FileID: "file-1", ConversationID: "group:group-1", PeerID: "peer-c",
+			Direction: "send", Status: "waiting", Name: "设计素材.zip", Size: 100, Done: 0},
+	}
+	harness := newShellTestHarnessAtSize(t, state, 1000, 700)
+
+	if !harness.hasText("1 人已接收") || !harness.hasText("发送给 Bob · 发送中 · 50%") {
+		t.Fatal("the group file card did not aggregate progress and name the active recipient")
+	}
+	harness.clickID(harness.ui.ids.chatHeaderFile)
+	harness.settle()
+	harness.clickID(harness.ui.fileRowIDs["file-1"])
+	harness.settle()
+
+	if harness.hasHit(harness.ui.fileCancelIDs["transfer-a"]) ||
+		!harness.hasHit(harness.ui.fileCancelIDs["transfer-b"]) ||
+		!harness.hasHit(harness.ui.fileCancelIDs["transfer-c"]) {
+		_, all := harness.findHit(harness.ui.fileCancelIDs["transfer-a"])
+		_, bob := harness.findHit(harness.ui.fileCancelIDs["transfer-b"])
+		_, carol := harness.findHit(harness.ui.fileCancelIDs["transfer-c"])
+		t.Fatalf("file cancel visibility a=%v b=%v c=%v (active=%+v)",
+			all, bob, carol, harness.ui.transfersFor["file-1"])
+	}
+	harness.clickID(harness.ui.fileCancelIDs["transfer-b"])
+	command := harness.lastCommand()
+	if command.Kind != domain.CancelTransfer || command.TransferID != "transfer-b" {
+		t.Fatalf("recipient-specific cancel = %+v", command)
+	}
+
+	harness.clickID(harness.ui.ids.fileBatchCancel)
+	harness.settle()
+	if !harness.ui.confirm.open || !harness.hasText("2 个文件任务（Bob、Carol）") {
+		t.Fatal("batch cancel did not confirm the affected recipients")
+	}
+	harness.clickID(harness.ui.ids.confirmRun)
+	harness.settle()
+	canceled := make(map[string]bool)
+	for _, command := range harness.backend.commandLog() {
+		if command.Kind == domain.CancelTransfer {
+			canceled[command.TransferID] = true
+		}
+	}
+	if !canceled["transfer-b"] || !canceled["transfer-c"] || canceled["transfer-a"] {
+		t.Fatalf("batch canceled the wrong transfers: %+v", canceled)
+	}
+	requireShellLayout(t, harness.snapshot())
+}
+
+func TestFileDropIsRejectedUnderEveryModalOverlay(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*shellTestHarness)
+	}{
+		{"profile", func(harness *shellTestHarness) {
+			harness.clickID(harness.ui.ids.profileAvatar)
+			harness.settle()
+		}},
+		{"compose", func(harness *shellTestHarness) {
+			harness.clickID(harness.ui.ids.sidebarCreate)
+			harness.settle()
+		}},
+		{"connect", func(harness *shellTestHarness) {
+			harness.clickID(harness.ui.ids.sidebarConnect)
+			harness.settle()
+		}},
+		{"member profile", func(harness *shellTestHarness) {
+			harness.clickID(harness.ui.ids.chatHeaderMembers)
+			harness.settle()
+			harness.clickID(harness.ui.memberMenuIDs["peer-b"])
+			harness.settle()
+			harness.clickID(harness.ui.memberInfoIDs["peer-b"])
+			harness.settle()
+		}},
+		{"confirmation", func(harness *shellTestHarness) {
+			harness.clickID(harness.ui.ids.chatHeaderMembers)
+			harness.settle()
+			harness.clickID(harness.ui.ids.memberDissolve)
+			harness.settle()
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			harness := newShellTestHarness(t, shellTestState(t))
+			test.setup(harness)
+			if !harness.ui.modalOpen() {
+				t.Fatal("test setup did not open a modal")
+			}
+			chat := harness.ui.lastChat
+			accepted, err := harness.driver.Drop(ui.FileDropEvent{
+				Phase: ui.FileDropDrop,
+				X:     chat.X + chat.Width/2,
+				Y:     chat.Y + chat.Height/2,
+				Paths: []string{filepath.Join(t.TempDir(), "modal.txt")},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if accepted || hasCommandKind(harness.backend.commandLog(), domain.SendFiles) {
+				t.Fatal("a modal overlay accepted a file drop on the covered chat")
+			}
+		})
+	}
+}
+
+func TestShortcutsRespectModalsAndWorkFromSettings(t *testing.T) {
+	t.Run("dirty compose", func(t *testing.T) {
+		harness := newShellTestHarness(t, shellTestState(t))
+		harness.clickID(harness.ui.ids.sidebarCreate)
+		harness.settle()
+		harness.typeInto(harness.ui.ids.composeName, "未提交群名")
+		section := harness.ui.section
+		if _, err := harness.driver.ShortcutChord(ui.ModifierControl, ','); err != nil {
+			t.Fatal(err)
+		}
+		if !harness.ui.compose.open || harness.ui.confirm.open || harness.ui.section != section {
+			t.Fatal("an application shortcut bypassed the dirty compose modal")
+		}
+	})
+
+	t.Run("all modal overlays", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			setup  func(*shellTestHarness)
+			opened func(*shellTestHarness) bool
+		}{
+			{"profile", func(harness *shellTestHarness) {
+				harness.clickID(harness.ui.ids.profileAvatar)
+				harness.settle()
+			}, func(harness *shellTestHarness) bool { return harness.ui.profile.open }},
+			{"compose", func(harness *shellTestHarness) {
+				harness.clickID(harness.ui.ids.sidebarCreate)
+				harness.settle()
+			}, func(harness *shellTestHarness) bool { return harness.ui.compose.open }},
+			{"connect", func(harness *shellTestHarness) {
+				harness.clickID(harness.ui.ids.sidebarConnect)
+				harness.settle()
+			}, func(harness *shellTestHarness) bool { return harness.ui.connectOpen }},
+			{"member profile", func(harness *shellTestHarness) {
+				harness.clickID(harness.ui.ids.chatHeaderMembers)
+				harness.settle()
+				harness.clickID(harness.ui.memberMenuIDs["peer-b"])
+				harness.settle()
+				harness.clickID(harness.ui.memberInfoIDs["peer-b"])
+				harness.settle()
+			}, func(harness *shellTestHarness) bool { return harness.ui.memberProfile != "" }},
+			{"confirmation", func(harness *shellTestHarness) {
+				harness.clickID(harness.ui.ids.chatHeaderMembers)
+				harness.settle()
+				harness.clickID(harness.ui.ids.memberDissolve)
+				harness.settle()
+			}, func(harness *shellTestHarness) bool { return harness.ui.confirm.open }},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				harness := newShellTestHarness(t, shellTestState(t))
+				test.setup(harness)
+				section, selected := harness.ui.section, harness.ui.selected
+				for _, chord := range []struct {
+					modifiers ui.Modifiers
+					key       rune
+				}{
+					{ui.ModifierControl, ','},
+					{ui.ModifierControl, 'k'},
+					{ui.ModifierControl | ui.ModifierShift, 'n'},
+				} {
+					if _, err := harness.driver.ShortcutChord(chord.modifiers, chord.key); err != nil {
+						t.Fatal(err)
+					}
+					if !test.opened(harness) || harness.ui.section != section ||
+						harness.ui.selected != selected {
+						t.Fatalf("shortcut %v bypassed the %s modal", chord, test.name)
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("quick find and create from settings", func(t *testing.T) {
+		harness := newShellTestHarness(t, shellTestState(t))
+		harness.clickID(harness.ui.ids.navSettings)
+		harness.settle()
+		handled, err := harness.driver.ShortcutChord(ui.ModifierControl, 'k')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !handled || harness.ui.section != sectionMessages ||
+			harness.snapshot().Focused != harness.ui.ids.sidebarSearch {
+			t.Fatal("Ctrl+K did not leave settings and focus quick find")
+		}
+
+		harness.clickID(harness.ui.ids.navSettings)
+		harness.settle()
+		handled, err = harness.driver.ShortcutChord(ui.ModifierControl|ui.ModifierShift, 'n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !handled || harness.ui.section != sectionMessages ||
+			!harness.ui.compose.open || harness.ui.compose.mode != "create" {
+			t.Fatal("Ctrl+Shift+N did not open group creation from settings")
+		}
+	})
+}
+
+func TestCtrlEnterDoesNotSendDuringIMEComposition(t *testing.T) {
+	state := shellTestState(t)
+	state.Settings.SendKey = "Ctrl+Enter"
+	harness := newShellTestHarness(t, state)
+	harness.clickID(harness.ui.ids.chatEditor)
+	if err := harness.driver.Type("第一行"); err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.driver.Compose("ni"); err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.driver.Key(ui.KeyEnter, ui.ModifierControl); err != nil {
+		t.Fatal(err)
+	}
+	if hasCommandKind(harness.backend.commandLog(), domain.SendText) {
+		t.Fatal("Ctrl+Enter submitted text while the IME was composing")
+	}
+	if err := harness.driver.Type("你"); err != nil {
+		t.Fatal(err)
+	}
+	if got := harness.ui.chatEditor.String(); got != "第一行你" {
+		t.Fatalf("committed editor text = %q", got)
+	}
+	if err := harness.driver.Key(ui.KeyEnter, ui.ModifierControl); err != nil {
+		t.Fatal(err)
+	}
+	command := harness.lastCommand()
+	if command.Kind != domain.SendText || command.Text != "第一行你" {
+		t.Fatalf("Ctrl+Enter send command = %+v", command)
+	}
+}
+
+func TestUnreadStaysWhileScrolledAwayOrSearching(t *testing.T) {
+	t.Run("scrolled away", func(t *testing.T) {
+		state := shellStateWithReadConversation(t)
+		now := time.Now()
+		for index := 0; index < 30; index++ {
+			state.Messages = append(state.Messages, domain.Message{
+				ID: "scroll-" + intString(index), ConversationID: "conv-group",
+				SenderID: "peer-a", Kind: "text", Text: "历史消息 " + intString(index),
+				CreatedAt: now.Add(-time.Duration(30-index) * time.Minute),
+			})
+		}
+		harness := newShellTestHarness(t, state)
+		chat := harness.ui.lastChat
+		if err := harness.driver.Scroll(ui.ScrollEvent{
+			X: chat.X + chat.Width/2, Y: chat.Y + 300, DeltaY: -600, Precise: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if scroll := harness.ui.chatView.ScrollState(harness.ui.ids.chatMessages); scroll == nil || scroll.AtEnd() {
+			t.Fatal("the test chat did not scroll away from its live edge")
+		}
+
+		state.Conversations[0].Unread = 4
+		state.Revision++
+		harness.publish(state)
+		if commands := markReadCommands(harness); len(commands) != 0 {
+			t.Fatalf("a scrolled-away conversation was marked read: %+v", commands)
+		}
+
+		if err := harness.driver.Scroll(ui.ScrollEvent{
+			X: chat.X + chat.Width/2, Y: chat.Y + 300, DeltaY: 5000, Precise: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if commands := markReadCommands(harness); len(commands) != 1 {
+			t.Fatalf("returning to the live edge did not mark the chat read: %+v", commands)
+		}
+	})
+
+	t.Run("active search", func(t *testing.T) {
+		state := shellStateWithReadConversation(t)
+		harness := newShellTestHarness(t, state)
+		if _, err := harness.driver.ShortcutChord(ui.ModifierControl, 'f'); err != nil {
+			t.Fatal(err)
+		}
+		if err := harness.driver.Type("核对"); err != nil {
+			t.Fatal(err)
+		}
+		state.Conversations[0].Unread = 2
+		state.Revision++
+		harness.publish(state)
+		if commands := markReadCommands(harness); len(commands) != 0 {
+			t.Fatalf("an active conversation filter marked unseen messages read: %+v", commands)
+		}
+	})
+}
+
+func TestRailBadgesUpdateInSettings(t *testing.T) {
+	state := shellTestState(t)
+	state.Conversations[1].Unread = 3
+	state.Transfers = append(state.Transfers, domain.Transfer{
+		ID: "transfer-2", FileID: "file-1", ConversationID: "conv-group", PeerID: "peer-b",
+		Direction: "send", Status: "verifying", Name: "设计素材.zip", Size: 100, Done: 100,
+	})
+	harness := newShellTestHarness(t, state)
+	harness.clickID(harness.ui.ids.navSettings)
+	harness.settle()
+
+	messages, ok := harness.findHit(harness.ui.ids.navMessages)
+	if !ok || !strings.Contains(messages.Label, "5 条未读") {
+		t.Fatalf("messages rail label = %q, want five unread", messages.Label)
+	}
+	transfers, ok := harness.findHit(harness.ui.ids.navTransfers)
+	if !ok || !strings.Contains(transfers.Label, "2 个文件任务未完成") {
+		t.Fatalf("transfers rail label = %q, want two active transfers", transfers.Label)
+	}
+
+	state.Conversations[0].Unread = 4
+	state.Transfers[1].Status = "completed"
+	state.Revision++
+	harness.publish(state)
+	messages, _ = harness.findHit(harness.ui.ids.navMessages)
+	transfers, _ = harness.findHit(harness.ui.ids.navTransfers)
+	if !strings.Contains(messages.Label, "7 条未读") ||
+		!strings.Contains(transfers.Label, "1 个文件任务未完成") {
+		t.Fatalf("settings rail badges did not update: messages=%q transfers=%q",
+			messages.Label, transfers.Label)
+	}
+}
+
+func TestClipboardImagePasteReportsFailuresAndSendsSuccess(t *testing.T) {
+	t.Run("driver image success", func(t *testing.T) {
+		harness := newShellTestHarness(t, shellTestState(t))
+		pngPath := writeExtraTestPNG(t, "clipboard.png")
+		data, err := os.ReadFile(pngPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := harness.driver.SetClipboardImage(data); err != nil {
+			t.Fatal(err)
+		}
+		cache := t.TempDir()
+		harness.ui.clipboardCacheDir = func() (string, error) { return cache, nil }
+		harness.clickID(harness.ui.ids.chatEditor)
+		if _, err := harness.driver.ShortcutChord(ui.ModifierControl, 'v'); err != nil {
+			t.Fatal(err)
+		}
+		command := harness.lastCommand()
+		if command.Kind != domain.SendFiles || len(command.Paths) != 1 {
+			t.Fatalf("clipboard-image command = %+v", command)
+		}
+		if _, err := os.Stat(command.Paths[0]); err != nil {
+			t.Fatalf("clipboard image was not written: %v", err)
+		}
+	})
+
+	t.Run("read failure", func(t *testing.T) {
+		harness := newShellTestHarness(t, shellTestState(t))
+		harness.ui.clipboardImage = func() ([]byte, error) {
+			return nil, errors.New("unsupported clipboard image")
+		}
+		harness.clickID(harness.ui.ids.chatEditor)
+		if _, err := harness.driver.ShortcutChord(ui.ModifierControl, 'v'); err != nil {
+			t.Fatal(err)
+		}
+		command := harness.lastCommand()
+		if command.Kind != domain.ReportError || !strings.Contains(command.Text, "unsupported clipboard image") {
+			t.Fatalf("clipboard read failure was silent: %+v", command)
+		}
+	})
+
+	t.Run("cache failure", func(t *testing.T) {
+		harness := newShellTestHarness(t, shellTestState(t))
+		pngPath := writeExtraTestPNG(t, "clipboard-cache.png")
+		data, err := os.ReadFile(pngPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		notDirectory := filepath.Join(t.TempDir(), "not-a-directory")
+		if err := os.WriteFile(notDirectory, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		harness.ui.clipboardImage = func() ([]byte, error) { return data, nil }
+		harness.ui.clipboardCacheDir = func() (string, error) { return notDirectory, nil }
+		harness.clickID(harness.ui.ids.chatEditor)
+		if _, err := harness.driver.ShortcutChord(ui.ModifierControl, 'v'); err != nil {
+			t.Fatal(err)
+		}
+		command := harness.lastCommand()
+		if command.Kind != domain.ReportError || !strings.Contains(command.Text, "缓存目录") {
+			t.Fatalf("clipboard cache failure was silent: %+v", command)
+		}
+	})
+}
+
 func TestDecodeBitmapUsesPremultipliedBGRA(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "avatar.png")
 	source := image.NewNRGBA(image.Rect(0, 0, 1, 1))
@@ -853,6 +1493,64 @@ func TestDecodeBitmapUsesPremultipliedBGRA(t *testing.T) {
 	want := []byte{byte(blue >> 8), byte(green >> 8), byte(red >> 8), byte(alpha >> 8)}
 	if !slices.Equal(bitmap.Pix, want) {
 		t.Fatalf("bitmap pixel = %v, want premultiplied BGRA %v", bitmap.Pix, want)
+	}
+}
+
+func writePNGHeader(t *testing.T, width, height uint32) string {
+	t.Helper()
+	chunk := func(name string, payload []byte) []byte {
+		data := make([]byte, 0, len(name)+len(payload))
+		data = append(data, name...)
+		data = append(data, payload...)
+		out := make([]byte, 8, 12+len(data))
+		binary.BigEndian.PutUint32(out[:4], uint32(len(payload)))
+		copy(out[4:8], name)
+		out = append(out, payload...)
+		var checksum [4]byte
+		binary.BigEndian.PutUint32(checksum[:], crc32.ChecksumIEEE(data))
+		return append(out, checksum[:]...)
+	}
+	header := make([]byte, 13)
+	binary.BigEndian.PutUint32(header[0:4], width)
+	binary.BigEndian.PutUint32(header[4:8], height)
+	header[8] = 8 // bit depth
+	header[9] = 2 // RGB
+	content := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	content = append(content, chunk("IHDR", header)...)
+	content = append(content, chunk("IEND", nil)...)
+	path := filepath.Join(t.TempDir(), "oversized-header.png")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestDecodeBitmapRejectsOversizedPNGHeaderBeforeDecode(t *testing.T) {
+	path := writePNGHeader(t, 100_000, 100_000)
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := image.DecodeConfig(file)
+	file.Close()
+	if err != nil {
+		t.Fatalf("crafted PNG header is not decodable configuration: %v", err)
+	}
+	if config.Width != 100_000 || config.Height != 100_000 {
+		t.Fatalf("crafted PNG header config = %dx%d", config.Width, config.Height)
+	}
+	if _, ok := decodeBitmap(path, 512); ok {
+		t.Fatal("decodeBitmap accepted a pixel configuration above its safety limit")
+	}
+}
+
+func TestDecodeBitmapRejectsOversizedCompressedInput(t *testing.T) {
+	path := writeExtraTestPNG(t, "large-input.png")
+	if err := os.Truncate(path, maxImageFileBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := decodeBitmap(path, 512); ok {
+		t.Fatal("decodeBitmap opened a file above its byte safety limit")
 	}
 }
 
@@ -896,6 +1594,34 @@ func TestShellScreenshotQA(t *testing.T) {
 	}
 
 	shot("group-chat-light.png")
+	click(shell.ids.chatHeaderSearch)
+	click(shell.ids.chatSearchField)
+	if err := session.Driver().Type("zip"); err != nil {
+		t.Fatal(err)
+	}
+	click(shell.ids.sidebarSearch)
+	shot("chat-search.png")
+	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+		t.Fatal(err)
+	}
+	click(shell.ids.profileAvatar)
+	shot("profile-editor.png")
+	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+		t.Fatal(err)
+	}
+	click(shell.ids.chatEmoji)
+	shot("emoji-picker.png")
+	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+		t.Fatal(err)
+	}
+	click(shell.ids.chatEditor)
+	if err := session.Driver().Type("@"); err != nil {
+		t.Fatal(err)
+	}
+	shot("mention-autocomplete.png")
+	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+		t.Fatal(err)
+	}
 	click(shell.ids.chatHeaderMembers)
 	shot("group-members.png")
 	click(shell.memberMenuIDs["peer-a"])
@@ -936,6 +1662,42 @@ func TestShellScreenshotQA(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := darkSession.Screenshot(filepath.Join(directory, "group-chat-dark.png")); err != nil {
+		t.Fatal(err)
+	}
+
+	minimumBackend := newShellTestBackend(shellTestState(t))
+	minimumShell := New(minimumBackend)
+	minimumConfig := minimumShell.Config()
+	minimumConfig.Width, minimumConfig.Height = 1000, 700
+	minimumSession, err := vivaheadless.Open(minimumConfig, nil, vivaheadless.Options{Scale: 1})
+	if err != nil {
+		minimumShell.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(minimumSession.Close)
+	t.Cleanup(minimumShell.Close)
+	clickMinimum := func(id ui.ID) {
+		t.Helper()
+		for _, hit := range minimumSession.Snapshot().Hits {
+			if hit.ID == id {
+				if err := minimumSession.Click(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+		}
+		t.Fatalf("control %v is not on screen at the minimum window size", id)
+	}
+	clickMinimum(minimumShell.ids.chatHeaderSearch)
+	clickMinimum(minimumShell.ids.chatSearchField)
+	if err := minimumSession.Driver().Type("zip"); err != nil {
+		t.Fatal(err)
+	}
+	clickMinimum(minimumShell.ids.sidebarSearch)
+	if err := minimumSession.Wait(700 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if err := minimumSession.Screenshot(filepath.Join(directory, "minimum-window-search.png")); err != nil {
 		t.Fatal(err)
 	}
 }

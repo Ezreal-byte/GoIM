@@ -226,7 +226,7 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 					f.Row().Grow(1).Height(theme.Metrics.ControlHeight).PadX(10).
 						Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl).
 						Clip().Items(flex.Center).Children(func() {
-						f.Text(display).FontSize(theme.Metrics.FontSizeS + 1).Ellipsis()
+						f.Text(display).FontSize(theme.Metrics.FontSizeS + 1).Grow(1).Ellipsis()
 					})
 					if f.Button(p.ids.settingsChooseDir, "更改…").Small().Outline().Clicked() {
 						p.chooseDownloadDirectory(f.Canvas(), submit, state)
@@ -267,7 +267,10 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 
 	panelSectionGap(f)
 	panelSection(f, "局域网", "", func() {
-		description := "切换网络可能影响进行中的传输"
+		description := "进行中的传输不会因网络切换而中断"
+		if settings.PendingNetwork != "" {
+			description = "传输结束后将切换至 " + p.networkName(settings.PendingNetwork)
+		}
 		if p.networkReadError != "" {
 			description += "；无法读取网络接口：" + p.networkReadError
 		} else if state.ListenAddress != "" {
@@ -283,10 +286,18 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 					if value == "" {
 						value = "auto"
 					}
-					p.submitString(submit, state, "network", value)
+					p.chooseNetwork(submit, state, value, labels[index])
+				}
+				if f.Button(p.ids.settingsRefreshNet, "刷新网络适配器").Small().Ghost().Clicked() {
+					p.networkSelect.Open = false
+					p.networkChange = panelNetworkChange{}
+					p.refreshNetworks()
 				}
 			})
 		})
+		if p.networkChange.value != "" {
+			p.drawNetworkChangeConfirmation(f, theme, submit, state)
+		}
 	})
 
 	panelSectionGap(f)
@@ -303,6 +314,27 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 				}
 			})
 		})
+	})
+}
+
+func (p *Panels) drawNetworkChangeConfirmation(f *flex.Frame, theme ui.Theme, submit func(domain.Command), state domain.State) {
+	change := p.networkChange
+	text := fmt.Sprintf(
+		"有 %d 个传输正在进行。切换到“%s”将等待这些传输结束后生效；首期不中断当前任务，如需立即切换请先取消相关传输。",
+		change.active, change.label,
+	)
+	f.Row().FillWidth().PadSides(10, 12, 10, 12).Gap(12).Items(flex.Center).
+		Background(panelTint(theme.Primary, 0.06, theme.Background)).
+		Border(1, panelTint(theme.Primary, 0.20, theme.Background)).Radius(8).Children(func() {
+		f.Paragraph(text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1)
+		if f.Button(p.ids.networkCancel, "取消更改").Small().Ghost().Clicked() {
+			p.networkChange = panelNetworkChange{}
+		}
+		if f.Button(p.ids.networkDefer, "传输结束后切换").Small().Clicked() {
+			value := change.value
+			p.networkChange = panelNetworkChange{}
+			p.submitString(submit, state, "network", value)
+		}
 	})
 }
 
@@ -583,7 +615,7 @@ func panelWritableDirectory(path string) error {
 
 const panelLicenseText = `GoIM 应用许可证
 
-本源码树尚未包含 GoIM 应用自身的 LICENSE 文件，因此当前构建不声明应用级开源许可证。正式分发前应由项目所有者补充应用许可证。
+GoIM — MIT License，Copyright (c) 2026 Ezreal-byte。完整许可与第三方声明随应用压缩包提供。
 
 第三方组件
 

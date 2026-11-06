@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,7 @@ type panelTestHarness struct {
 	panels   *Panels
 	tree     ui.Tree
 	driver   *app.Driver
+	wake     app.Invalidator
 	module   string
 	state    domain.State
 	theme    ui.Theme
@@ -55,6 +57,7 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 		bounds: bounds,
 	}
 	h.panels.Init(&h.tree)
+	h.panels.OnWake(state)
 	driver, err := app.NewDriver(app.Config{
 		Title:  "panel driver test",
 		Width:  int(bounds.X + bounds.Width),
@@ -63,10 +66,12 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 		Paint: func(canvas *ui.Canvas, _ ui.Size) {
 			h.panels.Draw(canvas, h.theme, h.bounds, h.module, h.state, h.submit)
 		},
-		OnKey:      h.panels.Key,
-		OnShortcut: h.panels.Shortcut,
-		OnScroll:   h.panels.Wheel,
-		TextInput:  h.panels.TextInput(),
+		OnKey:       h.panels.Key,
+		OnShortcut:  h.panels.Shortcut,
+		OnScroll:    h.panels.Wheel,
+		TextInput:   h.panels.TextInput(),
+		OnWake:      func() { h.panels.OnWake(h.state) },
+		Invalidator: &h.wake,
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -82,6 +87,24 @@ func (h *panelTestHarness) submit(command domain.Command) {
 
 func (h *panelTestHarness) clearCommands() {
 	h.commands = nil
+}
+
+func (h *panelTestHarness) publish(state domain.State) {
+	h.t.Helper()
+	h.state = state
+	h.wake.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func (h *panelTestHarness) showModule(module string) {
+	h.t.Helper()
+	h.module = module
+	h.wake.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 func (h *panelTestHarness) findHit(id ui.ID) (ui.Hit, bool) {
@@ -126,6 +149,37 @@ func (h *panelTestHarness) requireLastCommand() domain.Command {
 		h.t.Fatal("no command was submitted")
 	}
 	return h.commands[len(h.commands)-1]
+}
+
+func (h *panelTestHarness) requireLayout() {
+	h.t.Helper()
+	snapshot := h.driver.Snapshot()
+	for _, hit := range snapshot.Hits {
+		if hit.Bounds.X < h.bounds.X-0.01 ||
+			hit.Bounds.Y < h.bounds.Y-0.01 ||
+			hit.Bounds.X+hit.Bounds.Width > h.bounds.X+h.bounds.Width+0.01 ||
+			hit.Bounds.Y+hit.Bounds.Height > h.bounds.Y+h.bounds.Height+0.01 {
+			h.t.Fatalf("control %v is drawn outside supplied bounds: %+v, bounds %+v",
+				hit.ID, hit.Bounds, h.bounds)
+		}
+	}
+	for _, problem := range vivaheadless.CheckLayout(snapshot) {
+		if problem.Kind != vivaheadless.LayoutClipped {
+			h.t.Fatalf("layout %s at %+v for %q: %s",
+				problem.Kind, problem.Bounds, problem.Text, problem.Detail)
+		}
+	}
+}
+
+func (h *panelTestHarness) requireDisabled(id ui.ID) {
+	h.t.Helper()
+	hit, ok := h.findHit(id)
+	if !ok {
+		h.t.Fatalf("control %v is not on screen", id)
+	}
+	if !hit.Disabled {
+		h.t.Fatalf("control %v is not disabled", id)
+	}
 }
 
 func TestPanelSettingsLayoutAndCategorySwitch(t *testing.T) {
@@ -288,6 +342,126 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 	command = h.requireLastCommand()
 	if command.Kind != domain.SetSetting || command.Setting != "network" || command.Value != "auto" {
 		t.Fatalf("network command = %+v", command)
+	}
+}
+
+func TestPanelSettingsRefreshesNetworkAdaptersOnEntryAndRequest(t *testing.T) {
+	state := panelTestDefaultState(t)
+	h := panelTestNewHarnessBounds(t, panelModuleTransfers, state, ui.Rect{
+		X: 68, Y: 0, Width: 1372, Height: 1500,
+	})
+
+	adapters := []net.Interface{{Name: "Panel Ethernet", Flags: net.FlagUp}}
+	calls := 0
+	h.panels.listNetworks = func() ([]net.Interface, error) {
+		calls++
+		return append([]net.Interface(nil), adapters...), nil
+	}
+	h.panels.refreshNetworks()
+	if calls != 1 || len(h.panels.networks) != 1 {
+		t.Fatalf("initial adapter refresh: calls=%d networks=%+v", calls, h.panels.networks)
+	}
+
+	h.publish(state)
+	if calls != 1 {
+		t.Fatalf("an ordinary repaint re-enumerated adapters: calls=%d", calls)
+	}
+
+	adapters = append(adapters, net.Interface{Name: "Panel Wi-Fi", Flags: net.FlagUp})
+	h.showModule(panelModuleSettings)
+	if calls != 2 {
+		t.Fatalf("entering Settings did not refresh adapters: calls=%d", calls)
+	}
+	if len(h.panels.networkValues) != 3 ||
+		h.panels.networkValues[1] != "Panel Ethernet" ||
+		h.panels.networkValues[2] != "Panel Wi-Fi" {
+		t.Fatalf("adapter change was not reflected after Settings entry: %+v", h.panels.networkValues)
+	}
+	h.requireLayout()
+
+	adapters = adapters[:1]
+	h.click(h.panels.ids.settingsRefreshNet)
+	if calls != 3 {
+		t.Fatalf("explicit refresh did not enumerate adapters: calls=%d", calls)
+	}
+	if len(h.panels.networks) != 1 || h.panels.networks[0].value != "Panel Ethernet" {
+		t.Fatalf("removed adapter remained listed: %+v", h.panels.networks)
+	}
+	h.requireLayout()
+}
+
+func TestPanelSettingsDefersNetworkChangeDuringTransfers(t *testing.T) {
+	state := panelTestDefaultState(t)
+	state.Transfers = []domain.Transfer{
+		{ID: "active-send", Direction: "send", Status: "transferring", Name: "a.bin", Size: 100, Done: 10},
+		{ID: "active-receive", Direction: "receive", Status: "verifying", Name: "b.bin", Size: 100, Done: 100},
+	}
+	h := panelTestNewHarnessBounds(t, panelModuleSettings, state, ui.Rect{
+		X: 68, Y: 0, Width: 932, Height: 1800,
+	})
+	h.panels.listNetworks = func() ([]net.Interface, error) {
+		return []net.Interface{
+			{Name: "Alpha", Flags: net.FlagUp},
+			{Name: "Beta", Flags: net.FlagUp},
+		}, nil
+	}
+	h.panels.refreshNetworks()
+	h.publish(state)
+	if len(h.panels.networkValues) != 3 {
+		t.Fatalf("network choices = %+v", h.panels.networkValues)
+	}
+
+	choose := func(index int) {
+		t.Helper()
+		h.clearCommands()
+		h.click(h.panels.ids.networkChoice.At(len(h.panels.networkValues)))
+		h.click(h.panels.ids.networkChoice.At(index))
+	}
+	choose(2)
+	if len(h.commands) != 0 {
+		t.Fatalf("an active transfer allowed an immediate network command: %+v", h.commands)
+	}
+	if h.panels.networkChange.value != "Beta" ||
+		!h.hasText("有 2 个传输正在进行") ||
+		!h.hasText("如需立即切换请先取消相关传输") ||
+		!h.hasText("传输结束后切换") {
+		t.Fatalf("network mediation prompt is incomplete: %+v", h.panels.networkChange)
+	}
+	h.requireLayout()
+
+	h.click(h.panels.ids.networkCancel)
+	if h.panels.networkChange.value != "" || len(h.commands) != 0 {
+		t.Fatalf("canceling the network change submitted work: %+v", h.commands)
+	}
+
+	choose(2)
+	h.click(h.panels.ids.networkDefer)
+	command := h.requireLastCommand()
+	if command.Kind != domain.SetSetting || command.Setting != "network" || command.Value != "Beta" {
+		t.Fatalf("deferred network command = %+v", command)
+	}
+
+	state.Settings.Network = "auto"
+	state.Settings.PendingNetwork = "Beta"
+	state.Revision++
+	h.publish(state)
+	if !h.hasText("传输结束后将切换至 Beta · 已连接") {
+		t.Fatal("pending network was not shown as deferred")
+	}
+	if state.Settings.Network != "auto" {
+		t.Fatalf("UI applied the pending network locally: %+v", state.Settings)
+	}
+
+	state.Transfers = nil
+	state.Settings.PendingNetwork = ""
+	state.Revision++
+	h.publish(state)
+	h.clearCommands()
+	h.click(h.panels.ids.networkChoice.At(len(h.panels.networkValues)))
+	h.click(h.panels.ids.networkChoice.At(1))
+	command = h.requireLastCommand()
+	if command.Kind != domain.SetSetting || command.Setting != "network" || command.Value != "Alpha" {
+		t.Fatalf("idle network command = %+v", command)
 	}
 }
 
@@ -596,4 +770,91 @@ func TestPanelSharesAddFilterGetRemoveAndOpen(t *testing.T) {
 	if command.Kind != domain.RefreshShares {
 		t.Fatalf("refresh-shares command = %+v", command)
 	}
+}
+
+func TestPanelSharesUseWakeCachedTransferPathsAndUnavailableOwnFiles(t *testing.T) {
+	root := t.TempDir()
+	ownPath := filepath.Join(root, "deleted-own.txt")
+	oldPath := filepath.Join(root, "old-receive.txt")
+	latestPath := filepath.Join(root, "latest-receive.txt")
+	for _, path := range []string{ownPath, oldPath, latestPath} {
+		if err := os.WriteFile(path, []byte("shared"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Remove(ownPath); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	state := panelTestDefaultState(t)
+	state.Peers = []domain.Peer{{ID: "peer-a", Name: "Alice"}}
+	state.Files = []domain.File{
+		{ID: "own-deleted", Name: "deleted-own.txt", SenderID: "self", SourcePath: ownPath, Shared: true, CreatedAt: now},
+		{ID: "remote-received", Name: "latest-receive.txt", SenderID: "peer-a", Shared: true, CreatedAt: now.Add(-time.Minute)},
+	}
+	state.Transfers = []domain.Transfer{
+		{
+			ID: "old-receive", FileID: "remote-received", PeerID: "peer-a",
+			Direction: "receive", Status: "completed", Path: oldPath, UpdatedAt: now.Add(-2 * time.Minute),
+		},
+		{
+			ID: "latest-receive", FileID: "remote-received", PeerID: "peer-a",
+			Direction: "receive", Status: "completed", Path: latestPath, UpdatedAt: now.Add(-time.Minute),
+		},
+	}
+	state.Revision = 2
+	h := panelTestNewHarness(t, panelModuleShares, state)
+	h.requireLayout()
+
+	remoteIndex := panelTestShareIndex(h.panels.sharesAll, "remote-received")
+	if remoteIndex < 0 {
+		t.Fatal("remote shared file is missing")
+	}
+	remote := h.panels.sharesAll[remoteIndex]
+	if remote.path != latestPath || !remote.available || remote.state != "本地文件可用" {
+		t.Fatalf("remote completed receive was not resolved to the latest path: %+v", remote)
+	}
+	ownIndex := panelTestShareIndex(h.panels.sharesAll, "own-deleted")
+	if ownIndex < 0 {
+		t.Fatal("own shared file is missing")
+	}
+	own := h.panels.sharesAll[ownIndex]
+	if own.path != ownPath || own.available || own.state != "源文件当前不可用" {
+		t.Fatalf("deleted own share availability = %+v", own)
+	}
+
+	h.click(h.panels.ids.sharesFilters.At(panelSharesRemote))
+	h.click(h.panels.ids.shareOpen.At(0))
+	if path, ok := h.driver.LastOpenedPath(); !ok || path != latestPath {
+		t.Fatalf("opened remote share = %q, observed %v", path, ok)
+	}
+
+	h.click(h.panels.ids.sharesFilters.At(panelSharesMine))
+	h.requireDisabled(h.panels.ids.shareOpen.At(0))
+	h.requireDisabled(h.panels.ids.shareReveal.At(0))
+	if !h.hasText("源文件当前不可用") {
+		t.Fatal("deleted own share still appears available")
+	}
+
+	h.click(h.panels.ids.sharesFilters.At(panelSharesRemote))
+	if err := os.Remove(latestPath); err != nil {
+		t.Fatal(err)
+	}
+	h.click(h.panels.ids.shareReveal.At(0))
+	if path, ok := h.driver.LastRevealedPath(); ok {
+		t.Fatalf("missing file was revealed at stale cached path %q", path)
+	}
+	if !strings.Contains(h.panels.localError, "本地文件不可用") {
+		t.Fatalf("opening a stale cached path did not report an error: %q", h.panels.localError)
+	}
+
+	state.Revision++
+	h.publish(state)
+	h.requireDisabled(h.panels.ids.shareOpen.At(0))
+	h.requireDisabled(h.panels.ids.shareReveal.At(0))
+	if !h.hasText("本地文件已不可用") {
+		t.Fatal("deleted received file was not marked unavailable on wake")
+	}
+	h.requireLayout()
 }

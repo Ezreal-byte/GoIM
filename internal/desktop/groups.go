@@ -40,6 +40,9 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 		InitialFocusID: u.ids.memberSearch, ButtonSize: components.ButtonSizeSmall,
 	})
 	layout := drawer.Begin("群聊信息", group.Name)
+	if u.renameOpen && u.renameGroupID != "" && u.renameGroupID != group.ID {
+		u.resetGroupRename()
+	}
 	if u.memberMenu != "" && !containsString(group.Members, u.memberMenu) {
 		u.memberMenu = ""
 	}
@@ -61,6 +64,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 					edit := u.iconButton(f, u.ids.memberStartRename, u.iconPencil, "修改群名", 30)
 					if edit.Clicked() {
 						u.renameOpen = true
+						u.renameGroupID = group.ID
 						u.renameField.SetText(group.Name)
 						u.memberMenu = ""
 					}
@@ -70,7 +74,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 				f.Row().Height(38).Items(flex.Center).Gap(8).Children(func() {
 					field := f.Field(&u.renameField, u.ids.memberRename, "群名称", "群名称").Height(36).Grow(1)
 					if f.Button(u.ids.memberCancelRename, "取消").XSmall().Outline().Clicked() {
-						u.renameOpen = false
+						u.resetGroupRename()
 					}
 					if f.Button(u.ids.memberSaveRename, "保存").XSmall().Clicked() ||
 						field.Submitted() {
@@ -96,8 +100,8 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 				members := orderedMembers(u, group)
 				shown := 0
 				for _, peer := range members {
-					name := peer.Name
-					if peer.ID == u.state.Self.ID {
+					name := u.groupMemberName(group.ID, peer.ID)
+					if peer.ID == u.state.Self.ID && u.groupNickname(group.ID, peer.ID) == "" {
 						name = "我"
 					}
 					if query != "" && !containsFold(peer.Name, query) && !containsFold(name, query) {
@@ -111,7 +115,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 						}
 						return ui.Color{}
 					}()).HoverBackground(u.palette.hover)
-					if owner && peer.ID != u.state.Self.ID {
+					if peer.ID != u.state.Self.ID {
 						row = row.HitWith(u.memberMenuIDs[peer.ID], peer.Name,
 							ui.HitOptions{Role: ui.RoleButton, Hint: "成员操作"})
 					}
@@ -119,7 +123,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 						menuAnchor = row
 					}
 					row.Children(func() {
-						u.initialsAvatarStatus(f, peer.Name, 36, peerOnline(u, peer.ID))
+						u.avatarStatus(f, name, peer.Avatar, 36, peerOnline(u, peer.ID))
 						f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
 							f.Row().Items(flex.Center).Gap(6).Children(func() {
 								f.Text(name).FontSize(13.5).Weight(ui.WeightMedium).Ellipsis()
@@ -136,7 +140,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 							}
 							f.Text(status).FontSize(10.5).Muted()
 						})
-						if owner && peer.ID != u.state.Self.ID {
+						if peer.ID != u.state.Self.ID {
 							f.Icon(u.iconMore).Size(17, 17).Color(u.palette.secondaryText)
 						}
 					})
@@ -148,25 +152,10 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 				if shown == 0 && query != "" {
 					u.emptyListMessage(f, "没有匹配的成员", "换一个昵称试试。")
 				}
-				if len(group.Pending) > 0 {
-					f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-						f.Text("待确认邀请").FontSize(12).Weight(ui.WeightSemibold)
-						u.badgeText(f, intString(len(group.Pending)), false)
-					})
-					for _, id := range group.Pending {
-						peer := u.state.Peer(id)
-						f.Row().Height(38).PadX(8).Items(flex.Center).Gap(9).Children(func() {
-							f.Stack().Size(24, 24).Radius(12).Background(u.palette.mutedAvatar).
-								Children(func() {
-									f.Text(initialOf(peer.Name)).FontSize(10).Muted().TextCenter()
-								})
-							f.Text(peer.Name).FontSize(12).Grow(1).Ellipsis()
-							f.Text("待确认").FontSize(10.5).Muted()
-						})
-					}
-				}
+				u.drawGroupInvitations(f, group, owner)
 			})
 			f.Divider()
+			u.drawGroupNicknameEditor(f, group)
 			f.Row().Height(36).Items(flex.Center).Children(func() {
 				f.Text("消息免打扰").FontSize(13).Grow(1)
 				if f.Switch(u.ids.memberMuteToggle, conversation.Muted).Label("消息免打扰").Clicked() {
@@ -264,8 +253,7 @@ func (u *UI) drawMemberMenu(canvas *ui.Canvas, viewport ui.Rect, group domain.Gr
 		u.memberProfile = peer.ID
 	case canvas.Clicked(u.memberMessageIDs[peer.ID]):
 		u.memberMenu = ""
-		u.setSection(sectionMessages)
-		u.startChat(peer.ID)
+		u.startDirectFromMembers(peer.ID)
 	case canvas.Clicked(u.memberTransferIDs[peer.ID]):
 		u.memberMenu = ""
 		u.requestTransferOwner(group, peer)
@@ -284,6 +272,7 @@ func (u *UI) drawMemberProfile(canvas *ui.Canvas, viewport ui.Rect) {
 		return
 	}
 	group := u.state.Group(u.state.Conversation(u.selected).GroupID)
+	name := u.groupMemberName(group.ID, peer.ID)
 	role := "群成员"
 	if peer.ID == group.OwnerID {
 		role = "群主"
@@ -304,9 +293,9 @@ func (u *UI) drawMemberProfile(canvas *ui.Canvas, viewport ui.Rect) {
 	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
 		f.Column().Fill().Gap(12).Children(func() {
 			f.Row().Items(flex.Center).Gap(13).Children(func() {
-				u.initialsAvatarStatus(f, peer.Name, 52, peerOnline(u, peer.ID))
+				u.avatarStatus(f, name, peer.Avatar, 52, peerOnline(u, peer.ID))
 				f.Column().Grow(1).Gap(4).Children(func() {
-					f.Text(peer.Name).FontSize(18).Weight(ui.WeightSemibold).Ellipsis()
+					f.Text(name).FontSize(18).Weight(ui.WeightSemibold).Ellipsis()
 					status := "离线"
 					if peerOnline(u, peer.ID) {
 						status = "在线"
@@ -329,10 +318,23 @@ func (u *UI) drawMemberProfile(canvas *ui.Canvas, viewport ui.Rect) {
 	case canvas.Clicked(u.ids.memberProfileDismiss), canvas.Clicked(u.ids.memberProfileClose):
 		u.memberProfile = ""
 	case canvas.Clicked(u.ids.memberProfileTalk):
+		u.startDirectFromMembers(peer.ID)
+	}
+}
+
+func (u *UI) startDirectFromMembers(peerID string) {
+	open := func() {
+		u.memberMenu = ""
+		u.memberProfile = ""
 		u.closeDrawer()
 		u.setSection(sectionMessages)
-		u.startChat(peer.ID)
+		u.startChat(peerID)
 	}
+	if u.groupRenameDirty() {
+		u.requestDiscardGroupRename(open)
+		return
+	}
+	open()
 }
 
 func defaultIfEmpty(value, fallback string) string {
@@ -343,16 +345,20 @@ func defaultIfEmpty(value, fallback string) string {
 }
 
 func (u *UI) saveGroupName(group domain.Group) {
+	if u.renameGroupID != "" && u.renameGroupID != group.ID {
+		u.resetGroupRename()
+		return
+	}
 	name := strings.TrimSpace(u.renameField.Text())
 	if name == "" || name == group.Name {
-		u.renameOpen = false
+		u.resetGroupRename()
 		return
 	}
 	if len([]rune(name)) > 30 {
 		name = string([]rune(name)[:30])
 	}
 	u.submit(domain.Command{Kind: domain.RenameGroup, GroupID: group.ID, Name: name})
-	u.renameOpen = false
+	u.resetGroupRename()
 }
 
 func orderedMembers(u *UI, group domain.Group) []domain.Peer {
@@ -426,11 +432,20 @@ func (u *UI) requestTransferOwner(group domain.Group, peer domain.Peer) {
 }
 
 func (u *UI) requestLeave(group domain.Group) {
+	active := u.groupActiveTransfers(group)
+	body := "退出「" + group.Name + "」后将不再接收新的群消息，本机历史会保留。"
+	title := "退出群聊？"
+	if len(active) > 0 {
+		title = "退出群聊并取消传输？"
+		body += "仍有 " + intString(len(active)) + " 个未完成文件任务（" +
+			u.transferPeerNames(active) + "）；确认后将取消这些任务，其他会话不受影响。"
+	}
 	u.confirm = confirmation{
 		open:  true,
-		title: "退出群聊？",
-		body:  "退出「" + group.Name + "」后将不再接收新的群消息，本机历史会保留。",
+		title: title,
+		body:  body,
 		action: func() {
+			u.cancelTransfers(active)
 			u.submit(domain.Command{Kind: domain.LeaveGroup, GroupID: group.ID})
 			u.closeDrawer()
 		},
@@ -438,14 +453,78 @@ func (u *UI) requestLeave(group domain.Group) {
 }
 
 func (u *UI) requestDissolve(group domain.Group) {
+	active := u.groupActiveTransfers(group)
+	body := "解散「" + group.Name + "」后群将不可再发送消息，本机历史会保留。此操作不可撤销。"
+	title := "解散群聊？"
+	if len(active) > 0 {
+		title = "解散群聊并取消传输？"
+		body += "仍有 " + intString(len(active)) + " 个未完成文件任务（" +
+			u.transferPeerNames(active) + "）；确认后将取消这些任务，其他会话不受影响。"
+	}
 	u.confirm = confirmation{
 		open:  true,
-		title: "解散群聊？",
-		body:  "解散「" + group.Name + "」后群将不可再发送消息，本机历史会保留。此操作不可撤销。",
+		title: title,
+		body:  body,
 		action: func() {
+			u.cancelTransfers(active)
 			u.submit(domain.Command{Kind: domain.DissolveGroup, GroupID: group.ID})
 			u.closeDrawer()
 		},
+	}
+}
+
+func (u *UI) groupActiveTransfers(group domain.Group) []domain.Transfer {
+	var active []domain.Transfer
+	for _, transfer := range u.state.Transfers {
+		if !transferNeedsAttention(transfer) || !u.transferBelongsToGroup(transfer, group.ID) {
+			continue
+		}
+		active = append(active, transfer)
+	}
+	return active
+}
+
+func (u *UI) transferBelongsToGroup(transfer domain.Transfer, groupID string) bool {
+	if groupID == "" {
+		return false
+	}
+	if conversationGroupID(u.state, transfer.ConversationID) == groupID {
+		return true
+	}
+	file := u.state.File(transfer.FileID)
+	return conversationGroupID(u.state, file.ConversationID) == groupID
+}
+
+func conversationGroupID(state domain.State, conversationID string) string {
+	if strings.HasPrefix(conversationID, "group:") {
+		return strings.TrimPrefix(conversationID, "group:")
+	}
+	return state.Conversation(conversationID).GroupID
+}
+
+func (u *UI) transferPeerNames(transfers []domain.Transfer) string {
+	names := make([]string, 0, len(transfers))
+	seen := make(map[string]bool, len(transfers))
+	for _, transfer := range transfers {
+		name := u.state.Peer(transfer.PeerID).Name
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return "无接收者信息"
+	}
+	if len(names) > 4 {
+		return strings.Join(names[:4], "、") + " 等 " + intString(len(names)) + " 人"
+	}
+	return strings.Join(names, "、")
+}
+
+func (u *UI) cancelTransfers(transfers []domain.Transfer) {
+	for _, transfer := range transfers {
+		u.submit(domain.Command{Kind: domain.CancelTransfer, TransferID: transfer.ID})
 	}
 }
 
@@ -455,27 +534,59 @@ func (u *UI) closeDrawer() {
 	u.fileReturn = ""
 	u.memberMenu = ""
 	u.memberProfile = ""
-	u.renameOpen = false
+	u.resetGroupRename()
+	u.nicknameOpen = false
+	u.nicknameGroup = ""
+	u.nicknameErr = ""
 	u.memberSearch.SetText("")
 }
 
 func (u *UI) requestCloseDrawer() {
-	if u.drawer == "members" && u.renameOpen {
-		group := u.state.Group(u.state.Conversation(u.selected).GroupID)
-		name := strings.TrimSpace(u.renameField.Text())
-		if group.ID != "" && name != "" && name != group.Name {
-			u.confirm = confirmation{
-				open:  true,
-				title: "放弃未保存的群名？",
-				body:  "群名修改尚未保存。",
-				action: func() {
-					u.closeDrawer()
-				},
-			}
-			return
-		}
+	if u.groupRenameDirty() {
+		u.requestDiscardGroupRename(u.closeDrawer)
+		return
 	}
 	u.closeDrawer()
+}
+
+func (u *UI) groupRenameDirty() bool {
+	if !u.renameOpen {
+		return false
+	}
+	name := strings.TrimSpace(u.renameField.Text())
+	group := u.state.Group(u.renameGroupID)
+	if group.ID == "" {
+		return name != ""
+	}
+	return name != group.Name
+}
+
+func (u *UI) resetGroupRename() {
+	u.renameOpen = false
+	u.renameGroupID = ""
+	u.renameField.SetText("")
+}
+
+func (u *UI) guardGroupRenameNavigation(next func()) bool {
+	if !u.groupRenameDirty() {
+		return true
+	}
+	u.requestDiscardGroupRename(next)
+	return false
+}
+
+func (u *UI) requestDiscardGroupRename(next func()) {
+	u.confirm = confirmation{
+		open:  true,
+		title: "放弃未保存的群名？",
+		body:  "群名修改尚未保存。",
+		action: func() {
+			u.resetGroupRename()
+			if next != nil {
+				next()
+			}
+		},
+	}
 }
 
 func (u *UI) drawFilesDrawer(canvas *ui.Canvas, viewport ui.Rect) {
@@ -605,7 +716,6 @@ func (u *UI) drawFileList(f *flex.Frame) {
 }
 
 func (u *UI) drawFileDetail(f *flex.Frame, file domain.File) {
-	transfer, hasTransfer := u.primaryFileTransfer(file)
 	f.Column().Fill().Gap(12).Children(func() {
 		if u.fileReturn == "list" {
 			if f.Button(u.ids.fileBack, "返回文件列表").XSmall().Outline().Clicked() {
@@ -649,30 +759,64 @@ func (u *UI) drawFileDetail(f *flex.Frame, file domain.File) {
 				})
 			}
 			for _, entry := range transfers {
-				peer := u.state.Peer(entry.PeerID)
-				f.Row().FillWidth().MinHeight(54).Pad(9).Radius(8).
-					Background(u.palette.incoming).Gap(9).Items(flex.Center).Children(func() {
-					u.initialsAvatarStatus(f, peer.Name, 28, peerOnline(u, peer.ID))
-					f.Column().Grow(1).Gap(3).Children(func() {
-						label := transferPeerLabel(u, entry)
-						f.Text(label).FontSize(12).Weight(ui.WeightMedium).Ellipsis()
-						f.Text(transferStatusText(entry)).FontSize(10.5).Muted().Ellipsis()
-					})
-					if entry.Status == "transferring" || entry.Status == "verifying" {
-						f.Progress(transferFraction(entry)).Width(78).Height(5)
-					}
-				})
+				u.drawTransferRow(f, entry)
 			}
 		})
-		if hasTransfer && transfer.Error != "" {
-			f.Text(transfer.Error).FontSize(11).Color(u.palette.danger).MaxLines(3)
-		}
 		f.Spacer()
-		u.drawFileActions(f, file, transfer, hasTransfer)
+		u.drawFileActions(f, file)
 	})
 }
 
-func (u *UI) drawFileActions(f *flex.Frame, file domain.File, transfer domain.Transfer, hasTransfer bool) {
+func (u *UI) drawTransferRow(f *flex.Frame, transfer domain.Transfer) {
+	peer := u.state.Peer(transfer.PeerID)
+	f.Column().FillWidth().MinHeight(54).Pad(9).Radius(8).
+		Background(u.palette.incoming).Gap(7).Children(func() {
+		f.Row().FillWidth().Items(flex.Center).Gap(9).Children(func() {
+			u.avatarStatus(f, peer.Name, peer.Avatar, 28, peerOnline(u, peer.ID))
+			f.Column().Grow(1).Gap(3).Children(func() {
+				f.Text(transferPeerLabel(u, transfer)).FontSize(12).Weight(ui.WeightMedium).Ellipsis()
+				f.Text(transferStatusText(transfer)).FontSize(10.5).Muted().Ellipsis()
+			})
+			if transferNeedsAttention(transfer) {
+				f.Progress(transferFraction(transfer)).Width(78).Height(5)
+			}
+			u.drawTransferRowActions(f, transfer)
+		})
+	})
+}
+
+func (u *UI) drawTransferRowActions(f *flex.Frame, transfer domain.Transfer) {
+	switch {
+	case transfer.Direction == "receive" && (transfer.Status == "offered" || transfer.Status == "waiting"):
+		if f.Button(u.fileAcceptIDs[transfer.ID], "接收文件").XSmall().Clicked() {
+			u.submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID})
+		}
+		if f.Button(u.fileSaveIDs[transfer.ID], "另存为…").XSmall().Outline().Clicked() {
+			u.chooseTransferDestination(transfer)
+		}
+		if f.Button(u.fileRejectIDs[transfer.ID], "拒绝").XSmall().Outline().Clicked() {
+			u.submit(domain.Command{Kind: domain.RejectTransfer, TransferID: transfer.ID})
+		}
+	case transfer.Direction == "receive" && transferNeedsAttention(transfer):
+		if f.Button(u.fileCancelIDs[transfer.ID], "取消接收").XSmall().Outline().Clicked() {
+			u.submit(domain.Command{Kind: domain.CancelTransfer, TransferID: transfer.ID})
+		}
+	case transfer.Direction != "receive" && transferNeedsAttention(transfer):
+		if f.Button(u.fileCancelIDs[transfer.ID], "取消发送").XSmall().Outline().Clicked() {
+			u.submit(domain.Command{Kind: domain.CancelTransfer, TransferID: transfer.ID})
+		}
+	case transfer.Status == "failed" || transfer.Status == "cancelled" || transfer.Status == "rejected":
+		label := "重试发送"
+		if transfer.Direction == "receive" {
+			label = "重试接收"
+		}
+		if f.Button(u.fileRetryIDs[transfer.ID], label).XSmall().Clicked() {
+			u.submit(domain.Command{Kind: domain.RetryTransfer, TransferID: transfer.ID})
+		}
+	}
+}
+
+func (u *UI) drawFileActions(f *flex.Frame, file domain.File) {
 	localPath := u.fileLocalPath[file.ID]
 	localAvailable := u.fileAvailable[file.ID]
 	f.Row().Height(36).Gap(8).Items(flex.Center).Children(func() {
@@ -684,36 +828,49 @@ func (u *UI) drawFileActions(f *flex.Frame, file domain.File, transfer domain.Tr
 				_ = app.RevealPath(localPath)
 			}
 		}
-		if !hasTransfer {
-			return
-		}
-		switch transfer.Status {
-		case "offered", "waiting":
-			if transfer.Direction == "receive" {
-				if f.Button(u.ids.fileAccept, "接收").Small().Clicked() {
-					u.submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID})
-				}
-				if f.Button(u.ids.fileSave, "另存为…").Small().Outline().Clicked() {
-					u.chooseTransferDestination(transfer)
-				}
-				if f.Button(u.ids.fileReject, "拒绝").Small().Outline().Clicked() {
-					u.submit(domain.Command{Kind: domain.RejectTransfer, TransferID: transfer.ID})
-				}
-			} else {
-				if f.Button(u.ids.fileCancel, "取消发送").Small().Outline().Clicked() {
-					u.submit(domain.Command{Kind: domain.CancelTransfer, TransferID: transfer.ID})
-				}
-			}
-		case "transferring", "verifying":
-			if f.Button(u.ids.fileCancel, "取消传输").Small().Outline().Clicked() {
-				u.submit(domain.Command{Kind: domain.CancelTransfer, TransferID: transfer.ID})
-			}
-		case "failed", "cancelled", "rejected":
-			if f.Button(u.ids.fileRetry, "重试").Small().Clicked() {
-				u.submit(domain.Command{Kind: domain.RetryTransfer, TransferID: transfer.ID})
+		if cancellable := u.fileCancelCount(file.ID); cancellable > 1 {
+			label := "取消全部（" + intString(cancellable) + "）…"
+			if f.Button(u.ids.fileBatchCancel, label).Small().Outline().Clicked() {
+				u.requestBatchCancel(file)
 			}
 		}
 	})
+}
+
+func (u *UI) fileCancelCount(fileID string) int {
+	count := 0
+	for _, transfer := range u.transfersFor[fileID] {
+		if transferNeedsAttention(transfer) {
+			count++
+		}
+	}
+	return count
+}
+
+func (u *UI) requestBatchCancel(file domain.File) {
+	active := u.groupedFileTransfers(file.ID)
+	if len(active) == 0 {
+		return
+	}
+	u.confirm = confirmation{
+		open:  true,
+		title: "取消未完成传输？",
+		body: "将取消 " + intString(len(active)) + " 个文件任务（" +
+			u.transferPeerNames(active) + "）。已完成的文件不会删除，其他会话不受影响。",
+		action: func() {
+			u.cancelTransfers(active)
+		},
+	}
+}
+
+func (u *UI) groupedFileTransfers(fileID string) []domain.Transfer {
+	var active []domain.Transfer
+	for _, transfer := range u.transfersFor[fileID] {
+		if transferNeedsAttention(transfer) {
+			active = append(active, transfer)
+		}
+	}
+	return active
 }
 
 func (u *UI) chooseTransferDestination(transfer domain.Transfer) {
@@ -738,22 +895,6 @@ func (u *UI) chooseTransferDestination(transfer domain.Transfer) {
 		return
 	}
 	u.submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID, Paths: []string{path}})
-}
-
-func (u *UI) primaryFileTransfer(file domain.File) (domain.Transfer, bool) {
-	transfers := u.transfersFor[file.ID]
-	if len(transfers) == 0 {
-		return domain.Transfer{}, false
-	}
-	for _, transfer := range transfers {
-		if file.SenderID != "" && file.SenderID != u.state.Self.ID && transfer.Direction == "receive" {
-			return transfer, true
-		}
-		if file.SenderID == u.state.Self.ID && transfer.Direction == "send" {
-			return transfer, true
-		}
-	}
-	return transfers[0], true
 }
 
 func (u *UI) fileInfoRow(f *flex.Frame, label, value string) {
@@ -1080,7 +1221,7 @@ func (u *UI) drawComposeBody(f *flex.Frame, create bool, group domain.Group) {
 					for _, id := range selected {
 						peer := u.state.Peer(id)
 						f.Row().Height(38).Items(flex.Center).Gap(8).Children(func() {
-							u.initialsAvatarStatus(f, peer.Name, 26, true)
+							u.avatarStatus(f, peer.Name, peer.Avatar, 26, true)
 							f.Text(peer.Name).FontSize(12).Grow(1).Ellipsis()
 							remove := f.Row().Size(24, 24).Radius(6).Items(flex.Center).
 								Justify(flex.Center).HoverBackground(u.palette.hover).
@@ -1172,7 +1313,7 @@ func (u *UI) drawComposeCandidates(f *flex.Frame, create bool, group domain.Grou
 			}
 			var checkbox flex.Box
 			row.Children(func() {
-				u.initialsAvatarStatus(f, peer.Name, 30, peer.Online)
+				u.avatarStatus(f, peer.Name, peer.Avatar, 30, peer.Online)
 				f.Column().Grow(1).Gap(2).Justify(flex.Center).Children(func() {
 					f.Text(peer.Name).FontSize(12.5).Weight(ui.WeightMedium).Ellipsis()
 					status := "在线"

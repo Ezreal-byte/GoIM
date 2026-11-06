@@ -243,21 +243,25 @@ func (p *Panels) drawShareRow(f *flex.Frame, theme ui.Theme, index int, entry pa
 			}
 		})
 
-		if entry.file.SourcePath != "" {
+		if entry.path != "" {
 			f.Row().FillWidth().Gap(7).Items(flex.Center).Children(func() {
 				f.Icon(panelIconFolder).Size(14, 14).Color(theme.MutedForeground)
-				f.Text(entry.file.SourcePath).FontSize(theme.Metrics.FontSizeS).Muted().Ellipsis().Grow(1)
+				f.Text(entry.path).FontSize(theme.Metrics.FontSizeS).Muted().Ellipsis().Grow(1)
 			})
 		}
 
 		f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
 			f.Spacer()
-			if entry.file.SourcePath != "" {
-				if f.Button(p.ids.shareOpen.At(index), "打开").Small().Outline().Clicked() {
-					panelOpenLocal(f.Canvas(), p, entry.file.SourcePath, false)
+			if entry.path != "" {
+				open := f.Button(p.ids.shareOpen.At(index), "打开").Small().Outline().
+					Disabled(!entry.available)
+				if open.Clicked() && entry.available {
+					panelOpenLocal(f.Canvas(), p, entry.path, false)
 				}
-				if f.Button(p.ids.shareReveal.At(index), "打开文件夹").Small().Outline().Clicked() {
-					panelOpenLocal(f.Canvas(), p, entry.file.SourcePath, true)
+				reveal := f.Button(p.ids.shareReveal.At(index), "打开文件夹").Small().Outline().
+					Disabled(!entry.available)
+				if reveal.Clicked() && entry.available {
+					panelOpenLocal(f.Canvas(), p, entry.path, true)
 				}
 			}
 			if entry.own {

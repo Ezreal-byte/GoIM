@@ -76,8 +76,12 @@ func Run(backend domain.Backend) error {
 		config := shell.Config()
 		config.Icon = icon
 		config.Class = "GoIM.Desktop"
+		config.OnMinimize = func(minimized bool) { shell.SetWindowVisible(!minimized && (r.window == nil || !r.window.Hidden())) }
 		wake := config.OnWake
 		config.OnWake = func() {
+			if r.window != nil {
+				shell.SetWindowVisible(!r.window.Hidden() && !r.window.Minimized())
+			}
 			if wake != nil {
 				wake()
 			}
@@ -85,6 +89,7 @@ func Run(backend domain.Backend) error {
 		}
 		config.OnCloseRequest = func(allow func()) {
 			if shell.state.Settings.CloseToTray && r.tray != nil {
+				shell.SetWindowVisible(false)
 				r.window.Hide()
 				return
 			}
@@ -107,8 +112,9 @@ func Run(backend domain.Backend) error {
 			return err
 		}
 		r.window = window
-		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: "GoIM · 局域网即时通讯", Icon: icon.StatusIcon(32), OnClick: func(app.StatusClick) { window.Show() }, Menu: func() []app.MenuItem {
-			return []app.MenuItem{{Title: "打开 GoIM", OnSelect: window.Show}, {Separator: true}, {Title: "退出 GoIM", OnSelect: func() {
+		show := func() { shell.SetWindowVisible(true); window.Show() }
+		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: "GoIM · 局域网即时通讯", Icon: icon.StatusIcon(32), OnClick: func(app.StatusClick) { show() }, Menu: func() []app.MenuItem {
+			return []app.MenuItem{{Title: "打开 GoIM", OnSelect: show}, {Separator: true}, {Title: "退出 GoIM", OnSelect: func() {
 				active := false
 				for _, t := range shell.state.Transfers {
 					if t.Status == "transferring" || t.Status == "verifying" {
@@ -116,7 +122,7 @@ func Run(backend domain.Backend) error {
 					}
 				}
 				if active {
-					window.Show()
+					show()
 					shell.confirm = confirmation{open: true, title: "退出 GoIM？", body: "进行中的文件传输将中断，重新连接后可继续。", action: application.Quit}
 					shell.invalidator.Invalidate()
 				} else {
@@ -126,6 +132,8 @@ func Run(backend domain.Backend) error {
 		}})
 		if err == nil {
 			r.tray = tray
+		} else if shell.state.Settings.CloseToTray {
+			backend.Submit(domain.Command{Kind: domain.ReportError, Text: "系统托盘暂不可用，关闭主窗口将退出应用：" + err.Error()})
 		}
 		r.observe()
 		return nil
@@ -250,9 +258,11 @@ func (r *desktopRuntime) applyGlobal(s domain.State) {
 	var stop func()
 	if err == nil {
 		stop, err = app.RegisterGlobalShortcut(shortcut, func() {
-			if r.window.Hidden() {
+			if r.window.Hidden() || r.window.Minimized() {
+				r.ui.SetWindowVisible(true)
 				r.window.Show()
 			} else {
+				r.ui.SetWindowVisible(false)
 				r.window.Hide()
 			}
 		})

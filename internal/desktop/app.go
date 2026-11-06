@@ -6,10 +6,12 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"os"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -85,11 +87,38 @@ type confirmation struct {
 	action func()
 }
 
+type profileState struct {
+	open     bool
+	nickname flex.Field
+	avatar   string
+	err      string
+}
+
+type mentionCandidate struct {
+	peerID string
+	name   string
+	online bool
+	avatar string
+}
+
+type mentionState struct {
+	open       bool
+	start      int
+	query      string
+	selected   int
+	candidates []mentionCandidate
+}
+
 type avatarPaint struct {
 	bounds ui.Rect
 	name   string
 	image  ui.Bitmap
 	status components.AvatarStatus
+}
+
+type imageStamp struct {
+	modified int64
+	size     int64
 }
 
 type appIDs struct {
@@ -100,12 +129,13 @@ type appIDs struct {
 	dialog ui.Scope
 	menu   ui.Scope
 
-	navMessages  ui.ID
-	navContacts  ui.ID
-	navTransfers ui.ID
-	navShares    ui.ID
-	navTheme     ui.ID
-	navSettings  ui.ID
+	navMessages   ui.ID
+	navContacts   ui.ID
+	navTransfers  ui.ID
+	navShares     ui.ID
+	navTheme      ui.ID
+	navSettings   ui.ID
+	profileAvatar ui.ID
 
 	sidebarCreate  ui.ID
 	sidebarConnect ui.ID
@@ -122,8 +152,11 @@ type appIDs struct {
 	chatFile           ui.ID
 	chatEmoji          ui.ID
 	chatHeaderFile     ui.ID
+	chatHeaderSearch   ui.ID
 	chatHeaderMembers  ui.ID
 	chatHeaderMore     ui.ID
+	chatSearchField    ui.ID
+	chatSearchClose    ui.ID
 	chatEmptyConnect   ui.ID
 	chatEmptyCompose   ui.ID
 	chatMenuDismiss    ui.ID
@@ -135,6 +168,10 @@ type appIDs struct {
 	chatMenuScope      ui.ID
 	sidebarContactList ui.ID
 	sidebarChatList    ui.ID
+	mentionScope       ui.ID
+	mentionDismiss     ui.ID
+	emojiScope         ui.ID
+	emojiDismiss       ui.ID
 
 	connectScope   ui.ID
 	connectDismiss ui.ID
@@ -153,6 +190,14 @@ type appIDs struct {
 	composeScroll  ui.ID
 	composePicked  ui.ID
 
+	profileScope       ui.ID
+	profileDismiss     ui.ID
+	profileClose       ui.ID
+	profileField       ui.ID
+	profileChooseImage ui.ID
+	profileSave        ui.ID
+	profileCancel      ui.ID
+
 	memberScope          ui.ID
 	memberListScroll     ui.ID
 	memberDismiss        ui.ID
@@ -163,6 +208,10 @@ type appIDs struct {
 	memberRename         ui.ID
 	memberSaveRename     ui.ID
 	memberCancelRename   ui.ID
+	memberStartNickname  ui.ID
+	memberNickname       ui.ID
+	memberSaveNickname   ui.ID
+	memberCancelNickname ui.ID
 	memberLeave          ui.ID
 	memberDissolve       ui.ID
 	memberMenuDismiss    ui.ID
@@ -192,6 +241,7 @@ type appIDs struct {
 	fileRetry        ui.ID
 	fileSave         ui.ID
 	fileRefresh      ui.ID
+	fileBatchCancel  ui.ID
 
 	confirmScope   ui.ID
 	confirmDismiss ui.ID
@@ -205,6 +255,7 @@ type appIDs struct {
 type UI struct {
 	backend     domain.Backend
 	state       domain.State
+	localNotice string
 	theme       ui.Theme
 	palette     palette
 	tree        ui.Tree
@@ -220,6 +271,8 @@ type UI struct {
 	chatView    flex.View
 	dialogView  flex.View
 	drawerView  flex.View
+	mentionView flex.View
+	emojiView   flex.View
 	hover       components.HoverTooltip
 
 	ids appIDs
@@ -241,11 +294,23 @@ type UI struct {
 	moreOpen        bool
 	dragging        bool
 	chatScrollToEnd bool
+	emojiOpen       bool
+	emojiButton     flex.Box
+
+	mention       mentionState
+	mentionEditor flex.Box
+	composerBox   flex.Box
+	chatFind      chatFindState
 
 	compose        composeState
 	memberSearch   flex.Field
 	renameOpen     bool
+	renameGroupID  string
 	renameField    flex.Field
+	nicknameOpen   bool
+	nicknameGroup  string
+	nicknameField  flex.Field
+	nicknameErr    string
 	memberMenu     string
 	memberProfile  string
 	fileSearch     flex.Field
@@ -261,17 +326,28 @@ type UI struct {
 	lastBody       ui.Rect
 	lastChat       ui.Rect
 	lastDialogBody ui.Rect
+	profile        profileState
 
-	conversations []domain.Conversation
-	groupChats    []domain.Conversation
-	contacts      []contactGroupView
-	invitations   []domain.Invitation
-	messages      []domain.Message
-	files         []domain.File
-	directByPeer  map[string]string
-	transfersFor  map[string][]domain.Transfer
-	fileLocalPath map[string]string
-	fileAvailable map[string]bool
+	clipboardImage    func() ([]byte, error)
+	clipboardCacheDir func() (string, error)
+
+	windowVisible atomic.Bool
+	readMarkID    string
+	readMarkCount int
+
+	conversations    []domain.Conversation
+	groupChats       []domain.Conversation
+	contacts         []contactGroupView
+	invitations      []domain.Invitation
+	outgoingInvites  []domain.Invitation
+	ownershipInvites []domain.Invitation
+	messages         []domain.Message
+	files            []domain.File
+	directByPeer     map[string]string
+	groupNicknames   map[string]string
+	transfersFor     map[string][]domain.Transfer
+	fileLocalPath    map[string]string
+	fileAvailable    map[string]bool
 
 	peerRowIDs          map[string]ui.ID
 	convRowIDs          map[string]ui.ID
@@ -280,6 +356,11 @@ type UI struct {
 	inviteRejectIDs     map[string]ui.ID
 	fileRowIDs          map[string]ui.ID
 	fileButtonIDs       map[string]ui.ID
+	fileAcceptIDs       map[string]ui.ID
+	fileRejectIDs       map[string]ui.ID
+	fileCancelIDs       map[string]ui.ID
+	fileRetryIDs        map[string]ui.ID
+	fileSaveIDs         map[string]ui.ID
 	groupSelectIDs      map[string]ui.ID
 	groupSelectRows     map[string]ui.ID
 	groupRemoveIDs      map[string]ui.ID
@@ -289,9 +370,13 @@ type UI struct {
 	memberRemoveIDs     map[string]ui.ID
 	memberTransferIDs   map[string]ui.ID
 	composeGroupHeadIDs map[string]ui.ID
+	inviteWithdrawIDs   map[string]ui.ID
+	inviteReinviteIDs   map[string]ui.ID
+	mentionCandidateIDs map[string]ui.ID
+	emojiIDs            map[string]ui.ID
 
 	imageCache  map[string]ui.Bitmap
-	imageStamps map[string]int64
+	imageStamps map[string]imageStamp
 	nextImageID uint64
 
 	iconMessage       ui.Icon
@@ -365,6 +450,7 @@ func New(backend domain.Backend) *UI {
 		draftSaved:          make(map[string]string),
 		fileFilter:          "all",
 		directByPeer:        make(map[string]string),
+		groupNicknames:      make(map[string]string),
 		transfersFor:        make(map[string][]domain.Transfer),
 		fileLocalPath:       make(map[string]string),
 		fileAvailable:       make(map[string]bool),
@@ -375,6 +461,11 @@ func New(backend domain.Backend) *UI {
 		inviteRejectIDs:     make(map[string]ui.ID),
 		fileRowIDs:          make(map[string]ui.ID),
 		fileButtonIDs:       make(map[string]ui.ID),
+		fileAcceptIDs:       make(map[string]ui.ID),
+		fileRejectIDs:       make(map[string]ui.ID),
+		fileCancelIDs:       make(map[string]ui.ID),
+		fileRetryIDs:        make(map[string]ui.ID),
+		fileSaveIDs:         make(map[string]ui.ID),
 		groupSelectIDs:      make(map[string]ui.ID),
 		groupSelectRows:     make(map[string]ui.ID),
 		groupRemoveIDs:      make(map[string]ui.ID),
@@ -384,8 +475,12 @@ func New(backend domain.Backend) *UI {
 		memberRemoveIDs:     make(map[string]ui.ID),
 		memberTransferIDs:   make(map[string]ui.ID),
 		composeGroupHeadIDs: make(map[string]ui.ID),
+		inviteWithdrawIDs:   make(map[string]ui.ID),
+		inviteReinviteIDs:   make(map[string]ui.ID),
+		mentionCandidateIDs: make(map[string]ui.ID),
+		emojiIDs:            make(map[string]ui.ID),
 		imageCache:          make(map[string]ui.Bitmap),
-		imageStamps:         make(map[string]int64),
+		imageStamps:         make(map[string]imageStamp),
 		compose: composeState{
 			selected:    make(map[string]bool),
 			knownGroups: make(map[string]bool),
@@ -446,6 +541,7 @@ func New(backend domain.Backend) *UI {
 		iconLink:          Link,
 		iconCopy:          Copy,
 	}
+	u.windowVisible.Store(true)
 	u.palette = paletteFor(u.theme)
 	u.titleLeading, u.titleTrailing = app.TitlebarInsets()
 	u.initIDs()
@@ -524,13 +620,83 @@ func (u *UI) onWake() {
 	u.refresh()
 }
 
+// SetWindowVisible tells the shell whether its main window is currently shown
+// and not minimized. Read state only advances while the selected chat is
+// actually visible.
+func (u *UI) SetWindowVisible(visible bool) {
+	if u.windowVisible.Swap(visible) == visible {
+		return
+	}
+	u.invalidator.Invalidate()
+}
+
 func (u *UI) refresh() {
 	if u.backend == nil {
 		return
 	}
 	oldError := u.state.Error
 	u.state = u.backend.Snapshot()
+	u.panels.OnWake(u.state)
 	u.rebuildPresentation(oldError)
+	u.markSelectedConversationRead()
+}
+
+func (u *UI) markSelectedConversationRead() {
+	if !u.windowVisible.Load() || u.isPanelSection() || u.selected == "" ||
+		u.chatFind.open || u.modalOpen() {
+		u.readMarkID = ""
+		u.readMarkCount = 0
+		return
+	}
+	if state := u.chatView.ScrollState(u.ids.chatMessages); state != nil && !state.AtEnd() {
+		u.readMarkID = ""
+		u.readMarkCount = 0
+		return
+	}
+	conversation := u.state.Conversation(u.selected)
+	if conversation.ID == "" || conversation.Unread <= 0 {
+		u.readMarkID = ""
+		u.readMarkCount = 0
+		return
+	}
+	if u.readMarkID == conversation.ID && u.readMarkCount == conversation.Unread {
+		return
+	}
+	u.readMarkID = conversation.ID
+	u.readMarkCount = conversation.Unread
+	u.submit(domain.Command{Kind: domain.MarkRead, ConversationID: conversation.ID})
+}
+
+func (u *UI) modalOpen() bool {
+	return u.confirm.open || u.compose.open || u.connectOpen ||
+		u.profile.open || u.memberProfile != ""
+}
+
+func (u *UI) unreadTotal() int {
+	total := 0
+	for _, conversation := range u.state.Conversations {
+		if conversation.Unread > 0 {
+			total += conversation.Unread
+		}
+	}
+	return total
+}
+
+func (u *UI) incompleteTransferCount() int {
+	total := 0
+	for _, transfer := range u.state.Transfers {
+		if transferNeedsAttention(transfer) {
+			total++
+		}
+	}
+	return total
+}
+
+func compactCount(count int) string {
+	if count > 99 {
+		return "99+"
+	}
+	return intString(count)
 }
 
 func (u *UI) initIDs() {
@@ -547,6 +713,7 @@ func (u *UI) initIDs() {
 	u.ids.navShares = u.tree.ID(u.ids.nav, "shares")
 	u.ids.navTheme = u.tree.ID(u.ids.nav, "appearance")
 	u.ids.navSettings = u.tree.ID(u.ids.nav, "settings")
+	u.ids.profileAvatar = u.tree.ID(u.ids.nav, "profile-avatar")
 
 	u.ids.sidebarCreate = u.tree.ID(u.ids.side, "create")
 	u.ids.sidebarConnect = u.tree.ID(u.ids.side, "connect")
@@ -557,6 +724,10 @@ func (u *UI) initIDs() {
 	u.ids.emptyCompose = u.tree.ID(u.ids.side, "empty-compose")
 	u.ids.sidebarContactList = u.tree.ID(u.ids.side, "contact-list")
 	u.ids.sidebarChatList = u.tree.ID(u.ids.side, "chat-list")
+	u.ids.mentionScope = u.tree.ID(u.ids.chat, "mention-scope")
+	u.ids.mentionDismiss = u.tree.ID(u.ids.chat, "mention-dismiss")
+	u.ids.emojiScope = u.tree.ID(u.ids.chat, "emoji-scope")
+	u.ids.emojiDismiss = u.tree.ID(u.ids.chat, "emoji-dismiss")
 
 	u.ids.chatMessages = u.tree.ID(u.ids.chat, "messages")
 	u.ids.chatEditor = u.tree.ID(u.ids.chat, "editor")
@@ -564,9 +735,12 @@ func (u *UI) initIDs() {
 	u.ids.chatImage = u.tree.ID(u.ids.chat, "send-image")
 	u.ids.chatFile = u.tree.ID(u.ids.chat, "send-file")
 	u.ids.chatEmoji = u.tree.ID(u.ids.chat, "emoji")
+	u.ids.chatHeaderSearch = u.tree.ID(u.ids.chat, "header-search")
 	u.ids.chatHeaderFile = u.tree.ID(u.ids.chat, "header-files")
 	u.ids.chatHeaderMembers = u.tree.ID(u.ids.chat, "header-members")
 	u.ids.chatHeaderMore = u.tree.ID(u.ids.chat, "header-more")
+	u.ids.chatSearchField = u.tree.ID(u.ids.chat, "find-field")
+	u.ids.chatSearchClose = u.tree.ID(u.ids.chat, "find-close")
 	u.ids.chatEmptyConnect = u.tree.ID(u.ids.chat, "empty-connect")
 	u.ids.chatEmptyCompose = u.tree.ID(u.ids.chat, "empty-compose")
 	u.ids.chatMenuDismiss = u.tree.ID(u.ids.menu, "chat-dismiss")
@@ -594,6 +768,14 @@ func (u *UI) initIDs() {
 	u.ids.composeScroll = u.tree.ID(u.ids.dialog, "compose-list-scroll")
 	u.ids.composePicked = u.tree.ID(u.ids.dialog, "compose-selected-scroll")
 
+	u.ids.profileScope = u.tree.ID(u.ids.dialog, "profile-scope")
+	u.ids.profileDismiss = u.tree.ID(u.ids.dialog, "profile-dismiss")
+	u.ids.profileClose = u.tree.ID(u.ids.dialog, "profile-close")
+	u.ids.profileField = u.tree.ID(u.ids.dialog, "profile-nickname")
+	u.ids.profileChooseImage = u.tree.ID(u.ids.dialog, "profile-choose-image")
+	u.ids.profileSave = u.tree.ID(u.ids.dialog, "profile-save")
+	u.ids.profileCancel = u.tree.ID(u.ids.dialog, "profile-cancel")
+
 	u.ids.memberScope = u.tree.ID(u.ids.dialog, "member-scope")
 	u.ids.memberListScroll = u.tree.ID(u.ids.dialog, "member-list-scroll")
 	u.ids.memberDismiss = u.tree.ID(u.ids.dialog, "member-dismiss")
@@ -604,6 +786,10 @@ func (u *UI) initIDs() {
 	u.ids.memberRename = u.tree.ID(u.ids.dialog, "member-rename-field")
 	u.ids.memberSaveRename = u.tree.ID(u.ids.dialog, "member-save-rename")
 	u.ids.memberCancelRename = u.tree.ID(u.ids.dialog, "member-cancel-rename")
+	u.ids.memberStartNickname = u.tree.ID(u.ids.dialog, "member-edit-nickname")
+	u.ids.memberNickname = u.tree.ID(u.ids.dialog, "member-nickname-field")
+	u.ids.memberSaveNickname = u.tree.ID(u.ids.dialog, "member-save-nickname")
+	u.ids.memberCancelNickname = u.tree.ID(u.ids.dialog, "member-cancel-nickname")
 	u.ids.memberLeave = u.tree.ID(u.ids.dialog, "member-leave")
 	u.ids.memberDissolve = u.tree.ID(u.ids.dialog, "member-dissolve")
 	u.ids.memberMenuDismiss = u.tree.ID(u.ids.dialog, "member-menu-dismiss")
@@ -633,12 +819,17 @@ func (u *UI) initIDs() {
 	u.ids.fileRetry = u.tree.ID(u.ids.dialog, "file-retry")
 	u.ids.fileSave = u.tree.ID(u.ids.dialog, "file-save")
 	u.ids.fileRefresh = u.tree.ID(u.ids.dialog, "file-refresh")
+	u.ids.fileBatchCancel = u.tree.ID(u.ids.dialog, "file-batch-cancel")
 
 	u.ids.confirmScope = u.tree.ID(u.ids.dialog, "confirm-scope")
 	u.ids.confirmDismiss = u.tree.ID(u.ids.dialog, "confirm-dismiss")
 	u.ids.confirmClose = u.tree.ID(u.ids.dialog, "confirm-close")
 	u.ids.confirmCancel = u.tree.ID(u.ids.dialog, "confirm-cancel")
 	u.ids.confirmRun = u.tree.ID(u.ids.dialog, "confirm-run")
+
+	for _, choice := range emojiChoices {
+		u.emojiIDs[choice.Name] = u.tree.ID(u.ids.chat, "emoji:"+choice.Name)
+	}
 }
 
 func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
@@ -671,6 +862,10 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 		u.drawChat(canvas, chat)
 	}
 
+	if u.chatFind.focus && u.chatFind.open {
+		canvas.RequestFocus(u.ids.chatSearchField)
+		u.chatFind.focus = false
+	}
 	if u.focusSearch {
 		canvas.RequestFocus(u.ids.sidebarSearch)
 		u.focusSearch = false
@@ -711,13 +906,26 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 	canvas.Fill(bounds, u.palette.rail)
 	var avatarSlot flex.Box
 	var messages, contacts, transfers, shares, themeToggle, settings flex.Box
+	unreadBadge, unreadHint := "", ""
+	if unread := u.unreadTotal(); unread > 0 {
+		unreadBadge = compactCount(unread)
+		unreadHint = intString(unread) + " 条未读"
+	}
+	transferBadge, transferHint := "", ""
+	if active := u.incompleteTransferCount(); active > 0 {
+		transferBadge = compactCount(active)
+		transferHint = intString(active) + " 个文件任务未完成"
+	}
 	u.railView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
 		f.Column().Fill().PadY(14).Items(flex.Center).Gap(5).Children(func() {
-			avatarSlot = f.Slot().Size(42, 42)
+			avatarSlot = f.Slot().Size(42, 42).HitWith(u.ids.profileAvatar, "编辑个人资料",
+				ui.HitOptions{Role: ui.RoleButton, Hint: "编辑昵称和头像"})
 			f.Row().Height(10)
-			messages = u.railItem(f, u.ids.navMessages, u.iconMessage, "消息", u.section == sectionMessages)
+			messages = u.railItemBadged(f, u.ids.navMessages, u.iconMessage, "消息",
+				u.section == sectionMessages, unreadBadge, unreadHint)
 			contacts = u.railItem(f, u.ids.navContacts, u.iconUsers, "联系人", u.section == sectionContacts)
-			transfers = u.railItem(f, u.ids.navTransfers, u.iconTransfers, "传输", u.section == sectionTransfers)
+			transfers = u.railItemBadged(f, u.ids.navTransfers, u.iconTransfers, "传输",
+				u.section == sectionTransfers, transferBadge, transferHint)
 			shares = u.railItem(f, u.ids.navShares, u.iconFolder, "文件", u.section == sectionShares)
 			f.Spacer()
 			themeIcon, themeLabel := u.iconMoon, "切换到暗色外观"
@@ -746,6 +954,9 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 	if settings.Clicked() {
 		u.setSection(sectionSettings)
 	}
+	if avatarSlot.Clicked() {
+		u.openProfile()
+	}
 	if rect := avatarSlot.Rect(); rect.Width > 0 {
 		components.Avatar(canvas, u.theme, rect, components.AvatarData{
 			Name: u.state.Self.Name, Initials: initialOf(u.state.Self.Name),
@@ -756,6 +967,11 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 }
 
 func (u *UI) railItem(f *flex.Frame, id ui.ID, icon ui.Icon, label string, active bool) flex.Box {
+	return u.railItemBadged(f, id, icon, label, active, "", "")
+}
+
+func (u *UI) railItemBadged(f *flex.Frame, id ui.ID, icon ui.Icon, label string,
+	active bool, badge, badgeHint string) flex.Box {
 	background := ui.Color{}
 	foreground := u.palette.icon
 	if active {
@@ -770,11 +986,27 @@ func (u *UI) railItem(f *flex.Frame, id ui.ID, icon ui.Icon, label string, activ
 	if label == "切换到暗色外观" || label == "切换到明亮外观" {
 		visual = "外观"
 	}
+	accessible := label
+	if badge != "" && badgeHint != "" {
+		accessible += "，" + badgeHint
+	}
 	box := f.Column().Size(56, 58).Radius(10).Items(flex.Center).Justify(flex.Center).Gap(4).
 		Background(background).HoverBackground(hover).
-		HitWith(id, label, ui.HitOptions{Role: ui.RoleButton, Selected: active, Hint: label}).
+		HitWith(id, accessible, ui.HitOptions{Role: ui.RoleButton, Selected: active, Hint: accessible}).
 		Children(func() {
-			f.Icon(icon).Size(21, 21).Color(foreground)
+			f.Stack().Width(36).Height(24).Children(func() {
+				f.Stack().Size(21, 21).Absolute().Left(7).Top(2).Children(func() {
+					f.Icon(icon).Size(21, 21).Color(foreground)
+				})
+				if badge != "" {
+					f.Row().MinWidth(16).Height(16).PadX(4).Radius(8).Absolute().Right(0).Top(0).
+						Background(u.theme.Primary).Items(flex.Center).Justify(flex.Center).
+						Children(func() {
+							f.Text(badge).FontSize(9).Weight(ui.WeightSemibold).
+								Color(u.theme.PrimaryForeground).TextCenter()
+						})
+				}
+			})
 			f.Text(visual).FontSize(11).Weight(ui.WeightMedium).Color(foreground)
 		})
 	return box
@@ -953,19 +1185,49 @@ func (u *UI) drawInvitations(f *flex.Frame) {
 	if len(u.invitations) == 0 {
 		return
 	}
-	f.Row().Height(8)
-	f.Row().Height(24).Items(flex.Center).Children(func() {
-		f.Text("群聊邀请").FontSize(12).Weight(ui.WeightSemibold)
-		f.Row().Width(6)
-		u.badgeText(f, intString(len(u.invitations)), false)
-	})
+	joinCount, transferCount := 0, 0
 	for _, invitation := range u.invitations {
-		u.invitationCard(f, invitation)
+		if invitationKind(invitation) == "ownership" {
+			transferCount++
+		} else {
+			joinCount++
+		}
+	}
+	if joinCount == 0 && transferCount == 0 {
+		return
+	}
+	f.Row().Height(8)
+	if joinCount > 0 {
+		f.Row().Height(24).Items(flex.Center).Children(func() {
+			f.Text("群聊邀请").FontSize(12).Weight(ui.WeightSemibold)
+			f.Row().Width(6)
+			u.badgeText(f, intString(joinCount), false)
+		})
+		for _, invitation := range u.invitations {
+			if invitationKind(invitation) != "ownership" {
+				u.invitationCard(f, invitation, false)
+			}
+		}
+	}
+	if transferCount > 0 {
+		if joinCount > 0 {
+			f.Row().Height(4)
+		}
+		f.Row().Height(24).Items(flex.Center).Children(func() {
+			f.Text("群主转让").FontSize(12).Weight(ui.WeightSemibold)
+			f.Row().Width(6)
+			u.badgeText(f, intString(transferCount), false)
+		})
+		for _, invitation := range u.invitations {
+			if invitationKind(invitation) == "ownership" {
+				u.invitationCard(f, invitation, true)
+			}
+		}
 	}
 	f.Row().Height(12)
 }
 
-func (u *UI) invitationCard(f *flex.Frame, invitation domain.Invitation) {
+func (u *UI) invitationCard(f *flex.Frame, invitation domain.Invitation, ownership bool) {
 	f.Column().FillWidth().Pad(11).Radius(10).Background(u.palette.invite).
 		Border(1, u.palette.fileBorder).Gap(8).Children(func() {
 		f.Row().Items(flex.Center).Gap(9).Children(func() {
@@ -980,20 +1242,66 @@ func (u *UI) invitationCard(f *flex.Frame, invitation domain.Invitation) {
 				if from == "" {
 					from = u.state.Peer(invitation.FromID).Name
 				}
-				f.Text(from + " 邀请你加入").FontSize(11).Muted().Ellipsis()
+				description := from + " 邀请你加入"
+				if ownership {
+					description = from + " 提议将群主转让给你"
+				}
+				f.Text(description).FontSize(11).Muted().Ellipsis()
+				if !ownership {
+					f.Text(u.invitationMemberLine(invitation)).FontSize(10.5).Muted().MaxLines(2)
+				}
 			})
 		})
 		f.Row().Height(28).Justify(flex.End).Gap(8).Children(func() {
 			reject := u.inviteRejectIDs[invitation.ID]
 			accept := u.inviteAcceptIDs[invitation.ID]
-			if f.Button(reject, "拒绝").XSmall().Outline().Clicked() {
+			rejectLabel := "拒绝"
+			acceptLabel := "加入"
+			if ownership {
+				rejectLabel = "拒绝转让"
+				acceptLabel = "接受转让"
+			}
+			if f.Button(reject, rejectLabel).XSmall().Outline().Clicked() {
 				u.submit(domain.Command{Kind: domain.RejectInvite, InvitationID: invitation.ID})
 			}
-			if f.Button(accept, "加入").XSmall().Clicked() {
+			if f.Button(accept, acceptLabel).XSmall().Clicked() {
 				u.submit(domain.Command{Kind: domain.AcceptInvite, InvitationID: invitation.ID})
 			}
 		})
 	})
+}
+
+func invitationKind(invitation domain.Invitation) string {
+	if invitation.Kind == "" {
+		return "join"
+	}
+	return invitation.Kind
+}
+
+func (u *UI) invitationMemberLine(invitation domain.Invitation) string {
+	group := u.state.Group(invitation.GroupID)
+	if group.ID == "" || len(group.Members) == 0 {
+		return "当前成员信息将在接受前同步"
+	}
+	names := make([]string, 0, len(group.Members))
+	for _, peerID := range group.Members {
+		name := u.state.Peer(peerID).Name
+		if peerID == u.state.Self.ID {
+			name = "我"
+		}
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return "当前成员信息将在接受前同步"
+	}
+	shown := names
+	if len(shown) > 4 {
+		shown = append(append([]string(nil), shown[:4]...), "等 "+intString(len(names))+" 人")
+	}
+	return "当前成员（" + intString(len(names)) + "）：" + strings.Join(shown, "、")
 }
 
 func (u *UI) contactGroupHeader(f *flex.Frame, group contactGroupView, collapsed bool) {
@@ -1030,7 +1338,7 @@ func (u *UI) contactRow(f *flex.Frame, peer domain.Peer) {
 		Background(background).HoverBackground(u.palette.hover).
 		HitWith(id, peer.Name, ui.HitOptions{Role: ui.RoleButton, Selected: selected}).
 		Children(func() {
-			u.initialsAvatarStatus(f, peer.Name, 38, peer.Online)
+			u.avatarStatus(f, peer.Name, peer.Avatar, 38, peer.Online)
 			f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
 				f.Row().Items(flex.Center).Gap(6).Children(func() {
 					f.Text(peer.Name).FontSize(14).Weight(ui.WeightMedium).Ellipsis()
@@ -1104,14 +1412,20 @@ func (u *UI) conversationRow(f *flex.Frame, conversation domain.Conversation, he
 		HitWith(id, title, ui.HitOptions{Role: ui.RoleButton, Selected: selected}).
 		Children(func() {
 			online := false
+			avatar := ""
+			avatarName := title
 			if conversation.Kind == "group" {
 				_, onlineCount := u.groupCounts(u.state.Group(conversation.GroupID))
 				online = onlineCount > 0
 			} else {
 				peer := u.state.Peer(conversation.PeerID)
 				online = peer.ID != "" && peer.Online
+				avatar = peer.Avatar
+				if peer.Name != "" {
+					avatarName = peer.Name
+				}
 			}
-			u.initialsAvatarStatus(f, title, 42, online)
+			u.avatarStatus(f, avatarName, avatar, 42, online)
 			f.Column().Grow(1).Gap(4).Justify(flex.Center).Children(func() {
 				f.Row().Items(flex.Center).Gap(5).Children(func() {
 					f.Text(title).FontSize(14).Weight(ui.WeightMedium).Ellipsis()
@@ -1284,17 +1598,66 @@ func (u *UI) rebuildPresentation(oldError string) {
 	})
 	filtered := u.invitations[:0]
 	for _, invitation := range u.invitations {
-		if invitation.Status == "" || invitation.Status == "pending" {
-			filtered = append(filtered, invitation)
+		if invitation.Status != "" && invitation.Status != "pending" {
+			continue
 		}
+		if invitation.FromID == u.state.Self.ID {
+			continue
+		}
+		if invitation.ToID != "" && invitation.ToID != u.state.Self.ID {
+			continue
+		}
+		filtered = append(filtered, invitation)
 	}
 	u.invitations = filtered
+
+	u.groupNicknames = make(map[string]string, len(u.state.GroupNicknames))
+	for _, nickname := range u.state.GroupNicknames {
+		name := strings.TrimSpace(nickname.Name)
+		if nickname.GroupID == "" || nickname.PeerID == "" || name == "" {
+			continue
+		}
+		u.groupNicknames[groupInviteKey(nickname.GroupID, nickname.PeerID)] = name
+	}
+
+	u.outgoingInvites = u.outgoingInvites[:0]
+	u.ownershipInvites = u.ownershipInvites[:0]
+	for _, invitation := range u.state.Invitations {
+		if invitation.GroupID == "" || invitation.FromID != u.state.Self.ID {
+			continue
+		}
+		switch invitation.Status {
+		case "", "pending", "rejected", "failed":
+			if invitationKind(invitation) == "ownership" {
+				u.ownershipInvites = append(u.ownershipInvites, invitation)
+			} else {
+				u.outgoingInvites = append(u.outgoingInvites, invitation)
+			}
+		}
+	}
+	sort.SliceStable(u.outgoingInvites, func(i, j int) bool {
+		return u.outgoingInvites[i].CreatedAt.After(u.outgoingInvites[j].CreatedAt)
+	})
+	sort.SliceStable(u.ownershipInvites, func(i, j int) bool {
+		return u.ownershipInvites[i].CreatedAt.After(u.ownershipInvites[j].CreatedAt)
+	})
 
 	u.transfersFor = make(map[string][]domain.Transfer)
 	for _, transfer := range u.state.Transfers {
 		if transfer.FileID != "" {
 			u.transfersFor[transfer.FileID] = append(u.transfersFor[transfer.FileID], transfer)
 		}
+	}
+	for fileID := range u.transfersFor {
+		transfers := u.transfersFor[fileID]
+		sort.SliceStable(transfers, func(i, j int) bool {
+			left := u.state.Peer(transfers[i].PeerID).Name
+			right := u.state.Peer(transfers[j].PeerID).Name
+			if left != right {
+				return left < right
+			}
+			return transfers[i].ID < transfers[j].ID
+		})
 	}
 	u.fileLocalPath = make(map[string]string)
 	u.fileAvailable = make(map[string]bool)
@@ -1319,6 +1682,9 @@ func (u *UI) rebuildPresentation(oldError string) {
 	u.reconcileCompose(oldError)
 	u.selectAfterSnapshot(oldSelected)
 	u.rebuildSelection()
+	if u.chatFind.open {
+		u.rebuildChatSearchMatches()
+	}
 	u.refreshImages()
 	if u.activeFileID != "" {
 		if u.state.File(u.activeFileID).ID == "" {
@@ -1368,6 +1734,7 @@ func (u *UI) selectAfterSnapshot(oldSelected string) {
 		if oldSelected != "" && u.chatEditor != nil {
 			u.persistDraft(oldSelected, u.chatEditor.String())
 		}
+		u.resetChatSearch()
 		u.selected = target
 		u.loadDraft(target)
 		u.chatScrollToEnd = target != ""
@@ -1398,11 +1765,6 @@ func (u *UI) reconcileCompose(oldError string) {
 	if !u.compose.open || !u.compose.pending {
 		return
 	}
-	if u.state.Error != "" && u.state.Error != oldError {
-		u.compose.pending = false
-		u.compose.err = u.state.Error
-		return
-	}
 	switch u.compose.mode {
 	case "create":
 		for _, group := range u.state.Groups {
@@ -1421,8 +1783,19 @@ func (u *UI) reconcileCompose(oldError string) {
 					break
 				}
 			}
+			if u.state.Error != "" && u.state.Error != oldError {
+				u.localNotice = "群聊已创建；部分邀请发送失败：" + u.state.Error
+				u.submit(domain.Command{Kind: domain.ClearError})
+			}
 			return
 		}
+	}
+	if u.state.Error != "" && u.state.Error != oldError {
+		u.compose.pending = false
+		u.compose.err = u.state.Error
+		return
+	}
+	switch u.compose.mode {
 	case "invite":
 		group := u.state.Group(u.compose.groupID)
 		if group.ID == "" {
@@ -1477,10 +1850,19 @@ func (u *UI) persistDraft(conversationID, value string) {
 }
 
 func (u *UI) selectConversation(id string) {
-	if id == "" || id == u.selected {
+	if id == "" {
+		return
+	}
+	if id == u.selected {
+		u.markSelectedConversationRead()
+		return
+	}
+	if !u.guardGroupRenameNavigation(func() { u.selectConversation(id) }) {
 		return
 	}
 	u.saveCurrentDraft()
+	u.closeChatPickers()
+	u.resetChatSearch()
 	u.selected = id
 	u.loadDraft(id)
 	u.rebuildSelection()
@@ -1489,6 +1871,7 @@ func (u *UI) selectConversation(id string) {
 	u.memberProfile = ""
 	u.chatScrollToEnd = true
 	u.drawer, u.activeFileID, u.fileReturn = "", "", ""
+	u.markSelectedConversationRead()
 }
 
 func (u *UI) startChat(peerID string) {
@@ -1504,10 +1887,26 @@ func (u *UI) setSection(section string) {
 	if section == u.section {
 		return
 	}
+	if u.compose.open {
+		u.requestCloseComposeThen(func() { u.setSection(section) })
+		return
+	}
+	if u.connectOpen || u.confirm.open || u.profile.open || u.memberProfile != "" {
+		return
+	}
+	if !u.guardGroupRenameNavigation(func() { u.setSection(section) }) {
+		return
+	}
 	if !u.isPanelSection() {
 		u.saveCurrentDraft()
 	}
 	u.section = section
+	if section == sectionSettings {
+		u.panels.refreshNetworks()
+	}
+	u.closeChatPickers()
+	u.resetChatSearch()
+	u.closeProfile()
 	u.moreOpen = false
 	u.drawer, u.activeFileID, u.fileReturn = "", "", ""
 	u.compose.open = false
@@ -1515,6 +1914,8 @@ func (u *UI) setSection(section string) {
 	u.confirm.open = false
 	u.memberMenu = ""
 	u.memberProfile = ""
+	u.resetGroupRename()
+	u.markSelectedConversationRead()
 }
 
 func (u *UI) toggleTheme() {
@@ -1534,6 +1935,9 @@ func (u *UI) openConnect() {
 }
 
 func (u *UI) openCompose(mode, groupID string) {
+	if !u.guardGroupRenameNavigation(func() { u.openCompose(mode, groupID) }) {
+		return
+	}
 	known := make(map[string]bool, len(u.state.Groups))
 	for _, group := range u.state.Groups {
 		known[group.ID] = true
@@ -1547,6 +1951,7 @@ func (u *UI) openCompose(mode, groupID string) {
 	}
 	u.compose.name.SetText("")
 	u.compose.search.SetText("")
+	u.closeChatPickers()
 	u.moreOpen = false
 	u.drawer = ""
 	u.memberProfile = ""
@@ -1605,11 +2010,18 @@ func (u *UI) composeDirty() bool {
 }
 
 func (u *UI) requestCloseCompose() {
+	u.requestCloseComposeThen(nil)
+}
+
+func (u *UI) requestCloseComposeThen(after func()) {
 	if u.compose.pending {
 		return
 	}
 	if !u.composeDirty() {
 		u.compose.open = false
+		if after != nil {
+			after()
+		}
 		return
 	}
 	u.confirm = confirmation{
@@ -1618,6 +2030,9 @@ func (u *UI) requestCloseCompose() {
 		body:  "群聊选择或群名尚未提交。",
 		action: func() {
 			u.compose.open = false
+			if after != nil {
+				after()
+			}
 		},
 	}
 }
@@ -1640,11 +2055,18 @@ func (u *UI) drawOverlays(canvas *ui.Canvas, viewport ui.Rect) {
 	if u.moreOpen && !u.isPanelSection() {
 		u.drawChatMenu(canvas)
 	}
+	if !u.isPanelSection() {
+		u.drawMentionPicker(canvas, viewport)
+		u.drawEmojiPicker(canvas, viewport)
+	}
 	if u.drawer != "" && !u.isPanelSection() {
 		u.drawSideDrawer(canvas)
 	}
 	if u.memberProfile != "" && !u.isPanelSection() {
 		u.drawMemberProfile(canvas, viewport)
+	}
+	if u.profile.open {
+		u.drawProfileDialog(canvas, viewport)
 	}
 	if u.connectOpen {
 		u.drawConnectDialog(canvas, viewport)
@@ -1661,7 +2083,11 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 	if context.ID == u.ids.chatEditor {
 		return u.chatTextInput()
 	}
-	if input := flex.Fields(&u.sidebarSearch, &u.connectField, &u.compose.name, &u.compose.search, &u.memberSearch, &u.renameField, &u.fileSearch)(context); input != nil {
+	if input := u.chatSearchTextInput(context); input != nil {
+		return input
+	}
+	if input := flex.Fields(&u.sidebarSearch, &u.connectField, &u.compose.name, &u.compose.search,
+		&u.profile.nickname, &u.memberSearch, &u.renameField, &u.nicknameField, &u.fileSearch)(context); input != nil {
 		return input
 	}
 	if u.panelInput != nil {
@@ -1671,7 +2097,7 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 }
 
 func (u *UI) onScroll(event ui.ScrollEvent) ui.EventResult {
-	if u.confirm.open || u.compose.open || u.connectOpen {
+	if u.modalOpen() {
 		if result := u.dialogView.Wheel(event); result.Handled {
 			return result
 		}
@@ -1685,15 +2111,45 @@ func (u *UI) onScroll(event ui.ScrollEvent) ui.EventResult {
 	if event.X < railWidth+sidebarWidth {
 		return u.sidebarView.Wheel(event)
 	}
-	return u.chatView.Wheel(event)
+	result := u.chatView.Wheel(event)
+	if result.Handled {
+		u.markSelectedConversationRead()
+	}
+	return result
 }
 
 func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
+	if u.mention.open && u.focusedID == u.ids.chatEditor && !event.Release &&
+		event.Modifiers == 0 && u.chatEditor != nil {
+		if _, composing := u.chatEditor.Composition(); !composing {
+			switch event.Key {
+			case ui.KeyUp:
+				u.moveMention(-1)
+				return ui.EventResult{Handled: true, Repaint: true}
+			case ui.KeyDown:
+				u.moveMention(1)
+				return ui.EventResult{Handled: true, Repaint: true}
+			case ui.KeyEnter:
+				if u.insertMention() {
+					return ui.EventResult{Handled: true, Repaint: true}
+				}
+			}
+		}
+	}
 	if event.Key == ui.KeyEscape {
 		switch {
 		case u.confirm.open:
 			u.confirm.open = false
 			return ui.EventResult{Handled: true}
+		case u.profile.open:
+			u.closeProfile()
+			return ui.EventResult{Handled: true, Repaint: true}
+		case u.emojiOpen:
+			u.emojiOpen = false
+			return ui.EventResult{Handled: true, Repaint: true}
+		case u.mention.open:
+			u.closeMention()
+			return ui.EventResult{Handled: true, Repaint: true}
 		case u.compose.open:
 			u.requestCloseCompose()
 			return ui.EventResult{Handled: true}
@@ -1715,6 +2171,9 @@ func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
 		case u.moreOpen:
 			u.moreOpen = false
 			return ui.EventResult{Handled: true}
+		case u.chatFind.open:
+			u.closeChatSearch()
+			return ui.EventResult{Handled: true, Repaint: true}
 		}
 	}
 	if u.isPanelSection() {
@@ -1724,6 +2183,9 @@ func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
 }
 
 func (u *UI) onShortcut(event ui.KeyEvent) ui.EventResult {
+	if u.modalOpen() {
+		return ui.EventResult{}
+	}
 	if u.isPanelSection() {
 		if result := u.panels.Shortcut(event); result.Handled {
 			return result
@@ -1731,33 +2193,43 @@ func (u *UI) onShortcut(event ui.KeyEvent) ui.EventResult {
 	}
 	control := event.Modifiers&ui.ModifierControl != 0 || event.Modifiers&ui.ModifierMeta != 0
 	if event.Key == ui.KeyEnter && control && u.focusedID == u.ids.chatEditor && u.selected != "" {
+		if u.chatEditor == nil {
+			return ui.EventResult{}
+		}
+		if _, composing := u.chatEditor.Composition(); composing {
+			return ui.EventResult{Handled: true}
+		}
 		if u.state.Settings.SendKey == "Ctrl+Enter" {
 			u.sendChatText()
 			return ui.EventResult{Handled: true}
 		}
-		if _, composing := u.chatEditor.Composition(); !composing {
-			u.chatEditor.NewLine()
-			return ui.EventResult{Handled: true, Repaint: true}
-		}
+		u.chatEditor.NewLine()
+		return ui.EventResult{Handled: true, Repaint: true}
 	}
-	if !control {
-		return ui.EventResult{}
-	}
-	key := strings.ToLower(event.Text)
-	switch {
-	case key == ",":
+	if u.shortcutTriggered(shortcutActionOpenSettings, "Ctrl+,", event) {
 		u.setSection(sectionSettings)
 		return ui.EventResult{Handled: true}
-	case key == "f" || key == "k":
-		if !u.isPanelSection() {
-			u.focusSearch = true
+	}
+	if u.shortcutTriggered(shortcutActionSearchInConversation, "Ctrl+F", event) {
+		if !u.isPanelSection() && u.selected != "" {
+			u.openChatSearch()
 			return ui.EventResult{Handled: true, Repaint: true}
 		}
-	case key == "n" && event.Modifiers&ui.ModifierShift != 0:
-		if !u.isPanelSection() {
-			u.openCompose("create", "")
-			return ui.EventResult{Handled: true, Repaint: true}
+	}
+	if u.shortcutTriggered(shortcutActionQuickFind, "Ctrl+K", event) {
+		if u.isPanelSection() {
+			u.setSection(sectionMessages)
 		}
+		u.chatFind.focus = false
+		u.focusSearch = true
+		return ui.EventResult{Handled: true, Repaint: true}
+	}
+	if u.shortcutTriggered(shortcutActionCreateGroup, "Ctrl+Shift+N", event) {
+		if u.isPanelSection() {
+			u.setSection(sectionMessages)
+		}
+		u.openCompose("create", "")
+		return ui.EventResult{Handled: true, Repaint: true}
 	}
 	return ui.EventResult{}
 }
@@ -1786,7 +2258,7 @@ func (u *UI) onFileDrop(event ui.FileDropEvent) ui.EventResult {
 
 func (u *UI) chatDropReady() bool {
 	return u.selected != "" && !u.isPanelSection() && u.drawer == "" &&
-		!u.confirm.open && !u.compose.open && !u.connectOpen &&
+		!u.modalOpen() &&
 		u.chatReadOnlyReason(u.state.Conversation(u.selected)) == ""
 }
 
@@ -1804,12 +2276,17 @@ func (u *UI) ensureStateIDs() {
 		}
 		for _, id := range group.Pending {
 			u.ensurePeerID(id)
+			u.ensureGroupInviteIDs(group.ID, id)
 		}
 	}
 	for _, invitation := range u.state.Invitations {
 		u.ensurePeerID(invitation.FromID)
 		u.ensureID(u.inviteAcceptIDs, u.ids.side, "invite-accept:", invitation.ID)
 		u.ensureID(u.inviteRejectIDs, u.ids.side, "invite-reject:", invitation.ID)
+		if invitation.GroupID != "" && invitation.ToID != "" {
+			u.ensurePeerID(invitation.ToID)
+			u.ensureGroupInviteIDs(invitation.GroupID, invitation.ToID)
+		}
 	}
 	for _, peer := range u.state.Peers {
 		name := strings.TrimSpace(peer.ContactGroup)
@@ -1828,6 +2305,16 @@ func (u *UI) ensureStateIDs() {
 		u.ensureID(u.fileRowIDs, u.ids.chat, "file-row:", file.ID)
 		u.ensureID(u.fileButtonIDs, u.ids.chat, "file-detail:", file.ID)
 	}
+	for _, transfer := range u.state.Transfers {
+		if transfer.ID == "" {
+			continue
+		}
+		u.ensureID(u.fileAcceptIDs, u.ids.dialog, "transfer-accept:", transfer.ID)
+		u.ensureID(u.fileRejectIDs, u.ids.dialog, "transfer-reject:", transfer.ID)
+		u.ensureID(u.fileCancelIDs, u.ids.dialog, "transfer-cancel:", transfer.ID)
+		u.ensureID(u.fileRetryIDs, u.ids.dialog, "transfer-retry:", transfer.ID)
+		u.ensureID(u.fileSaveIDs, u.ids.dialog, "transfer-save:", transfer.ID)
+	}
 }
 
 func (u *UI) ensurePeerID(id string) {
@@ -1843,6 +2330,13 @@ func (u *UI) ensurePeerID(id string) {
 	u.ensureID(u.memberMessageIDs, u.ids.dialog, "member-message:", id)
 	u.ensureID(u.memberRemoveIDs, u.ids.dialog, "member-remove:", id)
 	u.ensureID(u.memberTransferIDs, u.ids.dialog, "member-transfer:", id)
+	u.ensureID(u.mentionCandidateIDs, u.ids.chat, "mention:", id)
+}
+
+func (u *UI) ensureGroupInviteIDs(groupID, peerID string) {
+	key := groupInviteKey(groupID, peerID)
+	u.ensureID(u.inviteWithdrawIDs, u.ids.dialog, "invite-withdraw:", key)
+	u.ensureID(u.inviteReinviteIDs, u.ids.dialog, "invite-reinvite:", key)
 }
 
 func (u *UI) ensureID(cache map[string]ui.ID, scope ui.Scope, prefix, key string) ui.ID {
@@ -1882,24 +2376,27 @@ func (u *UI) ensureImage(path string) {
 	if path == "" {
 		return
 	}
-	stamp := int64(-1)
+	stamp := imageStamp{modified: -1}
 	if info, err := os.Stat(path); err == nil {
-		stamp = info.ModTime().UnixNano()
+		stamp = imageStamp{modified: info.ModTime().UnixNano(), size: info.Size()}
 	}
 	if u.imageStamps[path] == stamp {
 		return
 	}
 	u.imageStamps[path] = stamp
-	if stamp < 0 {
+	if stamp.modified < 0 {
 		delete(u.imageCache, path)
 		return
 	}
-	if bitmap, ok := decodeBitmap(path, 512); ok {
-		u.nextImageID++
-		bitmap.ID = u.nextImageID
-		bitmap.Version = 1
-		u.imageCache[path] = bitmap
+	bitmap, ok := decodeBitmap(path, 512)
+	if !ok {
+		delete(u.imageCache, path)
+		return
 	}
+	u.nextImageID++
+	bitmap.ID = u.nextImageID
+	bitmap.Version = 1
+	u.imageCache[path] = bitmap
 }
 
 func (u *UI) avatarBitmap(path string) ui.Bitmap {
@@ -1997,12 +2494,33 @@ func pointInside(x, y float32, bounds ui.Rect) bool {
 	return x >= bounds.X && x < bounds.X+bounds.Width && y >= bounds.Y && y < bounds.Y+bounds.Height
 }
 
+const (
+	maxImageFileBytes    = int64(32 << 20)
+	maxImageDecodePixels = int64(16_000_000)
+)
+
 func decodeBitmap(path string, limit int) (ui.Bitmap, bool) {
 	file, err := os.Open(path)
 	if err != nil {
 		return ui.Bitmap{}, false
 	}
 	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || info.Size() > maxImageFileBytes {
+		return ui.Bitmap{}, false
+	}
+	config, _, err := image.DecodeConfig(file)
+	if err != nil {
+		return ui.Bitmap{}, false
+	}
+	if config.Width <= 0 || config.Height <= 0 ||
+		int64(config.Width) > maxImageDecodePixels || int64(config.Height) > maxImageDecodePixels ||
+		int64(config.Width)*int64(config.Height) > maxImageDecodePixels {
+		return ui.Bitmap{}, false
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return ui.Bitmap{}, false
+	}
 	source, _, err := image.Decode(file)
 	if err != nil {
 		return ui.Bitmap{}, false

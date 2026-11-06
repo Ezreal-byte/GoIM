@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -65,8 +66,12 @@ type panelIDs struct {
 	settingsCloseToTray  ui.ID
 	settingsChooseDir    ui.ID
 	settingsOpenDir      ui.ID
+	settingsRefreshNet   ui.ID
 	settingsDismissLocal ui.ID
 	settingsClearError   ui.ID
+
+	networkDefer  ui.ID
+	networkCancel ui.ID
 
 	settingsGeneralScroll   ui.ID
 	settingsShortcutsScroll ui.ID
@@ -115,6 +120,17 @@ type panelNetworkOption struct {
 	label string
 }
 
+type panelNetworkChange struct {
+	value  string
+	label  string
+	active int
+}
+
+type panelLocalFile struct {
+	path      string
+	available bool
+}
+
 type panelTransferEntry struct {
 	transfer domain.Transfer
 	peer     string
@@ -136,11 +152,13 @@ type panelTransferEntry struct {
 }
 
 type panelShareEntry struct {
-	file   domain.File
-	sender string
-	meta   string
-	state  string
-	own    bool
+	file      domain.File
+	sender    string
+	meta      string
+	state     string
+	own       bool
+	path      string
+	available bool
 }
 
 type panelPendingKind uint8
@@ -200,6 +218,10 @@ type Panels struct {
 	networkValues    []string
 	networkFor       string
 	networkReadError string
+	listNetworks     func() ([]net.Interface, error)
+	networkChange    panelNetworkChange
+
+	localFiles map[string]panelLocalFile
 
 	transferPending  []panelTransferEntry
 	transferFinished []panelTransferEntry
@@ -244,8 +266,11 @@ func (p *Panels) Init(tree *ui.Tree) {
 	p.ids.settingsCloseToTray = tree.ID(settings, "close-to-tray")
 	p.ids.settingsChooseDir = tree.ID(settings, "choose-download-directory")
 	p.ids.settingsOpenDir = tree.ID(settings, "open-download-directory")
+	p.ids.settingsRefreshNet = tree.ID(settings, "refresh-networks")
 	p.ids.settingsDismissLocal = tree.ID(settings, "dismiss-local-error")
 	p.ids.settingsClearError = tree.ID(settings, "clear-error")
+	p.ids.networkDefer = tree.ID(settings, "network-defer")
+	p.ids.networkCancel = tree.ID(settings, "network-cancel")
 
 	p.ids.settingsGeneralScroll = tree.ID(settings, "general-scroll")
 	p.ids.settingsShortcutsScroll = tree.ID(settings, "shortcuts-scroll")
@@ -304,16 +329,21 @@ func (p *Panels) Draw(canvas *ui.Canvas, theme ui.Theme, bounds ui.Rect, module 
 	if !p.initialized || p.tree == nil {
 		p.Init(canvas.Tree())
 	}
-	if p.module != "" && p.module != module {
+	previousModule := p.module
+	if previousModule != "" && previousModule != module {
 		p.duplicateSelect.Open = false
 		p.networkSelect.Open = false
 		p.cancelShortcutEdit()
 		p.resetShortcuts = false
 		p.aboutLicense = false
+		p.networkChange = panelNetworkChange{}
 		p.localError = ""
 		p.localNotice = ""
 	}
 	p.module = module
+	if module == panelModuleSettings && previousModule != "" && previousModule != module {
+		p.refreshNetworks()
+	}
 	p.observePending(state)
 	p.prepare(state)
 
@@ -331,6 +361,44 @@ func (p *Panels) Draw(canvas *ui.Canvas, theme ui.Theme, bounds ui.Rect, module 
 	})
 	p.captureScroll()
 	canvas.Unclip()
+}
+
+// OnWake caches local-path availability before the next paint. The shell calls
+// this from Config.OnWake; Draw only reads the cache and never touches disk.
+// A receive path is eligible only after its latest transfer completed.
+func (p *Panels) OnWake(state domain.State) {
+	p.localFiles = make(map[string]panelLocalFile, len(state.Files))
+	latestReceive := make(map[string]domain.Transfer)
+	for _, transfer := range state.Transfers {
+		if transfer.Direction != "receive" || transfer.Status != "completed" ||
+			strings.TrimSpace(transfer.Path) == "" || transfer.FileID == "" {
+			continue
+		}
+		previous, ok := latestReceive[transfer.FileID]
+		if !ok || !transfer.UpdatedAt.Before(previous.UpdatedAt) {
+			latestReceive[transfer.FileID] = transfer
+		}
+	}
+	for _, file := range state.Files {
+		path := ""
+		if file.SenderID == state.Self.ID {
+			path = strings.TrimSpace(file.SourcePath)
+		}
+		if path == "" {
+			if transfer, ok := latestReceive[file.ID]; ok {
+				path = strings.TrimSpace(transfer.Path)
+			}
+		}
+		if path == "" {
+			continue
+		}
+		info, err := os.Stat(path)
+		p.localFiles[file.ID] = panelLocalFile{
+			path:      path,
+			available: err == nil && info != nil && !info.IsDir(),
+		}
+	}
+	p.cacheReady = false
 }
 
 // TextInput returns a function instead of nil so the shell can combine every
@@ -655,7 +723,11 @@ func (p *Panels) rebuildShares(state domain.State) {
 		} else if strings.TrimSpace(sender) == "" {
 			sender = "未知联系人"
 		}
-		entry := panelShareEntry{file: file, sender: sender, own: own}
+		local := p.localFiles[file.ID]
+		entry := panelShareEntry{
+			file: file, sender: sender, own: own,
+			path: local.path, available: local.available,
+		}
 		eventTime := file.CreatedAt
 		meta := []string{panelFormatBytes(file.Size), sender}
 		if !eventTime.IsZero() {
@@ -663,10 +735,12 @@ func (p *Panels) rebuildShares(state domain.State) {
 		}
 		entry.meta = strings.Join(meta, " · ")
 		switch {
-		case file.SourcePath != "":
+		case entry.available:
 			entry.state = "本地文件可用"
 		case own:
 			entry.state = "源文件当前不可用"
+		case entry.path != "":
+			entry.state = "本地文件已不可用"
 		default:
 			entry.state = "尚未获取"
 		}
@@ -695,8 +769,14 @@ func panelSortShares(entries []panelShareEntry) {
 
 func (p *Panels) refreshNetworks() {
 	p.networks = p.networks[:0]
+	p.networkChoices = p.networkChoices[:0]
+	p.networkLabels = p.networkLabels[:0]
+	p.networkValues = p.networkValues[:0]
 	p.networkReadError = ""
 	interfaces, err := net.Interfaces()
+	if p.listNetworks != nil {
+		interfaces, err = p.listNetworks()
+	}
 	if err != nil {
 		p.networkReadError = err.Error()
 		p.networkFor = ""
@@ -720,6 +800,43 @@ func (p *Panels) refreshNetworks() {
 		return p.networks[i].label < p.networks[j].label
 	})
 	p.networkFor = ""
+}
+
+func (p *Panels) networkName(value string) string {
+	if value == "" || value == "auto" {
+		return "自动选择"
+	}
+	for _, option := range p.networks {
+		if option.value == value {
+			return option.label
+		}
+	}
+	return value
+}
+
+func panelActiveTransferCount(state domain.State) int {
+	count := 0
+	for _, transfer := range state.Transfers {
+		if transfer.Status == "transferring" || transfer.Status == "verifying" {
+			count++
+		}
+	}
+	return count
+}
+
+// The core stores a network change as PendingNetwork while a transfer is
+// active. Until the backend supports an atomic cancel-and-switch command, the
+// panel offers only the deferred change or cancellation, never a false
+// "immediate" success.
+func (p *Panels) chooseNetwork(submit func(domain.Command), state domain.State, value, label string) {
+	active := panelActiveTransferCount(state)
+	if active > 0 {
+		p.networkChange = panelNetworkChange{value: value, label: label, active: active}
+		p.networkSelect.Open = false
+		return
+	}
+	p.networkChange = panelNetworkChange{}
+	p.submitString(submit, state, "network", value)
 }
 
 func (p *Panels) networkChoicesFor(current string) ([]string, []string, int) {
@@ -899,7 +1016,7 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 		case "duplicate_policy":
 			return settings.DuplicatePolicy == pending.value
 		case "network":
-			return settings.Network == pending.value
+			return settings.Network == pending.value || settings.PendingNetwork == pending.value
 		case "send_key":
 			return settings.SendKey == pending.value
 		}
@@ -971,7 +1088,11 @@ func panelCopy(canvas *ui.Canvas, p *Panels, text string) {
 
 func panelOpenLocal(canvas *ui.Canvas, p *Panels, path string, reveal bool) {
 	canvas.AfterPaint(func() {
-		var err error
+		_, err := os.Stat(path)
+		if err != nil {
+			p.localError = "本地文件不可用：" + err.Error()
+			return
+		}
 		if reveal {
 			err = app.RevealPath(path)
 		} else {
@@ -1040,7 +1161,7 @@ func panelStatusColor(theme ui.Theme, status string) ui.Color {
 	switch status {
 	case "completed", "已完成", "本地文件可用":
 		return theme.Success
-	case "failed", "rejected", "失败", "已拒绝", "源文件当前不可用":
+	case "failed", "rejected", "失败", "已拒绝", "源文件当前不可用", "本地文件已不可用":
 		return theme.Danger
 	case "transferring", "verifying", "传输中", "校验中":
 		return panelAccentText(theme)
