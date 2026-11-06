@@ -4,3 +4,5 @@
 /artifacts/
 *.log
 *.exe
+/scripts/worker-*.jsonl
+/scripts/worker-*.stderr.log

@@ -1,0 +1,7 @@
+[app]
+name = "GoIM"
+id = "dev.goim.desktop"
+package = "./cmd/goim"
+
+[mac]
+min_system = "12.0"
