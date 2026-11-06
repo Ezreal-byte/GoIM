@@ -14,9 +14,9 @@ func main() {
 	if err := os.MkdirAll("internal/desktop/assets", 0755); err != nil {
 		log.Fatal(err)
 	}
-	s, err := headless.Open(app.Config{Width: 64, Height: 64, Paint: func(c *ui.Canvas, _ ui.Size) {
-		c.Fill(ui.Rect{Width: 64, Height: 64}, ui.RGB(20, 71, 230))
-		c.DrawIcon(desktop.MessageCircle, ui.Rect{X: 12, Y: 12, Width: 40, Height: 40}, ui.RGB(255, 255, 255))
+	s, err := headless.Open(app.Config{Width: 512, Height: 512, Paint: func(c *ui.Canvas, _ ui.Size) {
+		c.Fill(ui.Rect{Width: 512, Height: 512}, ui.RGB(20, 71, 230))
+		c.DrawIcon(desktop.MessageCircle, ui.Rect{X: 96, Y: 96, Width: 320, Height: 320}, ui.RGB(255, 255, 255))
 	}}, nil, headless.Options{Scale: 1})
 	if err != nil {
 		log.Fatal(err)

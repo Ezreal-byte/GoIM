@@ -20,12 +20,13 @@ func main() {
 	peers := flag.String("connect", "", "启动后连接的 IP:端口，以逗号分隔")
 	noDiscovery := flag.Bool("no-discovery", false, "关闭 UDP 自动发现（保留真实 TCP 通信）")
 	showVersion := flag.Bool("version", false, "显示版本")
+	downloadDir := flag.String("download-dir", "", "显式覆盖文件保存目录，适用于独立测试实例")
 	flag.Parse()
 	if *showVersion {
 		fmt.Printf("GoIM %s (%s)\n", version, commit)
 		return
 	}
-	n, err := core.New(core.Options{DataDir: *data, Listen: *listen, Name: *name, DisableDiscovery: *noDiscovery, Version: version + " (" + commit + ")"})
+	n, err := core.New(core.Options{DataDir: *data, Listen: *listen, Name: *name, DisableDiscovery: *noDiscovery, Version: version + " (" + commit + ")", DownloadDir: *downloadDir})
 	if err != nil {
 		log.Fatal(err)
 	}

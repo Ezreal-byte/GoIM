@@ -24,6 +24,7 @@ type Options struct {
 	Name             string
 	DisableDiscovery bool
 	Version          string
+	DownloadDir      string
 }
 type Node struct {
 	mu          sync.Mutex
@@ -79,7 +80,8 @@ func New(opts Options) (*Node, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	n := &Node{data: data, db: db, key: key, tls: tlsConfig, dir: opts.DataDir, ctx: ctx, cancel: cancel, listener: listener, connections: make(map[string]*peerConn), dialing: make(map[string]bool), commands: make(chan domain.Command, 256), updates: make(chan struct{}, 1), transfers: make(map[string]context.CancelFunc), discovery: !opts.DisableDiscovery}
-	if n.data.State.Settings.Theme == "" {
+	newSettings := n.data.State.Settings.Theme == ""
+	if newSettings {
 		downloads := filepath.Join(opts.DataDir, "downloads")
 		if home, e := os.UserHomeDir(); e == nil {
 			downloads = filepath.Join(home, "Downloads", "GoIM")
@@ -89,7 +91,10 @@ func New(opts Options) (*Node, error) {
 	if opts.Name != "" {
 		n.data.State.Settings.Nickname = opts.Name
 	}
-	if n.data.State.Settings.Nickname == "我" {
+	if opts.DownloadDir != "" {
+		n.data.State.Settings.DownloadDir = opts.DownloadDir
+	}
+	if newSettings && opts.Name == "" && n.data.State.Settings.Nickname == "我" {
 		if host, e := os.Hostname(); e == nil {
 			n.data.State.Settings.Nickname = host
 		}
@@ -140,8 +145,8 @@ func (n *Node) Submit(c domain.Command) {
 		n.report(errors.New("操作队列已满，请稍后重试"))
 	}
 }
-func (n *Node) change(fn func(*domain.State)) {
-	_ = n.durable(func(p *persisted) []pending { fn(&p.State); return nil })
+func (n *Node) change(fn func(*domain.State)) error {
+	return n.durable(func(p *persisted) []pending { fn(&p.State); return nil })
 }
 func (n *Node) signal() {
 	select {

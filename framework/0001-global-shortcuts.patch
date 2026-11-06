@@ -1,0 +1,478 @@
+diff --git a/app/driver_system.go b/app/driver_system.go
+index 22adb6b..0b2c7f1 100644
+--- a/app/driver_system.go
++++ b/app/driver_system.go
+@@ -17,6 +17,8 @@ const driverOpenFilesQueueSize = 8
+ const driverOpenDirectoryQueueSize = 8
+ 
+ type driverSystem struct {
++	globalBindings []*driverGlobalBinding
++	globalMu       sync.Mutex
+ 	driver         *Driver
+ 	clipboardImage []byte   // PNG bytes; the clipboard holds this or text, never both
+ 	clipboardFiles []string // paths of copied files, held beside the text a file manager adds
+@@ -259,6 +261,9 @@ func (driver *Driver) registerSystem() error {
+ }
+ 
+ func (driver *Driver) unregisterSystem() {
++	driver.system.globalMu.Lock()
++	driver.system.globalBindings = nil
++	driver.system.globalMu.Unlock()
+ 	driverSystems.Lock()
+ 	for index, system := range driverSystems.values {
+ 		if system == &driver.system {
+diff --git a/app/global_shortcut.go b/app/global_shortcut.go
+new file mode 100644
+index 0000000..9fd21ed
+--- /dev/null
++++ b/app/global_shortcut.go
+@@ -0,0 +1,56 @@
++package app
++
++import (
++	"fmt"
++	"github.com/vivaui/viva/ui"
++	"strconv"
++	"strings"
++)
++
++// GlobalShortcut is an optional system-wide key binding. It is independent of
++// Config.OnShortcut, which handles keys delivered to a focused window.
++type GlobalShortcut struct {
++	Modifiers ui.Modifiers
++	Key       string
++}
++
++func normalizeGlobalShortcut(s GlobalShortcut) (GlobalShortcut, error) {
++	s.Key = strings.ToUpper(strings.TrimSpace(s.Key))
++	if s.Modifiers == 0 || s.Modifiers & ^(ui.ModifierControl|ui.ModifierAlt|ui.ModifierShift|ui.ModifierMeta) != 0 {
++		return s, fmt.Errorf("app: global shortcut requires valid modifiers")
++	}
++	if len(s.Key) == 1 && (s.Key[0] >= 'A' && s.Key[0] <= 'Z' || s.Key[0] >= '0' && s.Key[0] <= '9') {
++		return s, nil
++	}
++	if strings.HasPrefix(s.Key, "F") {
++		if n, e := strconv.Atoi(s.Key[1:]); e == nil && n >= 1 && n <= 24 {
++			return s, nil
++		}
++	}
++	switch s.Key {
++	case "SPACE", "ENTER", "ESCAPE", "TAB":
++		return s, nil
++	}
++	return s, fmt.Errorf("app: unsupported global shortcut key %q", s.Key)
++}
++
++// RegisterGlobalShortcut registers a binding until the returned stop is called.
++// Stop is idempotent. The callback may run off the window thread: use a window's
++// thread-safe Show/Hide or an Invalidator to update UI state. No registration,
++// worker or native resource exists until this function is used. Driver-backed
++// runs keep bindings private and expose Driver.PressGlobalShortcut for tests.
++// The Windows backend supports system registration. Other native backends
++// currently return ErrUnsupported; normal focused-window shortcuts still work.
++func RegisterGlobalShortcut(s GlobalShortcut, pressed func()) (stop func(), err error) {
++	s, err = normalizeGlobalShortcut(s)
++	if err != nil {
++		return nil, err
++	}
++	if pressed == nil {
++		return nil, fmt.Errorf("app: global shortcut callback is nil")
++	}
++	if stop, err, handled := driverRegisterGlobalShortcut(s, pressed); handled {
++		return stop, err
++	}
++	return nativeRegisterGlobalShortcut(s, pressed)
++}
+diff --git a/app/global_shortcut_driver.go b/app/global_shortcut_driver.go
+new file mode 100644
+index 0000000..2dd6ad9
+--- /dev/null
++++ b/app/global_shortcut_driver.go
+@@ -0,0 +1,75 @@
++//go:build darwin || windows || linux
++
++package app
++
++import (
++	"fmt"
++	"sync"
++)
++
++type driverGlobalBinding struct {
++	shortcut GlobalShortcut
++	pressed  func()
++}
++
++func driverRegisterGlobalShortcut(s GlobalShortcut, pressed func()) (func(), error, bool) {
++	system := activeDriverSystem.Load()
++	if system == nil {
++		if nonNativeSystemUsed.Load() {
++			return nil, ErrUnsupported, true
++		}
++		return nil, nil, false
++	}
++	system.globalMu.Lock()
++	defer system.globalMu.Unlock()
++	for _, b := range system.globalBindings {
++		if b.shortcut == s {
++			return nil, fmt.Errorf("app: global shortcut is already registered"), true
++		}
++	}
++	binding := &driverGlobalBinding{shortcut: s, pressed: pressed}
++	system.globalBindings = append(system.globalBindings, binding)
++	var once sync.Once
++	return func() {
++		once.Do(func() {
++			system.globalMu.Lock()
++			defer system.globalMu.Unlock()
++			for i, b := range system.globalBindings {
++				if b == binding {
++					copy(system.globalBindings[i:], system.globalBindings[i+1:])
++					system.globalBindings[len(system.globalBindings)-1] = nil
++					system.globalBindings = system.globalBindings[:len(system.globalBindings)-1]
++					return
++				}
++			}
++		})
++	}, nil, true
++}
++
++// PressGlobalShortcut invokes a private registration without touching the OS.
++// Like other Driver input operations it must be called on the driver thread.
++func (driver *Driver) PressGlobalShortcut(s GlobalShortcut) (bool, error) {
++	if driver.closed {
++		return false, fmt.Errorf("app: driver is closed")
++	}
++	s, err := normalizeGlobalShortcut(s)
++	if err != nil {
++		return false, err
++	}
++	driver.activateSystem()
++	driver.system.globalMu.Lock()
++	var pressed func()
++	for _, b := range driver.system.globalBindings {
++		if b.shortcut == s {
++			pressed = b.pressed
++			break
++		}
++	}
++	driver.system.globalMu.Unlock()
++	if pressed != nil {
++		pressed()
++		driver.requestWake()
++		return true, nil
++	}
++	return false, nil
++}
+diff --git a/app/global_shortcut_driver_unsupported.go b/app/global_shortcut_driver_unsupported.go
+new file mode 100644
+index 0000000..5335521
+--- /dev/null
++++ b/app/global_shortcut_driver_unsupported.go
+@@ -0,0 +1,7 @@
++//go:build !darwin && !windows && !linux
++
++package app
++
++func driverRegisterGlobalShortcut(GlobalShortcut, func()) (func(), error, bool) {
++	return nil, nil, false
++}
+diff --git a/app/global_shortcut_test.go b/app/global_shortcut_test.go
+new file mode 100644
+index 0000000..9151e04
+--- /dev/null
++++ b/app/global_shortcut_test.go
+@@ -0,0 +1,71 @@
++//go:build darwin || windows || linux
++
++package app
++
++import (
++	"github.com/vivaui/viva/ui"
++	"testing"
++)
++
++func TestGlobalShortcutDriverRegistrationLifetime(t *testing.T) {
++	d, err := NewDriver(Config{Width: 160, Height: 100}, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer d.Close()
++	s := GlobalShortcut{Modifiers: ui.ModifierControl | ui.ModifierAlt, Key: "g"}
++	calls := 0
++	stop, err := RegisterGlobalShortcut(s, func() { calls++ })
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err = RegisterGlobalShortcut(s, func() {}); err == nil {
++		t.Fatal("duplicate binding accepted")
++	}
++	if ok, err := d.PressGlobalShortcut(s); !ok || err != nil || calls != 1 {
++		t.Fatalf("press: %v %v %d", ok, err, calls)
++	}
++	stop()
++	stop()
++	if ok, _ := d.PressGlobalShortcut(s); ok {
++		t.Fatal("stopped binding still active")
++	}
++	stop, err = RegisterGlobalShortcut(s, func() { calls++ })
++	if err != nil {
++		t.Fatal(err)
++	}
++	d.Close()
++	stop()
++	if ok, _ := d.PressGlobalShortcut(s); ok {
++		t.Fatal("closed driver accepted input")
++	}
++}
++func TestGlobalShortcutValidation(t *testing.T) {
++	for _, s := range []GlobalShortcut{{Key: "G"}, {Modifiers: ui.ModifierControl, Key: "invalid"}} {
++		if _, err := RegisterGlobalShortcut(s, func() {}); err == nil {
++			t.Fatal("invalid shortcut accepted")
++		}
++	}
++	if _, err := RegisterGlobalShortcut(GlobalShortcut{Modifiers: ui.ModifierAlt, Key: "g"}, nil); err == nil {
++		t.Fatal("nil callback accepted")
++	}
++}
++
++func BenchmarkDriverGlobalShortcutRegistration(b *testing.B) {
++	d, err := NewDriver(Config{Width: 160, Height: 100}, nil)
++	if err != nil {
++		b.Fatal(err)
++	}
++	defer d.Close()
++	s := GlobalShortcut{Modifiers: ui.ModifierControl | ui.ModifierAlt, Key: "g"}
++	callback := func() {}
++	b.ReportAllocs()
++	b.ResetTimer()
++	for b.Loop() {
++		stop, err := RegisterGlobalShortcut(s, callback)
++		if err != nil {
++			b.Fatal(err)
++		}
++		stop()
++	}
++}
+diff --git a/app/global_shortcut_unsupported.go b/app/global_shortcut_unsupported.go
+new file mode 100644
+index 0000000..a37ad76
+--- /dev/null
++++ b/app/global_shortcut_unsupported.go
+@@ -0,0 +1,5 @@
++//go:build !windows
++
++package app
++
++func nativeRegisterGlobalShortcut(GlobalShortcut, func()) (func(), error) { return nil, ErrUnsupported }
+diff --git a/app/global_shortcut_windows.go b/app/global_shortcut_windows.go
+new file mode 100644
+index 0000000..8e2104e
+--- /dev/null
++++ b/app/global_shortcut_windows.go
+@@ -0,0 +1,44 @@
++//go:build windows
++
++package app
++
++import (
++	windowsplatform "github.com/vivaui/viva/internal/platform/windows"
++	"github.com/vivaui/viva/ui"
++	"strconv"
++)
++
++func nativeRegisterGlobalShortcut(s GlobalShortcut, pressed func()) (func(), error) {
++	var modifiers uint32
++	if s.Modifiers&ui.ModifierAlt != 0 {
++		modifiers |= 1
++	}
++	if s.Modifiers&ui.ModifierControl != 0 {
++		modifiers |= 2
++	}
++	if s.Modifiers&ui.ModifierShift != 0 {
++		modifiers |= 4
++	}
++	if s.Modifiers&ui.ModifierMeta != 0 {
++		modifiers |= 8
++	}
++	key := uint32(0)
++	if len(s.Key) == 1 {
++		key = uint32(s.Key[0])
++	} else if s.Key[0] == 'F' {
++		n, _ := strconv.Atoi(s.Key[1:])
++		key = uint32(0x70 + n - 1)
++	} else {
++		switch s.Key {
++		case "SPACE":
++			key = 0x20
++		case "ENTER":
++			key = 0x0d
++		case "ESCAPE":
++			key = 0x1b
++		case "TAB":
++			key = 9
++		}
++	}
++	return windowsplatform.RegisterGlobalShortcut(modifiers, key, pressed)
++}
+diff --git a/docs/global-shortcuts.md b/docs/global-shortcuts.md
+new file mode 100644
+index 0000000..cd39253
+--- /dev/null
++++ b/docs/global-shortcuts.md
+@@ -0,0 +1,31 @@
++# Optional global shortcuts
++
++`Config.OnShortcut` handles keys delivered to a focused window. A tray application
++can also offer an explicit system-wide show/hide binding:
++
++```go
++stop, err := app.RegisterGlobalShortcut(app.GlobalShortcut{
++    Modifiers: ui.ModifierControl | ui.ModifierAlt,
++    Key: "G",
++}, func() {
++    if window.Hidden() { window.Show() } else { window.Hide() }
++})
++if err != nil { /* show the conflict or unsupported-platform error */ }
++if stop != nil { defer stop() }
++```
++
++Registration is optional. An application that never registers one starts no
++worker or native hotkey resource. Each live Windows binding has a blocking
++Win32 message queue; it does not poll or invalidate frames. `stop` releases the
++registration and is idempotent. Callbacks may execute off the window thread;
++use thread-safe Window methods or store an event and call an Invalidator.
++
++Keys are ASCII letters/digits, F1–F24, Space, Enter, Escape or Tab; at least one
++modifier is required. Windows reserves F12 for debuggers and reports an error.
++Conflicts are returned to the caller, so it can retain the previous setting.
++Other native backends currently return `app.ErrUnsupported`.
++
++Driver runs keep registrations private. `driver.PressGlobalShortcut(binding)`
++tests the callback without registering anything with the host OS. Closing the
++Driver clears those bindings. The opt-in native Windows registration/release
++test uses `VIVA_NATIVE_GLOBAL_SHORTCUT_TEST=1`; it does not synthesize user input.
+diff --git a/internal/platform/windows/global_shortcut_windows.go b/internal/platform/windows/global_shortcut_windows.go
+new file mode 100644
+index 0000000..e19665e
+--- /dev/null
++++ b/internal/platform/windows/global_shortcut_windows.go
+@@ -0,0 +1,81 @@
++//go:build windows
++
++package windows
++
++import (
++	"fmt"
++	"runtime"
++	"sync"
++	"unsafe"
++)
++
++// RegisterGlobalShortcut uses a private, blocking Win32 message queue. The
++// thread exists only for a live registration and never polls or paints.
++func RegisterGlobalShortcut(modifiers, key uint32, pressed func()) (func(), error) {
++	registerGlobalHotKey := user.NewProc("RegisterHotKey")
++	unregisterGlobalHotKey := user.NewProc("UnregisterHotKey")
++	peekGlobalHotKeyMessage := user.NewProc("PeekMessageW")
++	if key == 0x7b {
++		return nil, fmt.Errorf("windows: F12 is reserved for debuggers")
++	}
++	type ready struct {
++		thread uintptr
++		err    error
++	}
++	started := make(chan ready, 1)
++	done := make(chan struct{})
++	events := make(chan struct{}, 1)
++	go func() {
++		runtime.LockOSThread()
++		defer runtime.UnlockOSThread()
++		defer close(done)
++		var msg message
++		peekGlobalHotKeyMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0, 0)
++		ok, _, err := registerGlobalHotKey.Call(0, 1, uintptr(modifiers|0x4000), uintptr(key))
++		if ok == 0 {
++			started <- ready{err: fmt.Errorf("windows: register global shortcut: %w", err)}
++			return
++		}
++		defer unregisterGlobalHotKey.Call(0, 1)
++		thread, _, _ := getCurrentThread.Call()
++		started <- ready{thread: thread}
++		for {
++			result, _, _ := getMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
++			if result == 0 || int32(result) == -1 {
++				return
++			}
++			if msg.Kind == 0x0312 {
++				select {
++				case events <- struct{}{}:
++				default:
++				}
++			}
++		}
++	}()
++	r := <-started
++	if r.err != nil {
++		return nil, r.err
++	}
++	go func() {
++		for {
++			select {
++			case <-events:
++				pressed()
++			case <-done:
++				return
++			}
++		}
++	}()
++	var once sync.Once
++	return func() {
++		once.Do(func() {
++			select {
++			case <-done:
++				return
++			default:
++			}
++			postThreadMessage.Call(r.thread, 0x0012, 0, 0)
++			<-done
++		})
++	}, nil
++}
+diff --git a/internal/platform/windows/global_shortcut_windows_test.go b/internal/platform/windows/global_shortcut_windows_test.go
+new file mode 100644
+index 0000000..c626d31
+--- /dev/null
++++ b/internal/platform/windows/global_shortcut_windows_test.go
+@@ -0,0 +1,31 @@
++//go:build windows
++
++package windows
++
++import (
++	"os"
++	"testing"
++)
++
++func TestNativeGlobalShortcutRegistration(t *testing.T) {
++	if os.Getenv("VIVA_NATIVE_GLOBAL_SHORTCUT_TEST") != "1" {
++		t.Skip("opt in to native desktop hotkey registration")
++	}
++	// Ctrl+Alt+Shift+F22 avoids common application and debugger shortcuts.
++	stop, err := RegisterGlobalShortcut(7, 0x85, func() {})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer stop()
++	if duplicate, err := RegisterGlobalShortcut(7, 0x85, func() {}); err == nil {
++		duplicate()
++		t.Fatal("OS accepted a conflicting registration")
++	}
++	stop()
++	stop()
++	replacement, err := RegisterGlobalShortcut(7, 0x85, func() {})
++	if err != nil {
++		t.Fatalf("stop did not release OS registration: %v", err)
++	}
++	replacement()
++}

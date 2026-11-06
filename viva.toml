@@ -5,4 +5,4 @@ package = "./cmd/goim"
 icon = "internal/desktop/assets/icon.png"
 
 [mac]
-min_system = "12.0"
+min_system = "13.0"

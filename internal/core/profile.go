@@ -8,6 +8,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,6 +46,21 @@ func avatarPNG(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return b.Bytes(), nil
+}
+func readAvatar(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, (8<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 8<<20 {
+		return nil, errors.New("头像文件不能超过 8 MB")
+	}
+	return data, nil
 }
 func (n *Node) cacheAvatar(id string, data []byte) (string, error) {
 	if len(data) == 0 {
@@ -84,7 +100,7 @@ func (n *Node) profileEnvelope() envelope {
 	p.Address = n.advertisedAddress()
 	var imageData []byte
 	if s.Settings.Avatar != "" {
-		b, err := os.ReadFile(s.Settings.Avatar)
+		b, err := readAvatar(s.Settings.Avatar)
 		if err == nil && len(b) < 1<<20 {
 			imageData = b
 		}
@@ -99,7 +115,7 @@ func (n *Node) setProfile(name, path string) error {
 	s := n.Snapshot()
 	avatar := s.Settings.Avatar
 	if path != "" {
-		data, err := os.ReadFile(path)
+		data, err := readAvatar(path)
 		if err != nil {
 			return err
 		}
@@ -133,7 +149,7 @@ func (n *Node) receiveProfile(peer string, e envelope) error {
 			return err
 		}
 	}
-	n.change(func(s *domain.State) {
+	return n.change(func(s *domain.State) {
 		if i := peerIndex(s, peer); i >= 0 {
 			s.Peers[i].Name = e.Peer.Name
 			if avatar != "" {
@@ -146,5 +162,4 @@ func (n *Node) receiveProfile(peer string, e envelope) error {
 			}
 		}
 	})
-	return nil
 }

@@ -263,27 +263,25 @@ func (n *Node) receive(peer string, e envelope) error {
 		return nil
 	}
 	if e.Type == "ack" {
-		n.mu.Lock()
-		p, ok := n.data.Outbox[e.ID]
-		if ok && p.PeerID == peer {
-			delete(n.data.Outbox, e.ID)
-			for i := range n.data.State.Messages {
-				m := &n.data.State.Messages[i]
-				if m.ID == p.Envelope.Message.ID {
-					m.Status = "delivered"
-					for _, remaining := range n.data.Outbox {
-						if remaining.Envelope.Type == "message" && remaining.Envelope.Message.ID == m.ID {
-							m.Status = "sent"
-							break
+		return n.durable(func(data *persisted) []pending {
+			p, ok := data.Outbox[e.ID]
+			if ok && p.PeerID == peer {
+				delete(data.Outbox, e.ID)
+				for i := range data.State.Messages {
+					m := &data.State.Messages[i]
+					if m.ID == p.Envelope.Message.ID {
+						m.Status = "delivered"
+						for _, remaining := range data.Outbox {
+							if remaining.Envelope.Type == "message" && remaining.Envelope.Message.ID == m.ID {
+								m.Status = "sent"
+								break
+							}
 						}
 					}
 				}
 			}
-			_ = saveStore(n.db, &n.data)
-		}
-		n.mu.Unlock()
-		n.signal()
-		return nil
+			return nil
+		})
 	}
 	if e.ID != "" {
 		n.mu.Lock()
@@ -308,7 +306,7 @@ func (n *Node) receive(peer string, e envelope) error {
 	case "file_status":
 		err = n.receiveFileStatus(peer, e)
 	case "catalog":
-		n.change(func(s *domain.State) {
+		err = n.change(func(s *domain.State) {
 			for i := range s.Files {
 				if s.Files[i].SenderID == peer {
 					s.Files[i].Shared = false
@@ -338,10 +336,7 @@ func (n *Node) receive(peer string, e envelope) error {
 		return err
 	}
 	if e.ID != "" {
-		n.mu.Lock()
-		n.data.Seen[peer+":"+e.ID] = true
-		err = saveStore(n.db, &n.data)
-		n.mu.Unlock()
+		err = n.durable(func(p *persisted) []pending { p.Seen[peer+":"+e.ID] = true; return nil })
 		if err != nil {
 			return err
 		}
@@ -366,7 +361,7 @@ func (n *Node) receiveMessage(peer string, e envelope) error {
 		n.change(func(st *domain.State) { ensureDirect(st, p) })
 	}
 	m.Status = "delivered"
-	n.change(func(s *domain.State) {
+	return n.change(func(s *domain.State) {
 		for _, old := range s.Messages {
 			if old.ID == m.ID {
 				return
@@ -379,7 +374,6 @@ func (n *Node) receiveMessage(peer string, e envelope) error {
 			s.Conversations[i].UpdatedAt = m.CreatedAt
 		}
 	})
-	return nil
 }
 
 type announcement struct {

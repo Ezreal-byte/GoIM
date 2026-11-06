@@ -25,7 +25,7 @@ func terminalTransfer(status string) bool {
 func validFile(f domain.File) bool {
 	identifier, e := hex.DecodeString(f.ID)
 	hash, he := hex.DecodeString(f.Hash)
-	name := strings.ToUpper(strings.Split(f.Name, ".")[0])
+	name := strings.ToUpper(strings.TrimSpace(strings.Split(f.Name, ".")[0]))
 	reserved := name == "CON" || name == "PRN" || name == "AUX" || name == "NUL" || len(name) == 4 && (strings.HasPrefix(name, "COM") || strings.HasPrefix(name, "LPT")) && name[3] >= '1' && name[3] <= '9'
 	for _, r := range f.Name {
 		if r < 32 || r == 127 {
@@ -157,7 +157,7 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 		n.change(func(st *domain.State) { ensureDirect(st, s.Peer(peer)) })
 	}
 	requested := false
-	n.change(func(s *domain.State) {
+	err := n.change(func(s *domain.State) {
 		for i := range s.Transfers {
 			v := &s.Transfers[i]
 			if v.FileID == f.ID && v.PeerID == peer && v.Direction == "receive" && v.Status == "retry_requested" {
@@ -166,8 +166,10 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 				requested = true
 			}
 		}
-		if fileIndex(s, f.ID) < 0 {
+		if i := fileIndex(s, f.ID); i < 0 {
 			s.Files = append(s.Files, f)
+		} else if s.Files[i].ConversationID == "" {
+			s.Files[i].ConversationID = f.ConversationID
 		}
 		if transferIndex(s, e.TransferID) < 0 {
 			s.Transfers = append(s.Transfers, domain.Transfer{ID: e.TransferID, FileID: f.ID, ConversationID: f.ConversationID, PeerID: peer, Direction: "receive", Status: "offered", Name: f.Name, Size: f.Size, UpdatedAt: time.Now()})
@@ -192,6 +194,9 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 			}
 		}
 	})
+	if err != nil {
+		return err
+	}
 	if s.Settings.AutoAccept || requested {
 		n.startReceive(e.TransferID, "")
 	}

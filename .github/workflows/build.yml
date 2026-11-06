@@ -1,0 +1,152 @@
+name: Verify and package
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version
+        default: 0.1.0-alpha.1
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: windows-2025, os: windows, arch: amd64, goarch: x64}
+          - {runner: windows-11-arm, os: windows, arch: arm64, goarch: arm64}
+          - {runner: ubuntu-24.04, os: linux, arch: amd64, goarch: x64}
+          - {runner: ubuntu-24.04-arm, os: linux, arch: arm64, goarch: arm64}
+          - {runner: macos-15-intel, os: darwin, arch: amd64, goarch: x64}
+          - {runner: macos-15, os: darwin, arch: arm64, goarch: arm64}
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: GoIM
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {path: GoIM}
+      - name: Checkout pinned Viva
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: vivaui/viva
+          ref: fee2ecb8c1fb4ca2abf776123cdd9f8e4246895e
+          path: viva
+      - name: Apply reviewed framework patch
+        run: git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.27.3'
+          architecture: ${{ matrix.goarch }}
+          cache-dependency-path: GoIM/go.sum
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk xvfb
+      - name: Verify native architecture and dependencies
+        run: |
+          test "$(go env GOARCH)" = '${{ matrix.arch }}'
+          go mod download
+          git diff --exit-code -- go.mod go.sum
+      - name: Format, vet and full tests
+        run: |
+          test -z "$(gofmt -l cmd internal)"
+          go vet ./...
+          go test ./... -count=1 -timeout=180s
+      - name: Concurrent core race tests
+        if: matrix.os == 'linux' && matrix.arch == 'amd64'
+        run: go test -race ./internal/core -count=1 -timeout=180s
+      - name: Offscreen UI screenshots
+        env:
+          GOIM_QA_SCREENSHOTS: artifacts/screenshots
+        run: go test ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix' -count=1 -timeout=180s
+      - name: Windows three-process smoke
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          ./scripts/build.ps1 -Headless
+          ./scripts/smoke-headless.ps1
+      - name: Native release package
+        env:
+          PACKAGE_VERSION: ${{ inputs.version || (github.ref_type == 'tag' && github.ref_name) || '0.1.0-alpha.1' }}
+        run: go run ./cmd/package --version "${PACKAGE_VERSION#v}" --commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: GoIM-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            GoIM/dist/*.zip
+            GoIM/dist/*.tar.gz
+            GoIM/dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: QA-${{ matrix.os }}-${{ matrix.arch }}
+          path: GoIM/artifacts/
+          retention-days: 14
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions: {contents: write}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: GoIM-*
+          merge-multiple: true
+          path: release
+      - name: Verify six packages and prepare checksums
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, tarfile, zipfile
+          root = pathlib.Path('release')
+          expected = {(o,a) for o in ('windows','linux','darwin') for a in ('amd64','arm64')}
+          found, sums = set(), []
+          for p in sorted(root.iterdir()):
+              if not (p.name.endswith('.zip') or p.name.endswith('.tar.gz')): continue
+              target = tuple(p.name.removesuffix('.tar.gz').removesuffix('.zip').rsplit('_',2)[1:])
+              assert target in expected and target not in found, p.name
+              found.add(target)
+              if p.name.endswith('.zip'):
+                  with zipfile.ZipFile(p) as z:
+                      names=z.namelist()
+                      info=json.loads(z.read(next(n for n in names if n.endswith('/build-info.json'))))
+                      assert any(n.endswith('/GoIM.exe' if target[0]=='windows' else '/GoIM.app/Contents/MacOS/GoIM') for n in names)
+                      if target[0]=='darwin': assert any(n.endswith('/GoIM.app/Contents/Info.plist') for n in names)
+              else:
+                  with tarfile.open(p) as z:
+                      names=z.getnames()
+                      info=json.load(z.extractfile(next(n for n in names if n.endswith('/build-info.json'))))
+                      exe=z.getmember(next(n for n in names if n.endswith('/GoIM')))
+                      assert exe.mode & 0o111
+              assert info['commit']==os.environ['SOURCE_COMMIT'] and (info['os'],info['arch'])==target
+              assert any('/licenses/' in n for n in names)
+              digest=hashlib.sha256(p.read_bytes()).hexdigest()
+              expected_sum=(root/(p.name+'.sha256')).read_text().split()[0]
+              assert digest==expected_sum
+              sums.append(digest+'  '+p.name)
+          assert found==expected, (found,expected)
+          (root/'SHA256SUMS').write_text('\n'.join(sums)+'\n')
+          notes='GoIM first alpha: real LAN single/group chat and confirmed resumable file transfer.\n\nSix native architectures passed build/header checks, vet, tests and offscreen UI checks; Windows three-process TLS smoke and Linux core race tests passed. Cross-machine LAN and non-Windows real desktop behavior remain unverified.\n\nWindows is unsigned. macOS is ad-hoc signed and not notarized. Linux targets X11/XWayland. See bundled README for startup and current boundaries.\n\nSource: '+os.environ['SOURCE_COMMIT']+'\nViva: fee2ecb8c1fb4ca2abf776123cdd9f8e4246895e plus reviewed patch (vivaui/viva#155).\nGo: 1.27.3\n'
+          (root/'RELEASE_NOTES.md').write_text(notes)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: GoIM-checksums-and-report
+          path: |
+            release/SHA256SUMS
+            release/RELEASE_NOTES.md
+          retention-days: 14
+      - name: Create private draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PACKAGE_VERSION: ${{ inputs.version || (github.ref_type == 'tag' && github.ref_name) || '0.1.0-alpha.1' }}
+        run: |
+          gh release create "v${PACKAGE_VERSION#v}" --draft --target "$GITHUB_SHA" --title "GoIM ${PACKAGE_VERSION#v}" --notes-file release/RELEASE_NOTES.md release/*.zip release/*.tar.gz release/SHA256SUMS release/RELEASE_NOTES.md

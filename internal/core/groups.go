@@ -425,6 +425,13 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 		}
 		if e.Proof.ToID == s.Self.ID {
 			proof := e.Proof
+			// The state may have committed before the acknowledgement reached the
+			// previous owner. Replaying the same signed handoff is idempotent.
+			for _, adopted := range old.Ownership {
+				if adopted.FromID == peer && adopted.ToID == proof.ToID && adopted.Epoch == proof.Epoch && bytes.Equal(adopted.Signature, proof.Signature) {
+					return nil
+				}
+			}
 			if old.OwnerID != peer || proof.FromID != peer || proof.Epoch != old.Epoch+1 || !bytes.Equal(proof.ToKey, s.Self.PublicKey) || !ed25519.Verify(old.OwnerKey, proofBody(g.ID, proof), proof.Signature) {
 				return errors.New("群主转让证书无效")
 			}
@@ -489,7 +496,15 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 			return nil
 		}
 		if e.Status != "accepted" {
-			return n.durable(func(p *persisted) []pending { delete(p.OwnerOffers, e.Invitation.ID); return nil })
+			return n.durable(func(p *persisted) []pending {
+				delete(p.OwnerOffers, e.Invitation.ID)
+				for i := range p.State.Invitations {
+					if p.State.Invitations[i].ID == e.Invitation.ID {
+						p.State.Invitations[i].Status = "rejected"
+					}
+				}
+				return nil
+			})
 		}
 		target := s.Peer(peer)
 		proof := domain.Ownership{FromID: s.Self.ID, ToID: peer, ToKey: target.PublicKey, Epoch: g.Epoch + 1}
@@ -498,6 +513,11 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 			v := p.OwnerOffers[e.Invitation.ID]
 			v.Stage = "committing"
 			p.OwnerOffers[e.Invitation.ID] = v
+			for i := range p.State.Invitations {
+				if p.State.Invitations[i].ID == e.Invitation.ID {
+					p.State.Invitations[i].Status = "accepted"
+				}
+			}
 			return []pending{{PeerID: peer, Envelope: envelope{Type: "group_state", Group: g, Proof: proof}}}
 		}); err != nil {
 			return err
@@ -507,7 +527,9 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 		if g.ID == "" || !contains(g.Members, peer) || g.Dissolved || utf8.RuneCountInString(e.Peer.Name) > 40 {
 			return errors.New("群昵称更新无效")
 		}
-		n.change(func(s *domain.State) { setGroupNicknameState(s, g.ID, peer, e.Peer.Name) })
+		if err := n.change(func(s *domain.State) { setGroupNicknameState(s, g.ID, peer, e.Peer.Name) }); err != nil {
+			return err
+		}
 	}
 	if verifyGroup(g) {
 		for _, p := range e.Peers {
