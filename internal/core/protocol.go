@@ -21,23 +21,24 @@ const protocolVersion = 1
 const maxFrame = 4 << 20
 
 type envelope struct {
-	Version    int
-	ID         string
-	Type       string
-	Peer       domain.Peer
-	Message    domain.Message
-	Group      domain.Group
-	Invitation domain.Invitation
-	File       domain.File
-	Files      []domain.File
-	TransferID string
-	Offset     int64
-	Status     string
-	Error      string
-	Target     string
-	Proof      domain.Ownership
-	Avatar     []byte
-	Peers      []domain.Peer
+	Version         int
+	ID              string
+	Type            string
+	Peer            domain.Peer
+	Message         domain.Message
+	Group           domain.Group
+	Invitation      domain.Invitation
+	File            domain.File
+	Files           []domain.File
+	CatalogRevision uint64
+	TransferID      string
+	Offset          int64
+	Status          string
+	Error           string
+	Target          string
+	Proof           domain.Ownership
+	Avatar          []byte
+	Peers           []domain.Peer
 }
 type peerConn struct {
 	conn     *tls.Conn
@@ -323,7 +324,12 @@ func (n *Node) receive(peer string, e envelope) error {
 	case "file_status":
 		err = n.receiveFileStatus(peer, e)
 	case "catalog":
-		err = n.change(func(s *domain.State) {
+		err = n.durable(func(data *persisted) []pending {
+			if e.CatalogRevision < data.CatalogRevisions[peer] {
+				return nil
+			}
+			data.CatalogRevisions[peer] = e.CatalogRevision
+			s := &data.State
 			for i := range s.Files {
 				if s.Files[i].SenderID == peer {
 					s.Files[i].Shared = false
@@ -341,6 +347,7 @@ func (n *Node) receive(peer string, e envelope) error {
 					}
 				}
 			}
+			return nil
 		})
 	case "catalog_request":
 		n.sendCatalog(peer)

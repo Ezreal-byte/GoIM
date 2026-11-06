@@ -73,6 +73,27 @@ func TestTerminalStatusBeforeOfferCannotResurrectTransfer(t *testing.T) {
 		t.Fatal("late offer resurrected a terminal task")
 	}
 }
+
+func TestCatalogRejectsOutOfOrderInitialSnapshot(t *testing.T) {
+	n := testNode(t, "我")
+	peer := "peer"
+	f := domain.File{ID: newID(), Name: "shared.txt", Hash: strings.Repeat("a", 64), SenderID: peer, Shared: true}
+	if err := n.receive(peer, envelope{Type: "catalog", Files: []domain.File{f}, CatalogRevision: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.receive(peer, envelope{Type: "catalog", CatalogRevision: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if !n.Snapshot().File(f.ID).Shared {
+		t.Fatal("late initial catalog hid the fresh share")
+	}
+	if err := n.receive(peer, envelope{Type: "catalog", CatalogRevision: 4}); err != nil {
+		t.Fatal(err)
+	}
+	if n.Snapshot().File(f.ID).Shared {
+		t.Fatal("new removal was ignored")
+	}
+}
 func TestSenderCancellationRevokesRecipientRetry(t *testing.T) {
 	a, b := testNode(t, "甲"), testNode(t, "乙")
 	connectNodes(t, a, b)

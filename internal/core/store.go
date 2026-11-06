@@ -23,6 +23,7 @@ type ownershipOffer struct {
 	CreatedAt time.Time
 }
 type persisted struct {
+	CatalogRevisions   map[string]uint64
 	NextSequence       uint64
 	TransferTombstones map[string]string
 	Version            int
@@ -61,6 +62,9 @@ func openStore(dir string) (*bolt.DB, persisted, error) {
 		return nil, data, fmt.Errorf("数据库版本 %d 高于当前应用支持版本", data.Version)
 	}
 	data.Version = 1
+	if data.CatalogRevisions == nil {
+		data.CatalogRevisions = make(map[string]uint64)
+	}
 	if data.TransferTombstones == nil {
 		data.TransferTombstones = make(map[string]string)
 	}

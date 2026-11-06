@@ -579,7 +579,7 @@ func (n *Node) sendCatalog(peer string) {
 			list = append(list, publicFile(f))
 		}
 	}
-	_ = n.send(peer, envelope{Type: "catalog", Files: list})
+	_ = n.send(peer, envelope{Type: "catalog", Files: list, CatalogRevision: s.Revision})
 }
 func (n *Node) broadcastCatalog() {
 	s := n.Snapshot()

@@ -18,6 +18,16 @@ function Send-Command($TaskProcess,[string]$TaskCommand) {
     $TaskProcess.StandardInput.Flush()
     return Read-Reply $TaskProcess
 }
+function Wait-Control($TaskProcess,[string]$TaskLabel) {
+    $taskDeadline=[DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $null=Send-Command $TaskProcess 'wait 100'
+        $taskTree=Send-Command $TaskProcess 'tree'
+        if($taskTree -match ('(?m)^role=button[^\r\n]* label="'+[regex]::Escape($TaskLabel)+'"')){return}
+        Start-Sleep -Milliseconds 100
+    } while([DateTime]::UtcNow -lt $taskDeadline)
+    throw "Button '$TaskLabel' did not appear after the asynchronous state change"
+}
 function Start-Peer([string]$TaskName,[string]$TaskConnect='') {
     $taskInfo=[System.Diagnostics.ProcessStartInfo]::new()
     $taskInfo.FileName=Join-Path $taskProjectRoot 'build/goim-headless.exe'
@@ -81,10 +91,11 @@ try {
     Send-Command $taskAlice 'click "创建并邀请（2）"'
     foreach($taskGuest in @($taskBob,$taskCharlie)){Send-Command $taskGuest 'waitfor "加入" 10000';Send-Command $taskGuest 'click "加入"'}
     Send-Command $taskAlice 'waitfor "三端验证群" 10000'
+    Send-Command $taskAlice 'waitfor "3 人在线" 15000'
     Send-Command $taskAlice 'click id:goim/chat/editor'
     Send-Command $taskAlice 'type 三个独立进程通过真实群聊通信。'
     Send-Command $taskAlice 'key enter'
-    foreach($taskGuest in @($taskBob,$taskCharlie)){Send-Command $taskGuest 'waitfor "三端验证群" 10000';Send-Command $taskGuest 'click "三端验证群"';Send-Command $taskGuest 'waitfor "三个独立进程通过真实群聊通信。" 10000'}
+    foreach($taskGuest in @($taskBob,$taskCharlie)){Wait-Control $taskGuest '三端验证群';Send-Command $taskGuest 'click "三端验证群"';Send-Command $taskGuest 'waitfor "三个独立进程通过真实群聊通信。" 10000'}
     Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-group-chat.png').Replace('\','/')+'"')
     Send-Command $taskAlice 'click "设置"'
     Send-Command $taskAlice 'expect text "常规"'
