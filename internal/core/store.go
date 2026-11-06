@@ -15,12 +15,16 @@ type pending struct {
 	PeerID   string
 	Envelope envelope
 }
+type ownershipOffer struct {
+	PeerID  string
+	GroupID string
+}
 type persisted struct {
 	Version     int
 	State       domain.State
 	Outbox      map[string]pending
 	Seen        map[string]bool
-	OwnerOffers map[string]string
+	OwnerOffers map[string]ownershipOffer
 }
 
 func openStore(dir string) (*bolt.DB, persisted, error) {
@@ -53,7 +57,7 @@ func openStore(dir string) (*bolt.DB, persisted, error) {
 	}
 	data.Version = 1
 	if data.OwnerOffers == nil {
-		data.OwnerOffers = make(map[string]string)
+		data.OwnerOffers = make(map[string]ownershipOffer)
 	}
 	if data.Outbox == nil {
 		data.Outbox = make(map[string]pending)

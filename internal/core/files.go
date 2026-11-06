@@ -149,6 +149,11 @@ func (n *Node) setTransfer(id, status string, done int64, speed float64, problem
 	n.change(func(s *domain.State) {
 		if i := transferIndex(s, id); i >= 0 {
 			t := &s.Transfers[i]
+			// Control acknowledgements and data-stream completion run independently.
+			// A late progress update must not undo a terminal task state.
+			if t.Status == "completed" || (t.Status == "cancelled" || t.Status == "rejected") && status != "completed" {
+				return
+			}
 			t.Status = status
 			t.Done = done
 			t.Speed = speed
@@ -358,6 +363,9 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 		return errors.New("完整性校验失败，请重试")
 	}
 	if err = file.Close(); err != nil {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
 		return err
 	}
 	if err = installFile(partial, destination); err != nil {

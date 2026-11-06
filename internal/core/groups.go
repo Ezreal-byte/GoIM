@@ -237,7 +237,7 @@ func (n *Node) manageGroup(c domain.Command) error {
 		}
 		inv := domain.Invitation{ID: newID(), GroupID: g.ID, GroupName: g.Name, FromID: s.Self.ID, FromName: s.Self.Name, Kind: "ownership", Status: "pending", CreatedAt: time.Now()}
 		n.mu.Lock()
-		n.data.OwnerOffers[inv.ID] = p.ID
+		n.data.OwnerOffers[inv.ID] = ownershipOffer{PeerID: p.ID, GroupID: g.ID}
 		_ = saveStore(n.db, &n.data)
 		n.mu.Unlock()
 		n.reliable(p.ID, envelope{Type: "ownership_offer", Group: g, Invitation: inv})
@@ -323,7 +323,7 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 	case "ownership_accept":
 		g = s.Group(e.Invitation.GroupID)
 		n.mu.Lock()
-		offered := n.data.OwnerOffers[e.Invitation.ID] == peer
+		offered := n.data.OwnerOffers[e.Invitation.ID] == (ownershipOffer{PeerID: peer, GroupID: g.ID})
 		delete(n.data.OwnerOffers, e.Invitation.ID)
 		_ = saveStore(n.db, &n.data)
 		n.mu.Unlock()
