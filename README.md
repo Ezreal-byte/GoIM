@@ -10,6 +10,8 @@ Windows 解压双击 GoIM.exe；开发目录运行 scripts/start.ps1。默认监
 
 Linux 解压运行 ./GoIM，需要 X11（Wayland 使用 XWayland）。macOS 解压 GoIM.app，需要 macOS 13 或更新版本；首版仅 ad-hoc 签名，没有 Apple 公证，下载来源检查可能要求用户在系统设置中允许打开。Windows 无商业证书签名。
 
+Linux 中文界面需要系统 CJK 字体。Ubuntu/Debian 可安装 `fonts-noto-cjk`，以及 `libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers`。
+
 默认数据在系统用户配置目录的 GoIM，文件在 Downloads/GoIM，可在设置中更改。设备身份私钥与本地聊天数据库保存在数据目录；备份时一起保存。
 
 ```powershell

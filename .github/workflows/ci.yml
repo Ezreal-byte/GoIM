@@ -16,7 +16,9 @@ jobs:
         with: {repository: vivaui/viva, ref: fee2ecb8c1fb4ca2abf776123cdd9f8e4246895e, path: viva}
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with: {go-version: '1.27.3', cache-dependency-path: GoIM/go.sum}
-      - run: git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch
+      - run: |
+          git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch
       - name: Chinese font coverage for the native painter
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
       - run: |

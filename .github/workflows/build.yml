@@ -38,7 +38,9 @@ jobs:
           ref: fee2ecb8c1fb4ca2abf776123cdd9f8e4246895e
           path: viva
       - name: Apply reviewed framework patch
-        run: git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch
+        run: |
+          git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.27.3'
@@ -63,7 +65,7 @@ jobs:
       - name: Offscreen UI screenshots
         env:
           GOIM_QA_SCREENSHOTS: artifacts/screenshots
-        run: go test ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix' -count=1 -timeout=180s
+        run: go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix' -count=1 -timeout=180s
       - name: Windows three-process smoke
         if: matrix.os == 'windows'
         shell: pwsh
