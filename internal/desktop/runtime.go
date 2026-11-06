@@ -115,7 +115,7 @@ func Run(backend domain.Backend) error {
 		// Background work can finish between constructing the UI and binding its
 		// invalidator to a native window. Wake once after binding to collect it.
 		shell.invalidator.Invalidate()
-		show := func() { shell.SetWindowVisible(true); window.Show() }
+		show := func() { window.Show(); shell.SetWindowVisible(true) }
 		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: "GoIM · 局域网即时通讯", Icon: icon.StatusIcon(32), OnClick: func(app.StatusClick) { show() }, Menu: func() []app.MenuItem {
 			return []app.MenuItem{{Title: "打开 GoIM", OnSelect: show}, {Separator: true}, {Title: "退出 GoIM", OnSelect: func() {
 				active := false
@@ -262,11 +262,11 @@ func (r *desktopRuntime) applyGlobal(s domain.State) {
 	if err == nil {
 		stop, err = app.RegisterGlobalShortcut(shortcut, func() {
 			if r.window.Hidden() || r.window.Minimized() {
-				r.ui.SetWindowVisible(true)
 				r.window.Show()
+				r.ui.SetWindowVisible(true)
 			} else {
-				r.ui.SetWindowVisible(false)
 				r.window.Hide()
+				r.ui.SetWindowVisible(false)
 			}
 		})
 	}
