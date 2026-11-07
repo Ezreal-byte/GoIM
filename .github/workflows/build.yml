@@ -39,6 +39,7 @@ jobs:
           path: viva
       - name: Apply reviewed framework patch
         run: |
+          test "$(git -C ../viva rev-parse HEAD)" = "$(tr -d '\r\n' < framework/viva-commit.txt)"
           git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
           git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch ../GoIM/framework/0002-windows-arm64-text-origin.patch
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
@@ -129,7 +130,7 @@ jobs:
           import hashlib, json, os, pathlib, tarfile, zipfile
           root = pathlib.Path('release')
           expected = {(o,a) for o in ('windows','linux','darwin') for a in ('amd64','arm64')}
-          found, sums = set(), []
+          found, sums, frameworks, toolchains = set(), [], set(), set()
           for p in sorted(root.iterdir()):
               if not (p.name.endswith('.zip') or p.name.endswith('.tar.gz')): continue
               target = tuple(p.name.removesuffix('.tar.gz').removesuffix('.zip').rsplit('_',2)[1:])
@@ -148,14 +149,17 @@ jobs:
                       exe=z.getmember(next(n for n in names if n.endswith('/GoIM')))
                       assert exe.mode & 0o111
               assert info['commit']==os.environ['SOURCE_COMMIT'] and (info['os'],info['arch'])==target
+              frameworks.add(info['viva'])
+              toolchains.add(info['go'])
               assert any('/licenses/' in n for n in names)
               digest=hashlib.sha256(p.read_bytes()).hexdigest()
               expected_sum=(root/(p.name+'.sha256')).read_text().split()[0]
               assert digest==expected_sum
               sums.append(digest+'  '+p.name)
           assert found==expected, (found,expected)
+          assert len(frameworks)==len(toolchains)==1, (frameworks,toolchains)
           (root/'SHA256SUMS').write_text('\n'.join(sums)+'\n')
-          notes='GoIM first alpha: real LAN single/group chat and confirmed resumable file transfer.\n\nSix native architectures passed build/header checks, vet, tests and offscreen UI checks; Windows three-process TLS smoke and Linux core race tests passed. Cross-machine LAN and non-Windows real desktop behavior remain unverified.\n\nWindows is unsigned. macOS is ad-hoc signed and not notarized. Linux targets X11/XWayland. See bundled README for startup and current boundaries.\n\nSource: '+os.environ['SOURCE_COMMIT']+'\nViva: fee2ecb8c1fb4ca2abf776123cdd9f8e4246895e plus reviewed patch (vivaui/viva#155).\nGo: 1.27.3\n'
+          notes='GoIM preview: native LAN chat, browser file links with passwords and QR codes, application lock, and expanded settings.\n\nSix native builds passed tests and package checks. Windows three-process smoke verified TLS chat, images, emoji, group and file transfer, lock, and password-protected browser download. Native hotkey lifecycle checks passed on Windows, macOS and X11. Linux race checks passed. Physical multi-device desktop testing remains separate.\n\nWindows is unsigned. macOS is ad-hoc signed and not notarized. Linux global shortcuts require X11.\n\nSource: '+os.environ['SOURCE_COMMIT']+'\nViva: '+next(iter(frameworks))+' (vivaui/viva#155 and #157).\nGo: '+next(iter(toolchains))+'\n'
           (root/'RELEASE_NOTES.md').write_text(notes)
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

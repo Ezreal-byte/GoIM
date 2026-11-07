@@ -46,9 +46,20 @@ func main() {
 func build() error {
 	version := flag.String("version", "0.1.0-alpha.1", "release version")
 	commit := flag.String("commit", "working-tree", "source commit")
-	framework := flag.String("framework", "fee2ecb8c1fb4ca2abf776123cdd9f8e4246895e+patch", "Viva source")
+	framework := flag.String("framework", "", "override Viva source (defaults to the project pin)")
 	out := flag.String("out", "dist", "artifact directory")
 	flag.Parse()
+	if *framework == "" {
+		raw, err := os.ReadFile("framework/viva-commit.txt")
+		if err != nil {
+			return fmt.Errorf("read Viva pin: %w", err)
+		}
+		pin := strings.TrimSpace(string(raw))
+		if id, err := hex.DecodeString(pin); err != nil || len(id) != 20 {
+			return fmt.Errorf("invalid Viva pin")
+		}
+		*framework = pin + "+patch"
+	}
 	for _, s := range []string{*version, *commit} {
 		if strings.ContainsAny(s, " /\\\"'\n\r") {
 			return fmt.Errorf("invalid build identifier")
@@ -122,7 +133,7 @@ func build() error {
 	}); err != nil {
 		return err
 	}
-	info := map[string]string{"version": *version, "commit": *commit, "viva": *framework, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH, "desktop_validation": "Windows local loopback only; other platforms CI build and offscreen tests"}
+	info := map[string]string{"version": *version, "commit": *commit, "viva": *framework, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH, "desktop_validation": "Windows loopback and offscreen tests; native shortcut lifecycle tests; physical multi-device desktop validation pending"}
 	b, _ := json.MarshalIndent(info, "", "  ")
 	if err := os.WriteFile(filepath.Join(staging, "build-info.json"), b, 0644); err != nil {
 		return err

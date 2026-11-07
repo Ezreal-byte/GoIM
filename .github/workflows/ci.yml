@@ -17,6 +17,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with: {go-version: '1.27.3', cache-dependency-path: GoIM/go.sum}
       - run: |
+          test "$(git -C ../viva rev-parse HEAD)" = "$(tr -d '\r\n' < framework/viva-commit.txt)"
           git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
           git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch ../GoIM/framework/0002-windows-arm64-text-origin.patch
       - name: Chinese font coverage for the native painter
