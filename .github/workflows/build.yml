@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: vivaui/viva
-          ref: fee2ecb8c1fb4ca2abf776123cdd9f8e4246895e
+          ref: 2b2ce2018a0da28b20884bcec3f48cc5735042b9
           path: viva
       - name: Apply reviewed framework patch
         run: |
@@ -48,7 +48,7 @@ jobs:
           cache-dependency-path: GoIM/go.sum
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk xvfb
+        run: sudo apt-get update && sudo apt-get install -y libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk xvfb xdotool
       - name: Verify native architecture and dependencies
         run: |
           test "$(go env GOARCH)" = '${{ matrix.arch }}'
@@ -68,7 +68,17 @@ jobs:
       - name: Offscreen UI screenshots
         env:
           GOIM_QA_SCREENSHOTS: ${{ github.workspace }}/GoIM/artifacts/screenshots
-        run: go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix' -count=1 -timeout=180s
+        run: go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestSharePageScreenshots' -count=1 -timeout=180s
+      - name: Native global shortcut lifecycle
+        env:
+          VIVA_NATIVE_GLOBAL_SHORTCUT_TEST: '1'
+        run: |
+          cd ../viva
+          case '${{ matrix.os }}' in
+            windows) go test ./internal/platform/windows -run '^TestNative.*GlobalShortcut' -count=1 -timeout=30s -v ;;
+            linux) xvfb-run -a go test ./internal/platform/linux -run '^TestNativeX11GlobalShortcut$' -count=1 -timeout=30s -v ;;
+            darwin) go test ./internal/platform/darwin -run '^TestNativeCarbonGlobalShortcut$' -count=1 -timeout=30s -v ;;
+          esac
       - name: Native Direct2D point ABI and rendering benchmark
         if: matrix.os == 'windows'
         run: |

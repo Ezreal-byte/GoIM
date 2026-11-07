@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with: {path: GoIM}
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with: {repository: vivaui/viva, ref: fee2ecb8c1fb4ca2abf776123cdd9f8e4246895e, path: viva}
+        with: {repository: vivaui/viva, ref: 2b2ce2018a0da28b20884bcec3f48cc5735042b9, path: viva}
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with: {go-version: '1.27.3', cache-dependency-path: GoIM/go.sum}
       - run: |

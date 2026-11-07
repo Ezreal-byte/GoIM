@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,6 +48,13 @@ type Node struct {
 	closing     bool
 	transfers   map[string]context.CancelFunc
 	discovery   bool
+	webServer   *http.Server
+	webAddress  string
+	webKey      [32]byte
+	webSlots    chan struct{}
+	webLinks    map[string]shareLink
+	unlockAfter time.Time
+	lockResult  domain.LockResult
 }
 
 func New(opts Options) (*Node, error) {
@@ -89,6 +97,8 @@ func New(opts Options) (*Node, error) {
 		}
 		n.data.State.Settings = domain.DefaultSettings(downloads)
 	}
+	n.data.State.Settings.HasLockPassword = n.data.LockCredential.set()
+	n.data.State.Locked = n.data.State.Settings.HasLockPassword && (n.data.State.Locked || n.data.State.Settings.LockOnStartup)
 	if opts.Name != "" {
 		n.data.State.Settings.Nickname = opts.Name
 	}
@@ -119,11 +129,16 @@ func New(opts Options) (*Node, error) {
 		db.Close()
 		return nil, err
 	}
+	if len(n.data.BrowserShares) != 0 {
+		if err := n.startShareServer(); err != nil {
+			n.report(err)
+		}
+	}
 	n.wg.Add(3)
 	go n.acceptLoop()
 	go n.commandLoop()
 	go n.discoveryLoop()
-	for _, t := range n.Snapshot().Transfers {
+	for _, t := range n.snapshot(false).Transfers {
 		if t.Direction == "receive" && t.Status == "waiting" && t.Path != "" {
 			n.startReceive(t.ID, "")
 		}
@@ -135,12 +150,17 @@ func (n *Node) Address() string          { return n.listener.Addr().String() }
 func (n *Node) DataDir() string          { return n.dir }
 func (n *Node) Updates() <-chan struct{} { return n.updates }
 func (n *Node) Snapshot() domain.State {
+	return n.snapshot(true)
+}
+func (n *Node) snapshot(urls bool) domain.State {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	// Snapshots are refreshed at event boundaries, never from the painter.
 	b, _ := json.Marshal(n.data.State)
 	var s domain.State
 	_ = json.Unmarshal(b, &s)
+	s.LockResult = n.lockResult
+	n.attachShareLinks(&s, urls)
 	return s
 }
 func (n *Node) Submit(c domain.Command) {
@@ -186,6 +206,7 @@ func (n *Node) Close() error {
 	n.closing = true
 	n.cancel()
 	n.listener.Close()
+	web := n.webServer
 	for _, c := range n.connections {
 		c.conn.Close()
 	}
@@ -193,6 +214,9 @@ func (n *Node) Close() error {
 		cancel()
 	}
 	n.mu.Unlock()
+	if web != nil {
+		_ = web.Close()
+	}
 	n.wg.Wait()
 	n.workers.Wait()
 	n.mu.Lock()

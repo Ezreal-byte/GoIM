@@ -373,7 +373,7 @@ func (n *Node) receiveMessage(peer string, e envelope) error {
 	if m.ID == "" || m.SenderID != peer || m.Kind != "text" || len(m.Text) > 256<<10 {
 		return errors.New("无效聊天消息")
 	}
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	if strings.HasPrefix(m.ConversationID, "group:") {
 		g := s.Group(strings.TrimPrefix(m.ConversationID, "group:"))
 		if g.ID == "" || g.Dissolved || g.Left || !contains(g.Members, peer) || !contains(g.Members, s.Self.ID) {
@@ -393,6 +393,7 @@ func (n *Node) receiveMessage(peer string, e envelope) error {
 		}
 		s.Messages = append(s.Messages, m)
 		if i := convIndex(s, m.ConversationID); i >= 0 {
+			s.Conversations[i].Hidden = false
 			s.Conversations[i].Unread++
 			s.Conversations[i].Preview = m.Text
 			s.Conversations[i].UpdatedAt = m.CreatedAt

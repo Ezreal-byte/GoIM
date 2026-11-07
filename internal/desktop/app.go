@@ -7,6 +7,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -133,6 +134,7 @@ type appIDs struct {
 	navContacts   ui.ID
 	navTransfers  ui.ID
 	navShares     ui.ID
+	navLock       ui.ID
 	navTheme      ui.ID
 	navSettings   ui.ID
 	profileAvatar ui.ID
@@ -145,33 +147,51 @@ type appIDs struct {
 	emptyConnect   ui.ID
 	emptyCompose   ui.ID
 
-	chatMessages       ui.ID
-	chatEditor         ui.ID
-	chatSend           ui.ID
-	chatImage          ui.ID
-	chatFile           ui.ID
-	chatEmoji          ui.ID
-	chatHeaderFile     ui.ID
-	chatHeaderSearch   ui.ID
-	chatHeaderMembers  ui.ID
-	chatHeaderMore     ui.ID
-	chatSearchField    ui.ID
-	chatSearchClose    ui.ID
-	chatEmptyConnect   ui.ID
-	chatEmptyCompose   ui.ID
-	chatMenuDismiss    ui.ID
-	chatMenuPin        ui.ID
-	chatMenuMute       ui.ID
-	chatMenuRead       ui.ID
-	chatMenuLeave      ui.ID
-	chatNoticeDismiss  ui.ID
-	chatMenuScope      ui.ID
-	sidebarContactList ui.ID
-	sidebarChatList    ui.ID
-	mentionScope       ui.ID
-	mentionDismiss     ui.ID
-	emojiScope         ui.ID
-	emojiDismiss       ui.ID
+	chatMessages                ui.ID
+	chatEditor                  ui.ID
+	chatSend                    ui.ID
+	chatImage                   ui.ID
+	chatFile                    ui.ID
+	chatEmoji                   ui.ID
+	chatHeaderFile              ui.ID
+	chatHeaderSearch            ui.ID
+	chatHeaderMembers           ui.ID
+	chatHeaderMore              ui.ID
+	chatSearchField             ui.ID
+	chatSearchClose             ui.ID
+	chatEmptyConnect            ui.ID
+	chatEmptyCompose            ui.ID
+	chatMenuDismiss             ui.ID
+	chatMenuPin                 ui.ID
+	chatMenuMute                ui.ID
+	chatMenuRead                ui.ID
+	chatMenuLeave               ui.ID
+	chatNoticeDismiss           ui.ID
+	chatMenuScope               ui.ID
+	shellMenuDismiss            ui.ID
+	shellMenuPin                ui.ID
+	shellMenuMute               ui.ID
+	shellMenuRead               ui.ID
+	shellMenuDelete             ui.ID
+	shellMenuTalk               ui.ID
+	shellMenuOrganize           ui.ID
+	shellMenuProfile            ui.ID
+	shellMenuNewGroup           ui.ID
+	shellMenuNewContactGroup    ui.ID
+	shellMenuRenameContactGroup ui.ID
+	shellMenuDeleteContactGroup ui.ID
+	shellMenuConnect            ui.ID
+	shellMenuExpand             ui.ID
+	shellMenuCollapse           ui.ID
+	shellMenuScope              ui.ID
+	sidebarSurface              ui.ID
+	selfRow                     ui.ID
+	sidebarContactList          ui.ID
+	sidebarChatList             ui.ID
+	mentionScope                ui.ID
+	mentionDismiss              ui.ID
+	emojiScope                  ui.ID
+	emojiDismiss                ui.ID
 
 	connectScope   ui.ID
 	connectDismiss ui.ID
@@ -197,6 +217,13 @@ type appIDs struct {
 	profileChooseImage ui.ID
 	profileSave        ui.ID
 	profileCancel      ui.ID
+
+	organizeScope   ui.ID
+	organizeDismiss ui.ID
+	organizeClose   ui.ID
+	organizeField   ui.ID
+	organizeSave    ui.ID
+	organizeCancel  ui.ID
 
 	memberScope          ui.ID
 	memberListScroll     ui.ID
@@ -280,6 +307,7 @@ type UI struct {
 	section       string
 	selected      string
 	pendingPeer   string
+	pendingGroup  string
 	sidebarFilter string
 	collapsed     map[string]bool
 	sidebarSearch flex.Field
@@ -319,6 +347,9 @@ type UI struct {
 	activeFileID   string
 	fileReturn     string
 	confirm        confirmation
+	shellMenu      shellMenuState
+	organize       organizeState
+	lockUI         lockUIState
 	focusSearch    bool
 	focusedID      ui.ID
 	titleLeading   float32
@@ -378,8 +409,11 @@ type UI struct {
 	emojiIDs            map[string]ui.ID
 
 	imageCache  map[string]ui.Bitmap
+	avatarCache map[string]ui.Bitmap
 	imageStamps map[string]imageStamp
 	nextImageID uint64
+
+	avatarImagePaths map[string]bool
 
 	media               *mediaWorker
 	mediaImageGen       uint64
@@ -489,7 +523,9 @@ func New(backend domain.Backend) *UI {
 		mentionCandidateIDs: make(map[string]ui.ID),
 		emojiIDs:            make(map[string]ui.ID),
 		imageCache:          make(map[string]ui.Bitmap),
+		avatarCache:         make(map[string]ui.Bitmap),
 		imageStamps:         make(map[string]imageStamp),
+		avatarImagePaths:    make(map[string]bool),
 		mediaImageQueued:    make(map[string]uint64),
 		mediaDesiredImages:  make(map[string]bool),
 		mediaPendingBitmaps: make(map[string]ui.Bitmap),
@@ -559,7 +595,9 @@ func New(backend domain.Backend) *UI {
 	u.media = newMediaWorker(func() { u.invalidator.Invalidate() })
 	u.initIDs()
 	u.panels.Init(&u.tree)
+	u.panels.settingsExtra.openProfile = u.openProfile
 	u.panels.setMediaSubmit(u.media.submitOne)
+	u.panels.shareBrowser.setNotify(u.invalidator.Invalidate)
 	u.panelInput = u.panels.TextInput()
 	if backend != nil {
 		u.refresh()
@@ -728,6 +766,9 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 		delete(u.mediaPendingBitmaps, result.path)
 		u.imageStamps[result.path] = result.stamp
 		if result.unchanged {
+			if u.avatarImagePaths[result.path] {
+				u.cacheAvatarBitmap(result.path)
+			}
 			if u.profile.open && u.profile.avatar == result.path {
 				if _, ok := u.imageCache[result.path]; ok {
 					u.profile.err = ""
@@ -739,6 +780,7 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 		}
 		if !result.decoded {
 			delete(u.imageCache, result.path)
+			delete(u.avatarCache, result.path)
 			if u.profile.open && u.profile.avatar == result.path {
 				u.profile.err = "无法读取这张图片"
 			}
@@ -749,6 +791,10 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 		bitmap.ID = u.nextImageID
 		bitmap.Version = 1
 		u.imageCache[result.path] = bitmap
+		delete(u.avatarCache, result.path)
+		if u.avatarImagePaths[result.path] {
+			u.cacheAvatarBitmap(result.path)
+		}
 		if u.profile.open && u.profile.avatar == result.path {
 			u.profile.err = ""
 		}
@@ -787,13 +833,14 @@ func (u *UI) markSelectedConversationRead() {
 
 func (u *UI) modalOpen() bool {
 	return u.confirm.open || u.compose.open || u.connectOpen ||
-		u.profile.open || u.memberProfile != ""
+		u.profile.open || u.memberProfile != "" || u.organize.open ||
+		u.shellMenu.open || u.lockVisible()
 }
 
 func (u *UI) unreadTotal() int {
 	total := 0
 	for _, conversation := range u.state.Conversations {
-		if conversation.Unread > 0 {
+		if !conversation.Hidden && conversation.Unread > 0 {
 			total += conversation.Unread
 		}
 	}
@@ -829,6 +876,7 @@ func (u *UI) initIDs() {
 	u.ids.navContacts = u.tree.ID(u.ids.nav, "contacts")
 	u.ids.navTransfers = u.tree.ID(u.ids.nav, "transfers")
 	u.ids.navShares = u.tree.ID(u.ids.nav, "shares")
+	u.ids.navLock = u.tree.ID(u.ids.nav, "lock")
 	u.ids.navTheme = u.tree.ID(u.ids.nav, "appearance")
 	u.ids.navSettings = u.tree.ID(u.ids.nav, "settings")
 	u.ids.profileAvatar = u.tree.ID(u.ids.nav, "profile-avatar")
@@ -840,8 +888,10 @@ func (u *UI) initIDs() {
 	u.ids.filterOnline = u.tree.ID(u.ids.side, "filter-online")
 	u.ids.emptyConnect = u.tree.ID(u.ids.side, "empty-connect")
 	u.ids.emptyCompose = u.tree.ID(u.ids.side, "empty-compose")
+	u.ids.sidebarSurface = u.tree.ID(u.ids.side, "surface")
 	u.ids.sidebarContactList = u.tree.ID(u.ids.side, "contact-list")
 	u.ids.sidebarChatList = u.tree.ID(u.ids.side, "chat-list")
+	u.ids.selfRow = u.tree.ID(u.ids.side, "self-row")
 	u.ids.mentionScope = u.tree.ID(u.ids.chat, "mention-scope")
 	u.ids.mentionDismiss = u.tree.ID(u.ids.chat, "mention-dismiss")
 	u.ids.emojiScope = u.tree.ID(u.ids.chat, "emoji-scope")
@@ -868,6 +918,22 @@ func (u *UI) initIDs() {
 	u.ids.chatMenuLeave = u.tree.ID(u.ids.menu, "chat-leave")
 	u.ids.chatNoticeDismiss = u.tree.ID(u.ids.chat, "notice-dismiss")
 	u.ids.chatMenuScope = u.tree.ID(u.ids.menu, "chat-menu-scope")
+	u.ids.shellMenuDismiss = u.tree.ID(u.ids.menu, "shell-dismiss")
+	u.ids.shellMenuPin = u.tree.ID(u.ids.menu, "shell-pin")
+	u.ids.shellMenuMute = u.tree.ID(u.ids.menu, "shell-mute")
+	u.ids.shellMenuRead = u.tree.ID(u.ids.menu, "shell-read")
+	u.ids.shellMenuDelete = u.tree.ID(u.ids.menu, "shell-delete")
+	u.ids.shellMenuTalk = u.tree.ID(u.ids.menu, "shell-talk")
+	u.ids.shellMenuOrganize = u.tree.ID(u.ids.menu, "shell-organize")
+	u.ids.shellMenuProfile = u.tree.ID(u.ids.menu, "shell-profile")
+	u.ids.shellMenuNewGroup = u.tree.ID(u.ids.menu, "shell-new-group")
+	u.ids.shellMenuNewContactGroup = u.tree.ID(u.ids.menu, "shell-new-contact-group")
+	u.ids.shellMenuRenameContactGroup = u.tree.ID(u.ids.menu, "shell-rename-contact-group")
+	u.ids.shellMenuDeleteContactGroup = u.tree.ID(u.ids.menu, "shell-delete-contact-group")
+	u.ids.shellMenuConnect = u.tree.ID(u.ids.menu, "shell-connect")
+	u.ids.shellMenuExpand = u.tree.ID(u.ids.menu, "shell-expand")
+	u.ids.shellMenuCollapse = u.tree.ID(u.ids.menu, "shell-collapse")
+	u.ids.shellMenuScope = u.tree.ID(u.ids.menu, "shell-menu-scope")
 
 	u.ids.connectScope = u.tree.ID(u.ids.dialog, "connect-scope")
 	u.ids.connectDismiss = u.tree.ID(u.ids.dialog, "connect-dismiss")
@@ -893,6 +959,13 @@ func (u *UI) initIDs() {
 	u.ids.profileChooseImage = u.tree.ID(u.ids.dialog, "profile-choose-image")
 	u.ids.profileSave = u.tree.ID(u.ids.dialog, "profile-save")
 	u.ids.profileCancel = u.tree.ID(u.ids.dialog, "profile-cancel")
+
+	u.ids.organizeScope = u.tree.ID(u.ids.dialog, "organize-scope")
+	u.ids.organizeDismiss = u.tree.ID(u.ids.dialog, "organize-dismiss")
+	u.ids.organizeClose = u.tree.ID(u.ids.dialog, "organize-close")
+	u.ids.organizeField = u.tree.ID(u.ids.dialog, "organize-field")
+	u.ids.organizeSave = u.tree.ID(u.ids.dialog, "organize-save")
+	u.ids.organizeCancel = u.tree.ID(u.ids.dialog, "organize-cancel")
 
 	u.ids.memberScope = u.tree.ID(u.ids.dialog, "member-scope")
 	u.ids.memberListScroll = u.tree.ID(u.ids.dialog, "member-list-scroll")
@@ -962,6 +1035,10 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 	body := ui.Rect{Y: totalTitle, Width: bounds.Width, Height: max(bounds.Height-totalTitle, 0)}
 	u.lastBody = body
 	u.drawTitlebar(canvas, titlebar)
+	if u.lockVisible() {
+		u.drawLocked(canvas, body)
+		return
+	}
 
 	rail := ui.Rect{
 		X: body.X, Y: body.Y,
@@ -1023,7 +1100,7 @@ func (u *UI) drawTitlebar(canvas *ui.Canvas, bounds ui.Rect) {
 func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 	canvas.Fill(bounds, u.palette.rail)
 	var avatarSlot flex.Box
-	var messages, contacts, transfers, shares, themeToggle, settings flex.Box
+	var messages, contacts, transfers, shares, lock, themeToggle, settings flex.Box
 	unreadBadge, unreadHint := "", ""
 	if unread := u.unreadTotal(); unread > 0 {
 		unreadBadge = compactCount(unread)
@@ -1034,10 +1111,15 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 		transferBadge = compactCount(active)
 		transferHint = intString(active) + " 个文件任务未完成"
 	}
+	selfName := u.selfDisplayName()
+	selfAvatar := u.selfAvatarPath()
 	u.railView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
 		f.Column().Fill().PadY(14).Items(flex.Center).Gap(5).Children(func() {
-			avatarSlot = f.Slot().Size(42, 42).HitWith(u.ids.profileAvatar, "编辑个人资料",
-				ui.HitOptions{Role: ui.RoleButton, Hint: "编辑昵称和头像"})
+			avatarSlot = f.Stack().Size(42, 42).HitWith(u.ids.profileAvatar, "编辑个人资料",
+				ui.HitOptions{Role: ui.RoleButton, Hint: "编辑昵称和头像"}).
+				Children(func() {
+					u.avatarStatusOn(f, selfName, selfAvatar, 42, true, u.palette.rail)
+				})
 			f.Row().Height(10)
 			messages = u.railItemBadged(f, u.ids.navMessages, u.iconMessage, "消息",
 				u.section == sectionMessages, unreadBadge, unreadHint)
@@ -1046,6 +1128,7 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 				u.section == sectionTransfers, transferBadge, transferHint)
 			shares = u.railItem(f, u.ids.navShares, u.iconFolder, "文件", u.section == sectionShares)
 			f.Spacer()
+			lock = u.railItem(f, u.ids.navLock, u.iconLock, "锁定应用", false)
 			themeIcon, themeLabel := u.iconMoon, "切换到暗色外观"
 			if u.isDark() {
 				themeIcon, themeLabel = u.iconSun, "切换到明亮外观"
@@ -1066,6 +1149,9 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 	if shares.Clicked() {
 		u.setSection(sectionShares)
 	}
+	if lock.Clicked() {
+		u.requestLock()
+	}
 	if themeToggle.Clicked() {
 		u.toggleTheme()
 	}
@@ -1074,12 +1160,6 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 	}
 	if avatarSlot.Clicked() {
 		u.openProfile()
-	}
-	if rect := avatarSlot.Rect(); rect.Width > 0 {
-		components.Avatar(canvas, u.theme, rect, components.AvatarData{
-			Name: u.state.Self.Name, Initials: initialOf(u.state.Self.Name),
-			Image: u.avatarBitmap(u.state.Self.Avatar), Status: components.AvatarStatusOnline,
-		})
 	}
 	canvas.Fill(ui.Rect{X: bounds.X + bounds.Width - 1, Y: bounds.Y, Width: 1, Height: bounds.Height}, u.palette.border)
 }
@@ -1109,7 +1189,7 @@ func (u *UI) railItemBadged(f *flex.Frame, id ui.ID, icon ui.Icon, label string,
 		accessible += "，" + badgeHint
 	}
 	box := f.Column().Size(56, 58).Radius(10).Items(flex.Center).Justify(flex.Center).Gap(4).
-		Background(background).HoverBackground(hover).
+		Background(background).Hover(flex.Look{}.Background(hover)).
 		HitWith(id, accessible, ui.HitOptions{Role: ui.RoleButton, Selected: active, Hint: accessible}).
 		Children(func() {
 			f.Stack().Width(36).Height(24).Children(func() {
@@ -1135,45 +1215,31 @@ func (u *UI) drawSidebar(canvas *ui.Canvas, bounds ui.Rect) {
 	var connect, create flex.Box
 	u.sidebarView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
 		f.Column().Fill().PadSides(24, 16, 14, 16).Children(func() {
-			f.Row().Height(40).Items(flex.Center).Children(func() {
-				title := "联系人"
-				if u.section == sectionMessages {
-					title = "消息"
-				}
-				f.Text(title).FontSize(21).Weight(ui.WeightSemibold)
-				f.Spacer()
+			f.Row().Height(38).Items(flex.Center).Gap(8).Children(func() {
+				f.Field(&u.sidebarSearch, u.ids.sidebarSearch, "搜索", u.searchPlaceholder()).
+					Height(38).Grow(1)
 				connect = u.iconButton(f, u.ids.sidebarConnect, u.iconUserPlus, "手动连接", 32)
-				f.Row().Width(4)
 				create = u.iconButton(f, u.ids.sidebarCreate, u.iconPlus, "创建群聊", 32)
 			})
-			f.Row().Height(8)
-			f.Row().Height(18).Items(flex.Center).Gap(6).Children(func() {
-				if u.section == sectionContacts {
-					f.Icon(u.iconUsers).Size(15, 15).Color(u.palette.secondaryText)
-					f.Text("组织分组").FontSize(12).Muted()
-				} else {
-					f.Icon(u.iconInbox).Size(15, 15).Color(u.palette.secondaryText)
-					f.Text("按最近消息排序").FontSize(12).Muted()
-				}
-			})
-			search := f.Field(&u.sidebarSearch, u.ids.sidebarSearch, "搜索", u.searchPlaceholder()).Height(38)
-			_ = search
 			f.Row().Height(10)
 			if u.section == sectionContacts {
 				u.drawContactFilters(f)
-				f.Row().Height(12)
+				f.Row().Height(10)
 			}
 			listID := u.ids.sidebarChatList
 			if u.section == sectionContacts {
 				listID = u.ids.sidebarContactList
 			}
-			f.ScrollArea(listID).Grow(1).Gap(4).Children(func() {
-				if u.section == sectionContacts {
-					u.drawContacts(f)
-				} else {
-					u.drawConversationList(f)
-				}
-			})
+			f.ScrollArea(listID).Grow(1).Gap(4).
+				HitWith(u.ids.sidebarSurface, "侧栏列表",
+					ui.HitOptions{Role: ui.RoleGroup, SkipFocus: true}).
+				Children(func() {
+					if u.section == sectionContacts {
+						u.drawContacts(f)
+					} else {
+						u.drawConversationList(f)
+					}
+				})
 			u.drawSidebarFooter(f)
 		})
 	})
@@ -1182,6 +1248,11 @@ func (u *UI) drawSidebar(canvas *ui.Canvas, bounds ui.Rect) {
 	}
 	if create.Clicked() {
 		u.openCompose("create", "")
+	}
+	if event, ok := canvas.PointerOn(u.ids.sidebarSurface); ok &&
+		event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+		u.openSidebarMenu(event.X, event.Y)
+		canvas.Consume()
 	}
 	canvas.Fill(ui.Rect{X: bounds.X + bounds.Width - 1, Y: bounds.Y, Width: 1, Height: bounds.Height}, u.palette.border)
 }
@@ -1195,7 +1266,7 @@ func (u *UI) searchPlaceholder() string {
 
 func (u *UI) iconButton(f *flex.Frame, id ui.ID, icon ui.Icon, label string, size float32) flex.Box {
 	return f.Row().Size(size, size).Radius(8).Items(flex.Center).Justify(flex.Center).
-		HoverBackground(u.palette.hover).
+		Hover(flex.Look{}.Background(u.palette.hover)).
 		HitWith(id, label, ui.HitOptions{Role: ui.RoleButton, Hint: label}).
 		Children(func() {
 			f.Icon(icon).Size(18, 18).Color(u.palette.icon)
@@ -1203,8 +1274,12 @@ func (u *UI) iconButton(f *flex.Frame, id ui.ID, icon ui.Icon, label string, siz
 }
 
 func (u *UI) drawContactFilters(f *flex.Frame) {
-	allOnline := 0
+	peerCount, allOnline := 0, 0
 	for _, peer := range u.state.Peers {
+		if peer.ID == u.state.Self.ID || u.state.Settings.HideOfflineContacts && !peer.Online {
+			continue
+		}
+		peerCount++
 		if peer.Online {
 			allOnline++
 		}
@@ -1215,7 +1290,7 @@ func (u *UI) drawContactFilters(f *flex.Frame) {
 		value string
 		count int
 	}{
-		{u.ids.filterAll, "全部", "all", len(u.state.Peers)},
+		{u.ids.filterAll, "全部", "all", peerCount},
 		{u.ids.filterOnline, "在线", "online", allOnline},
 	}
 	f.Row().Height(32).Gap(8).Children(func() {
@@ -1229,7 +1304,7 @@ func (u *UI) drawContactFilters(f *flex.Frame) {
 			}
 			label := item.label + "  " + intString(item.count)
 			box := f.Row().Height(30).PadX(12).Radius(15).Items(flex.Center).Gap(4).
-				Background(background).HoverBackground(u.palette.hover).
+				Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
 				HitWith(item.id, item.label, ui.HitOptions{Role: ui.RoleButton, Selected: active}).
 				Children(func() {
 					f.Text(label).FontSize(12).Weight(ui.WeightMedium).Color(foreground)
@@ -1242,12 +1317,7 @@ func (u *UI) drawContactFilters(f *flex.Frame) {
 }
 
 func (u *UI) drawSidebarFooter(f *flex.Frame) {
-	f.Row().Height(36).Items(flex.Center).Children(func() {
-		text := "联系人分组仅在本机保存"
-		if u.section == sectionMessages {
-			text = "消息在局域网内直连"
-		}
-		f.Text(text).FontSize(10.5).Muted().Ellipsis()
+	f.Row().Height(30).Items(flex.Center).Children(func() {
 		f.Spacer()
 		f.Row().Items(flex.Center).Gap(5).Children(func() {
 			f.Stack().Size(7, 7).Radius(4).Background(u.palette.success)
@@ -1265,13 +1335,24 @@ func (u *UI) drawSidebarFooter(f *flex.Frame) {
 }
 
 func (u *UI) drawContacts(f *flex.Frame) {
+	u.selfContactRow(f)
 	u.drawInvitations(f)
 	u.drawGroupChats(f)
 	query := strings.TrimSpace(u.sidebarSearch.Text())
+	otherPeers := 0
+	for _, peer := range u.state.Peers {
+		if peer.ID == u.state.Self.ID {
+			continue
+		}
+		if u.state.Settings.HideOfflineContacts && !peer.Online {
+			continue
+		}
+		otherPeers++
+	}
 	visible := 0
 	for _, group := range u.contacts {
 		peers := u.filteredPeers(group.Peers, query)
-		if len(peers) == 0 {
+		if len(peers) == 0 && (query != "" || group.Name == "未分组") {
 			continue
 		}
 		visible += len(peers)
@@ -1284,19 +1365,51 @@ func (u *UI) drawContacts(f *flex.Frame) {
 			u.contactRow(f, peer)
 		}
 	}
-	if len(u.state.Peers) == 0 {
-		if len(u.groupChats) == 0 {
-			u.emptySidebar(f, "还没有联系人", "同一局域网的联系人上线后会自动出现，也可以手动输入地址连接。", true)
-		} else {
-			f.Row().Height(10)
-			u.emptyListMessage(f, "还没有联系人", "同一局域网的联系人上线后会自动出现，也可以手动输入地址连接。")
-		}
+	if otherPeers == 0 {
+		f.Row().Height(8)
+		u.emptyListMessage(f, "还没有其他联系人", "联系人上线后会自动出现，也可手动连接。")
 		return
 	}
-	if visible == 0 {
+	if visible == 0 && query != "" && !containsFold(u.selfDisplayName(), query) {
 		u.emptyListMessage(f, "没有匹配的联系人", "换一个昵称或分组名称试试。")
 		return
 	}
+}
+
+func (u *UI) selfContactRow(f *flex.Frame) {
+	self := u.state.Self
+	if self.ID == "" {
+		return
+	}
+	name := u.selfDisplayName()
+	query := strings.TrimSpace(u.sidebarSearch.Text())
+	if query != "" && !containsFold(name, query) && !containsFold("我", query) &&
+		!containsFold("个人资料", query) {
+		return
+	}
+	row := f.Row().FillWidth().Height(58).PadSides(8, 9, 8, 9).Radius(9).Gap(10).
+		Hover(flex.Look{}.Background(u.palette.hover)).
+		HitWith(u.ids.selfRow, name+"，个人资料",
+			ui.HitOptions{Role: ui.RoleButton, Hint: "编辑个人资料"}).
+		Children(func() {
+			u.avatarStatus(f, name, u.selfAvatarPath(), 38, true)
+			f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
+				f.Row().Items(flex.Center).Gap(6).Children(func() {
+					f.Text(name).FontSize(14).Weight(ui.WeightMedium).Ellipsis()
+					f.Stack().Size(6, 6).Radius(3).Background(u.palette.success)
+				})
+				f.Text("个人资料 · 本机").FontSize(11).Muted().Ellipsis()
+			})
+		})
+	if event, ok := f.Canvas().PointerOn(u.ids.selfRow); ok &&
+		event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+		u.openSelfMenu(event.X, event.Y)
+		f.Canvas().Consume()
+	}
+	if row.Clicked() {
+		u.openProfile()
+	}
+	f.Row().Height(2)
 }
 
 func (u *UI) drawInvitations(f *flex.Frame) {
@@ -1429,7 +1542,7 @@ func (u *UI) contactGroupHeader(f *flex.Frame, group contactGroupView, collapsed
 		icon = u.iconChevronRight
 	}
 	header := f.Row().Height(32).Items(flex.Center).Gap(6).Radius(7).
-		HoverBackground(u.palette.hover).
+		Hover(flex.Look{}.Background(u.palette.hover)).
 		HitWith(id, group.Name, ui.HitOptions{Role: ui.RoleButton, Expanded: !collapsed}).
 		Children(func() {
 			f.Icon(icon).Size(15, 15).Color(u.palette.secondaryText)
@@ -1439,6 +1552,11 @@ func (u *UI) contactGroupHeader(f *flex.Frame, group contactGroupView, collapsed
 		})
 	if header.Clicked() {
 		u.collapsed[group.Name] = !collapsed
+	}
+	if event, ok := f.Canvas().PointerOn(id); ok && group.Name != "未分组" &&
+		event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+		u.openShellMenu(shellMenuContactGroup, group.Name, event.X, event.Y)
+		f.Canvas().Consume()
 	}
 }
 
@@ -1453,7 +1571,7 @@ func (u *UI) contactRow(f *flex.Frame, peer domain.Peer) {
 		background = u.palette.selected
 	}
 	row := f.Row().FillWidth().Height(62).PadSides(8, 9, 8, 9).Radius(9).Gap(10).
-		Background(background).HoverBackground(u.palette.hover).
+		Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
 		HitWith(id, peer.Name, ui.HitOptions{Role: ui.RoleButton, Selected: selected}).
 		Children(func() {
 			u.avatarStatus(f, peer.Name, peer.Avatar, 38, peer.Online)
@@ -1474,6 +1592,11 @@ func (u *UI) contactRow(f *flex.Frame, peer domain.Peer) {
 				f.Text(subtitle).FontSize(11).Muted().Ellipsis()
 			})
 		})
+	if event, ok := f.Canvas().PointerOn(id); ok &&
+		event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+		u.openContactMenu(peer, event.X, event.Y)
+		f.Canvas().Consume()
+	}
 	if row.Clicked() {
 		u.startChat(peer.ID)
 	}
@@ -1526,7 +1649,7 @@ func (u *UI) conversationRow(f *flex.Frame, conversation domain.Conversation, he
 	}
 	title := u.conversationTitle(conversation)
 	row := f.Row().FillWidth().Height(height).PadSides(9, 9, 9, 9).Radius(9).Gap(10).
-		Background(background).HoverBackground(u.palette.hover).
+		Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
 		HitWith(id, title, ui.HitOptions{Role: ui.RoleButton, Selected: selected}).
 		Children(func() {
 			online := false
@@ -1571,6 +1694,11 @@ func (u *UI) conversationRow(f *flex.Frame, conversation domain.Conversation, he
 				})
 			})
 		})
+	if event, ok := f.Canvas().PointerOn(id); ok &&
+		event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+		u.openConversationMenu(conversation, event.X, event.Y)
+		f.Canvas().Consume()
+	}
 	if row.Clicked() {
 		u.selectConversation(conversation.ID)
 	}
@@ -1646,7 +1774,12 @@ func (u *UI) rebuildPresentation(oldError string) {
 	u.theme = themeForName(u.state.Settings.Theme)
 	u.palette = paletteFor(u.theme)
 
-	u.conversations = append(u.conversations[:0], u.state.Conversations...)
+	u.conversations = u.conversations[:0]
+	for _, conversation := range u.state.Conversations {
+		if !conversation.Hidden {
+			u.conversations = append(u.conversations, conversation)
+		}
+	}
 	sort.SliceStable(u.conversations, func(i, j int) bool {
 		left, right := u.conversations[i], u.conversations[j]
 		if left.Pinned != right.Pinned {
@@ -1664,7 +1797,9 @@ func (u *UI) rebuildPresentation(oldError string) {
 		if conversation.Kind == "direct" && conversation.PeerID != "" {
 			u.directByPeer[conversation.PeerID] = conversation.ID
 		}
-		if conversation.Kind == "group" {
+	}
+	for _, conversation := range u.state.Conversations {
+		if conversation.Kind == "group" && !conversation.Hidden {
 			group := u.state.Group(conversation.GroupID)
 			if !group.Left && !group.Dissolved {
 				u.groupChats = append(u.groupChats, conversation)
@@ -1673,7 +1808,13 @@ func (u *UI) rebuildPresentation(oldError string) {
 	}
 
 	groups := make(map[string][]domain.Peer)
+	for _, name := range u.state.ContactGroups {
+		groups[name] = nil
+	}
 	for _, peer := range u.state.Peers {
+		if peer.ID == u.state.Self.ID || u.state.Settings.HideOfflineContacts && !peer.Online {
+			continue
+		}
 		name := strings.TrimSpace(peer.ContactGroup)
 		if name == "" {
 			name = "未分组"
@@ -1823,6 +1964,9 @@ func (u *UI) initialsAvatarStatus(f *flex.Frame, name string, size float32, onli
 
 func (u *UI) selectAfterSnapshot(oldSelected string) {
 	target := u.selected
+	if c := u.state.Conversation(u.pendingGroup); c.ID != "" && !c.Hidden {
+		target, u.pendingGroup = c.ID, ""
+	}
 	if u.pendingPeer != "" {
 		if convID, ok := u.directByPeer[u.pendingPeer]; ok {
 			target = convID
@@ -1831,7 +1975,7 @@ func (u *UI) selectAfterSnapshot(oldSelected string) {
 	}
 	found := false
 	for _, conversation := range u.state.Conversations {
-		if conversation.ID == target {
+		if conversation.ID == target && !conversation.Hidden {
 			found = true
 			break
 		}
@@ -1843,7 +1987,7 @@ func (u *UI) selectAfterSnapshot(oldSelected string) {
 		target = u.conversations[0].ID
 	}
 	if target != oldSelected {
-		if oldSelected != "" && u.chatEditor != nil {
+		if oldSelected != "" && u.chatEditor != nil && !u.state.Conversation(oldSelected).Hidden {
 			u.persistDraft(oldSelected, u.chatEditor.String())
 		}
 		u.resetChatSearch()
@@ -1965,11 +2109,17 @@ func (u *UI) selectConversation(id string) {
 	if id == "" {
 		return
 	}
+	u.closeShellMenu()
 	if id == u.selected {
 		u.markSelectedConversationRead()
 		return
 	}
 	if !u.guardGroupRenameNavigation(func() { u.selectConversation(id) }) {
+		return
+	}
+	if c := u.state.Conversation(id); c.Hidden && c.Kind == "group" {
+		u.pendingGroup = id
+		u.submit(domain.Command{Kind: domain.StartChat, ConversationID: id})
 		return
 	}
 	u.saveCurrentDraft()
@@ -1988,8 +2138,11 @@ func (u *UI) selectConversation(id string) {
 
 func (u *UI) startChat(peerID string) {
 	if convID, ok := u.directByPeer[peerID]; ok {
-		u.selectConversation(convID)
-		return
+		conversation := u.state.Conversation(convID)
+		if conversation.ID != "" && !conversation.Hidden {
+			u.selectConversation(convID)
+			return
+		}
 	}
 	u.pendingPeer = peerID
 	u.submit(domain.Command{Kind: domain.StartChat, PeerID: peerID})
@@ -2003,7 +2156,7 @@ func (u *UI) setSection(section string) {
 		u.requestCloseComposeThen(func() { u.setSection(section) })
 		return
 	}
-	if u.connectOpen || u.confirm.open || u.profile.open || u.memberProfile != "" {
+	if u.connectOpen || u.confirm.open || u.profile.open || u.memberProfile != "" || u.organize.open {
 		return
 	}
 	if !u.guardGroupRenameNavigation(func() { u.setSection(section) }) {
@@ -2017,6 +2170,8 @@ func (u *UI) setSection(section string) {
 		u.panels.refreshNetworks()
 	}
 	u.closeChatPickers()
+	u.closeShellMenu()
+	u.closeOrganize()
 	u.resetChatSearch()
 	u.closeProfile()
 	u.moreOpen = false
@@ -2042,11 +2197,13 @@ func (u *UI) toggleTheme() {
 }
 
 func (u *UI) openConnect() {
+	u.closeShellMenu()
 	u.connectOpen = true
 	u.connectField.SetText("")
 }
 
 func (u *UI) openCompose(mode, groupID string) {
+	u.closeShellMenu()
 	if !u.guardGroupRenameNavigation(func() { u.openCompose(mode, groupID) }) {
 		return
 	}
@@ -2174,11 +2331,15 @@ func (u *UI) drawOverlays(canvas *ui.Canvas, viewport ui.Rect) {
 	if u.drawer != "" && !u.isPanelSection() {
 		u.drawSideDrawer(canvas)
 	}
+	u.drawShellMenu(canvas, viewport)
 	if u.memberProfile != "" && !u.isPanelSection() {
 		u.drawMemberProfile(canvas, viewport)
 	}
 	if u.profile.open {
 		u.drawProfileDialog(canvas, viewport)
+	}
+	if u.organize.open {
+		u.drawOrganizeDialog(canvas, viewport)
 	}
 	if u.connectOpen {
 		u.drawConnectDialog(canvas, viewport)
@@ -2192,6 +2353,12 @@ func (u *UI) drawOverlays(canvas *ui.Canvas, viewport ui.Rect) {
 }
 
 func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
+	if u.lockVisible() {
+		return u.lockTextInput(context)
+	}
+	if u.shellMenu.open {
+		return nil
+	}
 	if context.ID == u.ids.chatEditor {
 		return u.chatTextInput()
 	}
@@ -2199,7 +2366,8 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 		return input
 	}
 	if input := flex.Fields(&u.sidebarSearch, &u.connectField, &u.compose.name, &u.compose.search,
-		&u.profile.nickname, &u.memberSearch, &u.renameField, &u.nicknameField, &u.fileSearch)(context); input != nil {
+		&u.profile.nickname, &u.organize.field, &u.memberSearch, &u.renameField,
+		&u.nicknameField, &u.fileSearch)(context); input != nil {
 		return input
 	}
 	if u.panelInput != nil {
@@ -2209,6 +2377,13 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 }
 
 func (u *UI) onScroll(event ui.ScrollEvent) ui.EventResult {
+	if u.lockVisible() {
+		return ui.EventResult{Handled: true}
+	}
+	if u.shellMenu.open {
+		u.closeShellMenu()
+		return ui.EventResult{Handled: true, Repaint: true}
+	}
 	if u.modalOpen() {
 		if result := u.dialogView.Wheel(event); result.Handled {
 			return result
@@ -2231,6 +2406,12 @@ func (u *UI) onScroll(event ui.ScrollEvent) ui.EventResult {
 }
 
 func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
+	if u.lockVisible() {
+		if result := u.lockKey(event); result.Handled {
+			return result
+		}
+		return ui.EventResult{Handled: true}
+	}
 	if u.mention.open && u.focusedID == u.ids.chatEditor && !event.Release &&
 		event.Modifiers == 0 && u.chatEditor != nil {
 		if _, composing := u.chatEditor.Composition(); !composing {
@@ -2253,6 +2434,12 @@ func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
 		case u.confirm.open:
 			u.confirm.open = false
 			return ui.EventResult{Handled: true}
+		case u.shellMenu.open:
+			u.closeShellMenu()
+			return ui.EventResult{Handled: true, Repaint: true}
+		case u.organize.open:
+			u.closeOrganize()
+			return ui.EventResult{Handled: true, Repaint: true}
 		case u.profile.open:
 			u.closeProfile()
 			return ui.EventResult{Handled: true, Repaint: true}
@@ -2288,6 +2475,9 @@ func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
 			return ui.EventResult{Handled: true, Repaint: true}
 		}
 	}
+	if u.shellMenu.open {
+		return ui.EventResult{Handled: true}
+	}
 	if u.isPanelSection() {
 		return u.panels.Key(event)
 	}
@@ -2295,6 +2485,9 @@ func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
 }
 
 func (u *UI) onShortcut(event ui.KeyEvent) ui.EventResult {
+	if u.lockVisible() {
+		return ui.EventResult{Handled: true}
+	}
 	if u.modalOpen() {
 		return ui.EventResult{}
 	}
@@ -2347,6 +2540,10 @@ func (u *UI) onShortcut(event ui.KeyEvent) ui.EventResult {
 }
 
 func (u *UI) onFileDrop(event ui.FileDropEvent) ui.EventResult {
+	if u.lockVisible() {
+		u.dragging = false
+		return ui.EventResult{}
+	}
 	switch event.Phase {
 	case ui.FileDropOver:
 		if u.chatDropReady() && pointInside(event.X, event.Y, u.lastChat) {
@@ -2370,12 +2567,15 @@ func (u *UI) onFileDrop(event ui.FileDropEvent) ui.EventResult {
 
 func (u *UI) chatDropReady() bool {
 	return u.selected != "" && !u.isPanelSection() && u.drawer == "" &&
-		!u.modalOpen() &&
+		!u.modalOpen() && !u.shellMenu.open &&
 		u.chatReadOnlyReason(u.state.Conversation(u.selected)) == ""
 }
 
 func (u *UI) ensureStateIDs() {
 	u.ensurePeerID(u.state.Self.ID)
+	for _, name := range u.state.ContactGroups {
+		u.ensureID(u.groupHeadIDs, u.ids.side, "contact-group:", name)
+	}
 	for _, peer := range u.state.Peers {
 		u.ensurePeerID(peer.ID)
 	}
@@ -2465,11 +2665,16 @@ func (u *UI) ensureID(cache map[string]ui.ID, scope ui.Scope, prefix, key string
 
 func (u *UI) refreshImages() {
 	u.mediaDesiredImages = make(map[string]bool)
+	u.avatarImagePaths = make(map[string]bool)
 	for _, peer := range u.state.Peers {
-		u.markImage(peer.Avatar)
+		u.markAvatarImage(peer.Avatar)
 	}
-	u.markImage(u.state.Self.Avatar)
-	u.markImage(u.profile.avatar)
+	u.markAvatarImage(u.state.Self.Avatar)
+	u.markAvatarImage(u.state.Settings.Avatar)
+	if u.profile.open {
+		u.markAvatarImage(u.profile.avatar)
+	}
+	u.markImage(u.state.Settings.Background)
 	for _, message := range u.messages {
 		if message.Kind != "image" && message.Kind != "file" {
 			continue
@@ -2484,6 +2689,13 @@ func (u *UI) refreshImages() {
 			u.markImage(u.fileLocalPath[file.ID])
 		}
 	}
+	for path := range u.imageCache {
+		if !u.mediaDesiredImages[path] {
+			delete(u.imageCache, path)
+			delete(u.avatarCache, path)
+			delete(u.imageStamps, path)
+		}
+	}
 }
 
 func (u *UI) markImage(path string) {
@@ -2491,6 +2703,17 @@ func (u *UI) markImage(path string) {
 		return
 	}
 	u.mediaDesiredImages[path] = true
+}
+
+func (u *UI) markAvatarImage(path string) {
+	if path == "" {
+		return
+	}
+	u.mediaDesiredImages[path] = true
+	u.avatarImagePaths[path] = true
+	if _, ok := u.imageCache[path]; ok {
+		u.cacheAvatarBitmap(path)
+	}
 }
 
 func (u *UI) ensureImage(path string) {
@@ -2509,11 +2732,16 @@ func (u *UI) queueImage(path string) {
 	generation := u.mediaImageGen
 	u.mediaImageQueued[path] = generation
 	previous, previousSet := u.imageStamps[path]
+	limit := 512
+	if u.avatarImagePaths[path] && path != u.state.Settings.Background {
+		limit = 192
+	} else if path == u.state.Settings.Background {
+		limit = 1024
+	}
 	u.media.submitOne(mediaJob{
 		key: mediaJobKey{kind: mediaJobImage, name: path}, kind: mediaJobImage,
-		path: path, generation: generation, imageLimit: 512,
+		path: path, generation: generation, imageLimit: limit,
 		imagePrevious: previous, imagePreviousSet: previousSet,
-		notifyUnchanged: u.profile.open,
 	})
 }
 
@@ -2521,8 +2749,13 @@ func (u *UI) avatarBitmap(path string) ui.Bitmap {
 	if path == "" {
 		return ui.Bitmap{}
 	}
-	if bitmap, ok := u.imageCache[path]; ok {
+	if bitmap, ok := u.avatarCache[path]; ok && bitmapReady(bitmap) {
 		return bitmap
+	}
+	if bitmap, ok := u.imageCache[path]; ok {
+		if bitmap.Width == bitmap.Height && bitmap.Stride == bitmap.Width*4 {
+			return bitmap
+		}
 	}
 	if u.profile.open {
 		if _, queued := u.mediaImageQueued[path]; queued {
@@ -2532,11 +2765,130 @@ func (u *UI) avatarBitmap(path string) ui.Bitmap {
 	return ui.Bitmap{}
 }
 
+func (u *UI) selfDisplayName() string {
+	name := strings.TrimSpace(u.state.Settings.Nickname)
+	if name == "" {
+		name = strings.TrimSpace(u.state.Self.Name)
+	}
+	if name == "" {
+		name = "我"
+	}
+	return name
+}
+
+func (u *UI) selfAvatarPath() string {
+	if avatar := strings.TrimSpace(u.state.Self.Avatar); avatar != "" {
+		return avatar
+	}
+	return strings.TrimSpace(u.state.Settings.Avatar)
+}
+
+func (u *UI) avatarUploadBitmap(path string) (ui.Bitmap, bool) {
+	full, ok := u.imageCache[path]
+	if !ok {
+		return ui.Bitmap{}, false
+	}
+	return squareBitmap(full)
+}
+
+func (u *UI) cacheAvatarBitmap(path string) {
+	if cached, ok := u.avatarCache[path]; ok && bitmapReady(cached) {
+		return
+	}
+	full, ok := u.imageCache[path]
+	if !ok {
+		return
+	}
+	square, ok := squareBitmap(full)
+	if !ok {
+		return
+	}
+	round, ok := circularBitmap(square)
+	if !ok {
+		return
+	}
+	u.nextImageID++
+	round.ID = u.nextImageID
+	round.Version = 1
+	u.avatarCache[path] = round
+}
+
+func squareBitmap(bitmap ui.Bitmap) (ui.Bitmap, bool) {
+	if bitmap.Width <= 0 || bitmap.Height <= 0 || bitmap.Stride < bitmap.Width*4 ||
+		len(bitmap.Pix) < bitmap.Stride*bitmap.Height {
+		return ui.Bitmap{}, false
+	}
+	side := min(bitmap.Width, bitmap.Height)
+	if bitmap.Width == bitmap.Height && bitmap.Stride == side*4 {
+		return bitmap, true
+	}
+	offsetX := (bitmap.Width - side) / 2
+	offsetY := (bitmap.Height - side) / 2
+	stride := side * 4
+	pixels := make([]byte, stride*side)
+	for y := 0; y < side; y++ {
+		start := (offsetY+y)*bitmap.Stride + offsetX*4
+		copy(pixels[y*stride:(y+1)*stride], bitmap.Pix[start:start+stride])
+	}
+	return ui.Bitmap{
+		Pix: pixels, Width: side, Height: side, Stride: stride,
+		ID: bitmap.ID, Version: bitmap.Version,
+	}, true
+}
+
+// circularBitmap applies a one-pixel-antialiased circular alpha mask without
+// touching the source. The image is already a square center crop, so painting
+// it whole yields a round avatar with one draw instead of per-row strips.
+func circularBitmap(bitmap ui.Bitmap) (ui.Bitmap, bool) {
+	side := bitmap.Width
+	if side <= 0 || bitmap.Height != side || bitmap.Stride != side*4 ||
+		len(bitmap.Pix) < bitmap.Stride*side {
+		return ui.Bitmap{}, false
+	}
+	pixels := make([]byte, len(bitmap.Pix))
+	copy(pixels, bitmap.Pix)
+	center := float64(side) / 2
+	radius := center - 0.5
+	for y := 0; y < side; y++ {
+		dy := float64(y) + 0.5 - center
+		for x := 0; x < side; x++ {
+			dx := float64(x) + 0.5 - center
+			distance := math.Hypot(dx, dy)
+			coverage := radius + 1 - distance
+			if coverage >= 1 {
+				continue
+			}
+			if coverage <= 0 {
+				offset := y*bitmap.Stride + x*4
+				pixels[offset], pixels[offset+1], pixels[offset+2], pixels[offset+3] = 0, 0, 0, 0
+				continue
+			}
+			offset := y*bitmap.Stride + x*4
+			for channel := 0; channel < 4; channel++ {
+				pixels[offset+channel] = uint8(float64(pixels[offset+channel])*coverage + 0.5)
+			}
+		}
+	}
+	return ui.Bitmap{
+		Pix: pixels, Width: side, Height: side, Stride: bitmap.Stride,
+		ID: bitmap.ID, Version: bitmap.Version,
+	}, true
+}
+
 func (u *UI) fileBitmap(path string) ui.Bitmap {
 	if path == "" {
 		return ui.Bitmap{}
 	}
 	return u.imageCache[path]
+}
+
+func bitmapReady(bitmap ui.Bitmap) bool {
+	if bitmap.Width <= 0 || bitmap.Height <= 0 || bitmap.Stride < bitmap.Width*4 ||
+		len(bitmap.Pix) < bitmap.Stride*bitmap.Height {
+		return false
+	}
+	return bitmap.Width != 1 || bitmap.Height != 1 || bitmap.Stride != 4 ||
+		len(bitmap.Pix) != 4 || bitmap.Version != 0
 }
 
 func (u *UI) pendingBitmap(path string) ui.Bitmap {
@@ -2546,7 +2898,7 @@ func (u *UI) pendingBitmap(path string) ui.Bitmap {
 	u.nextImageID++
 	bitmap := ui.Bitmap{
 		Pix: make([]byte, 4), Width: 1, Height: 1, Stride: 4,
-		ID: u.nextImageID, Version: 1,
+		ID: u.nextImageID,
 	}
 	u.mediaPendingBitmaps[path] = bitmap
 	return bitmap
@@ -2645,16 +2997,23 @@ func decodeBitmap(path string, limit int) (ui.Bitmap, bool) {
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || info.Size() > maxImageFileBytes {
+	maxBytes := maxImageFileBytes
+	if limit <= 192 {
+		maxBytes = 8 << 20
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxBytes {
 		return ui.Bitmap{}, false
 	}
-	config, _, err := image.DecodeConfig(file)
+	config, format, err := image.DecodeConfig(file)
 	if err != nil {
 		return ui.Bitmap{}, false
 	}
-	if config.Width <= 0 || config.Height <= 0 ||
-		int64(config.Width) > maxImageDecodePixels || int64(config.Height) > maxImageDecodePixels ||
-		int64(config.Width)*int64(config.Height) > maxImageDecodePixels {
+	maxPixels := maxImageDecodePixels
+	if format == "png" || format == "gif" {
+		maxPixels = min(maxPixels, 8_000_000)
+	}
+	if config.Width <= 0 || config.Height <= 0 || config.Width > 8192 || config.Height > 8192 ||
+		int64(config.Width)*int64(config.Height) > maxPixels {
 		return ui.Bitmap{}, false
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
@@ -2692,14 +3051,15 @@ func decodeBitmap(path string, limit int) (ui.Bitmap, bool) {
 
 func initialOf(name string) string {
 	name = strings.TrimSpace(name)
-	if name == "" {
+	if name == "" || !utf8.ValidString(name) {
 		return "?"
 	}
-	r, _ := utf8.DecodeRuneInString(name)
-	if r == utf8.RuneError {
-		return "?"
+	last := ui.GraphemeStart(name, len(name)-1)
+	if last <= 0 {
+		return name
 	}
-	return string(r)
+	previous := ui.GraphemeStart(name, last-1)
+	return name[previous:]
 }
 
 func shortTime(value time.Time) string {

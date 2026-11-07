@@ -69,6 +69,7 @@ func addMessageState(s *domain.State, m domain.Message) {
 	s.Messages = append(s.Messages, m)
 	if i := convIndex(s, m.ConversationID); i >= 0 {
 		s.Conversations[i].Preview = m.Text
+		s.Conversations[i].Hidden = false
 		s.Conversations[i].UpdatedAt = m.CreatedAt
 		if m.SenderID == s.Self.ID {
 			s.Conversations[i].Draft = ""

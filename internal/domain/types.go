@@ -22,6 +22,7 @@ type Conversation struct {
 	GroupID   string
 	Pinned    bool
 	Muted     bool
+	Hidden    bool // local session removed; a new message can restore it
 	Unread    int
 	Draft     string
 	Preview   string
@@ -93,6 +94,9 @@ type File struct {
 	SourcePath     string // local only, never sent over the wire
 	Shared         bool
 	CreatedAt      time.Time
+	ShareURL       string `json:"-"` // snapshot only, never sent to peers
+	ShareProtected bool   `json:"-"`
+	ShareQR        []byte `json:"-"`
 }
 
 type Transfer struct {
@@ -122,6 +126,14 @@ type Settings struct {
 	Theme                string
 	Nickname             string
 	Avatar               string
+	Background           string
+	BackgroundShade      int
+	HasLockPassword      bool
+	LockOnStartup        bool
+	HideNotificationText bool
+	HideOfflineContacts  bool
+	DisableAutoDiscovery bool
+	AutoAcceptImages     bool
 	DesktopNotifications bool
 	Sound                bool
 	DownloadDir          string
@@ -148,6 +160,7 @@ func DefaultSettings(downloadDir string) Settings {
 type State struct {
 	Self           Peer
 	Peers          []Peer
+	ContactGroups  []string
 	Conversations  []Conversation
 	Messages       []Message
 	Groups         []Group
@@ -157,10 +170,17 @@ type State struct {
 	Settings       Settings
 	Error          string
 	Notice         string
+	Locked         bool
+	LockResult     LockResult `json:"-"`
 	ListenAddress  string
 	Version        string
 	Revision       uint64
 	GroupNicknames []GroupNickname
+}
+
+type LockResult struct {
+	Request uint64
+	Error   string
 }
 
 func (s State) Peer(id string) Peer {
@@ -211,37 +231,45 @@ func (s State) ChatMessages(id string) []Message {
 type CommandKind string
 
 const (
-	Connect          CommandKind = "connect"
-	StartChat        CommandKind = "start_chat"
-	SendText         CommandKind = "send_text"
-	SendFiles        CommandKind = "send_files"
-	AcceptTransfer   CommandKind = "accept_transfer"
-	RejectTransfer   CommandKind = "reject_transfer"
-	CancelTransfer   CommandKind = "cancel_transfer"
-	RetryTransfer    CommandKind = "retry_transfer"
-	CreateGroup      CommandKind = "create_group"
-	InviteMembers    CommandKind = "invite_members"
-	AcceptInvite     CommandKind = "accept_invite"
-	RejectInvite     CommandKind = "reject_invite"
-	RenameGroup      CommandKind = "rename_group"
-	RemoveMember     CommandKind = "remove_member"
-	LeaveGroup       CommandKind = "leave_group"
-	TransferOwner    CommandKind = "transfer_owner"
-	DissolveGroup    CommandKind = "dissolve_group"
-	SetSetting       CommandKind = "set_setting"
-	SetProfile       CommandKind = "set_profile"
-	SetContactGroup  CommandKind = "set_contact_group"
-	SetGroupNickname CommandKind = "set_group_nickname"
-	WithdrawInvite   CommandKind = "withdraw_invite"
-	TogglePin        CommandKind = "toggle_pin"
-	ToggleMute       CommandKind = "toggle_mute"
-	MarkRead         CommandKind = "mark_read"
-	SaveDraft        CommandKind = "save_draft"
-	ShareFiles       CommandKind = "share_files"
-	RemoveShare      CommandKind = "remove_share"
-	RefreshShares    CommandKind = "refresh_shares"
-	GetShared        CommandKind = "get_shared"
-	ClearError       CommandKind = "clear_error"
+	Connect            CommandKind = "connect"
+	StartChat          CommandKind = "start_chat"
+	SendText           CommandKind = "send_text"
+	SendFiles          CommandKind = "send_files"
+	AcceptTransfer     CommandKind = "accept_transfer"
+	RejectTransfer     CommandKind = "reject_transfer"
+	CancelTransfer     CommandKind = "cancel_transfer"
+	RetryTransfer      CommandKind = "retry_transfer"
+	CreateGroup        CommandKind = "create_group"
+	InviteMembers      CommandKind = "invite_members"
+	AcceptInvite       CommandKind = "accept_invite"
+	RejectInvite       CommandKind = "reject_invite"
+	RenameGroup        CommandKind = "rename_group"
+	RemoveMember       CommandKind = "remove_member"
+	LeaveGroup         CommandKind = "leave_group"
+	TransferOwner      CommandKind = "transfer_owner"
+	DissolveGroup      CommandKind = "dissolve_group"
+	SetSetting         CommandKind = "set_setting"
+	SetProfile         CommandKind = "set_profile"
+	SetContactGroup    CommandKind = "set_contact_group"
+	CreateContactGroup CommandKind = "create_contact_group"
+	RenameContactGroup CommandKind = "rename_contact_group"
+	DeleteContactGroup CommandKind = "delete_contact_group"
+	SetGroupNickname   CommandKind = "set_group_nickname"
+	WithdrawInvite     CommandKind = "withdraw_invite"
+	TogglePin          CommandKind = "toggle_pin"
+	ToggleMute         CommandKind = "toggle_mute"
+	DeleteConversation CommandKind = "delete_conversation"
+	SetSharePassword   CommandKind = "set_share_password"
+	SetLockPassword    CommandKind = "set_lock_password"
+	LockApp            CommandKind = "lock_app"
+	UnlockApp          CommandKind = "unlock_app"
+	MarkRead           CommandKind = "mark_read"
+	SaveDraft          CommandKind = "save_draft"
+	ShareFiles         CommandKind = "share_files"
+	RemoveShare        CommandKind = "remove_share"
+	RefreshShares      CommandKind = "refresh_shares"
+	GetShared          CommandKind = "get_shared"
+	ClearError         CommandKind = "clear_error"
 )
 
 type Command struct {
@@ -260,6 +288,10 @@ type Command struct {
 	Setting        string
 	Value          string
 	Bool           bool
+	Password       string // local secret, never serialized into app state or wire messages
+	AvatarBGRA     []byte // optional immutable preview pixels in premultiplied BGRA
+	AvatarSize     int
+	Request        uint64
 }
 
 // Backend snapshots are detached copies. Submit queues work, never blocks the UI.

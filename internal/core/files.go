@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -67,9 +68,18 @@ func fileHashContext(ctx context.Context, path string) (string, error) {
 }
 func publicFile(f domain.File) domain.File { f.SourcePath = ""; return f }
 func (n *Node) sendFile(convID, path string, shared bool, target string) error {
+	return n.sendFileWithLink(convID, path, shared, target, browserShare{})
+}
+func (n *Node) sendFileWithLink(convID, path string, shared bool, target string, link browserShare) error {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return err
+	}
+	if link.Token != "" {
+		path, err = filepath.EvalSymlinks(path)
+		if err != nil {
+			return err
+		}
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -82,7 +92,7 @@ func (n *Node) sendFile(convID, path string, shared bool, target string) error {
 	if err != nil {
 		return err
 	}
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	f := domain.File{ID: newID(), Name: filepath.Base(path), Size: info.Size(), Hash: hash, MIME: mime.TypeByExtension(strings.ToLower(filepath.Ext(path))), SenderID: s.Self.ID, ConversationID: convID, SourcePath: path, Shared: shared, CreatedAt: time.Now()}
 	if !validFile(f) {
 		return errors.New("文件名不适合跨平台传输")
@@ -101,8 +111,23 @@ func (n *Node) sendFile(convID, path string, shared bool, target string) error {
 	if target != "" {
 		targets = []string{target}
 	}
-	return n.durable(func(p *persisted) []pending {
+	duplicate := false
+	err = n.durable(func(p *persisted) []pending {
 		s := &p.State
+		if link.Token != "" {
+			for _, existing := range s.Files {
+				same := existing.SourcePath == f.SourcePath || runtime.GOOS == "windows" && strings.EqualFold(existing.SourcePath, f.SourcePath)
+				if existing.Shared && existing.SenderID == s.Self.ID && same {
+					duplicate = true
+					return nil
+				}
+			}
+			if p.BrowserShares == nil {
+				p.BrowserShares = make(map[string]browserShare)
+			}
+			p.BrowserShares[f.ID] = link
+			s.Notice, s.Error = "分享已创建，可复制链接或显示二维码", ""
+		}
 		s.Files = append(s.Files, f)
 		if !shared {
 			kind := "file"
@@ -111,6 +136,7 @@ func (n *Node) sendFile(convID, path string, shared bool, target string) error {
 			}
 			s.Messages = append(s.Messages, domain.Message{ID: f.ID, ConversationID: convID, SenderID: s.Self.ID, Kind: kind, FileID: f.ID, Text: f.Name, CreatedAt: f.CreatedAt, Status: "sent"})
 			if i := convIndex(s, convID); i >= 0 {
+				s.Conversations[i].Hidden = false
 				s.Conversations[i].Preview = "[文件] " + f.Name
 				s.Conversations[i].UpdatedAt = f.CreatedAt
 			}
@@ -121,6 +147,13 @@ func (n *Node) sendFile(convID, path string, shared bool, target string) error {
 		}
 		return out
 	})
+	if err != nil {
+		return err
+	}
+	if duplicate {
+		return errors.New("这个文件已在共享中，请在右侧管理链接或密码")
+	}
+	return nil
 }
 func (n *Node) offerFile(peer, convID string, f domain.File, tid string) {
 	_ = n.durable(func(p *persisted) []pending { return []pending{appendFileOffer(&p.State, peer, convID, f, tid)} })
@@ -142,7 +175,7 @@ func appendFileOffer(s *domain.State, peer, convID string, f domain.File, tid st
 func (n *Node) receiveOffer(peer string, e envelope) error {
 	f := e.File
 	f.SourcePath = ""
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	n.mu.Lock()
 	tombstone := n.data.TransferTombstones[peer+":"+e.TransferID]
 	n.mu.Unlock()
@@ -197,6 +230,7 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 				s.Messages = append(s.Messages, domain.Message{ID: f.ID, ConversationID: f.ConversationID, SenderID: peer, Kind: kind, Text: f.Name, FileID: f.ID, Status: "delivered", CreatedAt: f.CreatedAt})
 			}
 			if i := convIndex(s, f.ConversationID); i >= 0 {
+				s.Conversations[i].Hidden = false
 				s.Conversations[i].Unread++
 				s.Conversations[i].Preview = "[文件] " + f.Name
 				s.Conversations[i].UpdatedAt = f.CreatedAt
@@ -206,7 +240,7 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 	if err != nil {
 		return err
 	}
-	if s.Settings.AutoAccept || requested {
+	if s.Settings.AutoAccept || s.Settings.AutoAcceptImages && strings.HasPrefix(f.MIME, "image/") || requested {
 		n.startReceive(e.TransferID, "")
 	}
 	return nil
@@ -260,7 +294,7 @@ func (n *Node) startReceive(id, destination string) {
 			if ctx.Err() != nil {
 				return
 			}
-			s := n.Snapshot()
+			s := n.snapshot(false)
 			if i := transferIndex(&s, id); i >= 0 {
 				t := s.Transfers[i]
 				status := "failed"
@@ -276,7 +310,7 @@ func (n *Node) startReceive(id, destination string) {
 	}
 }
 func (n *Node) download(ctx context.Context, id, destination string) error {
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	i := transferIndex(&s, id)
 	if i < 0 {
 		return errors.New("找不到任务")
@@ -483,14 +517,14 @@ func installFile(source, dest string) error {
 	return os.Remove(source)
 }
 func (n *Node) serveFile(conn *tls.Conn, e envelope, peer string) {
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	i := transferIndex(&s, e.TransferID)
 	if i < 0 {
 		return
 	}
 	t := s.Transfers[i]
 	f := s.File(e.File.ID)
-	if t.Direction != "send" || t.PeerID != peer || t.FileID != f.ID || f.SenderID != s.Self.ID || e.Offset < 0 || e.Offset > f.Size || t.Status == "cancelled" || t.Status == "rejected" || t.Revoked || t.FromShare && !f.Shared {
+	if t.Direction != "send" || t.PeerID != peer || t.FileID != f.ID || f.SenderID != s.Self.ID || e.Offset < 0 || e.Offset > f.Size || t.Status == "cancelled" || t.Status == "rejected" || t.Revoked || t.FromShare && (!f.Shared || f.ShareProtected) {
 		return
 	}
 	if strings.HasPrefix(t.ConversationID, "group:") {
@@ -511,7 +545,7 @@ func (n *Node) serveFile(conn *tls.Conn, e envelope, peer string) {
 		_ = writeFrame(conn, envelope{Type: "file_error", Status: "源文件已变化或不可用"})
 		return
 	}
-	current := n.Snapshot()
+	current := n.snapshot(false)
 	if i := transferIndex(&current, t.ID); i < 0 || current.Transfers[i].Status == "cancelled" || current.Transfers[i].Status == "rejected" {
 		return
 	}
@@ -536,7 +570,7 @@ func (n *Node) serveFile(conn *tls.Conn, e envelope, peer string) {
 			return
 		}
 		if strings.HasPrefix(t.ConversationID, "group:") {
-			now := n.Snapshot()
+			now := n.snapshot(false)
 			g := now.Group(strings.TrimPrefix(t.ConversationID, "group:"))
 			if g.Left || g.Dissolved || !contains(g.Members, peer) || !contains(g.Members, now.Self.ID) {
 				return
@@ -572,17 +606,17 @@ func (n *Node) serveFile(conn *tls.Conn, e envelope, peer string) {
 	}
 }
 func (n *Node) sendCatalog(peer string) {
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	var list []domain.File
 	for _, f := range s.Files {
-		if f.Shared && f.SenderID == s.Self.ID {
+		if f.Shared && !f.ShareProtected && f.SenderID == s.Self.ID {
 			list = append(list, publicFile(f))
 		}
 	}
 	_ = n.send(peer, envelope{Type: "catalog", Files: list, CatalogRevision: s.Revision})
 }
 func (n *Node) broadcastCatalog() {
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	for _, p := range s.Peers {
 		if p.Online {
 			n.sendCatalog(p.ID)
@@ -590,13 +624,18 @@ func (n *Node) broadcastCatalog() {
 	}
 }
 func (n *Node) offerShared(peer, id string) error {
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	f := s.File(id)
-	if !f.Shared || f.SenderID != s.Self.ID {
+	if !f.Shared || f.ShareProtected || f.SenderID != s.Self.ID {
 		return errors.New("此分享已不可用")
 	}
 	var conv string
-	n.change(func(st *domain.State) { conv = ensureDirect(st, s.Peer(peer)) })
-	n.offerFile(peer, conv, f, "")
-	return nil
+	return n.durable(func(p *persisted) []pending {
+		i := fileIndex(&p.State, id)
+		if i < 0 || !p.State.Files[i].Shared || p.BrowserShares[id].Password.set() {
+			return nil
+		}
+		conv = ensureDirect(&p.State, s.Peer(peer))
+		return []pending{appendFileOffer(&p.State, peer, conv, p.State.Files[i], "")}
+	})
 }

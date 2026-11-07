@@ -29,6 +29,7 @@ type panelTestHarness struct {
 	commands []domain.Command
 	media    *mediaWorker
 	mediaGen uint64
+	home     string
 }
 
 func panelTestDefaultState(t *testing.T) domain.State {
@@ -58,12 +59,17 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 		theme:  ui.LightTheme(),
 		bounds: bounds,
 	}
+	h.home = t.TempDir()
 	h.panels.Init(&h.tree)
+	h.panels.shareBrowser.homeDir = func() (string, error) { return h.home, nil }
 	h.panels.OnWake(state)
+	h.media = newMediaWorker(func() { h.wake.Invalidate() })
+	h.panels.setMediaSubmit(h.media.submitOne)
+	t.Cleanup(h.media.close)
 	driver, err := app.NewDriver(app.Config{
 		Title:  "panel driver test",
 		Width:  int(bounds.X + bounds.Width),
-		Height: int(bounds.Height),
+		Height: int(bounds.Y + bounds.Height),
 		Tree:   &h.tree,
 		Paint: func(canvas *ui.Canvas, _ ui.Size) {
 			h.panels.Draw(canvas, h.theme, h.bounds, h.module, h.state, h.submit)
@@ -80,9 +86,6 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 	}
 	h.driver = driver
 	t.Cleanup(driver.Close)
-	h.media = newMediaWorker(func() { h.wake.Invalidate() })
-	h.panels.setMediaSubmit(h.media.submitOne)
-	t.Cleanup(h.media.close)
 	h.requestMediaAvailability()
 	h.waitMedia()
 	return h
@@ -240,7 +243,7 @@ func TestPanelSettingsLayoutAndCategorySwitch(t *testing.T) {
 	state := panelTestDefaultState(t)
 	h := panelTestNewHarness(t, panelModuleSettings, state)
 
-	if !h.hasText("桌面通知") || !h.hasText("主题") {
+	if !h.hasText("自定义背景") || !h.hasText("主题") {
 		t.Fatal("general settings are not visible")
 	}
 	snapshot := h.driver.Snapshot()
@@ -278,9 +281,12 @@ func TestPanelSettingsLayoutAndCategorySwitch(t *testing.T) {
 	if !contentFound {
 		t.Fatal("theme row is not visible")
 	}
+	fullHeight := h.bounds.Height
+	h.bounds.Height = 420
+	h.publish(state)
 	beforeScroll := h.panels.settingsScroll[panelSettingsGeneral]
 	if err := h.driver.Scroll(ui.ScrollEvent{
-		X: h.bounds.X + panelSettingsWidth + 400, Y: h.bounds.Y + 500,
+		X: h.bounds.X + panelSettingsWidth + 400, Y: h.bounds.Y + 300,
 		DeltaY: 240, Precise: true,
 	}); err != nil {
 		t.Fatal(err)
@@ -288,12 +294,14 @@ func TestPanelSettingsLayoutAndCategorySwitch(t *testing.T) {
 	if h.panels.settingsScroll[panelSettingsGeneral] <= beforeScroll {
 		t.Fatal("wheel input did not scroll the settings content")
 	}
+	h.bounds.Height = fullHeight
+	h.publish(state)
 
 	h.click(h.panels.ids.settingsCategories.At(1))
 	if !h.hasText("恢复默认") || !h.hasText("点击更改后录制组合键") {
 		t.Fatal("shortcuts page did not replace the general page")
 	}
-	if h.hasText("桌面通知") {
+	if h.hasText("自定义背景") {
 		t.Fatal("general settings remained visible after switching category")
 	}
 
@@ -301,7 +309,7 @@ func TestPanelSettingsLayoutAndCategorySwitch(t *testing.T) {
 	if !h.hasText("应用版本") || !h.hasText("复制版本信息") || !h.hasText("开源许可") {
 		t.Fatal("about page is incomplete")
 	}
-	if h.hasText("桌面通知") {
+	if h.hasText("自定义背景") {
 		t.Fatal("general settings remained visible on the about page")
 	}
 	h.click(h.panels.ids.aboutCopyVersion)
@@ -337,6 +345,7 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 	}
 
 	h.clearCommands()
+	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsNotifications)))
 	h.click(h.panels.ids.settingsNotification)
 	command = h.requireLastCommand()
 	if command.Kind != domain.SetSetting || command.Setting != "desktop_notifications" || command.Bool {
@@ -344,6 +353,7 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 	}
 
 	h.clearCommands()
+	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsTransfers)))
 	h.click(h.panels.ids.duplicateChoice.At(len(panelDuplicateLabels)))
 	h.click(h.panels.ids.duplicateChoice.At(1))
 	command = h.requireLastCommand()
@@ -352,6 +362,7 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 	}
 
 	h.clearCommands()
+	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsGeneral)))
 	h.click(h.panels.ids.sendKeyChoice.At(1))
 	command = h.requireLastCommand()
 	if command.Kind != domain.SetSetting || command.Setting != "send_key" || command.Value != "Ctrl+Enter" {
@@ -359,6 +370,7 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 	}
 
 	h.clearCommands()
+	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsNotifications)))
 	h.click(h.panels.ids.settingsSound)
 	command = h.requireLastCommand()
 	if command.Kind != domain.SetSetting || command.Setting != "sound" || !command.Bool {
@@ -366,6 +378,7 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 	}
 
 	h.clearCommands()
+	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsTransfers)))
 	h.click(h.panels.ids.settingsAutoAccept)
 	command = h.requireLastCommand()
 	if command.Kind != domain.SetSetting || command.Setting != "auto_accept" || !command.Bool {
@@ -373,12 +386,14 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 	}
 
 	h.clearCommands()
+	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsGeneral)))
 	h.click(h.panels.ids.settingsCloseToTray)
 	command = h.requireLastCommand()
 	if command.Kind != domain.SetSetting || command.Setting != "close_to_tray" || command.Bool {
 		t.Fatalf("close-to-tray command = %+v", command)
 	}
 
+	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsNetwork)))
 	networkTrigger := h.panels.ids.networkChoice.At(len(h.panels.networkValues))
 	h.click(networkTrigger)
 	if !h.panels.networkSelect.Open {
@@ -426,6 +441,7 @@ func TestPanelSettingsRefreshesNetworkAdaptersOnEntryAndRequest(t *testing.T) {
 	if calls != 2 {
 		t.Fatalf("entering Settings did not refresh adapters: calls=%d", calls)
 	}
+	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsNetwork)))
 	if len(h.panels.networkValues) != 3 ||
 		h.panels.networkValues[1] != "Panel Ethernet" ||
 		h.panels.networkValues[2] != "Panel Wi-Fi" {
@@ -461,6 +477,7 @@ func TestPanelSettingsDefersNetworkChangeDuringTransfers(t *testing.T) {
 	}
 	h.panels.refreshNetworks()
 	h.publish(state)
+	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsNetwork)))
 	if len(h.panels.networkValues) != 3 {
 		t.Fatalf("network choices = %+v", h.panels.networkValues)
 	}
@@ -524,6 +541,7 @@ func TestPanelSettingsDirectoryPickerSuccessAndCancel(t *testing.T) {
 	h := panelTestNewHarnessBounds(t, panelModuleSettings, state, ui.Rect{
 		X: 68, Y: 0, Width: 1372, Height: 1080,
 	})
+	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsTransfers)))
 	directory := t.TempDir()
 	if err := h.driver.QueueOpenDirectory(directory, nil); err != nil {
 		t.Fatal(err)
@@ -739,13 +757,6 @@ func TestPanelSharesAddFilterGetRemoveAndOpen(t *testing.T) {
 	if err := os.WriteFile(ownPath, []byte("own"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	addOne := filepath.Join(root, "add-one.txt")
-	addTwo := filepath.Join(root, "add-two.txt")
-	for _, path := range []string{addOne, addTwo} {
-		if err := os.WriteFile(path, []byte("share"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
 	now := time.Now()
 	state := panelTestDefaultState(t)
 	state.Peers = []domain.Peer{{ID: "peer-a", Name: "Alice"}}
@@ -756,35 +767,14 @@ func TestPanelSharesAddFilterGetRemoveAndOpen(t *testing.T) {
 	}
 	state.Revision = 2
 	h := panelTestNewHarness(t, panelModuleShares, state)
-	if len(h.panels.sharesAll) != 2 || h.panels.shareLabels[1] != "我分享的 1" || h.panels.shareLabels[2] != "他人分享 1" {
+	if len(h.panels.sharesAll) != 2 || h.panels.shareLabels[0] != "我的共享 1" ||
+		h.panels.shareLabels[1] != "成员共享 1" {
 		t.Fatalf("share groups = %v, labels = %v", len(h.panels.sharesAll), h.panels.shareLabels)
 	}
 	ownIndex := panelTestShareIndex(h.panels.sharesAll, "own-share")
 	remoteIndex := panelTestShareIndex(h.panels.sharesAll, "remote-share")
 	if ownIndex < 0 || remoteIndex < 0 {
 		t.Fatal("shared file rows are missing")
-	}
-
-	if err := h.driver.QueueOpenFiles([]string{addOne, addTwo}, nil); err != nil {
-		t.Fatal(err)
-	}
-	h.click(h.panels.ids.sharesAdd)
-	command := h.requireLastCommand()
-	if command.Kind != domain.ShareFiles || len(command.Paths) != 2 ||
-		command.Paths[0] != addOne || command.Paths[1] != addTwo {
-		t.Fatalf("share-files command = %+v", command)
-	}
-	if request, ok := h.driver.LastOpenFilesRequest(); !ok || !request.AllowMultiple || request.Title == "" {
-		t.Fatalf("open-files request = %+v, observed %v", request, ok)
-	}
-
-	h.clearCommands()
-	if err := h.driver.QueueOpenFiles(nil, app.ErrCanceled); err != nil {
-		t.Fatal(err)
-	}
-	h.click(h.panels.ids.sharesAdd)
-	if len(h.commands) != 0 {
-		t.Fatalf("canceling file selection submitted commands: %+v", h.commands)
 	}
 
 	h.click(h.panels.ids.sharesFilters.At(panelSharesMine))
@@ -806,7 +796,7 @@ func TestPanelSharesAddFilterGetRemoveAndOpen(t *testing.T) {
 	}
 	h.clearCommands()
 	h.click(h.panels.ids.shareRemove.At(0))
-	command = h.requireLastCommand()
+	command := h.requireLastCommand()
 	if command.Kind != domain.RemoveShare || command.FileID != "own-share" {
 		t.Fatalf("remove-share command = %+v", command)
 	}

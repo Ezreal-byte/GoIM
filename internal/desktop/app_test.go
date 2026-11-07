@@ -362,7 +362,7 @@ func TestSettingsRoundTripPreservesSelectedConversationAndDraft(t *testing.T) {
 	if harness.ui.section != sectionSettings {
 		t.Fatalf("section = %q, want settings", harness.ui.section)
 	}
-	if !harness.hasText("桌面通知") {
+	if !harness.hasText("自定义背景") {
 		t.Fatal("settings content did not replace contacts and chat")
 	}
 
@@ -502,7 +502,8 @@ func TestChatIMEConfirmationDoesNotSendAndEnterSendsText(t *testing.T) {
 	harness := newShellTestHarness(t, state)
 	harness.clickID(harness.ui.ids.chatEditor)
 
-	if err := harness.driver.Compose("ni"); err != nil {
+	// The Driver commits the current candidate on Return, like the native IME.
+	if err := harness.driver.Compose("你"); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
@@ -510,9 +511,6 @@ func TestChatIMEConfirmationDoesNotSendAndEnterSendsText(t *testing.T) {
 	}
 	if commands := harness.backend.commandLog(); hasCommandKind(commands, domain.SendText) {
 		t.Fatalf("Enter during IME composition submitted commands: %+v", harness.backend.commandLog())
-	}
-	if err := harness.driver.Type("你"); err != nil {
-		t.Fatal(err)
 	}
 	if got := harness.ui.chatEditor.String(); got != "你" {
 		t.Fatalf("committed editor text = %q", got)

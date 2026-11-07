@@ -84,18 +84,13 @@ var emojiChoices = []emojiChoice{
 }
 
 func (u *UI) openProfile() {
+	u.closeShellMenu()
+	u.closeOrganize()
 	u.closeChatPickers()
 	u.profile.open = true
 	u.profile.err = ""
-	name := strings.TrimSpace(u.state.Settings.Nickname)
-	if name == "" {
-		name = u.state.Self.Name
-	}
-	u.profile.nickname.SetText(name)
-	u.profile.avatar = u.state.Self.Avatar
-	if u.profile.avatar == "" {
-		u.profile.avatar = u.state.Settings.Avatar
-	}
+	u.profile.nickname.SetText(u.selfDisplayName())
+	u.profile.avatar = u.selfAvatarPath()
 }
 
 func (u *UI) closeProfile() {
@@ -124,12 +119,8 @@ func (u *UI) chooseProfileAvatar() {
 		return
 	}
 	path := paths[0]
+	u.markAvatarImage(path)
 	u.ensureImage(path)
-	bitmap := u.avatarBitmap(path)
-	if bitmap.Width <= 0 || bitmap.Height <= 0 {
-		u.profile.err = "无法读取这张图片"
-		return
-	}
 	u.profile.avatar = path
 	u.profile.err = ""
 }
@@ -142,10 +133,18 @@ func (u *UI) saveProfile() {
 		return
 	}
 	avatar := u.profile.avatar
-	if avatar != "" {
-		u.ensureImage(avatar)
+	cmd := domain.Command{Kind: domain.SetProfile, Name: name, Value: avatar}
+	if avatar != "" && avatar != u.selfAvatarPath() {
+		bitmap, ok := u.avatarUploadBitmap(avatar)
+		if !ok {
+			if u.profile.err == "" {
+				u.profile.err = "头像还在处理中，请稍候"
+			}
+			return
+		}
+		cmd.AvatarBGRA, cmd.AvatarSize = bitmap.Pix, bitmap.Width
 	}
-	u.submit(domain.Command{Kind: domain.SetProfile, Name: name, Value: avatar})
+	u.submit(cmd)
 	u.closeProfile()
 }
 
@@ -358,7 +357,7 @@ func (u *UI) drawMentionPicker(canvas *ui.Canvas, viewport ui.Rect) {
 					background = u.palette.selected
 				}
 				row := f.Row().FillWidth().Height(36).PadSides(7, 8, 7, 8).Radius(7).
-					Background(background).HoverBackground(u.palette.hover).
+					Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
 					HitWith(u.mentionCandidateIDs[candidate.peerID], "提及 "+candidate.name,
 						ui.HitOptions{Role: ui.RoleButton, Selected: index == u.mention.selected}).
 					Children(func() {
@@ -401,7 +400,7 @@ func (u *UI) drawEmojiPicker(canvas *ui.Canvas, viewport ui.Rect) {
 				f.Row().FillWidth().Height(40).Gap(2).Children(func() {
 					for _, choice := range emojiChoices[start:end] {
 						tile := f.Row().Width(40).Height(40).Radius(7).Items(flex.Center).
-							Justify(flex.Center).HoverBackground(u.palette.hover).
+							Justify(flex.Center).Hover(flex.Look{}.Background(u.palette.hover)).
 							HitWith(u.emojiIDs[choice.Name], "表情 "+choice.Name,
 								ui.HitOptions{Role: ui.RoleButton, Hint: choice.Name}).
 							Children(func() {
@@ -423,6 +422,10 @@ func (u *UI) drawEmojiPicker(canvas *ui.Canvas, viewport ui.Rect) {
 }
 
 func (u *UI) avatarStatus(f *flex.Frame, name, path string, size float32, online bool) {
+	u.avatarStatusOn(f, name, path, size, online, u.palette.chat)
+}
+
+func (u *UI) avatarStatusOn(f *flex.Frame, name, path string, size float32, online bool, ring ui.Color) {
 	if name == "" {
 		name = "?"
 	}
@@ -431,7 +434,7 @@ func (u *UI) avatarStatus(f *flex.Frame, name, path string, size float32, online
 			Background(u.palette.mutedAvatar)
 		avatar.Children(func() {
 			bitmap := u.avatarBitmap(path)
-			if bitmap.Width > 0 && bitmap.Height > 0 {
+			if bitmapReady(bitmap) {
 				f.Image(bitmap).Fill()
 				return
 			}
@@ -446,7 +449,7 @@ func (u *UI) avatarStatus(f *flex.Frame, name, path string, size float32, online
 			color = u.palette.success
 		}
 		f.Stack().Size(dot, dot).Absolute().Right(0).Bottom(0).Radius(dot/2).
-			Background(color).Border(2, u.palette.chat)
+			Background(color).Border(2, ring)
 	})
 }
 

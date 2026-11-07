@@ -1,0 +1,12 @@
+# GoIM optimization checkpoint
+
+User request: the November 7–8 optimization list in the current chat. Continue from the working trees and verification evidence, not the previous alpha.6 checkpoint.
+
+- GoIM working tree: `E:/GoIM/GoIM`, branch `codex/initial-implementation`. Code is under active implementation; do not reset the working tree.
+- Viva #157: `E:/GoIM/viva-arm64`, head `630a7d4`, aligned to upstream `2b2ce20` and **ready for review**. Local x64 Direct2D regression, Windows Actions regression, and cross-vet pass. Main itself fails the tree-navigation documentation preview test; clean upstream reproduces it. Unrelated macOS hdiutil resource contention also occurred. PR body records the evidence.
+- Viva #155: isolated `E:/GoIM/viva-shortcuts`, branch `codex/global-shortcut-registration`, merged upstream `2b2ce20` locally. WorkBuddy is implementing macOS and Linux native bindings. Review, run native/cross-platform validation, push, then mark ready. Do not mark ready before integration review.
+- WorkBuddy worker logs/prompts are in `.runtime/optimization` (local only): `shell`, `share`, `viva`. Exact requested model `workbuddy/deepseek-v4.1-flash`, provider `magpie`, effort `max`. Check whether workers are still active before restarting work.
+- GoIM additions in flight: no large module titles, self contact, contact/session context menus, durable contact groups, two-character avatar initials, bounded single decode with no unchanged-preview wake loop, settings categories, custom shaded chat background, password lock, dual-pane local shares, native browser share links and QR.
+- Verified on Windows so far: real three-process Viva headless smoke for TLS text, inline transferred image, inserted emoji, group, file SHA256, settings, lock and unlock. Core tests exercise a >3 MiB avatar, browser auth and HTTP range download, change-password cookie invalidation, restart, source mutation and revoke. Read `artifacts/optimization/real` for native painter captures.
+- Pending: review and finish share UI actions/real browser end-to-end, inspect screenshot edge cases, rerun full tests/vet with final framework, update the reproducible Viva patches and baseline, build Windows, run CI as appropriate. Installed 内网通's bundled help screenshot confirmed personal info/general/network/notifications/hotkeys/lock categories; no active settings window was exposed.
+- Continuation automations `goim-6` and `goim-12`: Beijing time November 8 05:57 and 11:57. Remove them when this work is complete.

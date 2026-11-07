@@ -26,7 +26,11 @@ func (p *Panels) drawSettings(f *flex.Frame, theme ui.Theme, state domain.State,
 		f.Divider().FillHeight()
 		f.Column().Grow(1).FillHeight().PadSides(24, 32, 10, 32).Gap(14).Children(func() {
 			p.drawSettingsHeader(f, theme, state)
-			p.panelFeedback(f, theme, state, submit, p.ids.settingsDismissLocal, p.ids.settingsClearError)
+			feedback := state
+			if feedback.Notice != "锁定密码已保存" && feedback.Notice != "已切换局域网接口" {
+				feedback.Notice = ""
+			}
+			p.panelFeedback(f, theme, feedback, submit, p.ids.settingsDismissLocal, p.ids.settingsClearError)
 			scroll := p.settingsScrollArea(f, p.settingsTab)
 			scroll.Grow(1).FillWidth().Children(func() {
 				f.Column().FillWidth().PadSides(0, 0, 22, 0).Children(func() {
@@ -37,6 +41,16 @@ func (p *Panels) drawSettings(f *flex.Frame, theme ui.Theme, state domain.State,
 						p.drawSettingsShortcuts(f, theme, state, submit)
 					case panelSettingsAbout:
 						p.drawSettingsAbout(f, theme, state, submit)
+					case panelSettingsProfile:
+						p.drawSettingsProfile(f, theme, state, submit)
+					case panelSettingsNotifications:
+						p.drawSettingsNotifications(f, theme, state, submit)
+					case panelSettingsNetwork:
+						p.drawSettingsNetwork(f, theme, state, submit)
+					case panelSettingsTransfers:
+						p.drawSettingsTransfers(f, theme, state, submit)
+					case panelSettingsSecurity:
+						p.drawSettingsSecurity(f, theme, state, submit)
 					}
 				})
 			})
@@ -49,15 +63,26 @@ func (p *Panels) drawSettingsCategories(f *flex.Frame, theme ui.Theme) {
 	f.Column().Width(panelSettingsWidth).FillHeight().PadSides(22, 20, 14, 20).Gap(3).Children(func() {
 		f.Text("设置").FontSize(26).Weight(ui.WeightSemibold)
 		f.Slot().Height(18)
-		for index, label := range panelSettingsLabels {
-			id := p.ids.settingsCategories.At(index)
-			active := int(p.settingsTab) == index
+		for _, tab := range panelSettingsOrder {
+			label := panelSettingsLabels[tab]
+			id := p.ids.settingsCategories.At(int(tab))
+			active := p.settingsTab == tab
 			icon := panelIconGear
-			switch index {
-			case int(panelSettingsShortcuts):
+			switch tab {
+			case panelSettingsProfile:
+				icon = Users
+			case panelSettingsNotifications:
+				icon = panelSettingsBellIcon
+			case panelSettingsNetwork:
+				icon = Wifi
+			case panelSettingsTransfers:
+				icon = ArrowRightLeft
+			case panelSettingsShortcuts:
 				icon = panelIconKeyboard
-			case int(panelSettingsAbout):
+			case panelSettingsAbout:
 				icon = panelIconInfo
+			case panelSettingsSecurity:
+				icon = panelSettingsLockIcon
 			}
 			foreground := theme.Foreground
 			if active {
@@ -67,9 +92,9 @@ func (p *Panels) drawSettingsCategories(f *flex.Frame, theme ui.Theme) {
 				Items(flex.Center).HitWith(id, label, ui.HitOptions{Role: ui.RoleTab, Selected: active})
 			if active {
 				row = row.Background(panelAccentSurface(theme)).
-					HoverBackground(theme.Background.Mix(panelAccentText(theme), 0.12))
+					Hover(flex.Look{}.Background(theme.Background.Mix(panelAccentText(theme), 0.12)))
 			} else {
-				row = row.HoverBackground(theme.Hover)
+				row = row.Hover(flex.Look{}.Background(theme.Hover))
 			}
 			if f.Canvas().FocusVisible() == id {
 				row = row.Stroke(1.5, theme.Ring)
@@ -78,7 +103,7 @@ func (p *Panels) drawSettingsCategories(f *flex.Frame, theme ui.Theme) {
 				f.Icon(icon).Size(18, 18).Color(foreground)
 				f.Text(label).FontSize(15).Weight(ui.WeightMedium).Color(foreground)
 			}).Clicked() {
-				if p.settingsTab != panelSettingsTab(index) {
+				if p.settingsTab != tab {
 					p.cancelShortcutEdit()
 					p.aboutLicense = false
 					p.resetShortcuts = false
@@ -86,8 +111,9 @@ func (p *Panels) drawSettingsCategories(f *flex.Frame, theme ui.Theme) {
 					p.localNotice = ""
 					p.duplicateSelect.Open = false
 					p.networkSelect.Open = false
+					p.settingsExtra.resetSecrets()
 				}
-				p.settingsTab = panelSettingsTab(index)
+				p.settingsTab = tab
 			}
 		}
 		f.Spacer()
@@ -101,12 +127,22 @@ func (p *Panels) drawSettingsSidebarFooter(f *flex.Frame, theme ui.Theme) {
 }
 
 func (p *Panels) drawSettingsHeader(f *flex.Frame, theme ui.Theme, state domain.State) {
-	title, description := "常规", "管理外观、通知与文件传输"
+	title, description := panelSettingsLabels[p.settingsTab], "管理外观、消息发送与窗口行为"
 	switch p.settingsTab {
 	case panelSettingsShortcuts:
 		title, description = "快捷键", "录制应用内快捷键，并检查作用范围内的冲突"
 	case panelSettingsAbout:
 		title, description = "关于", "版本、构建信息与开源许可"
+	case panelSettingsProfile:
+		description = "在局域网内展示的昵称与头像"
+	case panelSettingsNotifications:
+		description = "设置消息提醒、声音和预览"
+	case panelSettingsNetwork:
+		description = "局域网发现、网卡和手动连接"
+	case panelSettingsTransfers:
+		description = "设置接收方式和文件保存位置"
+	case panelSettingsSecurity:
+		description = "设置锁定密码与启动保护"
 	}
 	panelPageHeader(f, theme, title, description, func() {
 		if p.settingsTab != panelSettingsAbout {
@@ -145,12 +181,12 @@ func (p *Panels) settingsScrollArea(f *flex.Frame, tab panelSettingsTab) flex.Bo
 
 func (p *Panels) settingsFooterText() string {
 	switch p.settingsTab {
-	case panelSettingsGeneral:
-		return "修改后自动保存"
 	case panelSettingsShortcuts:
 		return "录制后点击保存"
-	default:
+	case panelSettingsAbout:
 		return "此页面可离线查看"
+	default:
+		return "修改后自动保存"
 	}
 }
 
@@ -173,26 +209,7 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 			})
 		})
 	})
-
-	panelSectionGap(f)
-	panelSection(f, "消息通知", "", func() {
-		panelSettingRow(f, theme, "桌面通知", "收到新消息时提醒", func() {
-			panelControlColumn(f, 80, func() {
-				if f.Switch(p.ids.settingsNotification, settings.DesktopNotifications).
-					Label("桌面通知").Clicked() {
-					p.submitBool(submit, state, "desktop_notifications", !settings.DesktopNotifications)
-				}
-			})
-		})
-		panelSettingRow(f, theme, "提示音", "消息免打扰的会话不播放提示音", func() {
-			panelControlColumn(f, 80, func() {
-				if f.Switch(p.ids.settingsSound, settings.Sound).Label("提示音").Clicked() {
-					p.submitBool(submit, state, "sound", !settings.Sound)
-				}
-			})
-		})
-	})
-
+	p.drawBackgroundSettings(f, theme, state, submit)
 	panelSectionGap(f)
 	panelSection(f, "发送", "", func() {
 		panelSettingRow(f, theme, "发送消息", "Shift+Enter 始终换行", func() {
@@ -211,8 +228,53 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 			})
 		})
 	})
-
 	panelSectionGap(f)
+	panelSection(f, "启动与关闭", "", func() {
+		description := "关闭主窗口时退出应用"
+		if settings.CloseToTray {
+			description = "关闭主窗口后继续在托盘接收消息"
+		}
+		panelSettingRow(f, theme, "关闭主窗口", description, func() {
+			panelControlColumn(f, 80, func() {
+				if f.Switch(p.ids.settingsCloseToTray, settings.CloseToTray).
+					Label("关闭主窗口时最小化到托盘").Clicked() {
+					p.submitBool(submit, state, "close_to_tray", !settings.CloseToTray)
+				}
+			})
+		})
+	})
+}
+
+func (p *Panels) drawSettingsNotifications(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+	settings := state.Settings
+	panelSection(f, "消息通知", "", func() {
+		panelSettingRow(f, theme, "桌面通知", "收到新消息时提醒", func() {
+			panelControlColumn(f, 80, func() {
+				if f.Switch(p.ids.settingsNotification, settings.DesktopNotifications).
+					Label("桌面通知").Clicked() {
+					p.submitBool(submit, state, "desktop_notifications", !settings.DesktopNotifications)
+				}
+			})
+		})
+		panelSettingRow(f, theme, "提示音", "消息免打扰的会话不播放提示音", func() {
+			panelControlColumn(f, 80, func() {
+				if f.Switch(p.ids.settingsSound, settings.Sound).Label("提示音").Clicked() {
+					p.submitBool(submit, state, "sound", !settings.Sound)
+				}
+			})
+		})
+		panelSettingRow(f, theme, "隐藏消息预览", "通知仅提示收到新消息", func() {
+			panelControlColumn(f, 80, func() {
+				if f.Switch(p.settingsExtra.notificationPrivacy, settings.HideNotificationText).Label("隐藏消息预览").Clicked() {
+					p.submitBool(submit, state, "hide_notification_text", !settings.HideNotificationText)
+				}
+			})
+		})
+	})
+}
+
+func (p *Panels) drawSettingsTransfers(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+	settings := state.Settings
 	panelSection(f, "文件传输", "", func() {
 		description := "仅影响之后接收的文件；正在进行的传输继续使用原目录"
 		panelSettingRow(f, theme, "默认保存位置", description, func() {
@@ -263,9 +325,12 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 				}
 			})
 		})
+		p.drawAutoAcceptImages(f, theme, state, submit)
 	})
+}
 
-	panelSectionGap(f)
+func (p *Panels) drawSettingsNetwork(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+	settings := state.Settings
 	panelSection(f, "局域网", "", func() {
 		description := "进行中的传输不会因网络切换而中断"
 		if settings.PendingNetwork != "" {
@@ -298,22 +363,7 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 		if p.networkChange.value != "" {
 			p.drawNetworkChangeConfirmation(f, theme, submit, state)
 		}
-	})
-
-	panelSectionGap(f)
-	panelSection(f, "启动与关闭", "", func() {
-		description := "关闭主窗口时退出应用"
-		if settings.CloseToTray {
-			description = "关闭主窗口后继续在托盘接收消息"
-		}
-		panelSettingRow(f, theme, "关闭主窗口", description, func() {
-			panelControlColumn(f, 80, func() {
-				if f.Switch(p.ids.settingsCloseToTray, settings.CloseToTray).
-					Label("关闭主窗口时最小化到托盘").Clicked() {
-					p.submitBool(submit, state, "close_to_tray", !settings.CloseToTray)
-				}
-			})
-		})
+		p.drawDiscoverySettings(f, theme, state, submit)
 	})
 }
 
@@ -463,8 +513,8 @@ func panelKeycap(f *flex.Frame, theme ui.Theme, keys string, width float32, acti
 		}
 	}
 	f.Row().Width(width).Height(28).PadX(9).Border(1, border).Background(background).
-		Radius(6).Clip().Items(flex.Center).Children(func() {
-		f.Text(display).FontSize(theme.Metrics.FontSizeS + 1).Color(foreground).Ellipsis()
+		Radius(6).Items(flex.Center).Children(func() {
+		f.Text(display).Grow(1).FontSize(theme.Metrics.FontSizeS + 1).Color(foreground).Ellipsis()
 	})
 }
 

@@ -1,5 +1,5 @@
 diff --git a/app/driver_system.go b/app/driver_system.go
-index 22adb6b..0b2c7f1 100644
+index f111fff..83f96f7 100644
 --- a/app/driver_system.go
 +++ b/app/driver_system.go
 @@ -17,6 +17,8 @@ const driverOpenFilesQueueSize = 8
@@ -11,7 +11,7 @@ index 22adb6b..0b2c7f1 100644
  	driver         *Driver
  	clipboardImage []byte   // PNG bytes; the clipboard holds this or text, never both
  	clipboardFiles []string // paths of copied files, held beside the text a file manager adds
-@@ -259,6 +261,9 @@ func (driver *Driver) registerSystem() error {
+@@ -279,6 +281,9 @@ func (driver *Driver) registerSystem() error {
  }
  
  func (driver *Driver) unregisterSystem() {
@@ -23,17 +23,18 @@ index 22adb6b..0b2c7f1 100644
  		if system == &driver.system {
 diff --git a/app/global_shortcut.go b/app/global_shortcut.go
 new file mode 100644
-index 0000000..9fd21ed
+index 0000000..d820952
 --- /dev/null
 +++ b/app/global_shortcut.go
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,57 @@
 +package app
 +
 +import (
 +	"fmt"
-+	"github.com/vivaui/viva/ui"
 +	"strconv"
 +	"strings"
++
++	"github.com/vivaui/viva/ui"
 +)
 +
 +// GlobalShortcut is an optional system-wide key binding. It is independent of
@@ -68,8 +69,8 @@ index 0000000..9fd21ed
 +// thread-safe Show/Hide or an Invalidator to update UI state. No registration,
 +// worker or native resource exists until this function is used. Driver-backed
 +// runs keep bindings private and expose Driver.PressGlobalShortcut for tests.
-+// The Windows backend supports system registration. Other native backends
-+// currently return ErrUnsupported; normal focused-window shortcuts still work.
++// System registration is available on Windows, macOS and Linux/X11. Wayland
++// and other backends return ErrUnsupported; focused-window shortcuts still work.
 +func RegisterGlobalShortcut(s GlobalShortcut, pressed func()) (stop func(), err error) {
 +	s, err = normalizeGlobalShortcut(s)
 +	if err != nil {
@@ -82,6 +83,19 @@ index 0000000..9fd21ed
 +		return stop, err
 +	}
 +	return nativeRegisterGlobalShortcut(s, pressed)
++}
+diff --git a/app/global_shortcut_darwin.go b/app/global_shortcut_darwin.go
+new file mode 100644
+index 0000000..a9bef4d
+--- /dev/null
++++ b/app/global_shortcut_darwin.go
+@@ -0,0 +1,7 @@
++package app
++
++import darwinplatform "github.com/vivaui/viva/internal/platform/darwin"
++
++func nativeRegisterGlobalShortcut(s GlobalShortcut, pressed func()) (func(), error) {
++	return darwinplatform.RegisterGlobalShortcut(s.Modifiers, s.Key, pressed)
 +}
 diff --git a/app/global_shortcut_driver.go b/app/global_shortcut_driver.go
 new file mode 100644
@@ -177,19 +191,65 @@ index 0000000..5335521
 +func driverRegisterGlobalShortcut(GlobalShortcut, func()) (func(), error, bool) {
 +	return nil, nil, false
 +}
+diff --git a/app/global_shortcut_linux.go b/app/global_shortcut_linux.go
+new file mode 100644
+index 0000000..bf703dd
+--- /dev/null
++++ b/app/global_shortcut_linux.go
+@@ -0,0 +1,39 @@
++package app
++
++import (
++	"os"
++	"strconv"
++	"strings"
++
++	linuxplatform "github.com/vivaui/viva/internal/platform/linux"
++)
++
++func nativeRegisterGlobalShortcut(s GlobalShortcut, pressed func()) (func(), error) {
++	// An XWayland grab does not reach native Wayland clients.
++	if os.Getenv("DISPLAY") == "" || strings.EqualFold(os.Getenv("XDG_SESSION_TYPE"), "wayland") {
++		return nil, ErrUnsupported
++	}
++	var symbol uint32
++	switch {
++	case len(s.Key) == 1:
++		symbol = uint32(s.Key[0])
++		if symbol >= 'A' && symbol <= 'Z' {
++			symbol += 'a' - 'A'
++		}
++	case s.Key[0] == 'F':
++		n, _ := strconv.Atoi(s.Key[1:])
++		symbol = 0xffbe + uint32(n-1)
++	default:
++		switch s.Key {
++		case "SPACE":
++			symbol = ' '
++		case "ENTER":
++			symbol = 0xff0d
++		case "ESCAPE":
++			symbol = 0xff1b
++		case "TAB":
++			symbol = 0xff09
++		}
++	}
++	return linuxplatform.RegisterGlobalShortcut(s.Modifiers, symbol, pressed)
++}
 diff --git a/app/global_shortcut_test.go b/app/global_shortcut_test.go
 new file mode 100644
-index 0000000..9151e04
+index 0000000..ed41469
 --- /dev/null
 +++ b/app/global_shortcut_test.go
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,72 @@
 +//go:build darwin || windows || linux
 +
 +package app
 +
 +import (
-+	"github.com/vivaui/viva/ui"
 +	"testing"
++
++	"github.com/vivaui/viva/ui"
 +)
 +
 +func TestGlobalShortcutDriverRegistrationLifetime(t *testing.T) {
@@ -256,29 +316,30 @@ index 0000000..9151e04
 +}
 diff --git a/app/global_shortcut_unsupported.go b/app/global_shortcut_unsupported.go
 new file mode 100644
-index 0000000..a37ad76
+index 0000000..7d54558
 --- /dev/null
 +++ b/app/global_shortcut_unsupported.go
 @@ -0,0 +1,5 @@
-+//go:build !windows
++//go:build !windows && !linux && !darwin
 +
 +package app
 +
 +func nativeRegisterGlobalShortcut(GlobalShortcut, func()) (func(), error) { return nil, ErrUnsupported }
 diff --git a/app/global_shortcut_windows.go b/app/global_shortcut_windows.go
 new file mode 100644
-index 0000000..8e2104e
+index 0000000..23e4572
 --- /dev/null
 +++ b/app/global_shortcut_windows.go
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,45 @@
 +//go:build windows
 +
 +package app
 +
 +import (
++	"strconv"
++
 +	windowsplatform "github.com/vivaui/viva/internal/platform/windows"
 +	"github.com/vivaui/viva/ui"
-+	"strconv"
 +)
 +
 +func nativeRegisterGlobalShortcut(s GlobalShortcut, pressed func()) (func(), error) {
@@ -317,10 +378,10 @@ index 0000000..8e2104e
 +}
 diff --git a/docs/global-shortcuts.md b/docs/global-shortcuts.md
 new file mode 100644
-index 0000000..cd39253
+index 0000000..844e0d3
 --- /dev/null
 +++ b/docs/global-shortcuts.md
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,40 @@
 +# Optional global shortcuts
 +
 +`Config.OnShortcut` handles keys delivered to a focused window. A tray application
@@ -338,26 +399,632 @@ index 0000000..cd39253
 +```
 +
 +Registration is optional. An application that never registers one starts no
-+worker or native hotkey resource. Each live Windows binding has a blocking
-+Win32 message queue; it does not poll or invalidate frames. `stop` releases the
-+registration and is idempotent. Callbacks may execute off the window thread;
-+use thread-safe Window methods or store an event and call an Invalidator.
++worker or native hotkey resource. Windows uses a blocking Win32 message queue.
++macOS uses Carbon application hotkey events. Linux/X11 uses a private XCB
++connection and a blocking wait; Caps Lock and Num Lock don't change the binding.
++`stop` releases the registration and is idempotent. Callbacks execute off the
++window thread; use thread-safe Window methods or store an event and call an
++Invalidator. Release macOS bindings as part of the application lifecycle while
++its main event loop is available (or on the main thread).
 +
 +Keys are ASCII letters/digits, F1–F24, Space, Enter, Escape or Tab; at least one
 +modifier is required. Windows reserves F12 for debuggers and reports an error.
 +Conflicts are returned to the caller, so it can retain the previous setting.
-+Other native backends currently return `app.ErrUnsupported`.
++macOS supports F1–F20 and uses ANSI key positions for letters and digits.
++Linux resolves keycodes at registration using the current X keyboard map and
++uses the usual X11 Alt (Mod1) and Super (Mod4) masks. Native Wayland and other
++backends return `app.ErrUnsupported`. XWayland cannot provide desktop-wide
++bindings for native Wayland clients.
 +
 +Driver runs keep registrations private. `driver.PressGlobalShortcut(binding)`
 +tests the callback without registering anything with the host OS. Closing the
-+Driver clears those bindings. The opt-in native Windows registration/release
-+test uses `VIVA_NATIVE_GLOBAL_SHORTCUT_TEST=1`; it does not synthesize user input.
++Driver clears those bindings. Opt-in native lifecycle tests use
++`VIVA_NATIVE_GLOBAL_SHORTCUT_TEST=1`. The Linux test also delivers an actual
++X11 key via xdotool under a dedicated Xvfb display. The macOS test dispatches
++Carbon events to the app's handler without injecting desktop input.
+diff --git a/internal/platform/darwin/global_shortcut_darwin.go b/internal/platform/darwin/global_shortcut_darwin.go
+new file mode 100644
+index 0000000..0482166
+--- /dev/null
++++ b/internal/platform/darwin/global_shortcut_darwin.go
+@@ -0,0 +1,162 @@
++package darwin
++
++/*
++#cgo LDFLAGS: -framework Carbon
++#include <Carbon/Carbon.h>
++#include <stdint.h>
++int32_t viva_global_shortcut_register(uint32_t code, uint32_t modifiers, uint32_t identifier, EventHotKeyRef *reference);
++void viva_global_shortcut_unregister(EventHotKeyRef reference);
++int32_t viva_global_shortcut_test_event(uint32_t identifier, uint32_t kind);
++*/
++import "C"
++
++import (
++	"fmt"
++	"strconv"
++	"sync"
++	"sync/atomic"
++
++	"github.com/vivaui/viva/ui"
++)
++
++type carbonShortcut struct {
++	id     uint32
++	ref    C.EventHotKeyRef
++	events chan struct{}
++	stop   chan struct{}
++	once   sync.Once
++	down   bool // main thread only
++}
++
++var nextCarbonShortcut atomic.Uint32
++var carbonShortcuts sync.Map // uint32 -> *carbonShortcut
++
++// RegisterGlobalShortcut uses the system hotkey API. It does not read other
++// keystrokes or need Accessibility or Input Monitoring permissions.
++func RegisterGlobalShortcut(modifiers ui.Modifiers, key string, pressed func()) (func(), error) {
++	binding, err := registerCarbonShortcut(modifiers, key, pressed)
++	if err != nil {
++		return nil, err
++	}
++	return binding.close, nil
++}
++
++func registerCarbonShortcut(modifiers ui.Modifiers, key string, pressed func()) (*carbonShortcut, error) {
++	code, ok := carbonKeycode(key)
++	if !ok {
++		return nil, fmt.Errorf("darwin: global shortcut key %q is unsupported", key)
++	}
++	mask := C.uint32_t(0)
++	if modifiers&ui.ModifierShift != 0 {
++		mask |= C.shiftKey
++	}
++	if modifiers&ui.ModifierControl != 0 {
++		mask |= C.controlKey
++	}
++	if modifiers&ui.ModifierAlt != 0 {
++		mask |= C.optionKey
++	}
++	if modifiers&ui.ModifierMeta != 0 {
++		mask |= C.cmdKey
++	}
++	id := nextCarbonShortcut.Add(1)
++	binding := &carbonShortcut{id: id, events: make(chan struct{}, 1), stop: make(chan struct{})}
++	carbonShortcuts.Store(id, binding)
++	var ref C.EventHotKeyRef
++	if status := C.viva_global_shortcut_register(code, mask, C.uint32_t(id), &ref); status != 0 {
++		carbonShortcuts.Delete(id)
++		return nil, fmt.Errorf("darwin: register global shortcut (OSStatus %d)", status)
++	}
++	binding.ref = ref
++	go func() {
++		for {
++			select {
++			case <-binding.stop:
++				return
++			case <-binding.events:
++				select {
++				case <-binding.stop:
++					return
++				default:
++				}
++				pressed()
++			}
++		}
++	}()
++	return binding, nil
++}
++
++func (b *carbonShortcut) close() {
++	b.once.Do(func() {
++		carbonShortcuts.Delete(b.id)
++		close(b.stop)
++		C.viva_global_shortcut_unregister(b.ref)
++	})
++}
++
++//export vivaGlobalShortcutEvent
++func vivaGlobalShortcutEvent(identifier, kind C.uint32_t) C.int {
++	value, ok := carbonShortcuts.Load(uint32(identifier))
++	if !ok {
++		return 0
++	}
++	b := value.(*carbonShortcut)
++	if kind == C.kEventHotKeyReleased {
++		b.down = false
++	} else if !b.down {
++		b.down = true
++		select {
++		case b.events <- struct{}{}:
++		default:
++		}
++	}
++	return 1
++}
++
++func carbonKeycode(key string) (C.uint32_t, bool) {
++	letters := [...]C.uint32_t{C.kVK_ANSI_A, C.kVK_ANSI_B, C.kVK_ANSI_C, C.kVK_ANSI_D, C.kVK_ANSI_E, C.kVK_ANSI_F,
++		C.kVK_ANSI_G, C.kVK_ANSI_H, C.kVK_ANSI_I, C.kVK_ANSI_J, C.kVK_ANSI_K, C.kVK_ANSI_L, C.kVK_ANSI_M,
++		C.kVK_ANSI_N, C.kVK_ANSI_O, C.kVK_ANSI_P, C.kVK_ANSI_Q, C.kVK_ANSI_R, C.kVK_ANSI_S, C.kVK_ANSI_T,
++		C.kVK_ANSI_U, C.kVK_ANSI_V, C.kVK_ANSI_W, C.kVK_ANSI_X, C.kVK_ANSI_Y, C.kVK_ANSI_Z}
++	digits := [...]C.uint32_t{C.kVK_ANSI_0, C.kVK_ANSI_1, C.kVK_ANSI_2, C.kVK_ANSI_3, C.kVK_ANSI_4,
++		C.kVK_ANSI_5, C.kVK_ANSI_6, C.kVK_ANSI_7, C.kVK_ANSI_8, C.kVK_ANSI_9}
++	functions := [...]C.uint32_t{C.kVK_F1, C.kVK_F2, C.kVK_F3, C.kVK_F4, C.kVK_F5, C.kVK_F6, C.kVK_F7,
++		C.kVK_F8, C.kVK_F9, C.kVK_F10, C.kVK_F11, C.kVK_F12, C.kVK_F13, C.kVK_F14, C.kVK_F15, C.kVK_F16,
++		C.kVK_F17, C.kVK_F18, C.kVK_F19, C.kVK_F20}
++	if len(key) == 1 {
++		c := key[0]
++		if 'A' <= c && c <= 'Z' {
++			return letters[c-'A'], true
++		}
++		if '0' <= c && c <= '9' {
++			return digits[c-'0'], true
++		}
++	}
++	if len(key) > 1 && key[0] == 'F' {
++		n, err := strconv.Atoi(key[1:])
++		if err == nil && n >= 1 && n <= len(functions) {
++			return functions[n-1], true
++		}
++	}
++	switch key {
++	case "SPACE":
++		return C.kVK_Space, true
++	case "ENTER":
++		return C.kVK_Return, true
++	case "ESCAPE":
++		return C.kVK_Escape, true
++	case "TAB":
++		return C.kVK_Tab, true
++	}
++	return 0, false
++}
++
++// sendCarbonShortcutTestEvent exercises the real application event handler
++// without injecting keyboard input into the host desktop.
++func sendCarbonShortcutTestEvent(id uint32, down bool) int32 {
++	kind := C.uint32_t(C.kEventHotKeyReleased)
++	if down {
++		kind = C.kEventHotKeyPressed
++	}
++	return int32(C.viva_global_shortcut_test_event(C.uint32_t(id), kind))
++}
+diff --git a/internal/platform/darwin/global_shortcut_darwin.m b/internal/platform/darwin/global_shortcut_darwin.m
+new file mode 100644
+index 0000000..9e4e310
+--- /dev/null
++++ b/internal/platform/darwin/global_shortcut_darwin.m
+@@ -0,0 +1,81 @@
++#import <Cocoa/Cocoa.h>
++#import <Carbon/Carbon.h>
++#include <stdint.h>
++
++extern int vivaGlobalShortcutEvent(uint32_t identifier, uint32_t kind);
++
++static const OSType vivaHotKeySignature = 0x56697661; // 'Viva'
++static EventHandlerRef vivaHotKeyHandler;
++static uint32_t vivaHotKeyCount;
++
++static OSStatus viva_hot_key_event(EventHandlerCallRef next, EventRef event, void *unused) {
++    EventHotKeyID hotkey;
++    OSStatus status = GetEventParameter(event, kEventParamDirectObject, typeEventHotKeyID,
++                                        NULL, sizeof(hotkey), NULL, &hotkey);
++    if (status != noErr || hotkey.signature != vivaHotKeySignature) {
++        return eventNotHandledErr;
++    }
++    return vivaGlobalShortcutEvent(hotkey.id, GetEventKind(event)) ? noErr : eventNotHandledErr;
++}
++
++static void viva_hot_key_main(void (^work)(void)) {
++    if ([NSThread isMainThread]) {
++        work();
++    } else {
++        dispatch_sync(dispatch_get_main_queue(), work);
++    }
++}
++
++int32_t viva_global_shortcut_register(uint32_t code, uint32_t modifiers, uint32_t identifier, EventHotKeyRef *reference) {
++    __block OSStatus status = noErr;
++    viva_hot_key_main(^{
++        EventTargetRef target = GetApplicationEventTarget();
++        if (vivaHotKeyHandler == NULL) {
++            const EventTypeSpec types[] = {
++                {kEventClassKeyboard, kEventHotKeyPressed},
++                {kEventClassKeyboard, kEventHotKeyReleased},
++            };
++            status = InstallEventHandler(target, viva_hot_key_event, 2, types, NULL, &vivaHotKeyHandler);
++            if (status != noErr) {
++                return;
++            }
++        }
++        EventHotKeyID hotkey = {vivaHotKeySignature, identifier};
++        status = RegisterEventHotKey(code, modifiers, hotkey, target, 0, reference);
++        if (status == noErr) {
++            ++vivaHotKeyCount;
++        } else if (vivaHotKeyCount == 0) {
++            RemoveEventHandler(vivaHotKeyHandler);
++            vivaHotKeyHandler = NULL;
++        }
++    });
++    return status;
++}
++
++void viva_global_shortcut_unregister(EventHotKeyRef reference) {
++    viva_hot_key_main(^{
++        UnregisterEventHotKey(reference);
++        if (--vivaHotKeyCount == 0) {
++            RemoveEventHandler(vivaHotKeyHandler);
++            vivaHotKeyHandler = NULL;
++        }
++    });
++}
++
++int32_t viva_global_shortcut_test_event(uint32_t identifier, uint32_t kind) {
++    __block OSStatus status;
++    viva_hot_key_main(^{
++        EventRef event = NULL;
++        status = CreateEvent(NULL, kEventClassKeyboard, kind, GetCurrentEventTime(), kEventAttributeNone, &event);
++        if (status != noErr) {
++            return;
++        }
++        EventHotKeyID hotkey = {vivaHotKeySignature, identifier};
++        status = SetEventParameter(event, kEventParamDirectObject, typeEventHotKeyID, sizeof(hotkey), &hotkey);
++        if (status == noErr) {
++            status = SendEventToEventTarget(event, GetApplicationEventTarget());
++        }
++        ReleaseEvent(event);
++    });
++    return status;
++}
+diff --git a/internal/platform/darwin/global_shortcut_darwin_test.go b/internal/platform/darwin/global_shortcut_darwin_test.go
+new file mode 100644
+index 0000000..c500d1d
+--- /dev/null
++++ b/internal/platform/darwin/global_shortcut_darwin_test.go
+@@ -0,0 +1,66 @@
++package darwin
++
++import (
++	"os"
++	"testing"
++	"time"
++
++	"github.com/vivaui/viva/ui"
++)
++
++func TestNativeCarbonGlobalShortcut(t *testing.T) {
++	if os.Getenv("VIVA_NATIVE_GLOBAL_SHORTCUT_TEST") != "1" {
++		t.Skip("requires a macOS desktop session")
++	}
++	const modifiers = ui.ModifierControl | ui.ModifierAlt | ui.ModifierShift
++	calls := make(chan struct{}, 2)
++	binding, err := registerCarbonShortcut(modifiers, "G", func() { calls <- struct{}{} })
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer binding.close()
++	if other, err := registerCarbonShortcut(modifiers, "G", func() {}); err == nil {
++		other.close()
++		t.Fatal("Carbon accepted a conflicting binding")
++	}
++	send := func(down bool) {
++		t.Helper()
++		if status := sendCarbonShortcutTestEvent(binding.id, down); status != 0 {
++			t.Fatalf("dispatch Carbon hotkey event: OSStatus %d", status)
++		}
++	}
++	wait := func() {
++		t.Helper()
++		select {
++		case <-calls:
++		case <-time.After(2 * time.Second):
++			t.Fatal("Carbon event did not deliver its callback")
++		}
++	}
++	send(true)
++	wait()
++	send(true)
++	select {
++	case <-calls:
++		t.Fatal("repeated press retriggered callback")
++	default:
++	}
++	send(false)
++	send(true)
++	wait()
++	select {
++	case <-calls:
++		t.Fatal("repeated press retriggered callback")
++	default:
++	}
++	binding.close()
++	binding.close()
++	if status := sendCarbonShortcutTestEvent(binding.id, true); status == 0 {
++		t.Fatal("stopped binding still claims the event")
++	}
++	again, err := registerCarbonShortcut(modifiers, "G", func() {})
++	if err != nil {
++		t.Fatalf("stop did not release Carbon hotkey: %v", err)
++	}
++	again.close()
++}
+diff --git a/internal/platform/linux/global_shortcut_linux.go b/internal/platform/linux/global_shortcut_linux.go
+new file mode 100644
+index 0000000..640a915
+--- /dev/null
++++ b/internal/platform/linux/global_shortcut_linux.go
+@@ -0,0 +1,193 @@
++package linux
++
++import (
++	"fmt"
++	"os"
++	"runtime"
++	"sync"
++	"syscall"
++	"unsafe"
++
++	"github.com/ebitengine/purego"
++	"github.com/vivaui/viva/ui"
++)
++
++// RegisterGlobalShortcut grabs the specified key on an independent X11
++// connection, so it can receive the chord even when all app windows are hidden.
++// The stop pipe interrupts a blocking poll. Closing the connection releases
++// every grab, including the ones made before a conflict.
++func RegisterGlobalShortcut(modifiers ui.Modifiers, symbol uint32, pressed func()) (func(), error) {
++	api, connection, screen, err := openSystemConnection()
++	if err != nil {
++		return nil, err
++	}
++	closeConnection := func() { api.disconnect(connection); api.close() }
++	success := false
++	defer func() {
++		if !success {
++			closeConnection()
++		}
++	}()
++
++	w := window{api: api, connection: connection}
++	if err = w.reloadKeymap(); err != nil {
++		return nil, err
++	}
++	key := shortcutKeycode(&w.keymap, symbol)
++	if key == 0 {
++		return nil, fmt.Errorf("linux: global shortcut key is absent from the X keyboard map")
++	}
++	var grab func(uintptr, uint8, uint32, uint16, uint8, uint8, uint8) xcbVoidCookie
++	var ungrab func(uintptr, uint8, uint32, uint16) xcbVoidCookie
++	purego.RegisterLibFunc(&grab, api.library, "xcb_grab_key_checked")
++	purego.RegisterLibFunc(&ungrab, api.library, "xcb_ungrab_key_checked")
++	root := screen.Root
++	var grabbed []uint16
++	release := func() {
++		for _, m := range grabbed {
++			if reply := api.requestCheck(connection, ungrab(connection, key, root, m)); reply != nil {
++				api.free(unsafe.Pointer(reply))
++			}
++		}
++	}
++	defer func() {
++		if !success {
++			release()
++		}
++	}()
++	mask := shortcutModifierMask(modifiers)
++	ignore := uint16(xcbModLock) | w.keymap.numLockMask()
++	ignore &^= mask
++	for locks := ignore; ; locks = (locks - 1) & ignore {
++		const asyncGrab = 1
++		cookie := grab(connection, 0, root, mask|locks, key, asyncGrab, asyncGrab)
++		if reply := api.requestCheck(connection, cookie); reply != nil {
++			code := reply.ErrorCode
++			api.free(unsafe.Pointer(reply))
++			if code == 10 {
++				return nil, fmt.Errorf("linux: global shortcut is already grabbed")
++			}
++			return nil, fmt.Errorf("linux: grab global shortcut (X11 error %d)", code)
++		}
++		grabbed = append(grabbed, mask|locks)
++		if locks == 0 {
++			break
++		}
++	}
++	read, write, err := os.Pipe()
++	if err != nil {
++		return nil, err
++	}
++	success = true
++	done, callbacks := make(chan struct{}), make(chan struct{}, 1)
++	go func() {
++		runtime.LockOSThread()
++		defer runtime.UnlockOSThread()
++		defer close(done)
++		defer closeConnection()
++		defer release()
++		defer read.Close()
++		defer write.Close()
++		runShortcutEvents(api, connection, int32(read.Fd()), key, mask, ignore, callbacks)
++	}()
++	go func() {
++		for {
++			select {
++			case <-done:
++				return
++			case <-callbacks:
++				select {
++				case <-done:
++					return
++				default:
++				}
++				pressed()
++			}
++		}
++	}()
++	var once sync.Once
++	return func() { once.Do(func() { _ = write.Close(); <-done }) }, nil
++}
++
++func shortcutModifierMask(modifiers ui.Modifiers) (mask uint16) {
++	if modifiers&ui.ModifierShift != 0 {
++		mask |= xcbModShift
++	}
++	if modifiers&ui.ModifierControl != 0 {
++		mask |= xcbModControl
++	}
++	if modifiers&ui.ModifierAlt != 0 {
++		mask |= xcbMod1
++	}
++	if modifiers&ui.ModifierMeta != 0 {
++		mask |= xcbMod4
++	}
++	return
++}
++
++func shortcutKeycode(keymap *xcbKeymap, symbol uint32) uint8 {
++	for code := int(keymap.first); code <= int(keymap.last); code++ {
++		keys := keymap.symbols(uint8(code))
++		for _, value := range keys {
++			if value == symbol {
++				return uint8(code)
++			}
++		}
++	}
++	return 0
++}
++
++type shortcutKeyState struct {
++	down, released bool
++	releasedAt     uint32
++}
++
++func (s *shortcutKeyState) event(kind uint8, timestamp uint32) bool {
++	switch kind {
++	case xcbKeyRelease:
++		s.down, s.released, s.releasedAt = false, true, timestamp
++	case xcbKeyPress:
++		if s.down {
++			return false
++		}
++		s.down = true
++		return !s.released || s.releasedAt != timestamp
++	}
++	return false
++}
++
++func runShortcutEvents(api *xcbAPI, connection uintptr, wakeFD int32, key uint8, mask, ignore uint16, callbacks chan<- struct{}) {
++	const pollRead int16 = 1
++	fds := [2]pollFD{{FD: api.fileDescriptor(connection), Events: pollRead}, {FD: wakeFD, Events: pollRead}}
++	var state shortcutKeyState
++	for {
++		for event := api.pollForEvent(connection); event != nil; event = api.pollForEvent(connection) {
++			input := (*xcbInputEvent)(event)
++			kind := input.ResponseType
++			// Ignore synthetic SendEvent traffic. The server emits grabbed events.
++			if (kind == xcbKeyPress || kind == xcbKeyRelease) && input.Detail == key {
++				if kind == xcbKeyRelease || input.State&0xff&^ignore == mask {
++					if state.event(kind, input.Time) {
++						select {
++						case callbacks <- struct{}{}:
++						default:
++						}
++					}
++				}
++			}
++			api.free(event)
++		}
++		if api.connectionHasError(connection) != 0 {
++			return
++		}
++		if api.poll(&fds[0], 2, -1) < 0 {
++			if *api.errnoLocation() == int32(syscall.EINTR) {
++				continue
++			}
++			return
++		}
++		if fds[1].REvents != 0 || fds[0].REvents & ^pollRead != 0 {
++			return
++		}
++	}
++}
+diff --git a/internal/platform/linux/global_shortcut_linux_test.go b/internal/platform/linux/global_shortcut_linux_test.go
+new file mode 100644
+index 0000000..e055527
+--- /dev/null
++++ b/internal/platform/linux/global_shortcut_linux_test.go
+@@ -0,0 +1,65 @@
++package linux
++
++import (
++	"os"
++	"os/exec"
++	"testing"
++	"time"
++
++	"github.com/vivaui/viva/ui"
++)
++
++func TestGlobalShortcutRepeatPairsDoNotRetrigger(t *testing.T) {
++	var state shortcutKeyState
++	if !state.event(xcbKeyPress, 1) || state.event(xcbKeyPress, 2) {
++		t.Fatal("detectable auto-repeat retriggered the chord")
++	}
++	state.event(xcbKeyRelease, 3)
++	if state.event(xcbKeyPress, 3) {
++		t.Fatal("core X auto-repeat pair retriggered the chord")
++	}
++	state.event(xcbKeyRelease, 4)
++	if !state.event(xcbKeyPress, 5) {
++		t.Fatal("fresh key press was suppressed")
++	}
++}
++
++func TestNativeX11GlobalShortcut(t *testing.T) {
++	if os.Getenv("VIVA_NATIVE_GLOBAL_SHORTCUT_TEST") != "1" {
++		t.Skip("requires an isolated X11 display")
++	}
++	const modifiers = ui.ModifierControl | ui.ModifierAlt | ui.ModifierShift
++	presses := make(chan struct{}, 1)
++	stop, err := RegisterGlobalShortcut(modifiers, 'g', func() { presses <- struct{}{} })
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer stop()
++	if duplicate, err := RegisterGlobalShortcut(modifiers, 'g', func() {}); err == nil {
++		duplicate()
++		t.Fatal("X11 accepted a conflicting grab")
++	}
++	if _, err := exec.LookPath("xdotool"); err != nil {
++		t.Fatal("isolated display check needs xdotool")
++	}
++	press := func(chord string) {
++		t.Helper()
++		if out, err := exec.Command("xdotool", "key", chord).CombinedOutput(); err != nil {
++			t.Fatalf("trigger on Xvfb: %v: %s", err, out)
++		}
++		select {
++		case <-presses:
++		case <-time.After(2 * time.Second):
++			t.Fatal("X11 hotkey did not dispatch")
++		}
++	}
++	press("ctrl+alt+shift+g")
++	press("Caps_Lock ctrl+alt+shift+g")
++	stop()
++	stop()
++	again, err := RegisterGlobalShortcut(modifiers, 'g', func() {})
++	if err != nil {
++		t.Fatalf("stop did not release the grab: %v", err)
++	}
++	again()
++}
 diff --git a/internal/platform/windows/global_shortcut_windows.go b/internal/platform/windows/global_shortcut_windows.go
 new file mode 100644
-index 0000000..e19665e
+index 0000000..9daf977
 --- /dev/null
 +++ b/internal/platform/windows/global_shortcut_windows.go
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,86 @@
 +//go:build windows
 +
 +package windows
@@ -420,6 +1087,11 @@ index 0000000..e19665e
 +		for {
 +			select {
 +			case <-events:
++				select {
++				case <-done:
++					return
++				default:
++				}
 +				pressed()
 +			case <-done:
 +				return

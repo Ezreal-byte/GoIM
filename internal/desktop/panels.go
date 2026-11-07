@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,12 @@ const (
 	panelSettingsGeneral panelSettingsTab = iota
 	panelSettingsShortcuts
 	panelSettingsAbout
+	panelSettingsProfile
+	panelSettingsNotifications
+	panelSettingsNetwork
+	panelSettingsTransfers
+	panelSettingsSecurity
+	panelSettingsCount
 )
 
 const (
@@ -39,13 +46,15 @@ const (
 )
 
 const (
-	panelSharesAll = iota
-	panelSharesMine
+	panelSharesMine = iota
 	panelSharesRemote
+	panelSharesAll
 )
 
 var (
-	panelSettingsLabels  = []string{"常规", "快捷键", "关于"}
+	panelSettingsLabels = [...]string{"常规", "快捷键", "关于", "个人资料", "通知", "网络", "文件传输", "安全"}
+	panelSettingsOrder  = [...]panelSettingsTab{panelSettingsProfile, panelSettingsGeneral, panelSettingsNotifications,
+		panelSettingsNetwork, panelSettingsTransfers, panelSettingsShortcuts, panelSettingsSecurity, panelSettingsAbout}
 	panelDuplicateLabels = []string{"自动重命名", "每次询问"}
 	panelDuplicateValues = []string{"rename", "ask"}
 )
@@ -105,12 +114,60 @@ type panelIDs struct {
 	sharesFilters    ui.Scope
 	sharesRefresh    ui.ID
 	sharesAdd        ui.ID
+	shareLocalScroll ui.ID
+	shareLocalRows   ui.Scope
+	sharePathField   ui.ID
+	sharePathGo      ui.ID
+	shareCopyLink    ui.Scope
+	shareShowQR      ui.Scope
+	shareMore        ui.Scope
+	shareHome        ui.ID
+	shareDownloads   ui.ID
+	shareDrives      ui.ID
+	shareRoot        ui.ID
+	shareUp          ui.ID
+	shareLocalReload ui.ID
+	shareLocalRetry  ui.ID
+	shareRow         ui.Scope
 	shareGet         ui.Scope
 	shareRemove      ui.Scope
 	shareOpen        ui.Scope
 	shareReveal      ui.Scope
 	sharesDismiss    ui.ID
 	sharesClearError ui.ID
+	sharesNoticeOff  ui.ID
+
+	shareMenuScope     ui.ID
+	shareMenuDismiss   ui.ID
+	shareMenuShare     ui.ID
+	shareMenuOpen      ui.ID
+	shareMenuFolder    ui.ID
+	shareMenuGet       ui.ID
+	shareMenuCopy      ui.ID
+	shareMenuQR        ui.ID
+	shareMenuPassword  ui.ID
+	shareMenuClearPass ui.ID
+	shareMenuUnshare   ui.ID
+
+	shareDialogScope    ui.ID
+	shareDialogDismiss  ui.ID
+	shareDialogClose    ui.ID
+	shareDialogPassword ui.ID
+	shareDialogCancel   ui.ID
+	shareDialogSubmit   ui.ID
+
+	sharePasswordScope   ui.ID
+	sharePasswordDismiss ui.ID
+	sharePasswordClose   ui.ID
+	sharePasswordField   ui.ID
+	sharePasswordCancel  ui.ID
+	sharePasswordSubmit  ui.ID
+
+	shareQRScope         ui.ID
+	shareQRDismiss       ui.ID
+	shareQRClose         ui.ID
+	shareQRDismissButton ui.ID
+	shareQRCopy          ui.ID
 }
 
 type panelNetworkOption struct {
@@ -203,7 +260,8 @@ type Panels struct {
 	module string
 
 	settingsTab     panelSettingsTab
-	settingsScroll  [3]float32
+	settingsScroll  [panelSettingsCount]float32
+	settingsExtra   panelSettingsExtra
 	scrollTab       panelSettingsTab
 	scrollTabSet    bool
 	aboutLicense    bool
@@ -214,8 +272,11 @@ type Panels struct {
 	duplicateSelect flex.SelectState
 	networkSelect   flex.SelectState
 
-	transferFilter int
-	shareFilter    int
+	transferFilter  int
+	shareFilter     int
+	shareAddress    flex.Field
+	shareMoreAnchor flex.Box
+	shareMoreEntry  panelShareEntry
 
 	networks         []panelNetworkOption
 	networkChoices   []panelNetworkOption
@@ -239,6 +300,28 @@ type Panels struct {
 	sharesMine       []panelShareEntry
 	sharesRemote     []panelShareEntry
 	shareLabels      []string
+	shareByPath      map[string]panelShareEntry
+
+	shareBrowser        shareBrowser
+	shareEntries        []shareDirEntry
+	shareDir            string
+	shareParent         string
+	shareLocationTitle  string
+	shareDownloadDir    string
+	shareLoading        bool
+	shareLoadError      string
+	shareTruncated      bool
+	sharePendingGen     uint64
+	shareLastRequest    shareBrowseRequest
+	shareBrowserStarted bool
+	shareSelection      map[string]bool
+	shareClickAdditive  bool
+	shareClickTarget    ui.ID
+	shareMenu           shareMenuState
+	shareDialog         shareSendDialogState
+	sharePassword       sharePasswordDialogState
+	shareQR             shareQRDialogState
+	shareQRCache        map[shareQRKey]shareQRResult
 
 	cacheReady    bool
 	cacheRevision uint64
@@ -261,10 +344,15 @@ func (p *Panels) Init(tree *ui.Tree) {
 	p.initialized = true
 	p.shortcutEdit = -1
 	p.localActions = make(map[uint64]panelLocalAction)
+	p.shareSelection = make(map[string]bool)
+	p.shareByPath = make(map[string]panelShareEntry)
+	p.shareQRCache = make(map[shareQRKey]shareQRResult)
+	p.shareBrowser.ensure()
 
 	settings := tree.Feature("settings-panels")
 	p.ids.settingsFeature = settings
 	p.ids.settingsCategories = tree.Sub(settings, tree.Name("categories"))
+	p.settingsExtra.init(tree, settings)
 	p.ids.themeChoice = tree.Sub(settings, tree.Name("theme-choice"))
 	p.ids.duplicateChoice = tree.Sub(settings, tree.Name("duplicate-choice"))
 	p.ids.networkChoice = tree.Sub(settings, tree.Name("network-choice"))
@@ -318,12 +406,60 @@ func (p *Panels) Init(tree *ui.Tree) {
 	p.ids.sharesFilters = tree.Sub(shares, tree.Name("filters"))
 	p.ids.sharesRefresh = tree.ID(shares, "refresh")
 	p.ids.sharesAdd = tree.ID(shares, "add")
+	p.ids.shareLocalScroll = tree.ID(shares, "local-scroll")
+	p.ids.shareLocalRows = tree.Sub(shares, tree.Name("local-row"))
+	p.ids.sharePathField = tree.ID(shares, "local-path")
+	p.ids.sharePathGo = tree.ID(shares, "local-path-go")
+	p.ids.shareCopyLink = tree.Sub(shares, tree.Name("copy-link"))
+	p.ids.shareShowQR = tree.Sub(shares, tree.Name("show-qr"))
+	p.ids.shareMore = tree.Sub(shares, tree.Name("more"))
+	p.ids.shareHome = tree.ID(shares, "local-home")
+	p.ids.shareDownloads = tree.ID(shares, "local-downloads")
+	p.ids.shareDrives = tree.ID(shares, "local-drives")
+	p.ids.shareRoot = tree.ID(shares, "local-root")
+	p.ids.shareUp = tree.ID(shares, "local-up")
+	p.ids.shareLocalReload = tree.ID(shares, "local-reload")
+	p.ids.shareLocalRetry = tree.ID(shares, "local-retry")
+	p.ids.shareRow = tree.Sub(shares, tree.Name("share-row"))
 	p.ids.shareGet = tree.Sub(shares, tree.Name("get"))
 	p.ids.shareRemove = tree.Sub(shares, tree.Name("remove"))
 	p.ids.shareOpen = tree.Sub(shares, tree.Name("open"))
 	p.ids.shareReveal = tree.Sub(shares, tree.Name("reveal"))
 	p.ids.sharesDismiss = tree.ID(shares, "dismiss-local-error")
 	p.ids.sharesClearError = tree.ID(shares, "clear-error")
+	p.ids.sharesNoticeOff = tree.ID(shares, "dismiss-local-notice")
+
+	p.ids.shareMenuScope = tree.ID(shares, "share-menu-scope")
+	p.ids.shareMenuDismiss = tree.ID(shares, "share-menu-dismiss")
+	p.ids.shareMenuShare = tree.ID(shares, "share-menu-share")
+	p.ids.shareMenuOpen = tree.ID(shares, "share-menu-open")
+	p.ids.shareMenuFolder = tree.ID(shares, "share-menu-folder")
+	p.ids.shareMenuGet = tree.ID(shares, "share-menu-get")
+	p.ids.shareMenuCopy = tree.ID(shares, "share-menu-copy")
+	p.ids.shareMenuQR = tree.ID(shares, "share-menu-qr")
+	p.ids.shareMenuPassword = tree.ID(shares, "share-menu-password")
+	p.ids.shareMenuClearPass = tree.ID(shares, "share-menu-clear-password")
+	p.ids.shareMenuUnshare = tree.ID(shares, "share-menu-unshare")
+
+	p.ids.shareDialogScope = tree.ID(shares, "share-dialog-scope")
+	p.ids.shareDialogDismiss = tree.ID(shares, "share-dialog-dismiss")
+	p.ids.shareDialogClose = tree.ID(shares, "share-dialog-close")
+	p.ids.shareDialogPassword = tree.ID(shares, "share-dialog-password")
+	p.ids.shareDialogCancel = tree.ID(shares, "share-dialog-cancel")
+	p.ids.shareDialogSubmit = tree.ID(shares, "share-dialog-submit")
+
+	p.ids.sharePasswordScope = tree.ID(shares, "share-password-scope")
+	p.ids.sharePasswordDismiss = tree.ID(shares, "share-password-dismiss")
+	p.ids.sharePasswordClose = tree.ID(shares, "share-password-close")
+	p.ids.sharePasswordField = tree.ID(shares, "share-password-field")
+	p.ids.sharePasswordCancel = tree.ID(shares, "share-password-cancel")
+	p.ids.sharePasswordSubmit = tree.ID(shares, "share-password-submit")
+
+	p.ids.shareQRScope = tree.ID(shares, "share-qr-scope")
+	p.ids.shareQRDismiss = tree.ID(shares, "share-qr-dismiss")
+	p.ids.shareQRClose = tree.ID(shares, "share-qr-close")
+	p.ids.shareQRDismissButton = tree.ID(shares, "share-qr-dismiss-button")
+	p.ids.shareQRCopy = tree.ID(shares, "share-qr-copy")
 
 	p.build = panelReadBuildInfo()
 	p.refreshNetworks()
@@ -349,6 +485,8 @@ func (p *Panels) Draw(canvas *ui.Canvas, theme ui.Theme, bounds ui.Rect, module 
 		p.networkChange = panelNetworkChange{}
 		p.localError = ""
 		p.localNotice = ""
+		p.closeShareInteractions()
+		p.settingsExtra.resetSecrets()
 	}
 	p.module = module
 	if module == panelModuleSettings && previousModule != "" && previousModule != module {
@@ -369,6 +507,14 @@ func (p *Panels) Draw(canvas *ui.Canvas, theme ui.Theme, bounds ui.Rect, module 
 			p.drawShares(f, theme, state, submit)
 		}
 	})
+	if module == panelModuleShares {
+		if p.shareMoreEntry.file.ID != "" {
+			anchor := p.shareMoreAnchor.Rect()
+			p.openShareSharedMenu(p.shareMoreEntry, anchor.X+anchor.Width-190, anchor.Y+anchor.Height)
+			p.shareMoreEntry = panelShareEntry{}
+		}
+		p.drawShareContextMenu(canvas, theme, bounds, submit)
+	}
 	p.captureScroll()
 	canvas.Unclip()
 }
@@ -376,6 +522,8 @@ func (p *Panels) Draw(canvas *ui.Canvas, theme ui.Theme, bounds ui.Rect, module 
 // OnWake resolves local paths from the detached snapshot. Filesystem probes
 // run on the shared media worker; Draw only reads the cached result.
 func (p *Panels) OnWake(state domain.State) {
+	p.applyShareBrowserEvents()
+	p.shareDownloadDir = strings.TrimSpace(state.Settings.DownloadDir)
 	previous := p.localFiles
 	paths := localFilePaths(state)
 	p.localFiles = make(map[string]panelLocalFile, len(paths))
@@ -392,6 +540,15 @@ func (p *Panels) OnWake(state domain.State) {
 
 func (p *Panels) setMediaSubmit(submit func(mediaJob)) {
 	p.mediaSubmit = submit
+	p.shareBrowser.setNotify(func() {
+		if p.mediaSubmit == nil {
+			return
+		}
+		p.mediaSubmit(mediaJob{
+			key:  mediaJobKey{kind: mediaJobFileAvailability, name: "share-browser-wake"},
+			kind: mediaJobFileAvailability, path: "", fileID: "share-browser-wake",
+		})
+	})
 }
 
 func (p *Panels) setLocalFileAvailability(entries []mediaFileResult) {
@@ -440,10 +597,21 @@ func (p *Panels) applyMediaActions(actions []mediaActionResult) {
 }
 
 // TextInput returns a function instead of nil so the shell can combine every
-// panel field provider safely. These panels use buttons, switches, and selects;
-// they own no native text editor.
+// panel field provider safely. The file page owns the only panel text fields:
+// the share password and the optional password chosen while sharing.
 func (p *Panels) TextInput() app.TextInputProvider {
-	return func(app.TextInputContext) *app.TextInput { return nil }
+	return func(context app.TextInputContext) *app.TextInput {
+		if p.module == panelModuleSettings {
+			return p.settingsExtra.textInput(context)
+		}
+		if p.module == panelModuleShares && !p.shareModalOpen() && !p.shareMenu.open {
+			return flex.Fields(&p.shareAddress)(context)
+		}
+		if !p.shareDialog.open && !p.sharePassword.open {
+			return nil
+		}
+		return flex.Fields(&p.shareDialog.password, &p.sharePassword.field)(context)
+	}
 }
 
 // Key handles keys the shell routes while a panel is visible. Call it from
@@ -455,6 +623,11 @@ func (p *Panels) Key(event ui.KeyEvent) ui.EventResult {
 	}
 	if p.module == panelModuleSettings {
 		if p.settingsTab == panelSettingsGeneral {
+			if result := p.settingsExtra.shade.Key(event); result.Handled {
+				return result
+			}
+		}
+		if p.settingsTab == panelSettingsNetwork || p.settingsTab == panelSettingsTransfers {
 			if event.Key == ui.KeyEscape && (p.duplicateSelect.Open || p.networkSelect.Open) {
 				p.duplicateSelect.Open = false
 				p.networkSelect.Open = false
@@ -503,7 +676,7 @@ func (p *Panels) Shortcut(event ui.KeyEvent) ui.EventResult {
 // Wheel routes the wheel to an open settings dropdown first, then to the panel
 // scroll area under the pointer.
 func (p *Panels) Wheel(event ui.ScrollEvent) ui.EventResult {
-	if p.module == panelModuleSettings && p.settingsTab == panelSettingsGeneral {
+	if p.module == panelModuleSettings && (p.settingsTab == panelSettingsNetwork || p.settingsTab == panelSettingsTransfers) {
 		if p.duplicateSelect.Open {
 			return p.duplicateSelect.Wheel(event)
 		}
@@ -592,7 +765,7 @@ func (p *Panels) settingsScrollID(tab panelSettingsTab) ui.ID {
 	case panelSettingsAbout:
 		return p.ids.settingsAboutScroll
 	default:
-		return ui.ID{}
+		return p.settingsExtra.scroll.At(int(tab))
 	}
 }
 
@@ -752,6 +925,7 @@ func (p *Panels) rebuildShares(state domain.State) {
 	p.sharesAll = p.sharesAll[:0]
 	p.sharesMine = p.sharesMine[:0]
 	p.sharesRemote = p.sharesRemote[:0]
+	clear(p.shareByPath)
 	for _, file := range state.Files {
 		if !file.Shared {
 			continue
@@ -795,9 +969,14 @@ func (p *Panels) rebuildShares(state domain.State) {
 	panelSortShares(p.sharesMine)
 	panelSortShares(p.sharesRemote)
 	p.shareLabels = []string{
-		fmt.Sprintf("全部 %d", len(p.sharesAll)),
-		fmt.Sprintf("我分享的 %d", len(p.sharesMine)),
-		fmt.Sprintf("他人分享 %d", len(p.sharesRemote)),
+		fmt.Sprintf("我的共享 %d", len(p.sharesMine)),
+		fmt.Sprintf("成员共享 %d", len(p.sharesRemote)),
+	}
+	for _, entry := range p.sharesMine {
+		if entry.path == "" {
+			continue
+		}
+		p.shareByPath[sharePathKey(entry.path)] = entry
 	}
 }
 
@@ -1059,6 +1238,8 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 			return settings.Network == pending.value || settings.PendingNetwork == pending.value
 		case "send_key":
 			return settings.SendKey == pending.value
+		case "background_shade":
+			return strconv.Itoa(settings.BackgroundShade) == pending.value
 		}
 	case panelPendingBool:
 		switch pending.setting {
@@ -1070,6 +1251,16 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 			return settings.AutoAccept == pending.boolean
 		case "close_to_tray":
 			return settings.CloseToTray == pending.boolean
+		case "hide_notification_text":
+			return settings.HideNotificationText == pending.boolean
+		case "hide_offline_contacts":
+			return settings.HideOfflineContacts == pending.boolean
+		case "disable_auto_discovery":
+			return settings.DisableAutoDiscovery == pending.boolean
+		case "auto_accept_images":
+			return settings.AutoAcceptImages == pending.boolean
+		case "lock_on_startup":
+			return settings.LockOnStartup == pending.boolean
 		}
 	case panelPendingShortcuts:
 		return slices.Equal(settings.Shortcuts, pending.shortcut)

@@ -37,7 +37,6 @@ type mediaJob struct {
 
 	imagePrevious    imageStamp
 	imagePreviousSet bool
-	notifyUnchanged  bool
 
 	previousAvailable    bool
 	previousAvailableSet bool
@@ -362,7 +361,6 @@ func processMediaImage(job mediaJob) mediaProcessingResult {
 			image: mediaImageResult{
 				path: job.path, generation: job.generation, stamp: stamp, unchanged: true,
 			},
-			notify: job.notifyUnchanged,
 		}
 	}
 	result := mediaProcessingResult{

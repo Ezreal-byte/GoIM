@@ -114,7 +114,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 							return u.palette.selected
 						}
 						return ui.Color{}
-					}()).HoverBackground(u.palette.hover)
+					}()).Hover(flex.Look{}.Background(u.palette.hover))
 					if peer.ID != u.state.Self.ID {
 						row = row.HitWith(u.memberMenuIDs[peer.ID], peer.Name,
 							ui.HitOptions{Role: ui.RoleButton, Hint: "成员操作"})
@@ -647,7 +647,7 @@ func (u *UI) drawFileList(f *flex.Frame) {
 					background = u.palette.selected
 				}
 				filter := f.Row().Height(30).PadX(12).Radius(8).Items(flex.Center).
-					Background(background).HoverBackground(u.palette.hover).
+					Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
 					HitWith(item.id, "筛选"+item.label,
 						ui.HitOptions{Role: ui.RoleButton, Selected: active}).
 					Children(func() {
@@ -674,7 +674,7 @@ func (u *UI) drawFileList(f *flex.Frame) {
 				}
 				shown++
 				row := f.Row().FillWidth().MinHeight(64).Pad(10).Radius(9).Gap(10).
-					HoverBackground(u.palette.hover).
+					Hover(flex.Look{}.Background(u.palette.hover)).
 					HitWith(u.fileRowIDs[file.ID], file.Name,
 						ui.HitOptions{Role: ui.RoleButton, Hint: "文件详情"}).
 					Children(func() {
@@ -1226,7 +1226,7 @@ func (u *UI) drawComposeBody(f *flex.Frame, create bool, group domain.Group) {
 							u.avatarStatus(f, peer.Name, peer.Avatar, 26, true)
 							f.Text(peer.Name).FontSize(12).Grow(1).Ellipsis()
 							remove := f.Row().Size(24, 24).Radius(6).Items(flex.Center).
-								Justify(flex.Center).HoverBackground(u.palette.hover).
+								Justify(flex.Center).Hover(flex.Look{}.Background(u.palette.hover)).
 								HitWith(u.groupRemoveIDs[peer.ID], "移除 "+peer.Name,
 									ui.HitOptions{Role: ui.RoleButton, Hint: "移除"}).
 								Children(func() {
@@ -1280,7 +1280,7 @@ func (u *UI) drawComposeCandidates(f *flex.Frame, create bool, group domain.Grou
 		collapsed := u.collapsed[contactGroup.Name] && query == ""
 		headerID := u.composeGroupHeadIDs[contactGroup.Name]
 		header := f.Row().Height(28).Items(flex.Center).Gap(6).Radius(6).
-			HoverBackground(u.palette.hover).
+			Hover(flex.Look{}.Background(u.palette.hover)).
 			HitWith(headerID, contactGroup.Name,
 				ui.HitOptions{Role: ui.RoleButton, Expanded: !collapsed}).
 			Children(func() {
@@ -1308,7 +1308,7 @@ func (u *UI) drawComposeCandidates(f *flex.Frame, create bool, group domain.Grou
 						return u.palette.selected
 					}
 					return ui.Color{}
-				}()).HoverBackground(u.palette.hover)
+				}()).Hover(flex.Look{}.Background(u.palette.hover))
 			if available {
 				row = row.HitWith(u.groupSelectRows[peer.ID], peer.Name,
 					ui.HitOptions{Role: ui.RoleButton, Selected: selected})

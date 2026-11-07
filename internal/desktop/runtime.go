@@ -99,7 +99,7 @@ func Run(backend domain.Backend) error {
 					active = true
 				}
 			}
-			if active {
+			if active && !shell.state.Locked {
 				shell.confirm = confirmation{open: true, title: "退出 GoIM？", body: "进行中的文件传输将中断，重新连接后可继续。", action: application.Quit}
 				shell.invalidator.Invalidate()
 				return
@@ -124,7 +124,7 @@ func Run(backend domain.Backend) error {
 						active = true
 					}
 				}
-				if active {
+				if active && !shell.state.Locked {
 					show()
 					shell.confirm = confirmation{open: true, title: "退出 GoIM？", body: "进行中的文件传输将中断，重新连接后可继续。", action: application.Quit}
 					shell.invalidator.Invalidate()
@@ -185,7 +185,7 @@ func (r *desktopRuntime) observe() {
 		if conv.Muted {
 			continue
 		}
-		if !r.window.Hidden() && !r.window.Minimized() && !r.ui.isPanelSection() && r.ui.selected == m.ConversationID {
+		if !s.Locked && !r.window.Hidden() && !r.window.Minimized() && !r.ui.isPanelSection() && r.ui.selected == m.ConversationID {
 			continue
 		}
 		name := s.Peer(m.SenderID).Name
@@ -204,6 +204,9 @@ func (r *desktopRuntime) observe() {
 		}
 		if conv.Kind == "group" {
 			name = conv.Title + " · " + name
+		}
+		if s.Locked || s.Settings.HideNotificationText {
+			name, body = "GoIM", "收到一条新消息"
 		}
 		if s.Settings.DesktopNotifications {
 			if err := app.SendNotification(app.Notification{Title: name, Body: body}); err != nil && !r.notificationError {

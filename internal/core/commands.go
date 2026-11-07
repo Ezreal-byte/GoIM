@@ -6,13 +6,21 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"goim/internal/domain"
 )
 
 func (n *Node) execute(c domain.Command) error {
+	n.mu.Lock()
+	locked := n.data.State.Locked
+	n.mu.Unlock()
+	if locked && c.Kind != domain.UnlockApp && c.Kind != domain.ReportError {
+		return nil
+	}
 	switch c.Kind {
 	case domain.Connect:
 		if strings.TrimSpace(c.Address) == "" {
@@ -20,12 +28,29 @@ func (n *Node) execute(c domain.Command) error {
 		}
 		n.Connect(c.Address)
 	case domain.StartChat:
-		s := n.Snapshot()
+		s := n.snapshot(false)
+		if c.ConversationID != "" {
+			conversation := s.Conversation(c.ConversationID)
+			g := s.Group(conversation.GroupID)
+			if conversation.Kind != "group" || g.ID == "" || g.Left || g.Dissolved {
+				return errors.New("群聊已不可用")
+			}
+			return n.change(func(s *domain.State) {
+				if i := convIndex(s, c.ConversationID); i >= 0 {
+					s.Conversations[i].Hidden = false
+				}
+			})
+		}
 		p := s.Peer(c.PeerID)
 		if p.ID == s.Self.ID || peerIndex(&s, p.ID) < 0 {
 			return errors.New("联系人不存在")
 		}
-		n.change(func(s *domain.State) { ensureDirect(s, p) })
+		return n.change(func(s *domain.State) {
+			id := ensureDirect(s, p)
+			if i := convIndex(s, id); i >= 0 {
+				s.Conversations[i].Hidden = false
+			}
+		})
 	case domain.SendText:
 		return n.sendText(c.ConversationID, c.Text)
 	case domain.SendFiles:
@@ -55,7 +80,7 @@ func (n *Node) execute(c domain.Command) error {
 		}
 		n.startReceive(c.TransferID, path)
 	case domain.RetryTransfer:
-		s := n.Snapshot()
+		s := n.snapshot(false)
 		i := transferIndex(&s, c.TransferID)
 		if i < 0 {
 			return errors.New("找不到传输任务")
@@ -63,7 +88,7 @@ func (n *Node) execute(c domain.Command) error {
 		t := s.Transfers[i]
 		return n.retryTransfer(t)
 	case domain.RejectTransfer, domain.CancelTransfer:
-		s := n.Snapshot()
+		s := n.snapshot(false)
 		i := transferIndex(&s, c.TransferID)
 		if i < 0 {
 			return errors.New("找不到传输任务")
@@ -105,13 +130,27 @@ func (n *Node) execute(c domain.Command) error {
 	case domain.SetSetting:
 		return n.setting(c)
 	case domain.SetProfile:
-		return n.setProfile(c.Name, c.Value)
-	case domain.SetContactGroup:
-		n.change(func(s *domain.State) {
-			if i := peerIndex(s, c.PeerID); i >= 0 {
-				s.Peers[i].ContactGroup = strings.TrimSpace(c.Name)
-			}
-		})
+		return n.setProfilePixels(c.Name, c.Value, c.AvatarBGRA, c.AvatarSize)
+	case domain.SetLockPassword, domain.LockApp, domain.UnlockApp:
+		err := n.updateLock(c)
+		if c.Request == 0 {
+			return err
+		}
+		result := domain.LockResult{Request: c.Request}
+		if err != nil {
+			result.Error = err.Error()
+		}
+		n.mu.Lock()
+		n.lockResult = result
+		n.mu.Unlock()
+		n.signal()
+		return nil
+	case domain.SetSharePassword:
+		return n.updateSharePassword(c.FileID, c.Text)
+	case domain.DeleteConversation:
+		return n.deleteConversation(c.ConversationID)
+	case domain.SetContactGroup, domain.CreateContactGroup, domain.RenameContactGroup, domain.DeleteContactGroup:
+		return n.updateContactGroups(c)
 	case domain.TogglePin, domain.ToggleMute, domain.MarkRead, domain.SaveDraft:
 		n.change(func(s *domain.State) {
 			if i := convIndex(s, c.ConversationID); i >= 0 {
@@ -131,7 +170,7 @@ func (n *Node) execute(c domain.Command) error {
 	case domain.ShareFiles:
 		n.async(func() {
 			for _, path := range c.Paths {
-				if err := n.sendFile("", path, true, ""); err != nil {
+				if err := n.shareFile(path, c.Text); err != nil {
 					n.report(err)
 				}
 			}
@@ -145,41 +184,21 @@ func (n *Node) execute(c domain.Command) error {
 			} else {
 				s.Files[i].Shared = false
 			}
-			var out []pending
-			for i := range s.Transfers {
-				t := &s.Transfers[i]
-				if t.FileID != c.FileID || !t.FromShare || t.Direction != "send" || terminalTransfer(t.Status) {
-					continue
-				}
-				t.Revoked = true
-				t.Status = "cancelled"
-				t.Speed = 0
-				t.Error = "分享已撤回"
-				if cancel := n.transfers[t.ID]; cancel != nil {
-					cancel()
-				}
-				p.TransferTombstones[t.PeerID+":"+t.ID] = "cancelled"
-				for id, d := range p.Outbox {
-					if d.Envelope.Type == "file_offer" && d.Envelope.TransferID == t.ID {
-						delete(p.Outbox, id)
-					}
-				}
-				out = append(out, pending{PeerID: t.PeerID, Envelope: envelope{Type: "file_status", TransferID: t.ID, Status: "cancelled"}})
-			}
-			return out
+			delete(p.BrowserShares, c.FileID)
+			return n.revokeShareGrants(p, c.FileID, "分享已撤回")
 		}); err != nil {
 			return err
 		}
 		n.broadcastCatalog()
 	case domain.RefreshShares:
-		s := n.Snapshot()
+		s := n.snapshot(false)
 		for _, p := range s.Peers {
 			if p.Online {
 				_ = n.send(p.ID, envelope{Type: "catalog_request"})
 			}
 		}
 	case domain.GetShared:
-		s := n.Snapshot()
+		s := n.snapshot(false)
 		f := s.File(c.FileID)
 		if f.ID == "" || !f.Shared {
 			return errors.New("分享已失效")
@@ -197,6 +216,85 @@ func (n *Node) execute(c domain.Command) error {
 	}
 	return nil
 }
+
+func (n *Node) updateContactGroups(c domain.Command) error {
+	name, old := strings.TrimSpace(c.Name), strings.TrimSpace(c.Text)
+	if c.Kind == domain.DeleteContactGroup {
+		old = name
+		name = ""
+	}
+	if name == "未分组" && c.Kind == domain.SetContactGroup {
+		name = ""
+	}
+	if utf8.RuneCountInString(name) > 30 || name == "未分组" || strings.ContainsAny(name, "\r\n\x00") ||
+		name == "" && (c.Kind == domain.CreateContactGroup || c.Kind == domain.RenameContactGroup) {
+		return errors.New("请输入 1 至 30 个字符的分组名称")
+	}
+	if (c.Kind == domain.RenameContactGroup || c.Kind == domain.DeleteContactGroup) && (old == "" || old == "未分组") {
+		return errors.New("不能更改默认分组")
+	}
+	var validation error
+	err := n.change(func(s *domain.State) {
+		known := func(group string) bool {
+			if contains(s.ContactGroups, group) {
+				return true
+			}
+			for _, p := range s.Peers {
+				if p.ContactGroup == group {
+					return true
+				}
+			}
+			return false
+		}
+		if name != "" && !known(name) && len(s.ContactGroups) >= 64 && c.Kind != domain.RenameContactGroup {
+			validation = errors.New("联系人分组已达 64 个")
+			return
+		}
+		add := func(group string) {
+			if group != "" && !contains(s.ContactGroups, group) {
+				s.ContactGroups = append(s.ContactGroups, group)
+			}
+		}
+		switch c.Kind {
+		case domain.SetContactGroup:
+			if i := peerIndex(s, c.PeerID); i >= 0 {
+				add(name)
+				s.Peers[i].ContactGroup = name
+			}
+		case domain.CreateContactGroup:
+			if known(name) {
+				validation = errors.New("分组已存在")
+				return
+			}
+			add(name)
+		case domain.RenameContactGroup, domain.DeleteContactGroup:
+			if !known(old) || old == name {
+				return
+			}
+			if name != "" && known(name) {
+				validation = errors.New("分组已存在")
+				return
+			}
+			for i, v := range s.ContactGroups {
+				if v == old {
+					s.ContactGroups = append(s.ContactGroups[:i], s.ContactGroups[i+1:]...)
+					break
+				}
+			}
+			for i := range s.Peers {
+				if s.Peers[i].ContactGroup == old {
+					s.Peers[i].ContactGroup = name
+				}
+			}
+			add(name)
+		}
+		s.Error, s.Notice = "", "联系人分组已更新"
+	})
+	if err != nil {
+		return err
+	}
+	return validation
+}
 func (n *Node) sendText(convID, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -205,7 +303,7 @@ func (n *Node) sendText(convID, text string) error {
 	if len(text) > 256<<10 {
 		return errors.New("消息过长")
 	}
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	conv := s.Conversation(convID)
 	if conv.ID == "" {
 		return errors.New("请选择会话")
@@ -244,9 +342,34 @@ func recipients(s domain.State, c domain.Conversation) ([]string, error) {
 	return []string{c.PeerID}, nil
 }
 func (n *Node) setting(c domain.Command) error {
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	settings := s.Settings
 	switch c.Setting {
+	case "background":
+		path, err := n.importBackground(c.Value)
+		if err != nil {
+			return err
+		}
+		settings.Background = path
+	case "background_shade":
+		shade, err := strconv.Atoi(c.Value)
+		if err != nil || shade < 0 || shade > 100 {
+			return errors.New("背景深浅须在 0 到 100 之间")
+		}
+		settings.BackgroundShade = shade
+	case "lock_on_startup":
+		if c.Bool && !settings.HasLockPassword {
+			return errors.New("请先设置锁定密码")
+		}
+		settings.LockOnStartup = c.Bool
+	case "hide_notification_text":
+		settings.HideNotificationText = c.Bool
+	case "hide_offline_contacts":
+		settings.HideOfflineContacts = c.Bool
+	case "disable_auto_discovery":
+		settings.DisableAutoDiscovery = c.Bool
+	case "auto_accept_images":
+		settings.AutoAcceptImages = c.Bool
 	case "theme":
 		if c.Value != "light" && c.Value != "dark" {
 			return errors.New("仅支持明亮和暗黑主题")
@@ -328,7 +451,7 @@ func (n *Node) setting(c domain.Command) error {
 	return nil
 }
 func (n *Node) broadcastProfile() {
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	e := n.profileEnvelope()
 	for _, p := range s.Peers {
 		if p.Online {

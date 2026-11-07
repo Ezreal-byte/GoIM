@@ -8,7 +8,7 @@ import (
 )
 
 func (n *Node) selectedInterface() *net.Interface {
-	name := n.Snapshot().Settings.Network
+	name := n.snapshot(false).Settings.Network
 	if name == "" || name == "auto" {
 		return nil
 	}
@@ -92,8 +92,10 @@ func (n *Node) discoveryLoop() {
 			connection.Close()
 		}
 	}()
-	refresh := func() {
-		name := n.Snapshot().Settings.Network
+	refresh := func(enabled bool, name string) {
+		if !enabled {
+			name = "\x00"
+		}
 		if name == networkName {
 			return
 		}
@@ -102,7 +104,7 @@ func (n *Node) discoveryLoop() {
 			connection.Close()
 			connection = nil
 		}
-		if !n.discovery {
+		if !enabled {
 			return
 		}
 		c, err := net.ListenMulticastUDP("udp4", n.selectedInterface(), address)
@@ -115,9 +117,10 @@ func (n *Node) discoveryLoop() {
 		n.async(func() { n.readDiscovery(c) })
 	}
 	announce := func() {
-		refresh()
-		s := n.Snapshot()
-		if n.discovery {
+		s := n.snapshot(false)
+		enabled := n.discovery && !s.Settings.DisableAutoDiscovery
+		refresh(enabled, s.Settings.Network)
+		if enabled {
 			p := s.Self
 			p.Avatar = ""
 			p.Address = n.advertisedAddress()

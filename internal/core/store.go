@@ -31,6 +31,9 @@ type persisted struct {
 	Outbox             map[string]pending
 	Seen               map[string]bool
 	OwnerOffers        map[string]ownershipOffer
+	BrowserShares      map[string]browserShare
+	BrowserPort        string
+	LockCredential     credential
 }
 
 func openStore(dir string) (*bolt.DB, persisted, error) {

@@ -67,7 +67,7 @@ func (n *Node) retryTransfer(t domain.Transfer) error {
 	if t.Status == "completed" {
 		return nil
 	}
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	if t.Direction == "receive" {
 		if t.Status == "cancelled" || t.Status == "rejected" {
 			return n.durable(func(p *persisted) []pending {
@@ -88,7 +88,7 @@ func (n *Node) retryTransfer(t domain.Transfer) error {
 	return nil
 }
 func (n *Node) receiveFileRetry(peer string, e envelope) error {
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	i := transferIndex(&s, e.TransferID)
 	if i < 0 {
 		return errors.New("找不到原文件任务")

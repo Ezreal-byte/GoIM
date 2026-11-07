@@ -12,3 +12,5 @@ GoIM application source is MIT licensed. Releases include the full applicable li
 | Lucide compiled icons and application icon geometry | Lucide SVG sources compiled by Viva | Lucide ISC and Feather MIT sections in licenses/Viva-third-party.md |
 
 The Viva notice also preserves upstream notices for its Unicode and font-related material. Native system fonts and graphics libraries are supplied by the operating system; font files are not bundled by GoIM.
+
+Browser share QR codes are generated with [go-qrcode](https://github.com/skip2/go-qrcode), covered by [its bundled license](licenses/go-qrcode-LICENSE.txt).

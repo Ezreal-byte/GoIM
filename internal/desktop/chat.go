@@ -19,6 +19,13 @@ import (
 
 func (u *UI) drawChat(canvas *ui.Canvas, bounds ui.Rect) {
 	canvas.Fill(bounds, u.palette.chat)
+	if u.drawChatBackground(canvas, bounds) {
+		// Viva composites images after shapes in each layer. Move the tint,
+		// message cards, and controls above the wallpaper as one surface.
+		canvas.PushLayer(1)
+		defer canvas.PopLayer()
+		canvas.Fill(bounds, u.chatBackgroundTint())
+	}
 	u.chatView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
 		f.Column().Fill().Children(func() {
 			conversation := u.state.Conversation(u.selected)
@@ -60,7 +67,7 @@ func (u *UI) drawChatEmpty(f *flex.Frame) {
 			Justify(flex.Center).Children(func() {
 			f.Icon(u.iconMessage).Size(28, 28).Color(u.palette.secondaryText)
 		})
-		f.Text("选择一段会话开始聊天").FontSize(20).Weight(ui.WeightSemibold)
+		f.Text("选择一段会话开始聊天").FontSize(16).Weight(ui.WeightMedium)
 		f.Paragraph("消息只在局域网内直连。联系人上线后会自动出现，也可以手动输入地址连接。", 3).
 			MaxWidth(430).FontSize(13).Muted().TextCenter().LineHeight(20)
 		f.Row().Gap(10).Justify(flex.Center).Children(func() {
@@ -80,6 +87,7 @@ func (u *UI) drawChatEmpty(f *flex.Frame) {
 
 func (u *UI) drawChatHeader(f *flex.Frame, conversation domain.Conversation) {
 	title := u.conversationTitle(conversation)
+	avatarName := title
 	online := false
 	subtitle := "离线"
 	if conversation.Kind == "group" {
@@ -112,8 +120,8 @@ func (u *UI) drawChatHeader(f *flex.Frame, conversation domain.Conversation) {
 
 	var searchButton, fileButton, memberButton, moreButton flex.Box
 	memberShown := false
-	f.Row().Height(116).FillWidth().PadSides(20, 28, 18, 28).Items(flex.Center).Gap(14).Children(func() {
-		avatar, avatarName := "", title
+	f.Row().Height(80).FillWidth().PadSides(12, 28, 12, 28).Items(flex.Center).Gap(14).Children(func() {
+		avatar := ""
 		if conversation.Kind == "direct" {
 			peer := u.state.Peer(conversation.PeerID)
 			avatar = peer.Avatar
@@ -123,7 +131,7 @@ func (u *UI) drawChatHeader(f *flex.Frame, conversation domain.Conversation) {
 		}
 		u.avatarStatus(f, avatarName, avatar, 46, online)
 		f.Column().Grow(1).Gap(5).Justify(flex.Center).Children(func() {
-			f.Text(title).FontSize(21).Weight(ui.WeightSemibold).Ellipsis()
+			f.Text(title).FontSize(17).Weight(ui.WeightSemibold).Ellipsis()
 			f.Row().Items(flex.Center).Gap(7).Children(func() {
 				dot := u.palette.secondaryText
 				if online {
@@ -368,13 +376,11 @@ func (u *UI) drawImageMessage(f *flex.Frame, conversation domain.Conversation, m
 	file := u.state.File(message.FileID)
 	path := u.fileLocalPath[file.ID]
 	bitmap := u.fileBitmap(path)
-	if bitmap.Width <= 0 || bitmap.Height <= 0 {
+	if !bitmapReady(bitmap) {
 		u.drawFileMessage(f, conversation, message, own, maxWidth)
 		return
 	}
-	width := min(float32(330), maxWidth)
-	height := width * float32(bitmap.Height) / float32(bitmap.Width)
-	height = max(120, min(height, 250))
+	width, height := chatImageThumbnail(bitmap, maxWidth)
 	justify := flex.Start
 	align := flex.Start
 	if own {
@@ -401,7 +407,7 @@ func (u *UI) drawImageMessage(f *flex.Frame, conversation domain.Conversation, m
 			if picture.Clicked() {
 				u.openFileDetail(file.ID, "chat")
 			}
-			if message.Text != "" {
+			if message.Text != "" && message.Text != file.Name {
 				f.Column().MaxWidth(width).PadSides(8, 12, 7, 12).Radius(9).
 					Background(u.palette.incoming).Children(func() {
 					f.Paragraph(message.Text, 4).FontSize(13).LineHeight(19)
@@ -412,6 +418,19 @@ func (u *UI) drawImageMessage(f *flex.Frame, conversation domain.Conversation, m
 			})
 		})
 	})
+}
+
+func chatImageThumbnail(bitmap ui.Bitmap, maxWidth float32) (float32, float32) {
+	if bitmap.Width <= 0 || bitmap.Height <= 0 {
+		return 0, 0
+	}
+	maxW := min(float32(330), maxWidth)
+	maxH := float32(250)
+	if maxW <= 0 || maxH <= 0 {
+		return 0, 0
+	}
+	scale := min(maxW/float32(bitmap.Width), maxH/float32(bitmap.Height))
+	return max(1, float32(bitmap.Width)*scale), max(1, float32(bitmap.Height)*scale)
 }
 
 func (u *UI) drawFileMessage(f *flex.Frame, conversation domain.Conversation, message domain.Message, own bool, maxWidth float32) {

@@ -160,7 +160,7 @@ func invitationDelivery(s domain.State, g domain.Group, peer string) (domain.Inv
 func (n *Node) createGroup(name string, ids []string) error {
 	n.groupMu.Lock()
 	defer n.groupMu.Unlock()
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	var selected []string
 	for _, id := range ids {
 		if id != s.Self.ID && !contains(selected, id) {
@@ -211,7 +211,7 @@ func activeOwnership(p persisted, id string) bool {
 func (n *Node) inviteMembers(id string, ids []string) error {
 	n.groupMu.Lock()
 	defer n.groupMu.Unlock()
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	g := s.Group(id)
 	if g.ID == "" || g.OwnerID != s.Self.ID || g.Dissolved {
 		return errors.New("只有群主可以邀请成员")
@@ -246,7 +246,7 @@ func (n *Node) inviteMembers(id string, ids []string) error {
 	})
 }
 func (n *Node) answerInvite(id string, accept bool) error {
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	var inv domain.Invitation
 	for _, v := range s.Invitations {
 		if v.ID == id {
@@ -288,7 +288,7 @@ func (n *Node) answerInvite(id string, accept bool) error {
 func (n *Node) manageGroup(c domain.Command) error {
 	n.groupMu.Lock()
 	defer n.groupMu.Unlock()
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	g := s.Group(c.GroupID)
 	if g.ID == "" || g.Dissolved || g.Left {
 		return errors.New("群聊已不可用")
@@ -379,7 +379,7 @@ func (n *Node) manageGroup(c domain.Command) error {
 func (n *Node) receiveGroup(peer string, e envelope) error {
 	n.groupMu.Lock()
 	defer n.groupMu.Unlock()
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	g := e.Group
 	switch e.Type {
 	case "group_invite", "ownership_offer":
@@ -645,7 +645,7 @@ func setGroupNicknameState(s *domain.State, id, peer, name string) {
 	s.GroupNicknames = append(s.GroupNicknames, domain.GroupNickname{GroupID: id, PeerID: peer, Name: name})
 }
 func (n *Node) setGroupNickname(id, name string) error {
-	s := n.Snapshot()
+	s := n.snapshot(false)
 	g := s.Group(id)
 	name = strings.TrimSpace(name)
 	if g.ID == "" || g.Left || g.Dissolved || !contains(g.Members, s.Self.ID) {
