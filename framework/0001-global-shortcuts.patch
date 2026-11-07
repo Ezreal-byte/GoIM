@@ -950,7 +950,7 @@ index 0000000..640a915
 +}
 diff --git a/internal/platform/linux/global_shortcut_linux_test.go b/internal/platform/linux/global_shortcut_linux_test.go
 new file mode 100644
-index 0000000..e055527
+index 0000000..fc24bbd
 --- /dev/null
 +++ b/internal/platform/linux/global_shortcut_linux_test.go
 @@ -0,0 +1,65 @@
@@ -998,9 +998,9 @@ index 0000000..e055527
 +	if _, err := exec.LookPath("xdotool"); err != nil {
 +		t.Fatal("isolated display check needs xdotool")
 +	}
-+	press := func(chord string) {
++	press := func(chords ...string) {
 +		t.Helper()
-+		if out, err := exec.Command("xdotool", "key", chord).CombinedOutput(); err != nil {
++		if out, err := exec.Command("xdotool", append([]string{"key"}, chords...)...).CombinedOutput(); err != nil {
 +			t.Fatalf("trigger on Xvfb: %v: %s", err, out)
 +		}
 +		select {
@@ -1010,7 +1010,7 @@ index 0000000..e055527
 +		}
 +	}
 +	press("ctrl+alt+shift+g")
-+	press("Caps_Lock ctrl+alt+shift+g")
++	press("Caps_Lock", "ctrl+alt+shift+g")
 +	stop()
 +	stop()
 +	again, err := RegisterGlobalShortcut(modifiers, 'g', func() {})

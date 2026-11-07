@@ -701,12 +701,17 @@ func (u *UI) requestFileAvailability(fileID, path string, previous bool, previou
 	if fileID == "" || path == "" {
 		return
 	}
+	generation := uint64(0)
 	if queued, ok := u.mediaFiles[fileID]; ok && queued.path == path {
-		return
+		if !previousSet {
+			return
+		}
+		generation = queued.generation
+	} else {
+		u.mediaFileGen++
+		generation = u.mediaFileGen
+		u.mediaFiles[fileID] = mediaFileRequest{path: path, generation: generation}
 	}
-	u.mediaFileGen++
-	generation := u.mediaFileGen
-	u.mediaFiles[fileID] = mediaFileRequest{path: path, generation: generation}
 	u.media.submitOne(mediaJob{
 		key:  mediaJobKey{kind: mediaJobFileAvailability, name: fileID},
 		kind: mediaJobFileAvailability, path: path, fileID: fileID, generation: generation,
@@ -1275,6 +1280,9 @@ func (u *UI) iconButton(f *flex.Frame, id ui.ID, icon ui.Icon, label string, siz
 
 func (u *UI) drawContactFilters(f *flex.Frame) {
 	peerCount, allOnline := 0, 0
+	if u.state.Self.ID != "" {
+		peerCount, allOnline = 1, 1
+	}
 	for _, peer := range u.state.Peers {
 		if peer.ID == u.state.Self.ID || u.state.Settings.HideOfflineContacts && !peer.Online {
 			continue
@@ -2725,13 +2733,20 @@ func (u *UI) queueImage(path string) {
 	if path == "" {
 		return
 	}
-	if _, queued := u.mediaImageQueued[path]; queued {
-		return
-	}
-	u.mediaImageGen++
-	generation := u.mediaImageGen
-	u.mediaImageQueued[path] = generation
 	previous, previousSet := u.imageStamps[path]
+	generation, queued := u.mediaImageQueued[path]
+	if queued {
+		// The old stat can return unchanged without waking the UI. Keep one
+		// coalesced probe at the same generation for the newer wake, but do
+		// not duplicate the first decode of an image we haven't loaded yet.
+		if !previousSet {
+			return
+		}
+	} else {
+		u.mediaImageGen++
+		generation = u.mediaImageGen
+		u.mediaImageQueued[path] = generation
+	}
 	limit := 512
 	if u.avatarImagePaths[path] && path != u.state.Settings.Background {
 		limit = 192

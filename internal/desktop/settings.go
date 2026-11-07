@@ -130,7 +130,7 @@ func (p *Panels) drawSettingsHeader(f *flex.Frame, theme ui.Theme, state domain.
 	title, description := panelSettingsLabels[p.settingsTab], "管理外观、消息发送与窗口行为"
 	switch p.settingsTab {
 	case panelSettingsShortcuts:
-		title, description = "快捷键", "录制应用内快捷键，并检查作用范围内的冲突"
+		title, description = "快捷键", "设置组合键，并检查应用内和系统快捷键冲突"
 	case panelSettingsAbout:
 		title, description = "关于", "版本、构建信息与开源许可"
 	case panelSettingsProfile:

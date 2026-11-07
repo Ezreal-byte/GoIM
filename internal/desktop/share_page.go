@@ -103,11 +103,6 @@ func (p *Panels) applyShareBrowserEvents() {
 			p.shareLoading = false
 			p.shareEntries = append(p.shareEntries[:0], result.entries...)
 			p.shareDir = result.path
-			if result.path != "" {
-				p.shareAddress.SetText(result.path)
-			} else {
-				p.shareAddress.SetText("")
-			}
 			p.shareParent = result.parent
 			if result.title != "" {
 				p.shareLocationTitle = result.title
@@ -232,6 +227,11 @@ func (p *Panels) drawLocalPane(f *flex.Frame, theme ui.Theme) {
 					f.Text(fmt.Sprintf("%d 项", count)).Muted().FontSize(theme.Metrics.FontSizeS)
 				}
 			})
+			location := p.shareDir
+			if location == "" {
+				location = p.shareLocationTitle
+			}
+			f.Text(location).FontSize(theme.Metrics.FontSizeS).Muted().FillWidth().Ellipsis()
 
 			f.Row().FillWidth().Items(flex.Center).Gap(5).Children(func() {
 				up := f.Button(p.ids.shareUp, "上一级").XSmall().Ghost().
@@ -242,6 +242,7 @@ func (p *Panels) drawLocalPane(f *flex.Frame, theme ui.Theme) {
 				path := f.Field(&p.shareAddress, p.ids.sharePathField, "本机文件夹路径", "输入文件夹路径").Grow(1).Height(29)
 				if f.Button(p.ids.sharePathGo, "前往").XSmall().Ghost().Clicked() || path.Submitted() {
 					request := strings.Trim(strings.TrimSpace(p.shareAddress.Text()), `"`)
+					p.shareAddress.SetText("")
 					if !filepath.IsAbs(request) {
 						p.localError = "请输入完整的本机文件夹路径"
 					} else {
