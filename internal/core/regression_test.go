@@ -59,7 +59,7 @@ func TestRejectedTransferCanBeRequestedAgain(t *testing.T) {
 		t.Fatal("retry reused terminal transfer identity")
 	}
 }
-func TestImageOfferRequiresDefaultConsentAndIgnoresRemotePath(t *testing.T) {
+func TestImageOfferAutoTransfersAndIgnoresRemotePath(t *testing.T) {
 	a, b := testNode(t, "甲"), testNode(t, "乙")
 	connectNodes(t, a, b)
 	conv := direct(t, a, b)
@@ -70,9 +70,13 @@ func TestImageOfferRequiresDefaultConsentAndIgnoresRemotePath(t *testing.T) {
 	if err := a.sendFile(conv, path, false, ""); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "image offer", func() bool { return len(b.Snapshot().Transfers) == 1 })
-	if b.Snapshot().Transfers[0].Status != "offered" {
-		t.Fatal("image bypassed default confirmation")
+	eventually(t, "image transfer", func() bool {
+		return len(b.Snapshot().Transfers) == 1 && b.Snapshot().Transfers[0].Status == "completed"
+	})
+	if path := b.Snapshot().Transfers[0].Path; path == "" {
+		t.Fatal("inline image was not cached locally")
+	} else if _, err := os.Stat(path); err != nil {
+		t.Fatalf("inline image cache missing: %v", err)
 	}
 	f := a.Snapshot().Files[0]
 	f.ID = newID()

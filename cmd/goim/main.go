@@ -19,6 +19,7 @@ func main() {
 	name := flag.String("name", "", "首次或本次使用的昵称")
 	peers := flag.String("connect", "", "启动后连接的 IP:端口，以逗号分隔")
 	noDiscovery := flag.Bool("no-discovery", false, "关闭 UDP 自动发现（保留真实 TCP 通信）")
+	noIPMSG := flag.Bool("no-ipmsg", false, "关闭旧版 IPMSG 兼容服务")
 	showVersion := flag.Bool("version", false, "显示版本")
 	downloadDir := flag.String("download-dir", "", "显式覆盖文件保存目录，适用于独立测试实例")
 	flag.Parse()
@@ -26,7 +27,7 @@ func main() {
 		fmt.Printf("GoIM %s (%s)\n", version, commit)
 		return
 	}
-	n, err := core.New(core.Options{DataDir: *data, Listen: *listen, Name: *name, DisableDiscovery: *noDiscovery, Version: version + " (" + commit + ")", DownloadDir: *downloadDir})
+	n, err := core.New(core.Options{DataDir: *data, Listen: *listen, Name: *name, DisableDiscovery: *noDiscovery, DisableIPMSG: *noIPMSG, Version: version + " (" + commit + ")", DownloadDir: *downloadDir})
 	if err != nil {
 		log.Fatal(err)
 	}

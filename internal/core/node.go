@@ -17,6 +17,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 	"goim/internal/domain"
+	ipmsgproto "goim/internal/ipmsg"
 )
 
 type Options struct {
@@ -24,6 +25,7 @@ type Options struct {
 	Listen           string
 	Name             string
 	DisableDiscovery bool
+	DisableIPMSG     bool
 	Version          string
 	DownloadDir      string
 }
@@ -55,6 +57,7 @@ type Node struct {
 	webLinks    map[string]shareLink
 	unlockAfter time.Time
 	lockResult  domain.LockResult
+	legacy      *ipmsgproto.Service
 }
 
 func New(opts Options) (*Node, error) {
@@ -96,6 +99,8 @@ func New(opts Options) (*Node, error) {
 			downloads = filepath.Join(home, "Downloads", "GoIM")
 		}
 		n.data.State.Settings = domain.DefaultSettings(downloads)
+	} else {
+		n.data.State.Settings.EnsureDefaultShortcuts()
 	}
 	n.data.State.Settings.HasLockPassword = n.data.LockCredential.set()
 	n.data.State.Locked = n.data.State.Settings.HasLockPassword && (n.data.State.Locked || n.data.State.Settings.LockOnStartup)
@@ -111,6 +116,8 @@ func New(opts Options) (*Node, error) {
 		}
 	}
 	n.data.State.Self = domain.Peer{ID: keyID(key.Public().(ed25519.PublicKey)), Name: n.data.State.Settings.Nickname, Avatar: n.data.State.Settings.Avatar, PublicKey: append([]byte(nil), key.Public().(ed25519.PublicKey)...), Address: listener.Addr().String(), Online: true}
+	n.data.State.Self.Signature = n.data.State.Settings.Signature
+	n.data.State.Self.Presence = n.data.State.Settings.Presence
 	n.data.State.ListenAddress = listener.Addr().String()
 	n.data.State.Version = opts.Version
 	for i := range n.data.State.Peers {
@@ -133,6 +140,9 @@ func New(opts Options) (*Node, error) {
 		if err := n.startShareServer(); err != nil {
 			n.report(err)
 		}
+	}
+	if !opts.DisableIPMSG {
+		n.startIPMSG(opts.Version)
 	}
 	n.wg.Add(3)
 	go n.acceptLoop()
@@ -213,7 +223,11 @@ func (n *Node) Close() error {
 	for _, cancel := range n.transfers {
 		cancel()
 	}
+	legacy := n.legacy
 	n.mu.Unlock()
+	if legacy != nil {
+		legacy.Close()
+	}
 	if web != nil {
 		_ = web.Close()
 	}

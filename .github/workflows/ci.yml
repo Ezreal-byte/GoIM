@@ -19,7 +19,7 @@ jobs:
       - run: |
           test "$(git -C ../viva rev-parse HEAD)" = "$(tr -d '\r\n' < framework/viva-commit.txt)"
           git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
-          git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch ../GoIM/framework/0002-windows-arm64-text-origin.patch
+          git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch ../GoIM/framework/0002-windows-arm64-text-origin.patch ../GoIM/framework/0003-window-size.patch
       - name: Chinese font coverage for the native painter
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
       - run: |

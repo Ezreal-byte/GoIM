@@ -1,4 +1,4 @@
-// Command assets rasterizes the application's actual compiled Lucide mark.
+// Command assets rasterizes the shared GoIM vector mark for the platform icon.
 package main
 
 import (
@@ -15,8 +15,8 @@ func main() {
 		log.Fatal(err)
 	}
 	s, err := headless.Open(app.Config{Width: 512, Height: 512, Paint: func(c *ui.Canvas, _ ui.Size) {
-		c.Fill(ui.Rect{Width: 512, Height: 512}, ui.RGB(20, 71, 230))
-		c.DrawIcon(desktop.MessageCircle, ui.Rect{X: 96, Y: 96, Width: 320, Height: 320}, ui.RGB(255, 255, 255))
+		c.Fill(ui.Rect{Width: 512, Height: 512}, ui.RGBA(0, 0, 0, 0))
+		desktop.PaintGoIMMark(c, ui.Rect{X: 40, Y: 40, Width: 432, Height: 432})
 	}}, nil, headless.Options{Scale: 1})
 	if err != nil {
 		log.Fatal(err)

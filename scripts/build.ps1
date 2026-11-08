@@ -7,6 +7,8 @@ try {
         go build -tags vivahead -trimpath -o build/goim-headless.exe ./cmd/goim
     } else {
         go build -trimpath -ldflags '-s -w -H=windowsgui' -o build/GoIM.exe ./cmd/goim
+        if ($LASTEXITCODE -ne 0) { throw 'GoIM build failed' }
+        go build -trimpath -ldflags '-s -w -H=windowsgui' -o build/goim-snip.exe ./cmd/goim-snip
     }
     if ($LASTEXITCODE -ne 0) { throw 'GoIM build failed' }
 } finally { Pop-Location }

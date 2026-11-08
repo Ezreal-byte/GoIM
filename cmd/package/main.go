@@ -84,6 +84,18 @@ func build() error {
 	if err := verifyArchitecture(executable); err != nil {
 		return err
 	}
+	companion := filepath.Join(staging, "goim-snip")
+	companionFlags := "-s -w -buildid="
+	if runtime.GOOS == "windows" {
+		companion += ".exe"
+		companionFlags += " -H=windowsgui"
+	}
+	if err := run("go", "build", "-trimpath", "-ldflags", companionFlags, "-o", companion, "./cmd/goim-snip"); err != nil {
+		return err
+	}
+	if err := verifyArchitecture(companion); err != nil {
+		return err
+	}
 	switch runtime.GOOS {
 	case "windows":
 		ico, _, err := winpkg.LoadIcon("internal/desktop/assets/icon.png")
@@ -105,6 +117,12 @@ func build() error {
 		bundle := filepath.Join(staging, "GoIM.app")
 		_, err := appbundle.Assemble(appbundle.Options{Dest: bundle, Executable: executable, Icon: "internal/desktop/assets/icon.png", Info: appbundle.Info{Name: "GoIM", ID: "dev.goim.desktop", Version: "0.1.0", Executable: "GoIM", MinSystem: "13.0", Category: "public.app-category.social-networking", Copyright: "2026 Ezreal-byte"}})
 		if err != nil {
+			return err
+		}
+		if err := os.Rename(companion, filepath.Join(bundle, "Contents", "MacOS", "goim-snip")); err != nil {
+			return err
+		}
+		if err := run("codesign", "--force", "--sign", "-", filepath.Join(bundle, "Contents", "MacOS", "goim-snip")); err != nil {
 			return err
 		}
 		if err = run("codesign", "--force", "--sign", "-", bundle); err != nil {

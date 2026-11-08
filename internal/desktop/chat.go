@@ -18,6 +18,36 @@ import (
 )
 
 func (u *UI) drawChat(canvas *ui.Canvas, bounds ui.Rect) {
+	conversation := u.state.Conversation(u.selected)
+	chatBounds := bounds
+	surface := u.chatSurface()
+	surface.filesPane = ui.Rect{}
+	if u.drawer == "files" && conversation.ID == "" {
+		u.closeDrawer()
+	}
+	if u.drawer == "files" && conversation.ID != "" {
+		paneWidth := chatFilesPaneWidth(bounds.Width)
+		if paneWidth <= 0 || bounds.Width-paneWidth-1 <= 0 {
+			u.drawChatSurface(canvas, chatBounds, conversation)
+			return
+		}
+		chatBounds = ui.Rect{X: bounds.X, Y: bounds.Y, Width: max(bounds.Width-paneWidth-1, 0), Height: bounds.Height}
+		pane := ui.Rect{
+			X: bounds.X + chatBounds.Width + 1, Y: bounds.Y,
+			Width: paneWidth, Height: bounds.Height,
+		}
+		u.drawChatSurface(canvas, chatBounds, conversation)
+		canvas.Fill(ui.Rect{X: chatBounds.X + chatBounds.Width, Y: bounds.Y, Width: 1, Height: bounds.Height},
+			u.palette.border)
+		u.drawChatFilesPane(canvas, pane)
+	} else {
+		u.drawChatSurface(canvas, chatBounds, conversation)
+	}
+	// The image viewer is a shell-level overlay so it stays above menus and
+	// dialogs; the shell paints drawChatImageViewer after drawOverlays.
+}
+
+func (u *UI) drawChatSurface(canvas *ui.Canvas, bounds ui.Rect, conversation domain.Conversation) {
 	canvas.Fill(bounds, u.palette.chat)
 	if u.drawChatBackground(canvas, bounds) {
 		// Viva composites images after shapes in each layer. Move the tint,
@@ -26,27 +56,42 @@ func (u *UI) drawChat(canvas *ui.Canvas, bounds ui.Rect) {
 		defer canvas.PopLayer()
 		canvas.Fill(bounds, u.chatBackgroundTint())
 	}
+	if conversation.ID == "" {
+		u.chatView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
+			f.Column().Fill().Children(func() {
+				u.drawChatEmpty(f)
+			})
+		})
+		return
+	}
+	surface := u.chatSurface()
 	u.chatView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
 		f.Column().Fill().Children(func() {
-			conversation := u.state.Conversation(u.selected)
-			if conversation.ID == "" {
-				u.drawChatEmpty(f)
-				return
-			}
 			u.drawChatHeader(f, conversation)
+			searchDeclared := false
 			if u.chatFind.open {
+				searchDeclared = true
 				f.Divider()
 				u.drawChatSearchBar(f)
 			}
 			f.Divider()
-			u.drawChatNotice(f)
-			u.drawChatTimeline(f, conversation)
-			f.Divider()
-			if reason := u.chatReadOnlyReason(conversation); reason != "" {
-				u.drawChatReadOnly(f, reason)
-			} else {
-				u.drawComposer(f, conversation)
-			}
+			// The header can open or close search during this declaration, so
+			// size the history pane after it to observe the current state.
+			u.prepareChatHistory(bounds.Height, conversation, searchDeclared)
+			f.Column().Height(surface.history.Pos).Children(func() {
+				u.drawChatNotice(f)
+				u.drawChatTimeline(f, conversation)
+			})
+			f.Splitter(surface.ids.historySplitter, &surface.history).
+				Mins(chatHistoryMinHeight, u.chatComposerMinimum(conversation)).
+				Label("调整聊天记录和输入框高度")
+			f.Row().Grow(1).Basis(0).Children(func() {
+				if reason := u.chatReadOnlyReason(conversation); reason != "" {
+					u.drawChatReadOnly(f, reason)
+				} else {
+					u.drawComposer(f, conversation)
+				}
+			})
 		})
 	})
 	if u.dragging {
@@ -157,7 +202,7 @@ func (u *UI) drawChatHeader(f *flex.Frame, conversation domain.Conversation) {
 		u.openChatSearch()
 	}
 	if fileButton.Clicked() {
-		u.openFilesDrawer()
+		u.toggleFilesPane()
 	}
 	if memberShown && memberButton.Clicked() {
 		u.closeChatPickers()
@@ -399,13 +444,13 @@ func (u *UI) drawImageMessage(f *flex.Frame, conversation domain.Conversation, m
 				Background(u.palette.mutedAvatar)
 			if file.ID != "" {
 				picture = picture.HitWith(u.fileButtonIDs[file.ID], "查看图片 "+displayFileName(file, message),
-					ui.HitOptions{Role: ui.RoleButton, Hint: "查看图片详情"})
+					ui.HitOptions{Role: ui.RoleButton, Hint: "打开图片查看器"})
 			}
 			picture.Children(func() {
 				f.Image(bitmap).Fill()
 			})
 			if picture.Clicked() {
-				u.openFileDetail(file.ID, "chat")
+				u.openImageViewer(file.ID)
 			}
 			if message.Text != "" && message.Text != file.Name {
 				f.Column().MaxWidth(width).PadSides(8, 12, 7, 12).Radius(9).
@@ -502,14 +547,24 @@ func (u *UI) drawFileMessage(f *flex.Frame, conversation domain.Conversation, me
 
 func (u *UI) drawComposer(f *flex.Frame, conversation domain.Conversation) {
 	hasText := u.chatEditor != nil && strings.TrimSpace(u.chatEditor.String()) != ""
-	title := u.conversationTitle(conversation)
-	placeholder := "输入消息"
-	if conversation.Kind == "group" {
-		placeholder = "发送到 " + title + "，输入 @ 提及成员"
-	}
-	composer := f.Column().FillWidth().Height(148).PadSides(8, 28, 8, 28).
-		Background(u.palette.header).Gap(3).Children(func() {
-		f.Row().Height(30).Gap(2).Items(flex.Center).Children(func() {
+	composer := f.Column().FillWidth().FillHeight().PadSides(8, 28, 8, 28).
+		Background(u.palette.header).Gap(4).Children(func() {
+		focused := f.Canvas().Focused() == u.ids.chatEditor
+		selection := u.chatEditor.Selection()
+		composition, _ := u.chatEditor.Composition()
+		caret := u.chatEditor.Caret()
+		editor := f.Textarea(components.TextareaSnapshot{
+			ID: u.ids.chatEditor, Label: "消息输入框", Value: u.chatEditor.String(),
+			Placeholder: "输入消息…", Hint: sendKeyHint(u.state.Settings.SendKey),
+			Focused: focused, NativeEditing: false, HideEditorText: true, ShowCaret: true,
+			Layout: &u.chatLayout, Caret: caret,
+			SelectionStart: selection.Start, SelectionEnd: selection.End,
+			CompositionStart: composition.Start, CompositionEnd: composition.End,
+			InsetBottom: 4,
+		}).FillWidth().Grow(1).Basis(0).MinHeight(40)
+		u.mentionEditor = editor
+
+		f.Row().Height(34).Items(flex.Center).Gap(3).Children(func() {
 			emoji := u.iconButton(f, u.ids.chatEmoji, u.iconSmile, "插入表情", 30)
 			u.emojiButton = emoji
 			imageButton := u.iconButton(f, u.ids.chatImage, u.iconImage, "发送图片", 30)
@@ -526,34 +581,7 @@ func (u *UI) drawComposer(f *flex.Frame, conversation domain.Conversation) {
 			if fileButton.Clicked() {
 				u.chooseChatFiles(false)
 			}
-			f.Row().Width(6)
-			f.Text(placeholder).FontSize(11.5).Muted().Ellipsis()
-		})
-
-		focused := f.Canvas().Focused() == u.ids.chatEditor
-		selection := u.chatEditor.Selection()
-		composition, _ := u.chatEditor.Composition()
-		caret := u.chatEditor.Caret()
-		editor := f.Textarea(components.TextareaSnapshot{
-			ID: u.ids.chatEditor, Label: "消息输入框", Value: u.chatEditor.String(),
-			Placeholder: "输入消息…", Hint: sendKeyHint(u.state.Settings.SendKey),
-			Focused: focused, NativeEditing: false, HideEditorText: true, ShowCaret: true,
-			Layout: &u.chatLayout, Caret: caret,
-			SelectionStart: selection.Start, SelectionEnd: selection.End,
-			CompositionStart: composition.Start, CompositionEnd: composition.End,
-			InsetBottom: 4,
-		}).FillWidth().Height(64)
-		u.mentionEditor = editor
-
-		f.Row().Height(32).Items(flex.Center).Gap(12).Children(func() {
-			f.Icon(u.iconAt).Size(13, 13).Color(u.palette.secondaryText)
-			detail := "支持拖入文件或粘贴图片"
-			if conversation.Kind == "group" {
-				detail = "@ 成员 · 支持拖入文件或粘贴图片"
-			}
-			f.Text(detail).FontSize(10.5).Muted().Ellipsis()
 			f.Spacer()
-			f.Text(sendKeyHint(u.state.Settings.SendKey)).FontSize(10.5).Muted()
 			send := f.Button(u.ids.chatSend, "发送").Width(88).Height(30).Disabled(!hasText)
 			if send.Clicked() && hasText {
 				u.sendChatText()
@@ -568,7 +596,7 @@ func (u *UI) drawChatReadOnly(f *flex.Frame, reason string) {
 	if strings.HasPrefix(reason, "等待成员") {
 		title = "正在等待成员加入"
 	}
-	f.Column().FillWidth().Height(104).PadSides(8, 28, 8, 28).
+	f.Column().FillWidth().FillHeight().PadSides(8, 28, 8, 28).
 		Background(u.palette.header).Justify(flex.Center).Children(func() {
 		f.Row().Fill().PadSides(10, 14, 10, 14).Radius(10).Background(u.palette.incoming).
 			Items(flex.Center).Gap(10).Children(func() {
@@ -709,7 +737,7 @@ func (u *UI) chooseChatFiles(imagesOnly bool) {
 			{Name: "所有文件", Pattern: "*.*"},
 		}
 	}
-	paths, err := app.OpenFiles(options)
+	paths, err := u.openFilePicker(options)
 	if err != nil {
 		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) ||
 			errors.Is(err, app.ErrUnsupported) {
@@ -1016,8 +1044,9 @@ func relativeTime(at time.Time) string {
 	}
 }
 
-func (u *UI) openFilesDrawer() {
-	if u.selected == "" {
+func (u *UI) toggleFilesPane() {
+	if u.drawer == "files" {
+		u.closeDrawer()
 		return
 	}
 	u.closeChatPickers()
@@ -1027,6 +1056,7 @@ func (u *UI) openFilesDrawer() {
 	u.fileFilter = "all"
 	u.moreOpen = false
 	u.memberMenu = ""
+	u.syncFilesWindow()
 }
 
 func (u *UI) openFileDetail(fileID, from string) {
@@ -1038,6 +1068,7 @@ func (u *UI) openFileDetail(fileID, from string) {
 	u.fileReturn = from
 	u.moreOpen = false
 	u.memberMenu = ""
+	u.syncFilesWindow()
 }
 
 func (u *UI) ensureChatEditor() *text.Editor {

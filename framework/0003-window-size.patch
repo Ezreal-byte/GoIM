@@ -1,0 +1,482 @@
+diff --git a/app/window_size.go b/app/window_size.go
+new file mode 100644
+index 0000000..2d0f298
+--- /dev/null
++++ b/app/window_size.go
+@@ -0,0 +1,36 @@
++package app
++
++import (
++	"errors"
++	"fmt"
++
++	"github.com/vivaui/viva/internal/platform"
++)
++
++const maximumProgrammaticWindowSize = 65535
++
++// SetSize asks the window manager to make this window's content area width by
++// height logical pixels. The request is asynchronous: OnResize reports the size
++// actually granted. The window manager may adjust or ignore a request, for
++// example in fullscreen. It is safe to call from any goroutine.
++//
++// Unsupported hosts return an error wrapping ErrUnsupported.
++func (window *Window) SetSize(width, height int) error {
++	if window == nil || window.closed.Load() {
++		return fmt.Errorf("app: window is closed")
++	}
++	if width < 1 || height < 1 || width > maximumProgrammaticWindowSize || height > maximumProgrammaticWindowSize {
++		return fmt.Errorf("app: invalid window size %dx%d", width, height)
++	}
++	sizer, ok := window.control.(platform.WindowSizer)
++	if !ok {
++		return fmt.Errorf("%w: programmatic window size", ErrUnsupported)
++	}
++	if err := sizer.SetSize(width, height); err != nil {
++		if errors.Is(err, platform.ErrWindowSizeUnsupported) {
++			return fmt.Errorf("%w: programmatic window size", ErrUnsupported)
++		}
++		return err
++	}
++	return nil
++}
+diff --git a/app/window_size_native_test.go b/app/window_size_native_test.go
+new file mode 100644
+index 0000000..61b910e
+--- /dev/null
++++ b/app/window_size_native_test.go
+@@ -0,0 +1,48 @@
++//go:build windows || linux
++
++package app
++
++import (
++	"fmt"
++	"os"
++	"testing"
++	"time"
++
++	"github.com/vivaui/viva/ui"
++)
++
++func TestNativeProgrammaticWindowSize(t *testing.T) {
++	if os.Getenv("VIVA_NATIVE_WINDOW_SIZE_TEST") != "1" {
++		t.Skip("requires a native desktop session")
++	}
++	var canvas ui.Canvas
++	var got ui.Size
++	err := RunApplication(func(application *Application) error {
++		window, err := application.OpenWindow(Config{
++			Title: "Viva content resize test", Width: 320, Height: 240,
++			Paint: func(*ui.Canvas, ui.Size) {},
++			OnResize: func(size ui.Size) {
++				if size.Width >= 419 && size.Width <= 421 && size.Height >= 299 && size.Height <= 301 {
++					got = size
++					application.Quit()
++				}
++			},
++		}, &canvas)
++		if err != nil {
++			return err
++		}
++		if err := window.SetSize(420, 300); err != nil {
++			application.Quit()
++			return fmt.Errorf("request size: %w", err)
++		}
++		timer := time.AfterFunc(8*time.Second, application.Quit)
++		t.Cleanup(func() { timer.Stop() })
++		return nil
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got.Width == 0 {
++		t.Fatal("native resize never reached OnResize with the requested content size")
++	}
++}
+diff --git a/app/window_size_test.go b/app/window_size_test.go
+new file mode 100644
+index 0000000..e233bb2
+--- /dev/null
++++ b/app/window_size_test.go
+@@ -0,0 +1,48 @@
++package app
++
++import (
++	"errors"
++	"testing"
++)
++
++type sizingWindow struct {
++	fakeWindow
++	width, height int
++	err           error
++}
++
++func (window *sizingWindow) SetSize(width, height int) error {
++	window.width, window.height = width, height
++	return window.err
++}
++
++func TestWindowSetSizeReachesTheNativeWindow(t *testing.T) {
++	native := &sizingWindow{}
++	window := &Window{control: native}
++	if err := window.SetSize(1440, 900); err != nil {
++		t.Fatal(err)
++	}
++	if native.width != 1440 || native.height != 900 {
++		t.Fatalf("SetSize = %dx%d", native.width, native.height)
++	}
++	for _, size := range [][2]int{{0, 1}, {1, 0}, {65536, 1}, {1, 65536}} {
++		if err := window.SetSize(size[0], size[1]); err == nil {
++			t.Fatalf("invalid size %dx%d was accepted", size[0], size[1])
++		}
++	}
++	window.closed.Store(true)
++	if err := window.SetSize(800, 600); err == nil || errors.Is(err, ErrUnsupported) {
++		t.Fatalf("closed window error = %v", err)
++	}
++	var nilWindow *Window
++	if err := nilWindow.SetSize(800, 600); err == nil {
++		t.Fatal("nil window accepted SetSize")
++	}
++}
++
++func TestWindowSetSizeReportsUnsupportedHosts(t *testing.T) {
++	window := &Window{control: &fakeWindow{}}
++	if err := window.SetSize(800, 600); !errors.Is(err, ErrUnsupported) {
++		t.Fatalf("unsupported host error = %v", err)
++	}
++}
+diff --git a/internal/platform/contract.go b/internal/platform/contract.go
+index 44a506a..e3b53e9 100644
+--- a/internal/platform/contract.go
++++ b/internal/platform/contract.go
+@@ -168,6 +168,13 @@ type WindowMover interface {
+ 	MoveTo(origin ui.Point)
+ }
+ 
++// WindowSizer is implemented by windows that can change their content size
++// without the user dragging a border. Sizes are logical pixels and the window
++// manager may clamp them to the display or the window's minimum size.
++type WindowSizer interface {
++	SetSize(width, height int) error
++}
++
+ // Application creates windows that share one native application event loop.
+ // OpenWindow, AddStatusItem, SetDockBadge and SetProgress are called on that
+ // event-loop thread.
+@@ -215,6 +222,10 @@ var ErrFullscreenUnsupported = errors.New("platform: fullscreen is unsupported")
+ // above others.
+ var ErrAlwaysOnTopUnsupported = errors.New("platform: always-on-top is unsupported")
+ 
++// ErrWindowSizeUnsupported means this window kind cannot be resized by the
++// application.
++var ErrWindowSizeUnsupported = errors.New("platform: programmatic window size is unsupported")
++
+ // ErrStatusAreaUnavailable is returned by AddStatusItem when the desktop has no
+ // status area to put an icon in, as a Linux session without a StatusNotifier
+ // host. The application keeps running; it only has no icon.
+diff --git a/internal/platform/darwin/native.h b/internal/platform/darwin/native.h
+index 81811f1..fa27921 100644
+--- a/internal/platform/darwin/native.h
++++ b/internal/platform/darwin/native.h
+@@ -366,6 +366,8 @@ void *viva_application_open_window(viva_window_config config);
+ int viva_application_window_frame(void *window, double *out);
+ /* Puts the window's content area at x, y in top-left screen coordinates. */
+ void viva_application_move_window(void *window, double x, double y);
++/* Posts a content resize to the AppKit event loop. */
++void viva_application_set_window_size(void *window, double width, double height);
+ int viva_application_set_fullscreen(void *window, int fullscreen);
+ int viva_application_fullscreen(void *window);
+ int viva_application_set_always_on_top(void *window, int enabled);
+diff --git a/internal/platform/darwin/native.m b/internal/platform/darwin/native.m
+index e4dd9ca..c0d9742 100644
+--- a/internal/platform/darwin/native.m
++++ b/internal/platform/darwin/native.m
+@@ -5472,6 +5472,7 @@ static void viva_set_secure_event_input(BOOL on) {
+ }
+ 
+ - (void)updateMinimumSize;
++- (void)setVivaContentSize:(NSSize)size;
+ 
+ - (instancetype)initWithConfig:(viva_window_config)config
+                          device:(id<MTLDevice>)device
+@@ -6218,6 +6219,32 @@ static void viva_set_secure_event_input(BOOL on) {
+     [_window setFrame:[_window frameRectForContentRect:content] display:NO];
+ }
+ 
++/* Changes the content area while keeping its current top-left origin. */
++- (void)setVivaContentSize:(NSSize)size {
++    if (_window == nil || !_running || _window.miniaturized || _window.zoomed ||
++        (_window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
++        return;
++    }
++    NSRect current = [_window contentRectForFrameRect:_window.frame];
++    NSSize minimum = _window.contentMinSize;
++    size.width = MAX(size.width, minimum.width);
++    size.height = MAX(size.height, minimum.height);
++    NSScreen *screen = _window.screen ?: NSScreen.mainScreen ?: NSScreen.screens.firstObject;
++    if (screen != nil) {
++        NSRect available = [_window contentRectForFrameRect:screen.visibleFrame];
++        size.width = MIN(size.width, available.size.width);
++        size.height = MIN(size.height, available.size.height);
++    }
++    NSRect wanted = NSMakeRect(current.origin.x, NSMaxY(current) - size.height, size.width, size.height);
++    NSRect frame = [_window frameRectForContentRect:wanted];
++    if (screen != nil) {
++        NSRect work = screen.visibleFrame;
++        frame.origin.x = MAX(NSMinX(work), MIN(frame.origin.x, NSMaxX(work) - frame.size.width));
++        frame.origin.y = MAX(NSMinY(work), MIN(frame.origin.y, NSMaxY(work) - frame.size.height));
++    }
++    [_window setFrame:frame display:YES];
++}
++
+ /* The content area in top-left screen coordinates; NO before the window exists. */
+ - (BOOL)contentFrame:(double *)out {
+     if (_window == nil || !_running) {
+@@ -6735,6 +6762,13 @@ void viva_application_move_window(void *window, double x, double y) {
+     }
+ }
+ 
++void viva_application_set_window_size(void *window, double width, double height) {
++    dispatch_async(dispatch_get_main_queue(), ^{
++        VivaAppDelegate *delegate = viva_find_window(window);
++        [delegate setVivaContentSize:NSMakeSize(width, height)];
++    });
++}
++
+ void viva_application_hide_window(void *window) {
+     viva_post_window_event(VIVA_HIDE_EVENT, window);
+ }
+diff --git a/internal/platform/darwin/window_size_darwin.go b/internal/platform/darwin/window_size_darwin.go
+new file mode 100644
+index 0000000..5f16d05
+--- /dev/null
++++ b/internal/platform/darwin/window_size_darwin.go
+@@ -0,0 +1,21 @@
++package darwin
++
++/*
++#include "native.h"
++*/
++import "C"
++
++import "fmt"
++
++// SetSize queues a content size request on the AppKit thread. The
++// system may clamp the result to the window minimum or the screen.
++func (window *nativeWindow) SetSize(width, height int) error {
++	if window == nil || window.closed.Load() {
++		return fmt.Errorf("darwin: window is closed")
++	}
++	if width < 1 || height < 1 || width > 65535 || height > 65535 {
++		return fmt.Errorf("darwin: invalid window size %dx%d", width, height)
++	}
++	C.viva_application_set_window_size(window.token, C.double(width), C.double(height))
++	return nil
++}
+diff --git a/internal/platform/linux/status_item_linux.go b/internal/platform/linux/status_item_linux.go
+index d52235f..c6676e0 100644
+--- a/internal/platform/linux/status_item_linux.go
++++ b/internal/platform/linux/status_item_linux.go
+@@ -1,6 +1,7 @@
+ package linux
+ 
+ import (
++	"encoding/binary"
+ 	"errors"
+ 	"fmt"
+ 	"math"
+@@ -141,9 +142,29 @@ func (win *window) markPanel(config platform.Config, x, y int16) error {
+ }
+ 
+ // command runs one request another goroutine posted to this window's loop.
+-func (state *linuxWindowState) command(command uint32) error {
++func (state *linuxWindowState) command(command uint32, data []byte) error {
+ 	win := state.win
+ 	switch command {
++	case commandSetSize:
++		if len(data) < 12 || win.frame.maximized || win.fullscreen.Load() {
++			return nil
++		}
++		width := int(binary.LittleEndian.Uint32(data[4:8]))
++		height := int(binary.LittleEndian.Uint32(data[8:12]))
++		margin := uint32(0)
++		if win.margin > 0 {
++			margin = frameMargin(win.displayScale())
++		}
++		if width < 1 || height < 1 {
++			return nil
++		}
++		size := [2]uint32{
++			min(deviceLength(width, win.displayScale())+2*margin, 65535),
++			min(deviceLength(height, win.displayScale())+2*margin, 65535),
++		}
++		win.api.configureWindow(win.connection, win.id,
++			xcbConfigWindowWidth|xcbConfigWindowHeight, &size[0])
++		win.api.flush(win.connection)
+ 	case commandEnterFullscreen, commandExitFullscreen:
+ 		action := uint32(0) // _NET_WM_STATE_REMOVE
+ 		if command == commandEnterFullscreen {
+diff --git a/internal/platform/linux/window_linux.go b/internal/platform/linux/window_linux.go
+index 03ba4ae..05b06a6 100644
+--- a/internal/platform/linux/window_linux.go
++++ b/internal/platform/linux/window_linux.go
+@@ -189,6 +189,7 @@ const (
+ 	commandDesktop
+ 	commandEnterFullscreen
+ 	commandExitFullscreen
++	commandSetSize
+ )
+ 
+ type nativeWindow struct {
+@@ -825,7 +826,7 @@ func (state *linuxWindowState) handleEvent(event unsafe.Pointer) (bool, error) {
+ 		case message.Format == 32 && message.Window == win.id && message.Type == win.closeAtom:
+ 			return true, nil
+ 		case message.Format == 32 && message.Window == win.id && message.Type == win.commandAtom:
+-			return false, state.command(binary.LittleEndian.Uint32(message.Data[:4]))
++			return false, state.command(binary.LittleEndian.Uint32(message.Data[:4]), message.Data[:])
+ 		case message.Format == 32 && message.Window == win.id && message.Type == win.caretAtom:
+ 			generation := binary.LittleEndian.Uint32(message.Data[:4])
+ 			if frame, changed := textInput.blinkCaret(generation); changed {
+@@ -1432,6 +1433,25 @@ func (win *window) postClientMessage(atom, value uint32) {
+ 	win.api.flush(win.connection)
+ }
+ 
++func (win *window) postClientSize(width, height uint32) {
++	win.mu.Lock()
++	defer win.mu.Unlock()
++	if win.connection == 0 || win.commandAtom == 0 {
++		return
++	}
++	event := xcbClientEvent{
++		ResponseType: xcbClientMessage,
++		Format:       32,
++		Window:       win.id,
++		Type:         win.commandAtom,
++	}
++	binary.LittleEndian.PutUint32(event.Data[0:4], commandSetSize)
++	binary.LittleEndian.PutUint32(event.Data[4:8], width)
++	binary.LittleEndian.PutUint32(event.Data[8:12], height)
++	win.api.sendEvent(win.connection, 0, win.id, 0, (*byte)(unsafe.Pointer(&event)))
++	win.api.flush(win.connection)
++}
++
+ func (win *window) close() {
+ 	win.mu.Lock()
+ 	defer win.mu.Unlock()
+diff --git a/internal/platform/linux/window_size_linux.go b/internal/platform/linux/window_size_linux.go
+new file mode 100644
+index 0000000..3b89aef
+--- /dev/null
++++ b/internal/platform/linux/window_size_linux.go
+@@ -0,0 +1,16 @@
++package linux
++
++import "fmt"
++
++// SetSize posts a logical content-size request to the X11 event loop. The
++// window manager's later ConfigureNotify reports the size that was granted.
++func (window *nativeWindow) SetSize(width, height int) error {
++	if window == nil || window.closed.Load() {
++		return fmt.Errorf("linux: window is closed")
++	}
++	if width < 1 || height < 1 || width > 65535 || height > 65535 {
++		return fmt.Errorf("linux: invalid window size %dx%d", width, height)
++	}
++	window.state.win.postClientSize(uint32(width), uint32(height))
++	return nil
++}
+diff --git a/internal/platform/windows/window_size_windows.go b/internal/platform/windows/window_size_windows.go
+new file mode 100644
+index 0000000..34588c1
+--- /dev/null
++++ b/internal/platform/windows/window_size_windows.go
+@@ -0,0 +1,64 @@
++package windows
++
++import (
++	"fmt"
++	"math"
++	"unsafe"
++
++	"github.com/vivaui/viva/internal/platform"
++)
++
++// SetSize queues a content-size request on the window thread. It reports only
++// whether the request was accepted; the resulting WM_SIZE is authoritative.
++func (window *nativeWindow) SetSize(width, height int) error {
++	if window == nil || window.closed.Load() {
++		return fmt.Errorf("windows: window is closed")
++	}
++	if width < 1 || height < 1 || width > 65535 || height > 65535 {
++		return fmt.Errorf("windows: invalid window size %dx%d", width, height)
++	}
++	packed := uintptr(uint16(width)) | uintptr(uint16(height))<<16
++	if ok, _, err := postMessage.Call(window.state.window, wmSetSize, packed, 0); ok == 0 {
++		return fmt.Errorf("windows: request window size: %w", err)
++	}
++	return nil
++}
++
++func (state *windowState) resizeClient(width, height int) {
++	if state.window == 0 || width < 1 || height < 1 || state.maximized || state.minimized || state.fullscreen.Load() {
++		return
++	}
++	scale := state.scale
++	if scale <= 0 {
++		scale = 1
++	}
++	bounds := rect{
++		Right:  int32(math.Round(float64(width) * float64(scale))),
++		Bottom: int32(math.Round(float64(height) * float64(scale))),
++	}
++	style := uintptr(wsOverlappedWindow)
++	if state.config.WindowMode == platform.WindowTitled {
++		if adjustWindow.Find() == nil {
++			adjustWindow.Call(uintptr(unsafe.Pointer(&bounds)), style, 0, 0, uintptr(scale*96))
++		} else {
++			adjustWindowLegacy.Call(uintptr(unsafe.Pointer(&bounds)), style, 0, 0)
++		}
++	}
++	minimum := state.minimumTrackSize()
++	w, h := max(minimum.X, bounds.Right-bounds.Left), max(minimum.Y, bounds.Bottom-bounds.Top)
++	const noZOrder, noActivate, noMove = 0x4, 0x10, 0x2
++	flags := uintptr(noZOrder | noActivate | noMove)
++	var x, y int32
++	monitor, _, _ := monitorFromWindow.Call(state.window, monitorNearest)
++	info := monitorInfo{Size: uint32(unsafe.Sizeof(monitorInfo{}))}
++	var current rect
++	if ok, _, _ := getMonitorInfo.Call(monitor, uintptr(unsafe.Pointer(&info))); ok != 0 {
++		if ok, _, _ := getWindowRect.Call(state.window, uintptr(unsafe.Pointer(&current))); ok != 0 {
++			w, h = min(w, info.Work.Right-info.Work.Left), min(h, info.Work.Bottom-info.Work.Top)
++			x = min(max(current.Left, info.Work.Left), info.Work.Right-w)
++			y = min(max(current.Top, info.Work.Top), info.Work.Bottom-h)
++			flags &^= noMove
++		}
++	}
++	setWindowPosition.Call(state.window, 0, uintptr(x), uintptr(y), uintptr(w), uintptr(h), flags)
++}
+diff --git a/internal/platform/windows/window_windows.go b/internal/platform/windows/window_windows.go
+index 56cb54e..7d22e8c 100644
+--- a/internal/platform/windows/window_windows.go
++++ b/internal/platform/windows/window_windows.go
+@@ -63,6 +63,7 @@ const (
+ 	wmAllowClose       = 32769
+ 	wmApplyCursor      = 32770
+ 	wmRedraw           = 32771
++	wmSetSize          = 0x8052
+ 	wsOverlappedWindow = 0x00cf0000
+ )
+ 
+@@ -420,6 +421,9 @@ func windowProc(window, kind, first, second uintptr) (result uintptr) {
+ 			return 1
+ 		}
+ 		return 0
++	case wmSetSize:
++		state.resizeClient(int(first&0xffff), int((first>>16)&0xffff))
++		return 0
+ 	case wmFullscreen:
+ 		state.setFullscreen(first != 0)
+ 		return 0

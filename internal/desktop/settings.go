@@ -317,15 +317,9 @@ func (p *Panels) drawSettingsTransfers(f *flex.Frame, theme ui.Theme, state doma
 				}
 			})
 		})
-		panelSettingRow(f, theme, "自动接收文件", "开启后仅自动保存来自已加入会话的文件，不会自动执行或打开", func() {
-			panelControlColumn(f, 80, func() {
-				if f.Switch(p.ids.settingsAutoAccept, settings.AutoAccept).
-					Label("自动接收文件").Clicked() {
-					p.submitBool(submit, state, "auto_accept", !settings.AutoAccept)
-				}
-			})
+		panelSettingRow(f, theme, "接收方式", "聊天图片自动显示；其他文件在你确认后才下载", func() {
+			f.Text("文件需确认").FontSize(12).Muted()
 		})
-		p.drawAutoAcceptImages(f, theme, state, submit)
 	})
 }
 

@@ -12,6 +12,23 @@ type Peer struct {
 	Online       bool
 	LastSeen     time.Time
 	PublicKey    []byte
+	Signature    string   `json:",omitempty"`
+	Presence     Presence `json:",omitempty"`
+	Transport    string   `json:",omitempty"` // empty for GoIM TLS; "ipmsg" for IP Messenger-family peers
+}
+
+type Presence string
+
+const (
+	PresenceOnline    Presence = "online"
+	PresenceAway      Presence = "away"
+	PresenceBusy      Presence = "busy"
+	PresenceInvisible Presence = "invisible"
+	PresenceOffline   Presence = "offline" // peer-facing state of an invisible contact
+)
+
+func (p Peer) VisibleOnline() bool {
+	return p.Online && p.Presence != PresenceInvisible && p.Presence != PresenceOffline
 }
 
 type Conversation struct {
@@ -89,6 +106,7 @@ type File struct {
 	Size           int64
 	Hash           string
 	MIME           string
+	InlineImage    bool `json:",omitempty"` // bounded image attachment delivered as a chat message
 	SenderID       string
 	ConversationID string
 	SourcePath     string // local only, never sent over the wire
@@ -100,21 +118,24 @@ type File struct {
 }
 
 type Transfer struct {
-	Revoked        bool
-	FromShare      bool
-	ID             string
-	FileID         string
-	ConversationID string
-	PeerID         string
-	Direction      string // send or receive
-	Status         string // offered, transferring, verifying, completed, rejected, waiting, cancelled, failed
-	Name           string
-	Size           int64
-	Done           int64
-	Speed          float64
-	Path           string
-	Error          string
-	UpdatedAt      time.Time
+	Revoked         bool
+	FromShare       bool
+	ID              string
+	FileID          string
+	ConversationID  string
+	PeerID          string
+	Direction       string // send or receive
+	Status          string // offered, transferring, verifying, completed, rejected, waiting, cancelled, failed
+	Name            string
+	Size            int64
+	Done            int64
+	Speed           float64
+	Path            string
+	Error           string
+	UpdatedAt       time.Time
+	LegacyTransport string `json:",omitempty"`
+	RemotePacket    string `json:",omitempty"`
+	RemoteFile      string `json:",omitempty"`
 }
 
 type Shortcut struct {
@@ -122,10 +143,15 @@ type Shortcut struct {
 	Keys   string
 	Scope  string
 }
+
+const ShortcutScreenshot = "截图标注"
+
 type Settings struct {
 	Theme                string
 	Nickname             string
 	Avatar               string
+	Signature            string
+	Presence             Presence
 	Background           string
 	BackgroundShade      int
 	HasLockPassword      bool
@@ -154,7 +180,22 @@ func DefaultSettings(downloadDir string) Settings {
 			{Action: "创建群聊", Keys: "Ctrl+Shift+N", Scope: "应用内"},
 			{Action: "打开设置", Keys: "Ctrl+,", Scope: "应用内"},
 			{Action: "显示或隐藏窗口", Scope: "全局"},
+			{Action: ShortcutScreenshot, Keys: "Alt+A", Scope: "全局"},
 		}}
+}
+
+// EnsureDefaultShortcuts adds shortcuts introduced after an existing profile
+// was created without replacing the user's configured or cleared values.
+func (s *Settings) EnsureDefaultShortcuts() {
+	present := make(map[string]bool, len(s.Shortcuts))
+	for _, shortcut := range s.Shortcuts {
+		present[shortcut.Action] = true
+	}
+	for _, shortcut := range DefaultSettings(s.DownloadDir).Shortcuts {
+		if !present[shortcut.Action] {
+			s.Shortcuts = append(s.Shortcuts, shortcut)
+		}
+	}
 }
 
 type State struct {
@@ -291,6 +332,8 @@ type Command struct {
 	Password       string // local secret, never serialized into app state or wire messages
 	AvatarBGRA     []byte // optional immutable preview pixels in premultiplied BGRA
 	AvatarSize     int
+	Signature      string
+	Presence       Presence
 	Request        uint64
 }
 

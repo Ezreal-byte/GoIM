@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -312,7 +313,20 @@ func (n *Node) hasShareSession(r *http.Request, record browserShare) bool {
 
 type sharePageData struct {
 	Name, Size, Path, Error string
+	Sender, Kind, Date      string
 	Locked                  bool
+}
+
+func shareFileSize(size int64) string {
+	for _, unit := range []struct {
+		bytes int64
+		label string
+	}{{1 << 30, "GB"}, {1 << 20, "MB"}, {1 << 10, "KB"}} {
+		if size >= unit.bytes {
+			return fmt.Sprintf("%.1f %s", float64(size)/float64(unit.bytes), unit.label)
+		}
+	}
+	return fmt.Sprintf("%d 字节", size)
 }
 
 func renderShare(w http.ResponseWriter, status int, data sharePageData) {
@@ -381,8 +395,18 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		renderShare(w, status, page)
 		return
 	}
-	page.Locked, page.Name, page.Size = false, f.Name, fmt.Sprintf("%d 字节", f.Size)
+	page.Locked, page.Name, page.Size = false, f.Name, shareFileSize(f.Size)
+	page.Kind = strings.ToUpper(strings.TrimPrefix(filepath.Ext(f.Name), "."))
+	if page.Kind == "" || len(page.Kind) > 5 {
+		page.Kind = "文件"
+	}
+	if !f.CreatedAt.IsZero() {
+		page.Date = f.CreatedAt.Local().Format("2006-01-02")
+	}
 	if tail == "" {
+		n.mu.Lock()
+		page.Sender = n.data.State.Self.Name
+		n.mu.Unlock()
 		renderShare(w, http.StatusOK, page)
 		return
 	}

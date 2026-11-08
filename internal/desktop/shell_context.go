@@ -295,7 +295,7 @@ func (u *UI) requestDeleteConversation(conversation domain.Conversation) {
 			u.moreOpen = false
 			u.memberMenu = ""
 			u.memberProfile = ""
-			u.drawer, u.activeFileID, u.fileReturn = "", "", ""
+			u.closeDrawer()
 			u.setChatEditorText("")
 			u.chatScrollToEnd = true
 		},

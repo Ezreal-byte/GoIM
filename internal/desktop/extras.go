@@ -22,67 +22,6 @@ const (
 	shortcutActionOpenSettings         = "打开设置"
 )
 
-type emojiChoice struct {
-	Name  string
-	Value string
-}
-
-var emojiChoices = []emojiChoice{
-	{Name: "grin", Value: "😀"},
-	{Name: "smile", Value: "😃"},
-	{Name: "laugh", Value: "😄"},
-	{Name: "beaming", Value: "😁"},
-	{Name: "sweat-smile", Value: "😅"},
-	{Name: "joy", Value: "😂"},
-	{Name: "slightly-smile", Value: "🙂"},
-	{Name: "wink", Value: "😉"},
-	{Name: "blush", Value: "😊"},
-	{Name: "heart-eyes", Value: "😍"},
-	{Name: "star-eyes", Value: "🤩"},
-	{Name: "kiss", Value: "😘"},
-	{Name: "cool", Value: "😎"},
-	{Name: "thinking", Value: "🤔"},
-	{Name: "neutral", Value: "😐"},
-	{Name: "sleep", Value: "😴"},
-	{Name: "cry", Value: "😢"},
-	{Name: "sob", Value: "😭"},
-	{Name: "angry", Value: "😠"},
-	{Name: "mind-blown", Value: "🤯"},
-	{Name: "party", Value: "🥳"},
-	{Name: "heart", Value: "❤️"},
-	{Name: "blue-heart", Value: "💙"},
-	{Name: "purple-heart", Value: "💜"},
-	{Name: "fire", Value: "🔥"},
-	{Name: "sparkles", Value: "✨"},
-	{Name: "thumbs-up", Value: "👍"},
-	{Name: "thumbs-down", Value: "👎"},
-	{Name: "clap", Value: "👏"},
-	{Name: "pray", Value: "🙏"},
-	{Name: "muscle", Value: "💪"},
-	{Name: "handshake", Value: "🤝"},
-	{Name: "wave", Value: "👋"},
-	{Name: "check", Value: "✅"},
-	{Name: "cross", Value: "❌"},
-	{Name: "warning", Value: "⚠️"},
-	{Name: "bulb", Value: "💡"},
-	{Name: "rocket", Value: "🚀"},
-	{Name: "gift", Value: "🎁"},
-	{Name: "tada", Value: "🎉"},
-	{Name: "coffee", Value: "☕"},
-	{Name: "beer", Value: "🍺"},
-	{Name: "cake", Value: "🎂"},
-	{Name: "apple", Value: "🍎"},
-	{Name: "sun", Value: "☀️"},
-	{Name: "moon", Value: "🌙"},
-	{Name: "star", Value: "⭐"},
-	{Name: "camera", Value: "📷"},
-	{Name: "paperclip", Value: "📎"},
-	{Name: "music", Value: "🎵"},
-	{Name: "bell", Value: "🔔"},
-	{Name: "lock", Value: "🔒"},
-	{Name: "eyes", Value: "👀"},
-}
-
 func (u *UI) openProfile() {
 	u.closeShellMenu()
 	u.closeOrganize()
@@ -90,6 +29,11 @@ func (u *UI) openProfile() {
 	u.profile.open = true
 	u.profile.err = ""
 	u.profile.nickname.SetText(u.selfDisplayName())
+	u.profile.signature.SetText(u.state.Settings.Signature)
+	u.profile.presence = u.state.Settings.Presence
+	if u.profile.presence == "" {
+		u.profile.presence = domain.PresenceOnline
+	}
 	u.profile.avatar = u.selfAvatarPath()
 }
 
@@ -99,7 +43,7 @@ func (u *UI) closeProfile() {
 }
 
 func (u *UI) chooseProfileAvatar() {
-	paths, err := app.OpenFiles(app.OpenFileOptions{
+	paths, err := u.openFilePicker(app.OpenFileOptions{
 		Title:         "选择头像",
 		AllowMultiple: false,
 		Filters: []app.FileFilter{
@@ -133,7 +77,12 @@ func (u *UI) saveProfile() {
 		return
 	}
 	avatar := u.profile.avatar
-	cmd := domain.Command{Kind: domain.SetProfile, Name: name, Value: avatar}
+	signature := strings.TrimSpace(u.profile.signature.Text())
+	if utf8.RuneCountInString(signature) > 80 || strings.ContainsAny(signature, "\r\n\x00") {
+		u.profile.err = "个性签名最多 80 个字符，请保持单行。"
+		return
+	}
+	cmd := domain.Command{Kind: domain.SetProfile, Name: name, Value: avatar, Signature: signature, Presence: u.profile.presence}
 	if avatar != "" && avatar != u.selfAvatarPath() {
 		bitmap, ok := u.avatarUploadBitmap(avatar)
 		if !ok {
@@ -152,10 +101,10 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
 		Layer: 74, Scope: u.ids.profileScope, DismissID: u.ids.profileDismiss,
 		CloseID: u.ids.profileClose, InitialFocusID: u.ids.profileField,
-		ContentSize: ui.Size{Width: 500}, FitBody: true, BodyHeight: 176,
+		ContentSize: ui.Size{Width: 516}, FitBody: true, BodyHeight: 320,
 		ButtonSize: components.ButtonSizeSmall,
 	})
-	layout := dialog.Begin("个人资料", "昵称和头像会显示给局域网内的联系人。")
+	layout := dialog.Begin("个人资料", "设置联系人看到的头像、签名和状态。")
 	var chooseClicked, submitted bool
 	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
 		f.Column().Fill().Gap(12).Children(func() {
@@ -176,10 +125,25 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 			field := f.Field(&u.profile.nickname, u.ids.profileField, "昵称", "输入昵称").
 				Height(38).FillWidth()
 			submitted = field.Submitted()
+			f.Text("个性签名").FontSize(12).Weight(ui.WeightMedium)
+			submitted = f.Field(&u.profile.signature, u.ids.profileSignature, "个性签名", "写一句介绍，最多 80 字").
+				Height(38).FillWidth().Submitted() || submitted
+			f.Text("状态").FontSize(12).Weight(ui.WeightMedium)
+			f.Row().FillWidth().Gap(7).Children(func() {
+				for index, presence := range profilePresences {
+					button := f.Button(u.ids.profilePresence.At(index), presence.label).Small().Grow(1)
+					if presence.value != u.profile.presence {
+						button.Outline()
+					}
+					if button.Clicked() {
+						u.profile.presence = presence.value
+					}
+				}
+			})
 			if u.profile.err != "" {
 				f.Text(u.profile.err).FontSize(11).Color(u.palette.danger).MaxLines(2)
 			} else {
-				f.Text("最多 40 个字符。").FontSize(10.5).Muted()
+				f.Text("隐身时不广播上线，已连接的会话仍可收发。").FontSize(10.5).Muted()
 			}
 		})
 	})
@@ -197,6 +161,28 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	case submitted, canvas.Clicked(u.ids.profileSave):
 		u.saveProfile()
 	}
+}
+
+var profilePresences = [...]struct {
+	value domain.Presence
+	label string
+}{
+	{domain.PresenceOnline, "在线"},
+	{domain.PresenceAway, "离开"},
+	{domain.PresenceBusy, "工作中"},
+	{domain.PresenceInvisible, "隐身"},
+}
+
+func peerPresenceLabel(peer domain.Peer) string {
+	if !peer.VisibleOnline() {
+		return "离线"
+	}
+	for _, status := range profilePresences {
+		if peer.Presence == status.value {
+			return status.label
+		}
+	}
+	return "在线"
 }
 
 func (u *UI) closeChatPickers() {
@@ -390,9 +376,9 @@ func (u *UI) drawEmojiPicker(canvas *ui.Canvas, viewport ui.Rect) {
 	popover := components.BeginPopover(canvas, u.theme, viewport, anchor, components.PopoverOptions{
 		Layer: 58, Scope: u.ids.emojiScope, DismissID: u.ids.emojiDismiss,
 		Side: components.PopoverTop, Align: components.PopoverAlignStart,
-		SideOffset: 8, ContentSize: ui.Size{Width: 360}, BodyHeight: 240,
+		SideOffset: 8, ContentSize: ui.Size{Width: 360}, BodyHeight: 144,
 	})
-	layout := popover.Begin("插入表情", "点击表情插入到消息输入框。")
+	layout := popover.Begin("经典表情", "选择一个表情插入消息。")
 	u.emojiView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
 		f.Column().Fill().Gap(2).Children(func() {
 			for start := 0; start < len(emojiChoices); start += 8 {
@@ -401,10 +387,10 @@ func (u *UI) drawEmojiPicker(canvas *ui.Canvas, viewport ui.Rect) {
 					for _, choice := range emojiChoices[start:end] {
 						tile := f.Row().Width(40).Height(40).Radius(7).Items(flex.Center).
 							Justify(flex.Center).Hover(flex.Look{}.Background(u.palette.hover)).
-							HitWith(u.emojiIDs[choice.Name], "表情 "+choice.Name,
-								ui.HitOptions{Role: ui.RoleButton, Hint: choice.Name}).
+							HitWith(u.emojiIDs[choice.Name], "表情 "+choice.Label,
+								ui.HitOptions{Role: ui.RoleButton, Hint: choice.Label}).
 							Children(func() {
-								f.Text(choice.Value).FontSize(18)
+								f.Icon(choice.Art).Size(27, 27)
 							})
 						if tile.Clicked() {
 							u.insertChatText(choice.Value)

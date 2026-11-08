@@ -151,7 +151,7 @@ func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
 	} else {
 		hello.Peer.Address = conn.RemoteAddr().String()
 	}
-	if len(hello.Peer.Name) > 128 {
+	if len(hello.Peer.Name) > 160 || !validProfileDetails(hello.Peer.Signature, hello.Peer.Presence, true) {
 		conn.Close()
 		return
 	}
@@ -252,7 +252,6 @@ func (n *Node) replay(peer string) {
 }
 func (n *Node) flushPeer(peer string) {
 	n.flushMu.Lock()
-	defer n.flushMu.Unlock()
 	n.mu.Lock()
 	var list []pending
 	for _, p := range n.data.Outbox {
@@ -260,6 +259,7 @@ func (n *Node) flushPeer(peer string) {
 			list = append(list, p)
 		}
 	}
+	legacy := n.data.State.Peer(peer).Transport == legacyIPMSG
 	n.mu.Unlock()
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].Sequence == list[j].Sequence {
@@ -267,11 +267,32 @@ func (n *Node) flushPeer(peer string) {
 		}
 		return list[i].Sequence < list[j].Sequence
 	})
+	if legacy {
+		var done []pending
+		remote := make(map[string]legacyRemote)
+		for _, p := range list {
+			r, actual, err := n.legacyPending(peer, p)
+			if err != nil {
+				break
+			}
+			if actual {
+				remote[p.Envelope.ID] = r
+			}
+			done = append(done, p)
+		}
+		n.flushMu.Unlock()
+		if len(done) != 0 {
+			_ = n.legacyCompleted(peer, done, remote)
+		}
+		return
+	}
 	for _, p := range list {
 		if err := n.send(peer, p.Envelope); err != nil {
+			n.flushMu.Unlock()
 			return
 		}
 	}
+	n.flushMu.Unlock()
 }
 func (n *Node) receive(peer string, e envelope) error {
 	if e.Type == "ping" {

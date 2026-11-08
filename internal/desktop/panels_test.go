@@ -378,14 +378,6 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 	}
 
 	h.clearCommands()
-	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsTransfers)))
-	h.click(h.panels.ids.settingsAutoAccept)
-	command = h.requireLastCommand()
-	if command.Kind != domain.SetSetting || command.Setting != "auto_accept" || !command.Bool {
-		t.Fatalf("auto-accept command = %+v", command)
-	}
-
-	h.clearCommands()
 	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsGeneral)))
 	h.click(h.panels.ids.settingsCloseToTray)
 	command = h.requireLastCommand()

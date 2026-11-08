@@ -5,33 +5,58 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GoIM · 局域网文件分享</title>
 <style>
-:root{color-scheme:light dark;--bg:#f7f8fb;--panel:#fff;--text:#172033;--muted:#525e72;--line:#d8deea;--accent:#1f55d7;--error:#b42328}
-@media(prefers-color-scheme:dark){:root{--bg:#0f1420;--panel:#192131;--text:#f0f4ff;--muted:#b2bfd5;--line:#39445b;--accent:#3867ec;--error:#ff9b9b}}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,sans-serif}
-main{max-width:34rem;margin:clamp(1rem,10vh,6rem) auto;padding:1rem}article{padding:clamp(1.1rem,5vw,2.2rem);background:var(--panel);border:1px solid var(--line);border-radius:1rem}
-.brand{font-weight:700}.brand span{display:inline-block;width:.65rem;height:.65rem;border-radius:50%;background:#1da763;margin-right:.55rem}
-h1{font-size:1.55rem;line-height:1.3;margin:1.1rem 0 .5rem}p{margin:.55rem 0;color:var(--muted)}
-.file{border:1px solid var(--line);border-radius:.65rem;padding:.85rem;margin:1rem 0;overflow-wrap:anywhere}.error{color:var(--error)}
-label{display:block;margin-top:1rem;font-weight:600}input{margin:.35rem 0 1rem;width:100%;min-height:2.8rem;border:1px solid var(--line);border-radius:.5rem;background:var(--panel);padding:.55rem .7rem;color:var(--text);font:inherit}
-.action{display:inline-block;width:100%;border:0;border-radius:.55rem;background:var(--accent);color:white;text-align:center;text-decoration:none;padding:.65rem 1rem;font:inherit;font-weight:650;cursor:pointer}
-.action:focus-visible,input:focus-visible{outline:3px solid #759cff;outline-offset:2px}footer{margin-top:1rem;color:var(--muted);font-size:.83rem}
+:root{color-scheme:light dark;--bg:#f4f6fa;--surface:#fff;--text:#172238;--sub:#526078;--line:#dce3ee;--blue:#2556d8;--blue-hover:#1a47bd;--soft:#eaf0ff;--soft-ink:#224ca8;--bad:#9d2532;--bad-bg:#fff0f0}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1421;--surface:#191f2e;--text:#eef2fd;--sub:#b4bfd5;--line:#303b50;--blue:#3b63df;--blue-hover:#3057d1;--soft:#233354;--soft-ink:#b9caff;--bad:#ffd0d5;--bad-bg:#49252e}}
+*{box-sizing:border-box}body{min-height:100vh;margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+.top{background:var(--surface);border-bottom:1px solid var(--line)}.top>div{max-width:58rem;margin:auto;min-height:4.2rem;padding:.75rem clamp(1rem,4vw,2rem);display:flex;align-items:center;justify-content:space-between;gap:.65rem}
+.brand{display:flex;align-items:center;gap:.7rem;font-size:1.16rem;font-weight:760;letter-spacing:-.025em}.brand svg{width:34px;height:34px;flex:none}.tag,.pill{display:inline-flex;align-items:center;gap:.43rem;border-radius:999px;font-size:.75rem;font-weight:650;white-space:nowrap}.tag{padding:.28rem .64rem;border:1px solid var(--line);color:var(--sub)}.tag::before{content:"";width:.4rem;height:.4rem;background:#12a67f;border-radius:50%}
+main{max-width:58rem;margin:clamp(1.45rem,6vw,4.6rem) auto;padding:0 clamp(1rem,4vw,2rem)}
+.intro{max-width:37rem;margin-bottom:1.3rem}.pill{background:var(--soft);color:var(--soft-ink);padding:.27rem .64rem}h1{font-size:clamp(1.8rem,5vw,2.85rem);letter-spacing:-.065em;line-height:1.12;margin:.62rem 0 .55rem}p{color:var(--sub);margin:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:1.1rem;overflow:hidden;box-shadow:0 12px 45px -34px #1d4ed8}
+.card-head{padding:.95rem 1.15rem;display:flex;gap:.5rem;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+h2{font-size:.94rem;margin:0}.count,.meta,footer{color:var(--sub);font-size:.8rem}.files{margin:0;padding:0;list-style:none}
+.file{padding:1.15rem;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.9rem}
+.file-icon{width:3rem;height:3.2rem;display:grid;place-items:center;align-content:center;gap:.05rem;border-radius:.64rem;background:var(--soft);color:var(--soft-ink);font-size:.63rem;font-weight:760}.file-icon svg{width:17px;height:17px}
+.file-name{display:block;font-size:.98rem;overflow-wrap:anywhere}.meta{margin-top:.16rem;overflow-wrap:anywhere}
+.button{display:inline-flex;align-items:center;justify-content:center;gap:.45rem;min-height:2.65rem;border:0;border-radius:.57rem;background:var(--blue);color:#fff;text-decoration:none;font:inherit;font-size:.87rem;font-weight:700;padding:.5rem .9rem;cursor:pointer}.button:hover{background:var(--blue-hover)}.button svg{width:16px;height:16px;flex:none}
+.button:focus-visible,input:focus-visible{outline:3px solid #759cff;outline-offset:3px}.unlock{padding:1.2rem;max-width:31rem}.unlock h2{font-size:1.02rem;margin-bottom:.22rem}.unlock form{margin-top:1rem}.unlock label{display:block;font-size:.84rem;font-weight:650}
+input{width:100%;min-height:2.8rem;border:1px solid var(--line);border-radius:.55rem;background:var(--surface);color:var(--text);margin:.4rem 0 .8rem;padding:.5rem .72rem;font:inherit}.unlock button{width:100%}.error{margin-top:.8rem;padding:.65rem .7rem;border-radius:.55rem;background:var(--bad-bg);color:var(--bad);font-size:.86rem}
+footer{display:flex;align-items:flex-start;gap:.45rem;margin:1.15rem 0 2.3rem}footer svg{flex:none;margin-top:.1rem}.count{white-space:nowrap}
+@media(max-width:530px){.file{grid-template-columns:auto minmax(0,1fr);gap:.75rem}.file .button{grid-column:1/-1}.tag{font-size:.68rem}.card-head,.file,.unlock{padding:.86rem}}
 </style>
 </head>
-<body><main><article>
-<div class="brand"><span></span>GoIM</div>
-<h1>局域网文件分享</h1>
-{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
-{{if .Locked}}
-<p>这个分享需要密码。请向发送方索取。</p>
-<form method="post" action="{{.Path}}">
-<label for="password">分享密码</label>
-<input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
-<button class="action" type="submit">查看文件</button>
-</form>
-{{else if .Name}}
-<div class="file"><strong>{{.Name}}</strong><p>{{.Size}}</p></div>
-<a class="action" href="{{.Path}}/download">下载文件</a>
-{{end}}
-<footer>请与发送方连接同一局域网。发送方需保持 GoIM 运行。</footer>
-</article></main></body>
+<body>
+<header class="top"><div>
+  <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#2556d8"/><path d="M24 13v-2H8v10h2.5v4l4.5-4h9v-4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="16" r="1.5" fill="#fff"/><circle cx="24" cy="16" r="1.5" fill="#8ef4d9"/></svg>GoIM</div>
+  <span class="tag">局域网直连</span>
+</div></header>
+<main>
+  <div class="intro"><span class="pill">只读分享</span><h1>局域网文件分享</h1>
+  {{if .Sender}}<p>{{.Sender}} 向你分享了一个文件，可直接在浏览器下载。</p>{{else}}<p>无需安装 GoIM。连接同一局域网即可查看分享。</p>{{end}}</div>
+  {{if .Locked}}
+  <section class="card unlock" aria-labelledby="unlock-title">
+    <h2 id="unlock-title">此分享受密码保护</h2>
+    <p>请向分享人索取密码。</p>
+    {{if .Error}}<p class="error" id="password-error" role="alert">{{.Error}}</p>{{end}}
+    <form method="post" action="{{.Path}}">
+      <label for="password">分享密码</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" {{if .Error}}aria-invalid="true" aria-describedby="password-error"{{end}} required>
+      <button class="button" type="submit">查看文件</button>
+    </form>
+  </section>
+  {{else if .Name}}
+  <section class="card" aria-labelledby="file-list-title">
+    <header class="card-head"><h2 id="file-list-title">分享文件</h2><span class="count">1 个文件</span></header>
+    <ul class="files"><li class="file">
+      <span class="file-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 15h8M8 18h6"/></svg>{{.Kind}}</span>
+      <div><strong class="file-name">{{.Name}}</strong><p class="meta">{{.Size}}{{if .Date}} · {{.Date}}{{end}}</p></div>
+      <a class="button" href="{{.Path}}/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/></svg>下载文件</a>
+    </li></ul>
+  </section>
+  {{else}}
+  <section class="card unlock" aria-labelledby="expired-title"><h2 id="expired-title">无法查看此分享</h2><p class="error" role="alert">{{.Error}}</p></section>
+  {{end}}
+  <footer><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8v1"/></svg>文件由分享人的设备直接提供。下载期间请保持连接同一局域网。</footer>
+</main>
+</body>
 </html>

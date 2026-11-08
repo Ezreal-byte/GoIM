@@ -41,7 +41,7 @@ jobs:
         run: |
           test "$(git -C ../viva rev-parse HEAD)" = "$(tr -d '\r\n' < framework/viva-commit.txt)"
           git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
-          git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch ../GoIM/framework/0002-windows-arm64-text-origin.patch
+          git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch ../GoIM/framework/0002-windows-arm64-text-origin.patch ../GoIM/framework/0003-window-size.patch
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.27.3'
@@ -69,7 +69,19 @@ jobs:
       - name: Offscreen UI screenshots
         env:
           GOIM_QA_SCREENSHOTS: ${{ github.workspace }}/GoIM/artifacts/screenshots
-        run: go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestSharePageScreenshots' -count=1 -timeout=180s
+        run: |
+          go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestSharePageScreenshots|TestChatLayoutScreenshotQA' -count=1 -timeout=180s
+          go test -tags vivahead ./cmd/goim-snip -run '^TestEditorScreenshots$' -count=1 -timeout=60s
+      - name: Native content resize
+        env:
+          VIVA_NATIVE_WINDOW_SIZE_TEST: '1'
+        run: |
+          cd ../viva
+          case '${{ matrix.os }}' in
+            windows) go test ./app -run '^TestNativeProgrammaticWindowSize$' -count=1 -timeout=45s ;;
+            linux) xvfb-run -a go test ./app -run '^TestNativeProgrammaticWindowSize$' -count=1 -timeout=45s ;;
+            darwin) go test ./app -run '^TestWindowSetSize' -count=1 -timeout=45s ;;
+          esac
       - name: Native global shortcut lifecycle
         env:
           VIVA_NATIVE_GLOBAL_SHORTCUT_TEST: '1'
@@ -140,6 +152,8 @@ jobs:
                       names=z.namelist()
                       info=json.loads(z.read(next(n for n in names if n.endswith('/build-info.json'))))
                       assert any(n.endswith('/GoIM.exe' if target[0]=='windows' else '/GoIM.app/Contents/MacOS/GoIM') for n in names)
+                      snip = next(n for n in names if n.endswith('/goim-snip.exe' if target[0]=='windows' else '/GoIM.app/Contents/MacOS/goim-snip'))
+                      if target[0]=='darwin': assert (z.getinfo(snip).external_attr >> 16) & 0o111
                       if target[0]=='darwin': assert any(n.endswith('/GoIM.app/Contents/Info.plist') for n in names)
               else:
                   with tarfile.open(p) as z:
@@ -147,6 +161,7 @@ jobs:
                       info=json.load(z.extractfile(next(n for n in names if n.endswith('/build-info.json'))))
                       exe=z.getmember(next(n for n in names if n.endswith('/GoIM')))
                       assert exe.mode & 0o111
+                      assert z.getmember(next(n for n in names if n.endswith('/goim-snip'))).mode & 0o111
               assert info['commit']==os.environ['SOURCE_COMMIT'] and (info['os'],info['arch'])==target
               frameworks.add(info['viva'])
               toolchains.add(info['go'])

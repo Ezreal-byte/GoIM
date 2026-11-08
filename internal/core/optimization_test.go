@@ -22,7 +22,7 @@ import (
 
 func testOptimizationNode(t *testing.T, dir string) *Node {
 	t.Helper()
-	n, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0", DisableDiscovery: true})
+	n, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0", DisableDiscovery: true, DisableIPMSG: true})
 	if err != nil {
 		t.Fatal(err)
 	}

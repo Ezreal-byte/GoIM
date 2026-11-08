@@ -7,5 +7,5 @@ if not exist "%GOIM_EXE%" (
   pause
   exit /b 1
 )
-start "GoIM Loopback A" "%GOIM_EXE%" --data-dir "%~dp0.runtime\pair-A" --download-dir "%~dp0.runtime\pair-A-downloads" --listen 127.0.0.1:47911 --no-discovery --name "Loopback A"
-start "GoIM Loopback B" "%GOIM_EXE%" --data-dir "%~dp0.runtime\pair-B" --download-dir "%~dp0.runtime\pair-B-downloads" --listen 127.0.0.1:47912 --no-discovery --name "Loopback B" --connect 127.0.0.1:47911
+start "GoIM Loopback A" "%GOIM_EXE%" --data-dir "%~dp0.runtime\pair-A" --download-dir "%~dp0.runtime\pair-A-downloads" --listen 127.0.0.1:47911 --no-discovery --no-ipmsg --name "Loopback A"
+start "GoIM Loopback B" "%GOIM_EXE%" --data-dir "%~dp0.runtime\pair-B" --download-dir "%~dp0.runtime\pair-B-downloads" --listen 127.0.0.1:47912 --no-discovery --no-ipmsg --name "Loopback B" --connect 127.0.0.1:47911

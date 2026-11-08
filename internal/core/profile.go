@@ -170,6 +170,9 @@ func (n *Node) profileEnvelope() envelope {
 	p := s.Self
 	p.Avatar = ""
 	p.Address = n.advertisedAddress()
+	if p.Presence == domain.PresenceInvisible {
+		p.Presence = domain.PresenceOffline
+	}
 	var imageData []byte
 	if s.Settings.Avatar != "" {
 		b, err := readAvatar(s.Settings.Avatar)
@@ -183,11 +186,22 @@ func (n *Node) setProfile(name, path string) error {
 	return n.setProfilePixels(name, path, nil, 0)
 }
 func (n *Node) setProfilePixels(name, path string, preview []byte, size int) error {
+	return n.updateProfile(name, path, preview, size, "", "")
+}
+
+func (n *Node) updateProfile(name, path string, preview []byte, size int, signature string, presence domain.Presence) error {
 	name = strings.TrimSpace(name)
 	if name == "" || utf8.RuneCountInString(name) > 40 {
 		return errors.New("昵称需为 1 至 40 个字符")
 	}
 	s := n.snapshot(false)
+	if presence == "" {
+		signature, presence = s.Settings.Signature, s.Settings.Presence
+	}
+	signature = strings.TrimSpace(signature)
+	if !validProfileDetails(signature, presence, false) {
+		return errors.New("签名最多 80 个字符，且需选择有效的在线状态")
+	}
 	avatar := s.Settings.Avatar
 	if path != "" && path != avatar {
 		var source image.Image
@@ -218,6 +232,8 @@ func (n *Node) setProfilePixels(name, path string, preview []byte, size int) err
 		p.State.Self.Name = name
 		p.State.Settings.Avatar = avatar
 		p.State.Self.Avatar = avatar
+		p.State.Settings.Signature, p.State.Self.Signature = signature, signature
+		p.State.Settings.Presence, p.State.Self.Presence = presence, presence
 		p.State.Notice = "个人资料已保存"
 		return nil
 	}); err != nil {
@@ -226,8 +242,26 @@ func (n *Node) setProfilePixels(name, path string, preview []byte, size int) err
 	n.broadcastProfile()
 	return nil
 }
+
+func validProfileDetails(signature string, presence domain.Presence, remote bool) bool {
+	if !utf8.ValidString(signature) || utf8.RuneCountInString(signature) > 80 ||
+		strings.ContainsAny(signature, "\r\n\x00") {
+		return false
+	}
+	switch presence {
+	case "", domain.PresenceOnline, domain.PresenceAway, domain.PresenceBusy:
+		return true
+	case domain.PresenceInvisible:
+		return !remote
+	case domain.PresenceOffline:
+		return remote
+	default:
+		return false
+	}
+}
 func (n *Node) receiveProfile(peer string, e envelope) error {
-	if e.Peer.ID != peer || len(e.Peer.Name) > 160 || strings.TrimSpace(e.Peer.Name) == "" {
+	if e.Peer.ID != peer || len(e.Peer.Name) > 160 || strings.TrimSpace(e.Peer.Name) == "" ||
+		!validProfileDetails(e.Peer.Signature, e.Peer.Presence, true) {
 		return errors.New("联系人资料无效")
 	}
 	avatar := ""
@@ -241,6 +275,7 @@ func (n *Node) receiveProfile(peer string, e envelope) error {
 	return n.change(func(s *domain.State) {
 		if i := peerIndex(s, peer); i >= 0 {
 			s.Peers[i].Name = e.Peer.Name
+			s.Peers[i].Signature, s.Peers[i].Presence = e.Peer.Signature, e.Peer.Presence
 			if avatar != "" {
 				s.Peers[i].Avatar = avatar
 			}

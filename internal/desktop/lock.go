@@ -64,42 +64,52 @@ func (u *UI) drawLocked(canvas *ui.Canvas, bounds ui.Rect) {
 		s.cancel = u.tree.ID(s.scope, "cancel")
 	}
 	canvas.Fill(bounds, u.palette.chat)
-	width := min(420, max(0, bounds.Width-28))
-	height := min(310, max(0, bounds.Height-28))
-	panel := ui.Rect{X: bounds.X + (bounds.Width-width)/2, Y: bounds.Y + (bounds.Height-height)/2, Width: width, Height: height}
-	if !s.focused && !s.pending {
-		canvas.RequestFocus(s.focus)
-		s.focused = true
+	width := min(454, max(0, bounds.Width-28))
+	height := min(350, max(0, bounds.Height-28))
+	if s.setup {
+		height = min(430, max(0, bounds.Height-28))
 	}
+	panel := ui.Rect{X: bounds.X + (bounds.Width-width)/2, Y: bounds.Y + (bounds.Height-height)/2, Width: width, Height: height}
 	s.field.Secure, s.confirmation.Secure = true, true
+	var logo flex.Box
 	u.dialogView.Draw(canvas, u.theme, panel, func(f *flex.Frame) {
-		f.Column().Fill().Pad(24).Gap(12).Radius(15).Border(1, u.theme.Border).Background(u.theme.Background).Children(func() {
+		f.Column().Fill().Pad(30).Gap(12).Radius(20).Border(1, u.theme.Border).Background(u.theme.Background).Children(func() {
 			title, description, action, label := "GoIM 已锁定", "输入密码以恢复你的会话。", "解锁", "锁定密码"
 			if s.setup {
 				title, description, action, label = "设置锁定密码", "密码至少 6 个字符。可在设置 → 安全中更改。", "设置并锁定", "新密码"
 			}
-			f.Text(title).FontSize(23).Weight(ui.WeightSemibold)
+			logo = f.Slot().Size(44, 44)
+			f.Text(title).FontSize(26).Weight(ui.WeightSemibold)
 			f.Paragraph(description, 2).Muted().FontSize(13)
-			field := f.Field(&s.field, s.focus, label, label).FillWidth().Disabled(s.pending)
+			field := f.Field(&s.field, s.focus, label, label).Height(52).FillWidth().Disabled(s.pending)
 			submitted := field.Submitted()
 			if s.setup {
 				submitted = f.Field(&s.confirmation, s.confirmID, "确认新密码", "再输入一次新密码").
-					FillWidth().Disabled(s.pending).Submitted() || submitted
+					Height(52).FillWidth().Disabled(s.pending).Submitted() || submitted
 			}
 			if s.err != "" {
 				f.Paragraph(s.err, 2).FontSize(12).Color(u.theme.Danger)
 			}
 			f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
-				f.Spacer()
-				if s.setup && f.Button(s.cancel, "取消").Small().Ghost().Disabled(s.pending).Clicked() {
+				if s.setup && f.Button(s.cancel, "取消").Height(48).Outline().Disabled(s.pending).Clicked() {
 					u.cancelLockSetup()
 				}
-				if f.Button(s.submit, action).Small().Disabled(s.pending).Clicked() || submitted && !s.pending {
+				if s.pending {
+					action = "正在验证…"
+				}
+				if f.Button(s.submit, action).Grow(1).Height(48).Disabled(s.pending).Clicked() || submitted && !s.pending {
 					u.submitLock()
 				}
 			})
 		})
 	})
+	PaintGoIMMark(canvas, logo.Rect())
+	if !s.focused && !s.pending {
+		s.focused = canvas.Focused() == s.focus || canvas.Focused() == s.confirmID
+		if !s.focused {
+			canvas.RequestFocus(s.focus)
+		}
+	}
 }
 
 func (u *UI) submitLock() {
@@ -117,7 +127,8 @@ func (u *UI) submitLock() {
 	}
 	s.pending, s.err = true, ""
 	s.request++
-	s.field, s.confirmation = flex.Field{Secure: true}, flex.Field{Secure: true}
+	s.field.SetText("")
+	s.confirmation.SetText("")
 	s.focused = false
 	if s.setup {
 		u.submit(domain.Command{Kind: domain.SetLockPassword, Text: password, Bool: true, Request: s.request})

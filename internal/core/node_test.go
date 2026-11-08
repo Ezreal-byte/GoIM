@@ -13,7 +13,7 @@ import (
 func testNode(t *testing.T, name string) *Node { t.Helper(); return testNodeAt(t, name, t.TempDir()) }
 func testNodeAt(t *testing.T, name, dir string) *Node {
 	t.Helper()
-	n, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0", Name: name, DisableDiscovery: true, Version: "test"})
+	n, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0", Name: name, DisableDiscovery: true, DisableIPMSG: true, Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

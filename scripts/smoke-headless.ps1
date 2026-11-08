@@ -36,7 +36,7 @@ function Start-Peer([string]$TaskName,[string]$TaskConnect='') {
     $taskInfo.RedirectStandardInput=$true;$taskInfo.RedirectStandardOutput=$true;$taskInfo.RedirectStandardError=$true
     $taskInfo.StandardOutputEncoding=[System.Text.Encoding]::UTF8;$taskInfo.StandardInputEncoding=[System.Text.UTF8Encoding]::new($false)
     $taskInfo.Environment['VIVA_HEADLESS']='1';$taskInfo.Environment['VIVA_HEADLESS_SCALE']='1'
-    foreach($taskArgument in @('--data-dir',(Join-Path $script:taskRunDir $TaskName),'--download-dir',(Join-Path $script:taskRunDir ($TaskName+'-downloads')),'--listen','127.0.0.1:0','--name',$TaskName,'--no-discovery')){$taskInfo.ArgumentList.Add($taskArgument)}
+    foreach($taskArgument in @('--data-dir',(Join-Path $script:taskRunDir $TaskName),'--download-dir',(Join-Path $script:taskRunDir ($TaskName+'-downloads')),'--listen','127.0.0.1:0','--name',$TaskName,'--no-discovery','--no-ipmsg')){$taskInfo.ArgumentList.Add($taskArgument)}
     if($TaskConnect){$taskInfo.ArgumentList.Add('--connect');$taskInfo.ArgumentList.Add($TaskConnect)}
     $taskProcess=[System.Diagnostics.Process]::Start($taskInfo)
     $script:taskProcesses.Add($taskProcess)
@@ -73,14 +73,15 @@ try {
     Send-Command $taskBob 'waitfor "真实文件.txt" 10000'
     Send-Command $taskBob 'waitfor "查看详情" 10000'
     Send-Command $taskBob 'click "查看 真实文件.txt 详情"'
-    Send-Command $taskBob 'click "接收"'
+    if (Test-Path -LiteralPath (Join-Path (Join-Path $taskRunDir '林晓-downloads') '真实文件.txt')) { throw 'An ordinary file arrived before acceptance' }
+    Send-Command $taskBob 'click "接收文件"'
     Send-Command $taskBob 'waitfor "已接收" 10000'
     $taskReceived=Join-Path (Join-Path $taskRunDir '林晓-downloads') '真实文件.txt'
     if(!(Test-Path -LiteralPath $taskReceived)){throw 'Received file missing'}
     if((Get-FileHash -LiteralPath $taskReceived).Hash -ne (Get-FileHash -LiteralPath $taskSamplePath).Hash){throw 'Received SHA256 differs'}
     Send-Command $taskBob 'key esc'
     Send-Command $taskAlice 'click "插入表情"'
-    Send-Command $taskAlice 'expect text "插入表情"'
+    Send-Command $taskAlice 'expect text "经典表情"'
     Send-Command $taskAlice 'click id:goim/chat/emoji:grin'
     Send-Command $taskAlice 'click "发送"'
     Send-Command $taskBob 'waitfor "😀" 10000'
@@ -95,17 +96,15 @@ try {
     } finally { $taskGraphics.Dispose(); $taskPicture.Dispose() }
     Send-Command $taskAlice ('openfiles "'+$taskPicturePath.Replace('\','/')+'"')
     Send-Command $taskAlice 'click "发送图片"'
-    Wait-Control $taskBob '查看 真实图片.png 详情'
-    Send-Command $taskBob 'click "查看 真实图片.png 详情"'
-    Send-Command $taskBob 'click "接收"'
-    Send-Command $taskBob 'waitfor "已接收" 10000'
-    Send-Command $taskBob 'key esc'
     Wait-Control $taskBob '查看图片 真实图片.png'
-    Send-Command $taskBob 'wait 300'
-    $taskReceivedImage=Join-Path (Join-Path $taskRunDir '林晓-downloads') '真实图片.png'
+    $taskImages=@(Get-ChildItem -LiteralPath (Join-Path $taskRunDir '林晓/chat-images') -Filter '*.png')
+    if ($taskImages.Count -ne 1) { throw 'Expected one automatically received PNG' }
+    $taskReceivedImage=$taskImages[0].FullName
     if((Get-FileHash -LiteralPath $taskReceivedImage).Hash -ne (Get-FileHash -LiteralPath $taskPicturePath).Hash){throw 'Received picture SHA256 differs'}
     Send-Command $taskBob 'expect layout clean'
     Send-Command $taskBob ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-picture-emoji.png').Replace('\','/')+'"')
+    Send-Command $taskBob 'click "查看图片 真实图片.png"'
+    Send-Command $taskBob 'key esc'
     $taskAliceTexts=Send-Command $taskAlice 'texts'
     $taskAliceAddress=[regex]::Match($taskAliceTexts,'127\.0\.0\.1:\d+').Value
     $taskCharlie=Start-Peer '陈序' $taskAliceAddress
@@ -141,9 +140,8 @@ try {
     Send-Command $taskAlice 'waitfor "GoIM 已锁定" 10000'
     Send-Command $taskAlice 'expect layout clean'
     Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-locked.png').Replace('\','/')+'"')
-    Send-Command $taskAlice 'click "textfield:锁定密码"'
     Send-Command $taskAlice 'type goim-smoke-only'
-    Send-Command $taskAlice 'click "解锁"'
+    Send-Command $taskAlice 'key enter'
     Send-Command $taskAlice 'waitfor "快捷键" 10000'
     Send-Command $taskAlice 'click "文件"'
     Send-Command $taskAlice 'click "textfield:本机文件夹路径"'

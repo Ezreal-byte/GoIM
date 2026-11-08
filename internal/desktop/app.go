@@ -89,10 +89,12 @@ type confirmation struct {
 }
 
 type profileState struct {
-	open     bool
-	nickname flex.Field
-	avatar   string
-	err      string
+	open      bool
+	nickname  flex.Field
+	signature flex.Field
+	presence  domain.Presence
+	avatar    string
+	err       string
 }
 
 type mentionCandidate struct {
@@ -214,6 +216,8 @@ type appIDs struct {
 	profileDismiss     ui.ID
 	profileClose       ui.ID
 	profileField       ui.ID
+	profileSignature   ui.ID
+	profilePresence    ui.Scope
 	profileChooseImage ui.ID
 	profileSave        ui.ID
 	profileCancel      ui.ID
@@ -358,6 +362,8 @@ type UI struct {
 	lastChat       ui.Rect
 	lastDialogBody ui.Rect
 	profile        profileState
+	filePickerOpen bool
+	nativeWindow   windowGeometry
 
 	clipboardImage    func() ([]byte, error)
 	clipboardCacheDir func() (string, error)
@@ -629,6 +635,8 @@ func (u *UI) Config() app.Config {
 		OnKey:          u.onKey,
 		OnShortcut:     u.onShortcut,
 		OnFileDrop:     u.onFileDrop,
+		OnMaximize:     u.setWindowMaximized,
+		OnFullscreen:   u.setWindowFullscreen,
 		OnClosed:       u.Close,
 	}
 }
@@ -961,6 +969,8 @@ func (u *UI) initIDs() {
 	u.ids.profileDismiss = u.tree.ID(u.ids.dialog, "profile-dismiss")
 	u.ids.profileClose = u.tree.ID(u.ids.dialog, "profile-close")
 	u.ids.profileField = u.tree.ID(u.ids.dialog, "profile-nickname")
+	u.ids.profileSignature = u.tree.ID(u.ids.dialog, "profile-signature")
+	u.ids.profilePresence = u.tree.Sub(u.ids.dialog, u.tree.Name("profile-presence"))
 	u.ids.profileChooseImage = u.tree.ID(u.ids.dialog, "profile-choose-image")
 	u.ids.profileSave = u.tree.ID(u.ids.dialog, "profile-save")
 	u.ids.profileCancel = u.tree.ID(u.ids.dialog, "profile-cancel")
@@ -1045,22 +1055,7 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 		return
 	}
 
-	rail := ui.Rect{
-		X: body.X, Y: body.Y,
-		Width: min(railWidth, body.Width), Height: body.Height,
-	}
-	if u.isPanelSection() {
-		u.drawRail(canvas, rail)
-		main := ui.Rect{X: railWidth, Y: body.Y, Width: max(body.Width-railWidth, 0), Height: body.Height}
-		u.panels.Draw(canvas, u.theme, main, u.section, u.state, u.submit)
-	} else {
-		u.drawRail(canvas, rail)
-		side := ui.Rect{X: railWidth, Y: body.Y, Width: min(sidebarWidth, max(body.Width-railWidth, 0)), Height: body.Height}
-		chat := ui.Rect{X: side.X + side.Width, Y: body.Y, Width: max(body.Width-railWidth-side.Width, 0), Height: body.Height}
-		u.lastChat = chat
-		u.drawSidebar(canvas, side)
-		u.drawChat(canvas, chat)
-	}
+	u.drawMainBody(canvas, body)
 
 	if u.chatFind.focus && u.chatFind.open {
 		canvas.RequestFocus(u.ids.chatSearchField)
@@ -1072,6 +1067,7 @@ func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
 	}
 	u.hover.Paint(canvas, u.theme, body, components.TooltipOptions{Layer: 55}, 0)
 	u.drawOverlays(canvas, bounds)
+	u.drawChatImageViewer(canvas)
 }
 
 func (u *UI) isPanelSection() bool {
@@ -1083,12 +1079,13 @@ func (u *UI) drawTitlebar(canvas *ui.Canvas, bounds ui.Rect) {
 		return
 	}
 	canvas.Fill(bounds, u.palette.rail)
+	var brand flex.Box
 	u.titleView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
 		f.Row().Fill().MovesWindow().
 			PadSides(0, u.titleTrailing+14, 0, u.titleLeading+20).
 			Items(flex.Center).Children(func() {
-			f.Stack().Size(12, 12).Radius(6).Background(u.palette.success)
-			f.Row().Width(8).Height(1)
+			brand = f.Slot().Size(24, 24)
+			f.Row().Width(9).Height(1)
 			f.Text("GoIM").FontSize(16).Weight(ui.WeightSemibold)
 			f.Spacer()
 			if u.state.ListenAddress != "" && bounds.Width > 900 {
@@ -1099,6 +1096,7 @@ func (u *UI) drawTitlebar(canvas *ui.Canvas, bounds ui.Rect) {
 			}
 		})
 	})
+	PaintGoIMMark(canvas, brand.Rect())
 	canvas.Fill(ui.Rect{X: bounds.X, Y: bounds.Y + bounds.Height - 1, Width: bounds.Width, Height: 1}, u.palette.border)
 }
 
@@ -1123,7 +1121,7 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 			avatarSlot = f.Stack().Size(42, 42).HitWith(u.ids.profileAvatar, "编辑个人资料",
 				ui.HitOptions{Role: ui.RoleButton, Hint: "编辑昵称和头像"}).
 				Children(func() {
-					u.avatarStatusOn(f, selfName, selfAvatar, 42, true, u.palette.rail)
+					u.avatarStatusOn(f, selfName, selfAvatar, 42, u.state.Self.Presence != domain.PresenceInvisible, u.palette.rail)
 				})
 			f.Row().Height(10)
 			messages = u.railItemBadged(f, u.ids.navMessages, u.iconMessage, "消息",
@@ -1582,20 +1580,16 @@ func (u *UI) contactRow(f *flex.Frame, peer domain.Peer) {
 		Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
 		HitWith(id, peer.Name, ui.HitOptions{Role: ui.RoleButton, Selected: selected}).
 		Children(func() {
-			u.avatarStatus(f, peer.Name, peer.Avatar, 38, peer.Online)
+			u.avatarStatus(f, peer.Name, peer.Avatar, 38, peer.VisibleOnline())
 			f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
 				f.Row().Items(flex.Center).Gap(6).Children(func() {
 					f.Text(peer.Name).FontSize(14).Weight(ui.WeightMedium).Ellipsis()
-					if peer.Online {
-						f.Stack().Size(6, 6).Radius(3).Background(u.palette.success)
-					}
 				})
-				subtitle := "离线"
-				if peer.Online {
-					subtitle = "在线"
-					if peer.Address != "" {
-						subtitle += " · " + peer.Address
-					}
+				subtitle := peerPresenceLabel(peer)
+				if peer.Signature != "" {
+					subtitle += " · " + peer.Signature
+				} else if peer.VisibleOnline() && peer.Address != "" {
+					subtitle += " · " + peer.Address
 				}
 				f.Text(subtitle).FontSize(11).Muted().Ellipsis()
 			})
@@ -2140,7 +2134,7 @@ func (u *UI) selectConversation(id string) {
 	u.memberMenu = ""
 	u.memberProfile = ""
 	u.chatScrollToEnd = true
-	u.drawer, u.activeFileID, u.fileReturn = "", "", ""
+	u.closeDrawer()
 	u.markSelectedConversationRead()
 }
 
@@ -2183,7 +2177,7 @@ func (u *UI) setSection(section string) {
 	u.resetChatSearch()
 	u.closeProfile()
 	u.moreOpen = false
-	u.drawer, u.activeFileID, u.fileReturn = "", "", ""
+	u.closeDrawer()
 	u.compose.open = false
 	u.connectOpen = false
 	u.confirm.open = false
@@ -2232,6 +2226,7 @@ func (u *UI) openCompose(mode, groupID string) {
 	u.moreOpen = false
 	u.drawer = ""
 	u.memberProfile = ""
+	u.syncFilesWindow()
 }
 
 func (u *UI) submitCompose() {
@@ -2374,7 +2369,7 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 		return input
 	}
 	if input := flex.Fields(&u.sidebarSearch, &u.connectField, &u.compose.name, &u.compose.search,
-		&u.profile.nickname, &u.organize.field, &u.memberSearch, &u.renameField,
+		&u.profile.nickname, &u.profile.signature, &u.organize.field, &u.memberSearch, &u.renameField,
 		&u.nicknameField, &u.fileSearch)(context); input != nil {
 		return input
 	}
@@ -2387,6 +2382,9 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 func (u *UI) onScroll(event ui.ScrollEvent) ui.EventResult {
 	if u.lockVisible() {
 		return ui.EventResult{Handled: true}
+	}
+	if result, handled := u.chatOverlayWheel(event); handled {
+		return result
 	}
 	if u.shellMenu.open {
 		u.closeShellMenu()
@@ -2415,10 +2413,12 @@ func (u *UI) onScroll(event ui.ScrollEvent) ui.EventResult {
 
 func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
 	if u.lockVisible() {
-		if result := u.lockKey(event); result.Handled {
-			return result
-		}
-		return ui.EventResult{Handled: true}
+		// The only registered hits while locked belong to the lock screen.
+		// Let Viva deliver text keys, focus traversal and Enter to those hits.
+		return u.lockKey(event)
+	}
+	if result, handled := u.chatOverlayKey(event); handled {
+		return result
 	}
 	if u.mention.open && u.focusedID == u.ids.chatEditor && !event.Release &&
 		event.Modifiers == 0 && u.chatEditor != nil {
@@ -2495,6 +2495,9 @@ func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
 func (u *UI) onShortcut(event ui.KeyEvent) ui.EventResult {
 	if u.lockVisible() {
 		return ui.EventResult{Handled: true}
+	}
+	if result, handled := u.chatOverlayShortcut(event); handled {
+		return result
 	}
 	if u.modalOpen() {
 		return ui.EventResult{}

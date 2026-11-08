@@ -130,7 +130,7 @@ func (n *Node) execute(c domain.Command) error {
 	case domain.SetSetting:
 		return n.setting(c)
 	case domain.SetProfile:
-		return n.setProfilePixels(c.Name, c.Value, c.AvatarBGRA, c.AvatarSize)
+		return n.updateProfile(c.Name, c.Value, c.AvatarBGRA, c.AvatarSize, c.Signature, c.Presence)
 	case domain.SetLockPassword, domain.LockApp, domain.UnlockApp:
 		err := n.updateLock(c)
 		if c.Request == 0 {
@@ -311,6 +311,13 @@ func (n *Node) sendText(convID, text string) error {
 	targets, err := recipients(s, conv)
 	if err != nil {
 		return err
+	}
+	if conv.Kind == "group" {
+		for _, id := range targets {
+			if s.Peer(id).Transport == legacyIPMSG {
+				return errors.New("内网通兼容联系人仅支持单聊发送")
+			}
+		}
 	}
 	m := domain.Message{ID: newID(), ConversationID: convID, SenderID: s.Self.ID, Kind: "text", Text: text, CreatedAt: time.Now(), Status: "pending"}
 	for _, v := range s.GroupNicknames {

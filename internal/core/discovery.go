@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net"
 	"time"
+
+	"goim/internal/domain"
 )
 
 func (n *Node) selectedInterface() *net.Interface {
@@ -76,8 +78,9 @@ func (n *Node) readDiscovery(c *net.UDPConn) {
 		}
 		n.mu.Lock()
 		connected := n.connections[a.Peer.ID] != nil
+		invisible := n.data.State.Self.Presence == domain.PresenceInvisible
 		n.mu.Unlock()
-		if !connected {
+		if !connected && !invisible {
 			n.dialTo(net.JoinHostPort(remote.IP.String(), port), a.Peer.ID, true)
 		}
 	}
@@ -118,11 +121,13 @@ func (n *Node) discoveryLoop() {
 	}
 	announce := func() {
 		s := n.snapshot(false)
-		enabled := n.discovery && !s.Settings.DisableAutoDiscovery
+		enabled := n.discovery && !s.Settings.DisableAutoDiscovery && s.Self.Presence != domain.PresenceInvisible
 		refresh(enabled, s.Settings.Network)
 		if enabled {
 			p := s.Self
 			p.Avatar = ""
+			// Keep the signed announcement compatible with previous clients.
+			p.Signature, p.Presence = "", ""
 			p.Address = n.advertisedAddress()
 			a := announcement{Version: protocolVersion, Peer: p}
 			raw, _ := json.Marshal(a)

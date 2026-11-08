@@ -8,6 +8,10 @@ Go + Viva 原生局域网即时通讯。无中心服务器；设备通过 IPv4 �
 
 点击外观上方的锁图标可锁定应用，密码在「设置 → 安全」中更改。锁定时隐藏会话和通知内容，接收继续在后台运行。应用锁保护界面访问；数据目录仍应使用系统账户权限保护。自定义聊天背景和深浅位于「设置 → 常规」。
 
+GoIM 之间发送 PNG、JPEG 或 GIF 时，符合尺寸限制的图片直接显示，其他文件等待接收确认。点击图片可放大、旋转并切换前后图片。默认 `Alt+A` 打开截图标注，可在「设置 → 快捷键」更改。请保留包内的 `goim-snip`，macOS 需授权屏幕录制，Linux X11 复制图片需 `xclip`。
+
+基础 IPMSG 兼容可发现旧版联系人并进行单聊文字和文件传输，使用 UDP/TCP 2425；具体客户端和版本须分别验证。旧版链路不使用 GoIM 的 TLS，可信内网以外请用 `--no-ipmsg` 关闭。原生 GoIM 的图片自动接收规则不适用于未经验证的 IPMSG 附件。
+
 ## 启动
 
 Windows 解压双击 GoIM.exe；开发目录运行 scripts/start.ps1。默认监听 TCP 47842，发现使用 UDP 47841 / 239.192.77.77。首次 Windows 网络访问提示由用户处理；不要放开公共网络。两个设备须在可互通的同一局域网，客户端隔离和多播禁用时可使用界面里的手动 IP:端口连接。
@@ -21,8 +25,8 @@ Linux 中文界面需要系统 CJK 字体。Ubuntu/Debian 可安装 `fonts-noto-
 默认数据在系统用户配置目录的 GoIM，文件在 Downloads/GoIM，可在设置中更改。设备身份私钥与本地聊天数据库保存在数据目录；备份时一起保存。
 
 ```powershell
-./GoIM.exe --data-dir .runtime/A --download-dir .runtime/A-downloads --listen 127.0.0.1:47901 --no-discovery --name 测试端A
-./GoIM.exe --data-dir .runtime/B --listen 127.0.0.1:47902 --no-discovery --name 测试端B --connect 127.0.0.1:47901
+./GoIM.exe --data-dir .runtime/A --download-dir .runtime/A-downloads --listen 127.0.0.1:47901 --no-discovery --no-ipmsg --name 测试端A
+./GoIM.exe --data-dir .runtime/B --listen 127.0.0.1:47902 --no-discovery --no-ipmsg --name 测试端B --connect 127.0.0.1:47901
 ```
 
 ## 开发与验证

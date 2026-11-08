@@ -715,7 +715,7 @@ func TestMemberProfileStartsDirectChat(t *testing.T) {
 }
 
 func TestChatFilesListAndDetailAreInteractive(t *testing.T) {
-	harness := newShellTestHarness(t, shellTestState(t))
+	harness := newChatSurfaceHarness(t, shellTestState(t), 1440, 960)
 	harness.clickID(harness.ui.ids.chatHeaderFile)
 	harness.settle()
 	if harness.ui.drawer != "files" || !harness.hasText("聊天文件") {
@@ -729,7 +729,7 @@ func TestChatFilesListAndDetailAreInteractive(t *testing.T) {
 	requireShellLayout(t, harness.snapshot())
 }
 
-func TestImageMessageOpensPreviewDetail(t *testing.T) {
+func TestImageMessageOpensImageViewer(t *testing.T) {
 	state := shellTestState(t)
 	path := filepath.Join(t.TempDir(), "预览.png")
 	source := image.NewNRGBA(image.Rect(0, 0, 2, 1))
@@ -754,18 +754,23 @@ func TestImageMessageOpensPreviewDetail(t *testing.T) {
 		ID: "message-image", ConversationID: "conv-group", SenderID: "peer-a",
 		Kind: "image", FileID: "file-image", CreatedAt: time.Now(), Status: "delivered",
 	})
-	harness := newShellTestHarness(t, state)
+	harness := newChatSurfaceHarness(t, state, 1440, 960)
+	harness.waitFor(func() bool { return bitmapReady(harness.ui.fileBitmap(path)) })
 
 	if !harness.hasHit(harness.ui.fileButtonIDs["file-image"]) {
 		t.Fatal("image message did not expose a preview target")
 	}
 	harness.clickID(harness.ui.fileButtonIDs["file-image"])
 	harness.settle()
-	if harness.ui.drawer != "files" || harness.ui.activeFileID != "file-image" {
-		t.Fatal("clicking an image did not open its file detail")
+	if !harness.ui.imageViewerOpen() {
+		t.Fatalf("clicking an image did not open the image viewer (open %v, selected %q, section %q)",
+			harness.ui.chatSurface().viewer.open, harness.ui.selected, harness.ui.section)
 	}
-	if !harness.hasText("文件详情") {
-		t.Fatal("image detail preview was not shown")
+	if !harness.hasText("1 / 1") || !harness.hasText("预览.png") {
+		t.Fatal("image viewer did not show the counter and filename")
+	}
+	if !harness.hasHit(harness.ui.chatSurface().ids.viewerClose) {
+		t.Fatal("image viewer did not expose its close control")
 	}
 	requireShellLayout(t, harness.snapshot())
 }

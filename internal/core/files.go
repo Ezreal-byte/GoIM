@@ -97,6 +97,11 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 	if !validFile(f) {
 		return errors.New("文件名不适合跨平台传输")
 	}
+	if !shared {
+		if mediaType := inlineImageType(path, f.Size); mediaType != "" {
+			f.MIME, f.InlineImage = mediaType, true
+		}
+	}
 	var targets []string
 	if !shared {
 		c := s.Conversation(convID)
@@ -110,6 +115,14 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 	}
 	if target != "" {
 		targets = []string{target}
+	}
+	if !shared {
+		c := s.Conversation(convID)
+		for _, id := range targets {
+			if s.Peer(id).Transport == legacyIPMSG && c.Kind == "group" {
+				return errors.New("内网通兼容联系人仅支持单聊发送")
+			}
+		}
 	}
 	duplicate := false
 	err = n.durable(func(p *persisted) []pending {
@@ -131,13 +144,13 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 		s.Files = append(s.Files, f)
 		if !shared {
 			kind := "file"
-			if strings.HasPrefix(f.MIME, "image/") {
+			if f.InlineImage {
 				kind = "image"
 			}
 			s.Messages = append(s.Messages, domain.Message{ID: f.ID, ConversationID: convID, SenderID: s.Self.ID, Kind: kind, FileID: f.ID, Text: f.Name, CreatedAt: f.CreatedAt, Status: "sent"})
 			if i := convIndex(s, convID); i >= 0 {
 				s.Conversations[i].Hidden = false
-				s.Conversations[i].Preview = "[文件] " + f.Name
+				s.Conversations[i].Preview = attachmentPreview(f)
 				s.Conversations[i].UpdatedAt = f.CreatedAt
 			}
 		}
@@ -163,6 +176,9 @@ func appendFileOffer(s *domain.State, peer, convID string, f domain.File, tid st
 		tid = newID()
 	}
 	t := domain.Transfer{ID: tid, FileID: f.ID, ConversationID: convID, PeerID: peer, Direction: "send", Status: "offered", Name: f.Name, Size: f.Size, Path: f.SourcePath, UpdatedAt: time.Now(), FromShare: f.Shared}
+	if s.Peer(peer).Transport == legacyIPMSG {
+		t.LegacyTransport = legacyIPMSG
+	}
 	if i := transferIndex(s, tid); i < 0 {
 		s.Transfers = append(s.Transfers, t)
 	} else {
@@ -189,6 +205,9 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 	if !validFile(f) || f.SenderID != peer || transferErr != nil || len(transferBytes) != 16 || e.TransferID != strings.ToLower(e.TransferID) {
 		return errors.New("无效文件邀请")
 	}
+	if f.InlineImage && (f.Shared || !validInlineImage(f)) {
+		return errors.New("无效聊天图片")
+	}
 	if strings.HasPrefix(f.ConversationID, "group:") {
 		g := s.Group(strings.TrimPrefix(f.ConversationID, "group:"))
 		if g.ID == "" || g.Left || g.Dissolved || !contains(g.Members, peer) || !contains(g.Members, s.Self.ID) {
@@ -214,9 +233,13 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 			s.Files[i].ConversationID = f.ConversationID
 		}
 		if transferIndex(s, e.TransferID) < 0 {
-			s.Transfers = append(s.Transfers, domain.Transfer{ID: e.TransferID, FileID: f.ID, ConversationID: f.ConversationID, PeerID: peer, Direction: "receive", Status: "offered", Name: f.Name, Size: f.Size, UpdatedAt: time.Now()})
+			status := "offered"
+			if f.InlineImage {
+				status = "waiting"
+			}
+			s.Transfers = append(s.Transfers, domain.Transfer{ID: e.TransferID, FileID: f.ID, ConversationID: f.ConversationID, PeerID: peer, Direction: "receive", Status: status, Name: f.Name, Size: f.Size, UpdatedAt: time.Now()})
 			kind := "file"
-			if strings.HasPrefix(f.MIME, "image/") {
+			if f.InlineImage {
 				kind = "image"
 			}
 			found := false
@@ -232,7 +255,7 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 			if i := convIndex(s, f.ConversationID); i >= 0 {
 				s.Conversations[i].Hidden = false
 				s.Conversations[i].Unread++
-				s.Conversations[i].Preview = "[文件] " + f.Name
+				s.Conversations[i].Preview = attachmentPreview(f)
 				s.Conversations[i].UpdatedAt = f.CreatedAt
 			}
 		}
@@ -240,7 +263,7 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 	if err != nil {
 		return err
 	}
-	if s.Settings.AutoAccept || s.Settings.AutoAcceptImages && strings.HasPrefix(f.MIME, "image/") || requested {
+	if f.InlineImage || requested {
 		n.startReceive(e.TransferID, "")
 	}
 	return nil
@@ -322,6 +345,9 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 	if t.Status == "completed" {
 		return nil
 	}
+	if t.LegacyTransport == legacyIPMSG {
+		return n.downloadLegacy(ctx, t, s.File(t.FileID), destination)
+	}
 	f := s.File(t.FileID)
 	if !validFile(f) {
 		return errors.New("文件信息不完整")
@@ -329,6 +355,9 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 	p := s.Peer(t.PeerID)
 	if destination == "" {
 		destination = t.Path
+	}
+	if destination == "" && f.InlineImage {
+		destination = filepath.Join(n.dir, "chat-images", f.ID+imageSuffix(f.MIME))
 	}
 	if destination != "" {
 		if info, e := os.Stat(destination); e == nil && info.Mode().IsRegular() && info.Size() == f.Size {
@@ -472,6 +501,10 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 	if hash != f.Hash {
 		_ = file.Truncate(0)
 		return errors.New("完整性校验失败，请重试")
+	}
+	if f.InlineImage && inlineImageType(partial, f.Size) != f.MIME {
+		_ = file.Truncate(0)
+		return errors.New("发送内容不是受支持的聊天图片")
 	}
 	if err = file.Close(); err != nil {
 		return err

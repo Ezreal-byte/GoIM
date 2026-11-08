@@ -18,8 +18,6 @@ func (u *UI) drawSideDrawer(canvas *ui.Canvas) {
 	switch u.drawer {
 	case "members":
 		u.drawMemberDrawer(canvas, u.lastChat)
-	case "files":
-		u.drawFilesDrawer(canvas, u.lastChat)
 	}
 }
 
@@ -30,6 +28,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 		u.drawer = ""
 		u.activeFileID = ""
 		u.fileReturn = ""
+		u.syncFilesWindow()
 		return
 	}
 	owner := u.state.Self.ID != "" && group.OwnerID == u.state.Self.ID
@@ -539,6 +538,7 @@ func (u *UI) closeDrawer() {
 	u.nicknameGroup = ""
 	u.nicknameErr = ""
 	u.memberSearch.SetText("")
+	u.syncFilesWindow()
 }
 
 func (u *UI) requestCloseDrawer() {
@@ -589,9 +589,11 @@ func (u *UI) requestDiscardGroupRename(next func()) {
 	}
 }
 
-func (u *UI) drawFilesDrawer(canvas *ui.Canvas, viewport ui.Rect) {
+// drawChatFilesPane paints the file list and file detail as a docked section
+// of the chat column, so the conversation stays visible and usable beside it.
+func (u *UI) drawChatFilesPane(canvas *ui.Canvas, viewport ui.Rect) {
 	conversation := u.state.Conversation(u.selected)
-	if conversation.ID == "" {
+	if conversation.ID == "" || viewport.Width <= 0 || viewport.Height <= 0 {
 		u.closeDrawer()
 		return
 	}
@@ -599,32 +601,45 @@ func (u *UI) drawFilesDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 		u.activeFileID = ""
 		u.fileReturn = ""
 	}
+	surface := u.chatSurface()
+	surface.filesPane = viewport
 	detail := u.activeFileID != ""
 	title := "聊天文件"
+	subtitle := u.conversationTitle(conversation)
 	if detail {
 		title = "文件详情"
+		subtitle = u.state.File(u.activeFileID).Name
 	}
-	extent := min(float32(460), max(viewport.Width-24, 320))
-	initialFocus := u.ids.fileSearch
-	if detail {
-		initialFocus = u.ids.fileBack
-	}
-	drawer := components.BeginDrawer(canvas, u.theme, viewport, components.DrawerOptions{
-		Layer: 60, Scope: u.ids.fileScope, DismissID: u.ids.fileDismiss,
-		CloseID: u.ids.fileClose, Side: components.DrawerRight, ContentExtent: extent,
-		InitialFocusID: initialFocus, ButtonSize: components.ButtonSizeSmall,
+	canvas.Fill(viewport, u.palette.header)
+	canvas.PushFocusScope(u.ids.fileScope)
+	defer canvas.PopFocusScope()
+	closeClicked := false
+	u.drawerView.Draw(canvas, u.theme, viewport, func(f *flex.Frame) {
+		f.Column().Fill().Children(func() {
+			f.Row().Height(64).FillWidth().PadSides(18, 16, 0, 14).
+				Items(flex.Center).Gap(8).Children(func() {
+				f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
+					f.Text(title).FontSize(16).Weight(ui.WeightSemibold).Ellipsis()
+					f.Text(subtitle).FontSize(11).Muted().Ellipsis()
+				})
+				closeButton := u.iconButton(f, u.ids.fileClose, u.iconX, "关闭聊天文件", 30)
+				if closeButton.Clicked() {
+					closeClicked = true
+				}
+			})
+			f.Divider()
+			f.Column().Grow(1).PadSides(14, 16, 12, 16).Children(func() {
+				if detail {
+					u.drawFileDetail(f, u.state.File(u.activeFileID))
+				} else {
+					u.drawFileList(f)
+				}
+			})
+		})
 	})
-	layout := drawer.Begin(title, u.conversationTitle(conversation))
-	u.drawerView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
-		if detail {
-			u.drawFileDetail(f, u.state.File(u.activeFileID))
-		} else {
-			u.drawFileList(f)
-		}
-	})
-	drawer.End()
-	if canvas.Clicked(u.ids.fileDismiss) || canvas.Clicked(u.ids.fileClose) {
+	if closeClicked || canvas.Clicked(u.ids.fileClose) {
 		u.closeDrawer()
+		surface.filesPane = ui.Rect{}
 	}
 }
 

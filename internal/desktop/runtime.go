@@ -27,6 +27,8 @@ type desktopRuntime struct {
 	badge             int
 	global            string
 	stopGlobal        func()
+	screenshotGlobal  string
+	stopScreenshot    func()
 	notificationError bool
 }
 
@@ -66,6 +68,9 @@ func Run(backend domain.Backend) error {
 	defer func() {
 		if r.stopGlobal != nil {
 			r.stopGlobal()
+		}
+		if r.stopScreenshot != nil {
+			r.stopScreenshot()
 		}
 		if r.tray != nil {
 			r.tray.Remove()
@@ -112,6 +117,7 @@ func Run(backend domain.Backend) error {
 			return err
 		}
 		r.window = window
+		shell.attachNativeWindow(window)
 		// Background work can finish between constructing the UI and binding its
 		// invalidator to a native window. Wake once after binding to collect it.
 		shell.invalidator.Invalidate()
@@ -244,50 +250,61 @@ func parseGlobal(keys string) (app.GlobalShortcut, error) {
 }
 func (r *desktopRuntime) applyGlobal(s domain.State) {
 	desired := ""
+	screenshot := ""
 	for _, key := range s.Settings.Shortcuts {
-		if key.Action == "显示或隐藏窗口" {
+		switch key.Action {
+		case "显示或隐藏窗口":
 			desired = key.Keys
+		case domain.ShortcutScreenshot:
+			screenshot = key.Keys
 		}
 	}
-	if strings.EqualFold(desired, r.global) {
+	r.applyGlobalShortcut("显示或隐藏窗口", desired, &r.global, &r.stopGlobal, func() {
+		if r.window.Hidden() || r.window.Minimized() {
+			r.window.Show()
+			r.ui.SetWindowVisible(true)
+		} else {
+			r.window.Hide()
+			r.ui.SetWindowVisible(false)
+		}
+	})
+	r.applyGlobalShortcut(domain.ShortcutScreenshot, screenshot,
+		&r.screenshotGlobal, &r.stopScreenshot, func() { r.launchScreenshot() })
+}
+
+func (r *desktopRuntime) applyGlobalShortcut(action, desired string, current *string,
+	stopCurrent *func(), callback func()) {
+	if strings.EqualFold(desired, *current) {
 		return
 	}
 	if desired == "" {
-		if r.stopGlobal != nil {
-			r.stopGlobal()
-			r.stopGlobal = nil
+		if *stopCurrent != nil {
+			(*stopCurrent)()
+			*stopCurrent = nil
 		}
-		r.global = ""
+		*current = ""
 		return
 	}
 	shortcut, err := parseGlobal(desired)
 	var stop func()
 	if err == nil {
-		stop, err = app.RegisterGlobalShortcut(shortcut, func() {
-			if r.window.Hidden() || r.window.Minimized() {
-				r.window.Show()
-				r.ui.SetWindowVisible(true)
-			} else {
-				r.window.Hide()
-				r.ui.SetWindowVisible(false)
-			}
-		})
+		stop, err = app.RegisterGlobalShortcut(shortcut, callback)
 	}
 	if err != nil {
-		keys := append([]domain.Shortcut(nil), s.Settings.Shortcuts...)
+		keys := append([]domain.Shortcut(nil), r.ui.state.Settings.Shortcuts...)
 		for i := range keys {
-			if keys[i].Action == "显示或隐藏窗口" {
-				keys[i].Keys = r.global
+			if keys[i].Action == action {
+				keys[i].Keys = *current
 			}
 		}
 		data, _ := json.Marshal(keys)
 		r.backend.Submit(domain.Command{Kind: domain.SetSetting, Setting: "shortcuts", Value: string(data)})
-		r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: "全局快捷键不可用，已保留之前的设置：" + err.Error()})
+		r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: action + "快捷键不可用，已保留之前的设置：" + err.Error()})
 		return
 	}
-	if r.stopGlobal != nil {
-		r.stopGlobal()
+	if *stopCurrent != nil {
+		(*stopCurrent)()
 	}
-	r.stopGlobal = stop
-	r.global = desired
+	*stopCurrent = stop
+	*current = desired
 }
