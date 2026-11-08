@@ -71,7 +71,7 @@ type localProfile struct {
 	hidden, away bool
 }
 
-const goIMDiscoveryMarker = "\nGOIM:1\n"
+const goIMDiscoveryMarker = "\nGOIM:1"
 
 type Service struct {
 	ctx     context.Context

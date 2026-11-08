@@ -35,6 +35,10 @@ func TestServiceReceivesLegacyText(t *testing.T) {
 	}
 	defer service.Close()
 	from := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2425}
+	service.handleDatagram(packetString(76, "another GoIM", "other-host", commandEntry, "another GoIM\x00"+goIMDiscoveryMarker), from)
+	if gotPeer.ID != "" {
+		t.Fatal("GoIM discovery must not duplicate a native GoIM contact")
+	}
 	service.handleDatagram(packetString(77, "sender", "sender-host", commandSend|optionUTF8, "hello"), from)
 	if gotNumber != 77 || gotText != "hello" {
 		t.Fatalf("text callback = %d/%q", gotNumber, gotText)
