@@ -12,14 +12,23 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with: {path: GoIM}
+      - name: Read Viva revision
+        id: viva-pin
+        run: |
+          ref="$(tr -d '\r\n' < framework/viva-commit.txt)"
+          [[ "$ref" =~ ^[0-9a-f]{40}$ ]]
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with: {repository: vivaui/viva, ref: 2b2ce2018a0da28b20884bcec3f48cc5735042b9, path: viva}
+        with:
+          repository: vivaui/viva
+          ref: ${{ steps.viva-pin.outputs.ref }}
+          path: viva
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with: {go-version: '1.27.3', cache-dependency-path: GoIM/go.sum}
       - run: |
           test "$(git -C ../viva rev-parse HEAD)" = "$(tr -d '\r\n' < framework/viva-commit.txt)"
           git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
-          git -C ../viva apply ../GoIM/framework/0001-global-shortcuts.patch ../GoIM/framework/0002-windows-arm64-text-origin.patch ../GoIM/framework/0003-window-size.patch
+          git -C ../viva apply ../GoIM/framework/0003-window-size.patch
       - name: Chinese font coverage for the native painter
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
       - run: |

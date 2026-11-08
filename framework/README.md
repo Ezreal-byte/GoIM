@@ -1,11 +1,16 @@
 # Reproducing Viva
 
-Checkout https://github.com/vivaui/viva at the exact commit in viva-commit.txt into the sibling ../viva directory. Apply the numbered patches in order. App and framework maintain independent Git histories.
+Check out [Viva](https://github.com/vivaui/viva) at the exact commit in `viva-commit.txt` in the sibling `../viva` directory, then apply `0003-window-size.patch`. Both GoIM workflows and package metadata read that same pin. App and framework maintain independent Git histories.
 
-The first patch adds optional system-wide shortcut registration for Windows, macOS and Linux/X11, private Driver simulation and native lifecycle tests. Native Wayland returns ErrUnsupported. Product protocol/storage/UI remain in GoIM. The application works without configuring a global shortcut.
+```powershell
+# Run from the GoIM root with a clean sibling Viva checkout.
+$vivaRevision = (Get-Content -Raw framework/viva-commit.txt).Trim()
+git -C ../viva fetch origin main
+git -C ../viva switch --detach $vivaRevision
+git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+git -C ../viva apply ../GoIM/framework/0003-window-size.patch
+```
 
-The second independent patch fixes a real Windows ARM64 rendering crash: Direct2D's by-value two-float text origin uses a homogeneous floating-point aggregate ABI. It preserves the amd64 packed-integer call and binds an appropriate typed call once per ARM64 render target. Upstream issue: https://github.com/vivaui/viva/issues/156. Regression draws and translates native glyph ink.
+The pinned upstream already includes [#155](https://github.com/vivaui/viva/pull/155) (global shortcuts) and [#157](https://github.com/vivaui/viva/pull/157) (Windows ARM64 Direct2D text). It also contains the documentation preview and generated component recipes covered by [#170](https://github.com/vivaui/viva/pull/170). Earlier pins and patches remain in Git history for reproducing alpha.9 and earlier builds.
 
-Do not replace the pinned commit with a moving branch. After an upstream merge, update the pin and remove the corresponding patch only after rerunning verification.
-
-`0003-window-size.patch` adds optional `app.Window.SetSize` for the Windows, AppKit and X11 hosts. GoIM uses it to make room for chat files. The window manager reports the granted size through the existing resize callback. Other hosts can keep the existing frame and fit the panel inside it.
+`0003-window-size.patch` is the remaining local change. It adds `app.Window.SetSize` for Windows, AppKit and X11 so GoIM can make room for chat files. The window manager reports the granted size through the existing resize callback. Other hosts can fit the panel inside the existing frame. Its upstream [draft #172](https://github.com/vivaui/viva/pull/172) is still open. Update the pin and remove the patch after the API is upstream and verified.

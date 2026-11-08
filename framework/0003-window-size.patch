@@ -96,7 +96,7 @@ index 0000000..61b910e
 +}
 diff --git a/app/window_size_test.go b/app/window_size_test.go
 new file mode 100644
-index 0000000..e233bb2
+index 0000000..1dc5c34
 --- /dev/null
 +++ b/app/window_size_test.go
 @@ -0,0 +1,48 @@
@@ -108,7 +108,7 @@ index 0000000..e233bb2
 +)
 +
 +type sizingWindow struct {
-+	fakeWindow
++	WindowControl
 +	width, height int
 +	err           error
 +}
@@ -143,13 +143,13 @@ index 0000000..e233bb2
 +}
 +
 +func TestWindowSetSizeReportsUnsupportedHosts(t *testing.T) {
-+	window := &Window{control: &fakeWindow{}}
++	window := &Window{control: struct{ WindowControl }{}}
 +	if err := window.SetSize(800, 600); !errors.Is(err, ErrUnsupported) {
 +		t.Fatalf("unsupported host error = %v", err)
 +	}
 +}
 diff --git a/internal/platform/contract.go b/internal/platform/contract.go
-index 44a506a..e3b53e9 100644
+index 4b5b714..a351be0 100644
 --- a/internal/platform/contract.go
 +++ b/internal/platform/contract.go
 @@ -168,6 +168,13 @@ type WindowMover interface {
@@ -191,10 +191,10 @@ index 81811f1..fa27921 100644
  int viva_application_fullscreen(void *window);
  int viva_application_set_always_on_top(void *window, int enabled);
 diff --git a/internal/platform/darwin/native.m b/internal/platform/darwin/native.m
-index e4dd9ca..c0d9742 100644
+index 134670d..9d65c93 100644
 --- a/internal/platform/darwin/native.m
 +++ b/internal/platform/darwin/native.m
-@@ -5472,6 +5472,7 @@ static void viva_set_secure_event_input(BOOL on) {
+@@ -5482,6 +5482,7 @@ static void viva_set_secure_event_input(BOOL on) {
  }
  
  - (void)updateMinimumSize;
@@ -202,7 +202,7 @@ index e4dd9ca..c0d9742 100644
  
  - (instancetype)initWithConfig:(viva_window_config)config
                           device:(id<MTLDevice>)device
-@@ -6218,6 +6219,32 @@ static void viva_set_secure_event_input(BOOL on) {
+@@ -6228,6 +6229,32 @@ static void viva_set_secure_event_input(BOOL on) {
      [_window setFrame:[_window frameRectForContentRect:content] display:NO];
  }
  
@@ -235,7 +235,7 @@ index e4dd9ca..c0d9742 100644
  /* The content area in top-left screen coordinates; NO before the window exists. */
  - (BOOL)contentFrame:(double *)out {
      if (_window == nil || !_running) {
-@@ -6735,6 +6762,13 @@ void viva_application_move_window(void *window, double x, double y) {
+@@ -6745,6 +6772,13 @@ void viva_application_move_window(void *window, double x, double y) {
      }
  }
  
@@ -390,7 +390,7 @@ index 0000000..3b89aef
 +}
 diff --git a/internal/platform/windows/window_size_windows.go b/internal/platform/windows/window_size_windows.go
 new file mode 100644
-index 0000000..34588c1
+index 0000000..438ee69
 --- /dev/null
 +++ b/internal/platform/windows/window_size_windows.go
 @@ -0,0 +1,64 @@
@@ -429,7 +429,7 @@ index 0000000..34588c1
 +		scale = 1
 +	}
 +	bounds := rect{
-+		Right:  int32(math.Round(float64(width) * float64(scale))),
++		Right: int32(math.Round(float64(width) * float64(scale))),
 +		Bottom: int32(math.Round(float64(height) * float64(scale))),
 +	}
 +	style := uintptr(wsOverlappedWindow)
@@ -459,7 +459,7 @@ index 0000000..34588c1
 +	setWindowPosition.Call(state.window, 0, uintptr(x), uintptr(y), uintptr(w), uintptr(h), flags)
 +}
 diff --git a/internal/platform/windows/window_windows.go b/internal/platform/windows/window_windows.go
-index 56cb54e..7d22e8c 100644
+index dd3252c..87b368c 100644
 --- a/internal/platform/windows/window_windows.go
 +++ b/internal/platform/windows/window_windows.go
 @@ -63,6 +63,7 @@ const (
