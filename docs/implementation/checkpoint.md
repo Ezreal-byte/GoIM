@@ -1,5 +1,7 @@
 # Current checkpoint
 
+For the current alpha.9 work, see [optimization-checkpoint.md](optimization-checkpoint.md) and [optimization-verification.md](optimization-verification.md). The alpha.6 record below is historical.
+
 2026-11-07 final delivery: GoIM 0.1.0-alpha.6, source ba7fb5753ca304e02f6cc59b96700644d010e9cb. All six platform builds/tests/renderers, Linux race and final release verification succeeded. See delivery.md for exact repository, CI, private Draft Release, local packages, native executable and verification limits.
 
 Windows final packaged executable runs from build/GoIM.exe; GoIM.lnk is the normal startup entry. The firewall permission modal remains for the user; do not operate it or claim physical GUI/IME/tray/cross-machine acceptance. Native process ID is in build/native-process-id.txt; verify identity before any process control.

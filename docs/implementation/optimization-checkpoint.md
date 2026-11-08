@@ -1,5 +1,16 @@
 # GoIM optimization checkpoint
 
+## Alpha.9 follow-up
+
+- GoIM `codex/goim-optimization`, package source `8bec8bbc83f4eee99f7e40aa1ac39e71026f8296`. This supersedes the alpha.8 product checkpoint below. Windows startup entry `GoIM.lnk` and `Local-Pair.cmd` use `build/optimized`, now containing GoIM and `goim-snip` alpha.9. No client was started or stopped to install the binaries.
+- Changes: left titlebar logo, guarded native image picker, direct unlock typing and Enter, drawn classic emoji, automatic GoIM chat images, image viewer, docked chat files and splitters, profile presence/signature, browser share, standalone capture, and baseline legacy IPMSG. See `optimization-verification.md` and `imnet-gap-analysis.md` for validation and limits.
+- [Package CI 42434682464](https://github.com/Ezreal-byte/GoIM/actions/runs/42434682464) passed all six targets, including the legacy discovery regression, native Windows/X11 resizing, Windows three-process smoke and Linux race checks. Downloaded package SHA-256 hashes match the manifest. [Private alpha.9 draft](https://github.com/Ezreal-byte/GoIM/releases/tag/untagged-92b0f2a136945d446361) contains the six packages, checksums and notes. Local downloads: `dist/releases/alpha9`.
+- [Viva #155](https://github.com/vivaui/viva/pull/155), [#157](https://github.com/vivaui/viva/pull/157), [#170](https://github.com/vivaui/viva/pull/170) and [#172](https://github.com/vivaui/viva/pull/172) are Draft and green. [Issue #171](https://github.com/vivaui/viva/issues/171) and Draft #172 cover native content resizing. The application patch applies independently to its fixed baseline; the Draft also includes #170 for upstream CI and a test-only WASM fix.
+- Standalone [viva-snip](https://github.com/Ezreal-byte/viva-snip) has its own module, tests and license, in a private review repository. It uses unmodified Viva. Windows native screen capture was probed; macOS and Linux were built and their annotation UI was exercised offscreen.
+- Both earlier Codex review subtasks were interrupted. Main agent audited the pending compatibility and release changes, fixed a file replacement risk and verified the build. Installed 内网通 3.4 owns UDP/TCP 2425 on this PC. Original-client transfer acceptance is pending an isolated peer/second machine; do not infer it from IPMSG test fixtures.
+
+## Alpha.8 history
+
 User request: the November 7–8 optimization list in the current chat. Continue from the working trees and verification evidence, not the previous alpha.6 checkpoint.
 
 - Completed. GoIM working tree: `E:/GoIM/GoIM`, branch `codex/goim-optimization`, pushed to the private repository. Package source: `2441cdda0c00e0d9465e29bb364afae2afb1b33c`.
