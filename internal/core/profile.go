@@ -240,6 +240,12 @@ func (n *Node) updateProfile(name, path string, preview []byte, size int, signat
 		return err
 	}
 	n.broadcastProfile()
+	n.mu.Lock()
+	legacy := n.legacy
+	n.mu.Unlock()
+	if legacy != nil {
+		legacy.UpdateProfile(name, presence == domain.PresenceInvisible, presence == domain.PresenceAway || presence == domain.PresenceBusy)
+	}
 	return nil
 }
 

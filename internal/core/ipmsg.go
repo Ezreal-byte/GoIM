@@ -38,6 +38,8 @@ func (n *Node) startIPMSG(version string) {
 	}
 	service, err := ipmsgproto.Start(ipmsgproto.Config{
 		Host: host, Name: name, Version: version,
+		Hidden: s.Settings.Presence == domain.PresenceInvisible,
+		Away:   s.Settings.Presence == domain.PresenceAway || s.Settings.Presence == domain.PresenceBusy,
 		Callbacks: ipmsgproto.Callbacks{
 			Peer:         n.receiveLegacyPeer,
 			Text:         n.receiveLegacyText,
@@ -146,7 +148,7 @@ func (n *Node) receiveLegacyFiles(peerID string, packetNumber uint64, message st
 		conversationID := ensureDirect(s, peer)
 		packetHex := fmt.Sprintf("%x", packetNumber)
 		for _, attachment := range files {
-			if attachment.ID == 0 || attachment.Size < 0 || strings.TrimSpace(attachment.Name) == "" {
+			if attachment.Size < 0 || strings.TrimSpace(attachment.Name) == "" {
 				continue
 			}
 			fileID := legacyStableID("file", peerID, packetHex, fmt.Sprint(attachment.ID))

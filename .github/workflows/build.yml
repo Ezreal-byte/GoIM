@@ -69,6 +69,8 @@ jobs:
       - name: Offscreen UI screenshots
         env:
           GOIM_QA_SCREENSHOTS: ${{ github.workspace }}/GoIM/artifacts/screenshots
+          GOIM_CHAT_QA_SCREENSHOTS: ${{ github.workspace }}/GoIM/artifacts/screenshots/chat
+          GOIM_SNIP_SHOT_DIR: ${{ github.workspace }}/GoIM/artifacts/screenshots/snip
         run: |
           go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestSharePageScreenshots|TestChatLayoutScreenshotQA' -count=1 -timeout=180s
           go test -tags vivahead ./cmd/goim-snip -run '^TestEditorScreenshots$' -count=1 -timeout=60s

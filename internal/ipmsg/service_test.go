@@ -96,6 +96,9 @@ func TestServiceOffersAndServesResumableFile(t *testing.T) {
 	if text != "file caption" || len(files) != 1 || files[0].ID != fileID {
 		t.Fatalf("offer content = %q %+v", text, files)
 	}
+	service.mu.Lock()
+	service.peers[remoteID].addr.Port = port
+	service.mu.Unlock()
 	var resumed bytes.Buffer
 	_, err = service.DownloadFile(context.Background(), remoteID, packetNumber, fileID, int64(len(content)), 7, &resumed, nil)
 	if err != nil {

@@ -41,14 +41,16 @@ type Config struct {
 	Name      string
 	Version   string
 	Port      int
+	Hidden    bool
+	Away      bool
 	Callbacks Callbacks
 }
 
 type peerState struct {
-	peer Peer
-	addr *net.UDPAddr
-	seen time.Time
-	feiq bool
+	peer    Peer
+	addr    *net.UDPAddr
+	seen    time.Time
+	classic bool
 }
 
 type servingFile struct {
@@ -64,14 +66,22 @@ type fileKey struct {
 	file   uint32
 }
 
+type localProfile struct {
+	name         string
+	hidden, away bool
+}
+
+const goIMDiscoveryMarker = "\nGOIM:1\n"
+
 type Service struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	cfg    Config
-	udp    *net.UDPConn
-	tcp    net.Listener
-	packet atomic.Uint64
-	fileID atomic.Uint32
+	ctx     context.Context
+	cancel  context.CancelFunc
+	cfg     Config
+	udp     *net.UDPConn
+	tcp     net.Listener
+	packet  atomic.Uint64
+	fileID  atomic.Uint32
+	profile atomic.Pointer[localProfile]
 
 	mu    sync.Mutex
 	peers map[string]*peerState
@@ -99,6 +109,7 @@ func Start(cfg Config) (*Service, error) {
 	}
 	service.packet.Store(uint64(time.Now().Unix()))
 	service.fileID.Store(1)
+	service.profile.Store(&localProfile{name: cfg.Name, hidden: cfg.Hidden, away: cfg.Away})
 	service.tcp, _ = net.Listen("tcp4", fmt.Sprintf("0.0.0.0:%d", cfg.Port))
 	service.wg.Add(1)
 	go service.readUDP()
@@ -116,12 +127,25 @@ func Start(cfg Config) (*Service, error) {
 
 func (s *Service) FilesAvailable() bool { return s != nil && s.tcp != nil }
 
+func (s *Service) UpdateProfile(name string, hidden, away bool) {
+	old := s.profile.Swap(&localProfile{name: headerField(name), hidden: hidden, away: away})
+	if hidden {
+		if !old.hidden {
+			s.announce(commandExit)
+		}
+		return
+	}
+	s.announce(commandEntry)
+}
+
 func (s *Service) Close() {
 	if s == nil {
 		return
 	}
 	s.cancel()
-	s.announce(commandExit)
+	if !s.profile.Load().hidden {
+		s.announce(commandExit)
+	}
 	_ = s.udp.Close()
 	if s.tcp != nil {
 		_ = s.tcp.Close()
@@ -190,7 +214,7 @@ func (s *Service) DownloadFile(ctx context.Context, peerID string, packetNumber 
 		return "", errors.New("invalid IPMSG transfer range")
 	}
 	dialer := net.Dialer{Timeout: 8 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp4", net.JoinHostPort(state.addr.IP.String(), strconv.Itoa(s.cfg.Port)))
+	conn, err := dialer.DialContext(ctx, "tcp4", state.addr.String())
 	if err != nil {
 		return "", err
 	}
@@ -256,8 +280,8 @@ func (s *Service) sendFileMessage(state *peerState, number uint64, text, attachm
 		command |= optionFile
 	}
 	name := s.cfg.Name
-	if state.feiq {
-		// Classic FeiQ uses GBK even when a sender understands IPMSG UTF-8.
+	if state.classic {
+		// Older Chinese clients do not advertise UTF-8, or explicitly use GBK.
 		var err error
 		name, err = simplifiedchinese.GBK.NewEncoder().String(headerField(name))
 		if err != nil {
@@ -265,7 +289,7 @@ func (s *Service) sendFileMessage(state *peerState, number uint64, text, attachm
 		}
 		extra, err = simplifiedchinese.GBK.NewEncoder().String(extra)
 		if err != nil {
-			return errors.New("飞秋的旧版编码不支持此消息中的部分字符")
+			return errors.New("旧版兼容编码不支持此消息中的部分字符")
 		}
 		command &^= optionUTF8
 	}
@@ -294,24 +318,37 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 	if strings.EqualFold(message.Host, s.cfg.Host) {
 		return
 	}
+	if strings.Contains(message.Extra, goIMDiscoveryMarker) &&
+		(message.baseCommand() == commandEntry || message.baseCommand() == commandAnswer || message.baseCommand() == commandExit) {
+		return
+	}
 	id := peerID(message.Host, from.IP.String())
 	peer := Peer{ID: id, Name: message.Sender, Host: message.Host,
-		Address: net.JoinHostPort(from.IP.String(), strconv.Itoa(s.cfg.Port)),
+		Address: from.String(),
 		Online:  true, Away: message.has(optionAbsence)}
+	base := message.baseCommand()
+	if base == commandEntry || base == commandAnswer || base == commandAbsence {
+		if nickname, _ := decodeMessage(message.Extra, message.has(optionUTF8)); strings.TrimSpace(nickname) != "" {
+			peer.Name = nickname
+		}
+	}
 	s.mu.Lock()
 	state := s.peers[id]
 	if state == nil {
 		state = &peerState{addr: new(net.UDPAddr)}
 		s.peers[id] = state
 	}
-	if message.baseCommand() == commandExit {
+	if base == commandExit {
 		peer.Online = false
 	}
 	state.peer = peer
 	state.addr.IP = append(net.IP(nil), from.IP...)
-	state.addr.Port = s.cfg.Port
+	state.addr.Port = from.Port
 	state.seen = time.Now()
-	state.feiq = state.feiq || strings.HasPrefix(message.rawVersion, "1_lbt")
+	if base == commandEntry || base == commandAnswer || base == commandAbsence {
+		state.classic = !message.has(optionCapUTF8) && !message.has(optionUTF8)
+	}
+	state.classic = state.classic || strings.HasPrefix(message.rawVersion, "1_lbt")
 	s.mu.Unlock()
 	if s.cfg.Callbacks.Peer != nil {
 		s.cfg.Callbacks.Peer(peer)
@@ -338,8 +375,15 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 }
 
 func (s *Service) answer(state *peerState) {
+	profile := s.profile.Load()
+	if profile.hidden {
+		return
+	}
 	command := uint32(commandAnswer | optionCapUTF8 | optionFile)
-	extra := "\x00\nNN:" + headerField(s.cfg.Name) + "\n"
+	if profile.away {
+		command |= optionAbsence
+	}
+	extra := profile.name + "\x00\nNN:" + profile.name + goIMDiscoveryMarker
 	_ = s.sendPacket(state, packetString(s.nextPacket(), s.cfg.Name, s.cfg.Host, command, extra))
 }
 
@@ -347,9 +391,16 @@ func (s *Service) announce(command uint32) {
 	if s == nil || s.udp == nil {
 		return
 	}
-	flags := uint32(optionCapUTF8 | optionFile)
-	extra := "\x00\nNN:" + headerField(s.cfg.Name) + "\n"
-	packet := packetString(s.nextPacket(), s.cfg.Name, s.cfg.Host, command|flags, extra)
+	profile := s.profile.Load()
+	if profile.hidden && command != commandExit {
+		return
+	}
+	name, err := simplifiedchinese.GBK.NewEncoder().String(profile.name)
+	if err != nil {
+		name = "GoIM"
+	}
+	// Some classic clients only answer an entry with no capability flags.
+	packet := packetString(s.nextPacket(), s.cfg.Name, s.cfg.Host, command, name+"\x00"+goIMDiscoveryMarker)
 	for _, address := range broadcastAddresses(s.cfg.Port) {
 		_, _ = s.udp.WriteToUDP(packet, address)
 	}
@@ -395,7 +446,7 @@ func (s *Service) peer(id string) *peerState {
 	if state == nil || !state.peer.Online {
 		return nil
 	}
-	return &peerState{peer: state.peer, feiq: state.feiq, addr: &net.UDPAddr{
+	return &peerState{peer: state.peer, classic: state.classic, addr: &net.UDPAddr{
 		IP: append(net.IP(nil), state.addr.IP...), Port: state.addr.Port,
 	}}
 }

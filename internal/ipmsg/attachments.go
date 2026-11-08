@@ -21,10 +21,10 @@ func encodeAttachments(files []Attachment) string {
 	for _, file := range files {
 		name := strings.ReplaceAll(file.Name, ":", "::")
 		name = strings.ReplaceAll(name, "\a", "_")
-		encoded = append(encoded, fmt.Sprintf("%x:%s:%x:%x:%x",
+		encoded = append(encoded, fmt.Sprintf("%d:%s:%x:%x:%x:\a",
 			file.ID, name, file.Size, file.ModTime, file.Kind))
 	}
-	return strings.Join(encoded, "\a")
+	return strings.Join(encoded, "")
 }
 
 func decodeAttachments(value string) []Attachment {
@@ -41,12 +41,13 @@ func decodeAttachments(value string) []Attachment {
 		if len(fields) < 5 {
 			continue
 		}
-		id, errID := strconv.ParseUint(fields[0], 16, 64)
+		// Offer IDs are decimal; GETFILEDATA encodes the same ID in hex.
+		id, errID := strconv.ParseUint(fields[0], 10, 32)
 		size, errSize := strconv.ParseInt(fields[2], 16, 64)
 		mtime, _ := strconv.ParseInt(fields[3], 16, 64)
 		kind, errKind := strconv.ParseUint(fields[4], 16, 32)
-		name := strings.ReplaceAll(fields[1], "\x01", ":")
-		if errID != nil || errSize != nil || errKind != nil || size < 0 || name == "" {
+		name := decodeLegacyString([]byte(strings.ReplaceAll(fields[1], "\x01", ":")))
+		if errID != nil || errSize != nil || errKind != nil || kind&0xff != fileRegular || size < 0 || name == "" {
 			continue
 		}
 		files = append(files, Attachment{
@@ -69,10 +70,14 @@ func safeLegacyName(name string) string {
 	if name == "" || name == "." || name == ".." {
 		return "legacy-file"
 	}
-	if len([]rune(name)) > 180 {
+	const maxRunes = 180
+	if runes := []rune(name); len(runes) > maxRunes {
 		ext := filepath.Ext(name)
-		base := []rune(strings.TrimSuffix(name, ext))
-		name = string(base[:180-len([]rune(ext))]) + ext
+		if n := len([]rune(ext)); n < maxRunes {
+			name = string(runes[:maxRunes-n]) + ext
+		} else {
+			name = string(runes[:maxRunes])
+		}
 	}
 	return name
 }

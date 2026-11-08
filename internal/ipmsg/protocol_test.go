@@ -105,3 +105,20 @@ func TestParseFileRequestUsesHexFields(t *testing.T) {
 		t.Fatalf("request = %d/%d/%d", packet, file, offset)
 	}
 }
+
+func TestIPMSGAttachmentUsesDecimalOfferIDAndHexRequestID(t *testing.T) {
+	filename, err := simplifiedchinese.GBK.NewEncoder().String("报告.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := decodeAttachments("10:" + filename + ":f:1:1:\a0:first.bin:0:1:1:\a1:directory:0:1:2:\a")
+	if len(files) != 2 || files[0].ID != 10 || files[0].Name != "报告.txt" || files[0].Size != 15 || files[1].ID != 0 {
+		t.Fatalf("decoded attachment list: %+v", files)
+	}
+	if offer := encodeAttachments(files[:1]); !strings.HasPrefix(offer, "10:") || !strings.HasSuffix(offer, ":\a") {
+		t.Fatalf("incorrect IPMSG offer: %q", offer)
+	}
+	if name := safeLegacyName("a." + strings.Repeat("x", 200)); len([]rune(name)) != 180 {
+		t.Fatalf("long extension was not bounded: %q", name)
+	}
+}
