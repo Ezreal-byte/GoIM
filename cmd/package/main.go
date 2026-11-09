@@ -29,6 +29,8 @@ import (
 	"github.com/vivaui/viva/tools/winres"
 )
 
+const logoAssets = "internal/brand/assets"
+
 func run(name string, args ...string) error {
 	c := exec.Command(name, args...)
 	c.Stdout = os.Stdout
@@ -48,7 +50,11 @@ func build() error {
 	commit := flag.String("commit", "working-tree", "source commit")
 	framework := flag.String("framework", "", "override Viva source (defaults to the project pin)")
 	out := flag.String("out", "dist", "artifact directory")
+	stamp := flag.String("stamp-windows", "", "apply the Windows icon and metadata to an existing GoIM executable")
 	flag.Parse()
+	if *stamp != "" {
+		return stampWindowsExecutable(*stamp)
+	}
 	if *framework == "" {
 		raw, err := os.ReadFile("framework/viva-commit.txt")
 		if err != nil {
@@ -98,24 +104,15 @@ func build() error {
 	}
 	switch runtime.GOOS {
 	case "windows":
-		ico, _, err := winpkg.LoadIcon("internal/desktop/assets/icon.png")
-		if err != nil {
+		if err := stampWindowsExecutable(executable); err != nil {
 			return err
 		}
-		b, err := os.ReadFile(executable)
-		if err != nil {
-			return err
-		}
-		b, err = winres.Patch(b, ico, winres.Info{Name: "GoIM", Description: "GoIM LAN Messenger", Version: "0.1.0", Publisher: "Ezreal-byte", File: "GoIM.exe"})
-		if err != nil {
-			return err
-		}
-		if err = os.WriteFile(executable, b, 0755); err != nil {
+		if err := copyFile(filepath.Join(logoAssets, "goim.ico"), filepath.Join(staging, "GoIM.ico")); err != nil {
 			return err
 		}
 	case "darwin":
 		bundle := filepath.Join(staging, "GoIM.app")
-		_, err := appbundle.Assemble(appbundle.Options{Dest: bundle, Executable: executable, Icon: "internal/desktop/assets/icon.png", Info: appbundle.Info{Name: "GoIM", ID: "dev.goim.desktop", Version: "0.1.0", Executable: "GoIM", MinSystem: "13.0", Category: "public.app-category.social-networking", Copyright: "2026 Ezreal-byte"}})
+		_, err := appbundle.Assemble(appbundle.Options{Dest: bundle, Executable: executable, Icon: filepath.Join(logoAssets, "goim.icns"), Info: appbundle.Info{Name: "GoIM", ID: "dev.goim.desktop", Version: "0.1.0", Executable: "GoIM", MinSystem: "13.0", Category: "public.app-category.social-networking", Copyright: "2026 Ezreal-byte"}})
 		if err != nil {
 			return err
 		}
@@ -133,6 +130,17 @@ func build() error {
 		}
 		if err = os.Remove(executable); err != nil {
 			return err
+		}
+	case "linux":
+		if err := copyFile(filepath.Join(logoAssets, "goim.desktop"), filepath.Join(staging, "share", "applications", "dev.goim.desktop.desktop")); err != nil {
+			return err
+		}
+		for _, size := range []int{16, 24, 32, 48, 64, 128, 256, 512} {
+			source := filepath.Join(logoAssets, fmt.Sprintf("goim-%d.png", size))
+			dest := filepath.Join(staging, "share", "icons", "hicolor", fmt.Sprintf("%dx%d", size, size), "apps", "goim.png")
+			if err := copyFile(source, dest); err != nil {
+				return err
+			}
 		}
 	}
 	for _, p := range []string{"README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"} {
@@ -180,6 +188,22 @@ func build() error {
 	}
 	fmt.Print(sum)
 	return nil
+}
+
+func stampWindowsExecutable(path string) error {
+	ico, _, err := winpkg.LoadIcon(filepath.Join(logoAssets, "goim.ico"))
+	if err != nil {
+		return err
+	}
+	executable, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	executable, err = winres.Patch(executable, ico, winres.Info{Name: "GoIM", Description: "GoIM LAN Messenger", Version: "0.1.0", Publisher: "Ezreal-byte", File: "GoIM.exe"})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, executable, 0755)
 }
 
 func verifyArchitecture(path string) error {

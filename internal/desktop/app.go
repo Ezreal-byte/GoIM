@@ -1096,7 +1096,7 @@ func (u *UI) drawTitlebar(canvas *ui.Canvas, bounds ui.Rect) {
 			}
 		})
 	})
-	PaintGoIMMark(canvas, brand.Rect())
+	paintGoIMMark(canvas, brand.Rect(), titleMark)
 	canvas.Fill(ui.Rect{X: bounds.X, Y: bounds.Y + bounds.Height - 1, Width: bounds.Width, Height: 1}, u.palette.border)
 }
 

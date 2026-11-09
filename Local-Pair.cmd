@@ -1,7 +1,7 @@
 @echo off
 setlocal
-set "GOIM_EXE=%~dp0build\optimized\GoIM.exe"
-if not exist "%GOIM_EXE%" set "GOIM_EXE=%~dp0build\GoIM.exe"
+set "GOIM_EXE=%~dp0build\GoIM.exe"
+if not exist "%GOIM_EXE%" set "GOIM_EXE=%~dp0build\optimized\GoIM.exe"
 if not exist "%GOIM_EXE%" (
   echo Build or download the Windows package first. See README.md.
   pause

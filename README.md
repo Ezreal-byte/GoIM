@@ -22,6 +22,8 @@ Linux 解压运行 ./GoIM，需要 X11（Wayland 使用 XWayland）。macOS 解�
 
 Linux 中文界面需要系统 CJK 字体。Ubuntu/Debian 可安装 `fonts-noto-cjk`，以及 `libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers`。
 
+Linux 包含应用菜单图标。需要加入应用菜单时，将 `GoIM` 和 `goim-snip` 一起放入 `PATH` 上的同一目录，并将包内 `share/` 的内容复制到 `~/.local/share/`。
+
 默认数据在系统用户配置目录的 GoIM，文件在 Downloads/GoIM，可在设置中更改。设备身份私钥与本地聊天数据库保存在数据目录；备份时一起保存。
 
 ```powershell
@@ -41,6 +43,8 @@ go build -tags vivahead -o build/goim-headless.exe ./cmd/goim
 ```
 
 Windows 三独立进程端到端：scripts/smoke-headless.ps1。截图回归：设置 GOIM_QA_SCREENSHOTS 为输出目录后运行 go test ./internal/desktop -run TestShellScreenshotQA -count=1。CI 的 Linux 核心另外执行 race。
+
+黑白 Logo 母图和各尺寸位于 `internal/brand/assets/`。更新母图后，从仓库根目录运行 `go run ./cmd/assets` 生成 PNG、Windows ICO 和 macOS ICNS。
 
 ## 首版边界
 

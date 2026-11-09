@@ -9,7 +9,7 @@
 @media(prefers-color-scheme:dark){:root{--bg:#0f1421;--surface:#191f2e;--text:#eef2fd;--sub:#b4bfd5;--line:#303b50;--blue:#3b63df;--blue-hover:#3057d1;--soft:#233354;--soft-ink:#b9caff;--bad:#ffd0d5;--bad-bg:#49252e}}
 *{box-sizing:border-box}body{min-height:100vh;margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
 .top{background:var(--surface);border-bottom:1px solid var(--line)}.top>div{max-width:58rem;margin:auto;min-height:4.2rem;padding:.75rem clamp(1rem,4vw,2rem);display:flex;align-items:center;justify-content:space-between;gap:.65rem}
-.brand{display:flex;align-items:center;gap:.7rem;font-size:1.16rem;font-weight:760;letter-spacing:-.025em}.brand svg{width:34px;height:34px;flex:none}.tag,.pill{display:inline-flex;align-items:center;gap:.43rem;border-radius:999px;font-size:.75rem;font-weight:650;white-space:nowrap}.tag{padding:.28rem .64rem;border:1px solid var(--line);color:var(--sub)}.tag::before{content:"";width:.4rem;height:.4rem;background:#12a67f;border-radius:50%}
+.brand{display:flex;align-items:center;gap:.7rem;font-size:1.16rem;font-weight:760;letter-spacing:-.025em}.brand img{flex:none}.tag,.pill{display:inline-flex;align-items:center;gap:.43rem;border-radius:999px;font-size:.75rem;font-weight:650;white-space:nowrap}.tag{padding:.28rem .64rem;border:1px solid var(--line);color:var(--sub)}.tag::before{content:"";width:.4rem;height:.4rem;background:#12a67f;border-radius:50%}
 main{max-width:58rem;margin:clamp(1.45rem,6vw,4.6rem) auto;padding:0 clamp(1rem,4vw,2rem)}
 .intro{max-width:37rem;margin-bottom:1.3rem}.pill{background:var(--soft);color:var(--soft-ink);padding:.27rem .64rem}h1{font-size:clamp(1.8rem,5vw,2.85rem);letter-spacing:-.065em;line-height:1.12;margin:.62rem 0 .55rem}p{color:var(--sub);margin:0}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:1.1rem;overflow:hidden;box-shadow:0 12px 45px -34px #1d4ed8}
@@ -27,7 +27,7 @@ footer{display:flex;align-items:flex-start;gap:.45rem;margin:1.15rem 0 2.3rem}fo
 </head>
 <body>
 <header class="top"><div>
-  <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#2556d8"/><path d="M24 13v-2H8v10h2.5v4l4.5-4h9v-4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="16" r="1.5" fill="#fff"/><circle cx="24" cy="16" r="1.5" fill="#8ef4d9"/></svg>GoIM</div>
+  <div class="brand"><img src="{{logo}}" width="34" height="34" alt="">GoIM</div>
   <span class="tag">局域网直连</span>
 </div></header>
 <main>

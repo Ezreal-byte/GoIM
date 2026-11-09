@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GoIM
+Comment=LAN instant messaging
+Comment[zh_CN]=局域网即时通讯
+Exec=GoIM
+Icon=goim
+Terminal=false
+StartupWMClass=GoIM.Desktop
+Categories=Network;InstantMessaging;

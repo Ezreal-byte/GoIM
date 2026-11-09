@@ -163,6 +163,8 @@ jobs:
                       snip = next(n for n in names if n.endswith('/goim-snip.exe' if target[0]=='windows' else '/GoIM.app/Contents/MacOS/goim-snip'))
                       if target[0]=='darwin': assert (z.getinfo(snip).external_attr >> 16) & 0o111
                       if target[0]=='darwin': assert any(n.endswith('/GoIM.app/Contents/Info.plist') for n in names)
+                      if target[0]=='darwin': assert any(n.endswith('/GoIM.app/Contents/Resources/AppIcon.icns') for n in names)
+                      if target[0]=='windows': assert any(n.endswith('/GoIM.ico') for n in names)
               else:
                   with tarfile.open(p) as z:
                       names=z.getnames()
@@ -170,6 +172,8 @@ jobs:
                       exe=z.getmember(next(n for n in names if n.endswith('/GoIM')))
                       assert exe.mode & 0o111
                       assert z.getmember(next(n for n in names if n.endswith('/goim-snip'))).mode & 0o111
+                      assert any(n.endswith('/share/applications/dev.goim.desktop.desktop') for n in names)
+                      assert any(n.endswith('/share/icons/hicolor/256x256/apps/goim.png') for n in names)
               assert info['commit']==os.environ['SOURCE_COMMIT'] and (info['os'],info['arch'])==target
               frameworks.add(info['viva'])
               toolchains.add(info['go'])

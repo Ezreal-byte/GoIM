@@ -1,11 +1,8 @@
 package desktop
 
 import (
-	"bytes"
-	_ "embed"
 	"encoding/json"
 	"fmt"
-	"image/png"
 	"strconv"
 	"strings"
 
@@ -13,9 +10,6 @@ import (
 	"github.com/vivaui/viva/ui"
 	"goim/internal/domain"
 )
-
-//go:embed assets/icon.png
-var applicationIcon []byte
 
 type desktopRuntime struct {
 	ui                *UI
@@ -32,35 +26,12 @@ type desktopRuntime struct {
 	notificationError bool
 }
 
-func decodeApplicationIcon() (app.WindowIcon, error) {
-	picture, err := png.Decode(bytes.NewReader(applicationIcon))
-	if err != nil {
-		return app.WindowIcon{}, err
-	}
-	bounds := picture.Bounds()
-	pixels := make([]byte, bounds.Dx()*bounds.Dy()*4)
-	for y := 0; y < bounds.Dy(); y++ {
-		for x := 0; x < bounds.Dx(); x++ {
-			r, g, b, a := picture.At(x+bounds.Min.X, y+bounds.Min.Y).RGBA()
-			i := (y*bounds.Dx() + x) * 4
-			pixels[i] = uint8(r >> 8)
-			pixels[i+1] = uint8(g >> 8)
-			pixels[i+2] = uint8(b >> 8)
-			pixels[i+3] = uint8(a >> 8)
-		}
-	}
-	return app.WindowIcon{Size: bounds.Dx(), RGBA: pixels}, nil
-}
-
 // Run owns the native window and optional tray. The same lifecycle is exercised
 // by the vivahead runner without opening a real window or using the OS tray.
 func Run(backend domain.Backend) error {
 	shell := New(backend)
 	defer shell.Close()
-	icon, err := decodeApplicationIcon()
-	if err != nil {
-		return err
-	}
+	icon, statusIcon := windowIcon(), trayIcon()
 	r := &desktopRuntime{ui: shell, backend: backend, seen: make(map[string]bool), badge: -1}
 	for _, m := range shell.state.Messages {
 		r.seen[m.ID] = true
@@ -122,7 +93,7 @@ func Run(backend domain.Backend) error {
 		// invalidator to a native window. Wake once after binding to collect it.
 		shell.invalidator.Invalidate()
 		show := func() { window.Show(); shell.SetWindowVisible(true) }
-		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: "GoIM · 局域网即时通讯", Icon: icon.StatusIcon(32), OnClick: func(app.StatusClick) { show() }, Menu: func() []app.MenuItem {
+		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: "GoIM · 局域网即时通讯", Icon: statusIcon, OnClick: func(app.StatusClick) { show() }, Menu: func() []app.MenuItem {
 			return []app.MenuItem{{Title: "打开 GoIM", OnSelect: show}, {Separator: true}, {Title: "退出 GoIM", OnSelect: func() {
 				active := false
 				for _, t := range shell.state.Transfers {

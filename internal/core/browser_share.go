@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/skip2/go-qrcode"
+	"goim/internal/brand"
 	"goim/internal/domain"
 )
 
@@ -36,7 +37,10 @@ type shareLink struct {
 
 //go:embed share_page.html
 var sharePageHTML string
-var sharePage = template.Must(template.New("share").Parse(sharePageHTML))
+var shareLogo = template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(brand.PNG("goim-64")))
+var sharePage = template.Must(template.New("share").Funcs(template.FuncMap{
+	"logo": func() template.URL { return shareLogo },
+}).Parse(sharePageHTML))
 
 func randomToken() string {
 	var data [24]byte
@@ -336,7 +340,7 @@ func renderShare(w http.ResponseWriter, status int, data sharePageData) {
 }
 
 func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 	// Keep cross-origin requests free of the bearer URL without making a
 	// browser's same-origin form POST serialize its Origin as "null".
 	w.Header().Set("Referrer-Policy", "same-origin")

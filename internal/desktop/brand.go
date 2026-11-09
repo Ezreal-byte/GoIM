@@ -1,29 +1,53 @@
 package desktop
 
-import "github.com/vivaui/viva/ui"
+import (
+	"runtime"
 
-// The broken speech-bubble outline and two nodes form GoIM's LAN mark.
-var goIMBubble = ui.Icon{
-	ViewBox: 32, Stroke: 2, Cap: ui.CapRound, Join: ui.JoinRound,
-	Commands: []ui.PathCommand{
-		ui.MoveTo(24, 13), ui.LineTo(24, 11), ui.LineTo(8, 11),
-		ui.LineTo(8, 21), ui.LineTo(10.5, 21), ui.LineTo(10.5, 25),
-		ui.LineTo(15, 21), ui.LineTo(24, 21), ui.LineTo(24, 17),
-	},
+	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/ui"
+
+	"goim/internal/brand"
+)
+
+var (
+	titleMark = logoBitmap("goim-48")
+	lockMark  = logoBitmap("goim-96")
+)
+
+func logoBitmap(name string) ui.Bitmap {
+	picture := brand.Image(name)
+	size := picture.Bounds().Dx()
+	pixels := make([]byte, size*size*4)
+	for i := 0; i < len(pixels); i += 4 {
+		a := uint16(picture.Pix[i+3])
+		pixels[i] = byte((uint16(picture.Pix[i+2])*a + 127) / 255)
+		pixels[i+1] = byte((uint16(picture.Pix[i+1])*a + 127) / 255)
+		pixels[i+2] = byte((uint16(picture.Pix[i])*a + 127) / 255)
+		pixels[i+3] = byte(a)
+	}
+	return ui.Bitmap{Pix: pixels, Width: size, Height: size, Stride: size * 4, ID: 0x474F494D00000000 | uint64(size), Version: 1}
 }
 
-// PaintGoIMMark draws the shared GoIM application and sharing-page identity.
-// The mark is vector-based so title bars, lock screens, and generated icons all
-// stay visually consistent without loading an asset at paint time.
-func PaintGoIMMark(canvas *ui.Canvas, bounds ui.Rect) {
-	if bounds.Width <= 0 || bounds.Height <= 0 {
-		return
-	}
+func paintGoIMMark(canvas *ui.Canvas, bounds ui.Rect, mark ui.Bitmap) {
 	edge := min(bounds.Width, bounds.Height)
-	canvas.Rounded(bounds, edge*0.25, ui.RGB(37, 86, 216))
-	canvas.DrawIcon(goIMBubble, bounds, ui.RGB(255, 255, 255))
-	dot := edge * 3 / 32
-	x, y := edge*14.5/32, edge*14.5/32
-	canvas.Rounded(ui.Rect{X: bounds.X + x, Y: bounds.Y + y, Width: dot, Height: dot}, dot/2, ui.RGB(255, 255, 255))
-	canvas.Rounded(ui.Rect{X: bounds.X + x + edge*8/32, Y: bounds.Y + y, Width: dot, Height: dot}, dot/2, ui.RGB(142, 244, 217))
+	if edge > 0 {
+		canvas.DrawBitmap(mark, ui.Rect{
+			X: bounds.X + (bounds.Width-edge)/2, Y: bounds.Y + (bounds.Height-edge)/2,
+			Width: edge, Height: edge,
+		})
+	}
+}
+
+func windowIcon() app.WindowIcon {
+	picture := brand.Image("goim-256")
+	return app.WindowIcon{Size: picture.Bounds().Dx(), RGBA: picture.Pix}
+}
+
+func trayIcon() app.StatusIcon {
+	name, template := "goim-64", false
+	if runtime.GOOS == "darwin" {
+		name, template = "goim-tray-mac-44", true
+	}
+	picture := brand.Image(name)
+	return app.StatusIcon{Size: picture.Bounds().Dx(), RGBA: picture.Pix, Template: template}
 }

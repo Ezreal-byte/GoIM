@@ -8,6 +8,8 @@ try {
     } else {
         go build -trimpath -ldflags '-s -w -H=windowsgui' -o build/GoIM.exe ./cmd/goim
         if ($LASTEXITCODE -ne 0) { throw 'GoIM build failed' }
+        go run ./cmd/package --stamp-windows build/GoIM.exe
+        if ($LASTEXITCODE -ne 0) { throw 'GoIM icon resource update failed' }
         go build -trimpath -ldflags '-s -w -H=windowsgui' -o build/goim-snip.exe ./cmd/goim-snip
     }
     if ($LASTEXITCODE -ne 0) { throw 'GoIM build failed' }

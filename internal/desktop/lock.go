@@ -103,7 +103,7 @@ func (u *UI) drawLocked(canvas *ui.Canvas, bounds ui.Rect) {
 			})
 		})
 	})
-	PaintGoIMMark(canvas, logo.Rect())
+	paintGoIMMark(canvas, logo.Rect(), lockMark)
 	if !s.focused && !s.pending {
 		s.focused = canvas.Focused() == s.focus || canvas.Focused() == s.confirmID
 		if !s.focused {
