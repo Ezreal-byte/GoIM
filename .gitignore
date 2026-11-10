@@ -4,7 +4,8 @@
 /artifacts/
 *.log
 *.exe
-/scripts/worker-*.jsonl
-/scripts/worker-*.stderr.log
-/scripts/worker-*.stderr
+/docs/design/
+/docs/implementation/
+/design-qa.md
+/scripts/worker-*
 /*.lnk
