@@ -45,9 +45,9 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/Ezreal-byte/GoIM/releases/latest) 选择系统和架构。v0.1.0 提供六个压缩包，扩展格式会随使用新 CI 构建的版本提供。具体文件以对应版本的下载列表为准。
+从 [GitHub Releases](https://github.com/Ezreal-byte/GoIM/releases/latest) 选择系统和架构。v0.1.1 提供以下 14 个安装包和压缩包。
 
-| 系统 | 架构 | CI 打包格式 |
+| 系统 | 架构 | 下载格式 |
 | --- | --- | --- |
 | Windows | x64、ARM64 | `Setup.exe`、`.msi`、`.zip` |
 | macOS 13 或更新版本 | Intel、Apple 芯片 | `.dmg`、`.zip` |

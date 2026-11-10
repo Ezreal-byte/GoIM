@@ -45,9 +45,9 @@ Capture a region, resize it, annotate it, and copy at the original resolution. U
 
 ## Install
 
-Choose your platform and architecture from [GitHub Releases](https://github.com/Ezreal-byte/GoIM/releases/latest). v0.1.0 ships six archives. The additional formats below are built by the updated CI and become available with releases that use it.
+Choose your platform and architecture from [GitHub Releases](https://github.com/Ezreal-byte/GoIM/releases/latest). v0.1.1 ships 14 installers and archives in the formats below.
 
-| Platform | Architecture | CI package formats |
+| Platform | Architecture | Package formats |
 | --- | --- | --- |
 | Windows | x64, ARM64 | `Setup.exe`, `.msi`, `.zip` |
 | macOS 13 or later | Intel, Apple silicon | `.dmg`, `.zip` |
