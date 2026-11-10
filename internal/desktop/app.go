@@ -94,6 +94,8 @@ type profileState struct {
 	open      bool
 	nickname  flex.Field
 	signature flex.Field
+	details   [5]flex.Field
+	gender    int
 	presence  domain.Presence
 	avatar    string
 	err       string
@@ -223,6 +225,8 @@ type appIDs struct {
 	profileClose       ui.ID
 	profileField       ui.ID
 	profileSignature   ui.ID
+	profileDetails     [5]ui.ID
+	profileGender      ui.Scope
 	profilePresence    ui.Scope
 	profileChooseImage ui.ID
 	profileSave        ui.ID
@@ -1001,6 +1005,10 @@ func (u *UI) initIDs() {
 	u.ids.profileClose = u.tree.ID(u.ids.dialog, "profile-close")
 	u.ids.profileField = u.tree.ID(u.ids.dialog, "profile-nickname")
 	u.ids.profileSignature = u.tree.ID(u.ids.dialog, "profile-signature")
+	for i, name := range profileDetailNames {
+		u.ids.profileDetails[i] = u.tree.ID(u.ids.dialog, "profile-"+name)
+	}
+	u.ids.profileGender = u.tree.Sub(u.ids.dialog, u.tree.Name("profile-gender"))
 	u.ids.profilePresence = u.tree.Sub(u.ids.dialog, u.tree.Name("profile-presence"))
 	u.ids.profileChooseImage = u.tree.ID(u.ids.dialog, "profile-choose-image")
 	u.ids.profileSave = u.tree.ID(u.ids.dialog, "profile-save")
@@ -1628,6 +1636,9 @@ func (u *UI) contactRow(f *flex.Frame, peer domain.Peer) {
 					f.Text(peer.Name).FontSize(14).Weight(ui.WeightMedium).Ellipsis()
 				})
 				subtitle := peerPresenceLabel(peer)
+				if peer.Transport == "ipmsg" {
+					subtitle += " · " + i18n.T("旧版兼容")
+				}
 				if peer.Signature != "" {
 					subtitle += " · " + peer.Signature
 				} else if peer.VisibleOnline() && peer.Address != "" {
@@ -2418,6 +2429,12 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 		&u.nicknameField, &u.fileSearch)(context); input != nil {
 		return input
 	}
+	if u.profile.open {
+		details := &u.profile.details
+		if input := flex.Fields(&details[0], &details[1], &details[2], &details[3], &details[4])(context); input != nil {
+			return input
+		}
+	}
 	if u.panelInput != nil {
 		return u.panelInput(context)
 	}
@@ -2543,8 +2560,11 @@ func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
 }
 
 func (u *UI) onShortcut(event ui.KeyEvent) ui.EventResult {
-	if u.lockVisible() {
-		return ui.EventResult{Handled: true}
+	if u.lockVisible() || (u.section == sectionSettings && u.panels.settingsTab == panelSettingsSecurity &&
+		u.panels.settingsExtra.isPasswordField(event.Target)) {
+		// Viva offers plain printable keys here before native text input.
+		// Skip application shortcuts without consuming the editor's keys.
+		return ui.EventResult{}
 	}
 	if result, handled := u.chatOverlayShortcut(event); handled {
 		return result

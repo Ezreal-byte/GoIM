@@ -97,12 +97,16 @@ func TestAttachmentsSupportColonAndControlSafeName(t *testing.T) {
 }
 
 func TestParseFileRequestUsesHexFields(t *testing.T) {
-	packet, file, offset, err := parseFileRequest("a:b:10")
-	if err != nil {
-		t.Fatal(err)
+	for _, request := range []string{"a:b:10", "a:b:10:"} {
+		packet, file, offset, err := parseFileRequest(request)
+		if err != nil || packet != 10 || file != 11 || offset != 16 {
+			t.Fatalf("request %q = %d/%d/%d, %v", request, packet, file, offset, err)
+		}
 	}
-	if packet != 10 || file != 11 || offset != 16 {
-		t.Fatalf("request = %d/%d/%d", packet, file, offset)
+	for _, request := range []string{"a:b:", "a:b:10::", "a:b:10:11"} {
+		if _, _, _, err := parseFileRequest(request); err == nil {
+			t.Fatalf("accepted invalid request %q", request)
+		}
 	}
 }
 
@@ -111,8 +115,8 @@ func TestIPMSGAttachmentUsesDecimalOfferIDAndHexRequestID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := decodeAttachments("10:" + filename + ":f:1:1:\a0:first.bin:0:1:1:\a1:directory:0:1:2:\a")
-	if len(files) != 2 || files[0].ID != 10 || files[0].Name != "报告.txt" || files[0].Size != 15 || files[1].ID != 0 {
+	files := decodeAttachments("10:" + filename + ":f:1:1:\a0:first.bin:0:1:1:\a1:directory:0:1:2:\a11:clipboard.png:3:1:20:8=0:\a")
+	if len(files) != 3 || files[0].ID != 10 || files[0].Name != "报告.txt" || files[0].Size != 15 || files[1].ID != 0 || files[2].Kind != fileClipboard {
 		t.Fatalf("decoded attachment list: %+v", files)
 	}
 	if offer := encodeAttachments(files[:1]); !strings.HasPrefix(offer, "10:") || !strings.HasSuffix(offer, ":\a") {

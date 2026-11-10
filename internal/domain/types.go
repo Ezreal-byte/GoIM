@@ -13,9 +13,21 @@ type Peer struct {
 	Online          bool
 	LastSeen        time.Time
 	PublicKey       []byte
-	Signature       string   `json:",omitempty"`
-	Presence        Presence `json:",omitempty"`
-	Transport       string   `json:",omitempty"` // empty for GoIM TLS; "ipmsg" for IP Messenger-family peers
+	Signature       string         `json:",omitempty"`
+	Presence        Presence       `json:",omitempty"`
+	Details         ProfileDetails `json:",omitzero"`
+	Version         string         `json:",omitempty"`
+	Transport       string         `json:",omitempty"` // empty for GoIM TLS; "ipmsg" for IP Messenger-family peers
+}
+
+// ProfileDetails contains optional information shared with connected GoIM peers.
+type ProfileDetails struct {
+	Gender     string `json:",omitempty"` // empty, male, female
+	Company    string `json:",omitempty"`
+	Department string `json:",omitempty"`
+	Phone      string `json:",omitempty"`
+	Mobile     string `json:",omitempty"`
+	Email      string `json:",omitempty"`
 }
 
 type Presence string
@@ -158,6 +170,7 @@ type Settings struct {
 	Nickname             string
 	Avatar               string
 	Signature            string
+	ProfileDetails       ProfileDetails `json:",omitzero"`
 	Presence             Presence
 	Background           string
 	BackgroundShade      int
@@ -223,6 +236,7 @@ type State struct {
 	DeviceShare    DeviceShare   `json:"-"`
 	ShareFeedback  ShareFeedback `json:"-"`
 	ListenAddress  string
+	LocalIP        string `json:"-"`
 	Version        string
 	Revision       uint64
 	GroupNicknames []GroupNickname
@@ -364,6 +378,7 @@ type Command struct {
 	AvatarBGRA     []byte // optional immutable preview pixels in premultiplied BGRA
 	AvatarSize     int
 	Signature      string
+	ProfileDetails *ProfileDetails
 	Presence       Presence
 	Request        uint64
 }

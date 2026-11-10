@@ -128,6 +128,7 @@ func (n *Node) discoveryLoop() {
 			p.Avatar = ""
 			// Keep the signed announcement compatible with previous clients.
 			p.Signature, p.Presence = "", ""
+			p.Details, p.Version = domain.ProfileDetails{}, ""
 			p.Address = n.advertisedAddress()
 			p.RecallSupported = false
 			a := announcement{Version: protocolVersion, Peer: p}

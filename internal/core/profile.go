@@ -186,10 +186,10 @@ func (n *Node) setProfile(name, path string) error {
 	return n.setProfilePixels(name, path, nil, 0)
 }
 func (n *Node) setProfilePixels(name, path string, preview []byte, size int) error {
-	return n.updateProfile(name, path, preview, size, "", "")
+	return n.updateProfile(name, path, preview, size, "", "", nil)
 }
 
-func (n *Node) updateProfile(name, path string, preview []byte, size int, signature string, presence domain.Presence) error {
+func (n *Node) updateProfile(name, path string, preview []byte, size int, signature string, presence domain.Presence, details *domain.ProfileDetails) error {
 	name = strings.TrimSpace(name)
 	if name == "" || utf8.RuneCountInString(name) > 40 {
 		return errors.New("昵称需为 1 至 40 个字符")
@@ -201,6 +201,18 @@ func (n *Node) updateProfile(name, path string, preview []byte, size int, signat
 	signature = strings.TrimSpace(signature)
 	if !validProfileDetails(signature, presence, false) {
 		return errors.New("签名最多 80 个字符，且需选择有效的在线状态")
+	}
+	profile := s.Settings.ProfileDetails
+	if details != nil {
+		profile = *details
+		profile.Company = strings.TrimSpace(profile.Company)
+		profile.Department = strings.TrimSpace(profile.Department)
+		profile.Phone = strings.TrimSpace(profile.Phone)
+		profile.Mobile = strings.TrimSpace(profile.Mobile)
+		profile.Email = strings.TrimSpace(profile.Email)
+		if !validContactDetails(profile) {
+			return errors.New("个人资料字段需为单行，最多 80 个字符")
+		}
 	}
 	avatar := s.Settings.Avatar
 	if path != "" && path != avatar {
@@ -233,6 +245,7 @@ func (n *Node) updateProfile(name, path string, preview []byte, size int, signat
 		p.State.Settings.Avatar = avatar
 		p.State.Self.Avatar = avatar
 		p.State.Settings.Signature, p.State.Self.Signature = signature, signature
+		p.State.Settings.ProfileDetails, p.State.Self.Details = profile, profile
 		p.State.Settings.Presence, p.State.Self.Presence = presence, presence
 		p.State.Notice = "个人资料已保存"
 		return nil
@@ -247,6 +260,24 @@ func (n *Node) updateProfile(name, path string, preview []byte, size int, signat
 		legacy.UpdateProfile(name, presence == domain.PresenceInvisible, presence == domain.PresenceAway || presence == domain.PresenceBusy)
 	}
 	return nil
+}
+
+func validContactDetails(details domain.ProfileDetails) bool {
+	switch details.Gender {
+	case "", "male", "female":
+	default:
+		return false
+	}
+	for _, value := range [...]string{details.Company, details.Department, details.Phone, details.Mobile, details.Email} {
+		if !validProfileLine(value, 80) {
+			return false
+		}
+	}
+	return true
+}
+
+func validProfileLine(value string, maxRunes int) bool {
+	return utf8.ValidString(value) && utf8.RuneCountInString(value) <= maxRunes && !strings.ContainsAny(value, "\r\n\x00")
 }
 
 func validProfileDetails(signature string, presence domain.Presence, remote bool) bool {
@@ -267,7 +298,7 @@ func validProfileDetails(signature string, presence domain.Presence, remote bool
 }
 func (n *Node) receiveProfile(peer string, e envelope) error {
 	if e.Peer.ID != peer || len(e.Peer.Name) > 160 || strings.TrimSpace(e.Peer.Name) == "" ||
-		!validProfileDetails(e.Peer.Signature, e.Peer.Presence, true) {
+		!validProfileDetails(e.Peer.Signature, e.Peer.Presence, true) || !validContactDetails(e.Peer.Details) || !validProfileLine(e.Peer.Version, 40) {
 		return errors.New("联系人资料无效")
 	}
 	avatar := ""
@@ -282,6 +313,7 @@ func (n *Node) receiveProfile(peer string, e envelope) error {
 		if i := peerIndex(s, peer); i >= 0 {
 			s.Peers[i].Name = e.Peer.Name
 			s.Peers[i].Signature, s.Peers[i].Presence = e.Peer.Signature, e.Peer.Presence
+			s.Peers[i].Details, s.Peers[i].Version = e.Peer.Details, e.Peer.Version
 			if avatar != "" {
 				s.Peers[i].Avatar = avatar
 			}

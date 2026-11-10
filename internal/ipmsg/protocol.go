@@ -14,9 +14,9 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
-const (
-	defaultPort = 2425
+const DefaultPort = 2425
 
+const (
 	commandEntry    = 0x00000001
 	commandExit     = 0x00000002
 	commandAnswer   = 0x00000003
@@ -24,7 +24,6 @@ const (
 	commandSend     = 0x00000020
 	commandReceived = 0x00000021
 	commandGetFile  = 0x00000060
-	commandRelease  = 0x00000061
 
 	optionAbsence   = 0x00000100
 	optionSendCheck = 0x00000100
@@ -33,7 +32,8 @@ const (
 	optionCapUTF8   = 0x01000000
 	optionBroadcast = 0x00000400
 
-	fileRegular = 0x00000001
+	fileRegular   = 0x00000001
+	fileClipboard = 0x00000020
 )
 
 type packet struct {
@@ -46,6 +46,8 @@ type packet struct {
 	rawVersion string
 }
 
+func (p packet) isNeiwangtong() bool { return strings.EqualFold(p.rawVersion, "1@shiyeline") }
+
 func parsePacket(data []byte) (packet, error) {
 	trimmed := bytes.TrimRight(data, "\x00\r\n")
 	parts := bytes.SplitN(trimmed, []byte{':'}, 6)
@@ -54,7 +56,8 @@ func parsePacket(data []byte) (packet, error) {
 	}
 	rawVersion := string(parts[0])
 	versionText := rawVersion
-	if strings.HasPrefix(rawVersion, "1_lbt") && len(rawVersion) <= 512 {
+	if strings.EqualFold(rawVersion, "1@shiyeline") ||
+		strings.HasPrefix(rawVersion, "1_lbt") && len(rawVersion) <= 512 {
 		versionText = "1"
 	}
 	version, err := strconv.Atoi(versionText)

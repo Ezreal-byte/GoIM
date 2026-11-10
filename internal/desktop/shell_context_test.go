@@ -568,12 +568,14 @@ func TestRailLockEntryUsesLockSetupAndBlocksTheShell(t *testing.T) {
 		}
 		requireShellLayout(t, harness.snapshot())
 
-		harness.typeInto(harness.ui.lockUI.focus, "secret1")
-		harness.typeInto(harness.ui.lockUI.confirmID, "secret1")
-		harness.clickID(harness.ui.lockUI.submit)
+		typePasswordKeys(t, harness, harness.ui.lockUI.focus, "Pass-123!")
+		typePasswordKeys(t, harness, harness.ui.lockUI.confirmID, "Pass-123!")
+		if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
+			t.Fatal(err)
+		}
 		harness.settle()
 		command, ok := findShellCommand(harness.backend.commandLog(), domain.SetLockPassword)
-		if !ok || command.Text != "secret1" || !command.Bool {
+		if !ok || command.Text != "Pass-123!" || !command.Bool {
 			t.Fatalf("lock-password command = %+v", command)
 		}
 	})
@@ -605,6 +607,58 @@ func TestRailLockEntryUsesLockSetupAndBlocksTheShell(t *testing.T) {
 			t.Fatalf("lock request state = %+v, command = %+v", harness.ui.lockUI, command)
 		}
 	})
+}
+
+func typePasswordKeys(t *testing.T, harness *shellTestHarness, field ui.ID, value string) {
+	t.Helper()
+	harness.clickID(field)
+	for _, char := range value {
+		if err := harness.driver.KeyDown(ui.KeyUnknown, string(char)); err != nil {
+			t.Fatal(err)
+		}
+		if err := harness.driver.KeyUp(ui.KeyUnknown, string(char)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if editor := harness.snapshot().Editor; editor == nil || !editor.Secure {
+		t.Fatal("password input lost its secure editor")
+	}
+}
+
+func TestPasswordKeysInSecuritySettingsAndUnlock(t *testing.T) {
+	state := shellMinimalState(t)
+	state.Settings.HasLockPassword = true
+	for i := range state.Settings.Shortcuts {
+		if state.Settings.Shortcuts[i].Action == shortcutActionQuickFind {
+			state.Settings.Shortcuts[i].Keys = "P"
+		}
+	}
+	h := newShellTestHarness(t, state)
+	h.clickID(h.ui.ids.navSettings)
+	h.clickID(h.ui.panels.ids.settingsCategories.At(int(panelSettingsSecurity)))
+	fields := &h.ui.panels.settingsExtra
+	typePasswordKeys(t, h, fields.passwordOld, "Pass-123!")
+	typePasswordKeys(t, h, fields.passwordNew, "Next-456?")
+	typePasswordKeys(t, h, fields.passwordRepeat, "Next-456?")
+	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	change, ok := findShellCommand(h.backend.commandLog(), domain.SetLockPassword)
+	if !ok || change.Password != "Pass-123!" || change.Text != "Next-456?" {
+		t.Fatal("typed password change did not submit both values")
+	}
+
+	state.Locked = true
+	state.Revision++
+	h.publish(state)
+	typePasswordKeys(t, h, h.ui.lockUI.focus, "Next-456?")
+	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	unlock, ok := findShellCommand(h.backend.commandLog(), domain.UnlockApp)
+	if !ok || unlock.Password != "Next-456?" {
+		t.Fatal("typed password did not reach the unlock command")
+	}
 }
 
 func writeShellTestPNG(t *testing.T, name string, width, height int) string {

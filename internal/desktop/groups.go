@@ -3,6 +3,7 @@ package desktop
 import (
 	"errors"
 	"goim/internal/i18n"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -272,8 +273,11 @@ func (u *UI) drawMemberProfile(canvas *ui.Canvas, viewport ui.Rect) {
 		return
 	}
 	group := u.state.Group(u.state.Conversation(u.selected).GroupID)
-	name := u.groupMemberName(group.ID, peer.ID)
-	role := i18n.T("群成员")
+	inGroup := group.ID != "" && slices.Contains(group.Members, peer.ID)
+	name, role := peer.Name, ""
+	if inGroup {
+		name, role = u.groupMemberName(group.ID, peer.ID), i18n.T("群成员")
+	}
 	if peer.ID == group.OwnerID {
 		role = i18n.T("群主")
 	}
@@ -283,13 +287,34 @@ func (u *UI) drawMemberProfile(canvas *ui.Canvas, viewport ui.Rect) {
 			role = i18n.T("我")
 		}
 	}
+	type profileRow struct{ label, value string }
+	var rows [8]profileRow
+	count := 0
+	add := func(label, value string) {
+		if value != "" {
+			rows[count] = profileRow{i18n.T(label), value}
+			count++
+		}
+	}
+	add("个性签名", peer.Signature)
+	if gender := slices.Index(profileGenderValues[:], peer.Details.Gender); gender > 0 {
+		add("性别", i18n.T(profileGenderLabels[gender]))
+	}
+	for i, value := range profileDetailValues(peer.Details) {
+		add(profileDetailLabels[i], value)
+	}
+	add("版本", peer.Version)
 	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
 		Layer: 74, Scope: u.ids.memberProfileScope, DismissID: u.ids.memberProfileDismiss,
 		CloseID: u.ids.memberProfileClose, InitialFocusID: u.ids.memberProfileTalk,
-		ContentSize: ui.Size{Width: 460}, FitBody: true, BodyHeight: 164,
+		ContentSize: ui.Size{Width: 460}, FitBody: true, BodyHeight: 164 + float32(count)*42,
 		ButtonSize: components.ButtonSizeSmall,
 	})
-	layout := dialog.Begin(i18n.T("成员资料"), i18n.T("群聊中的公开信息"))
+	title, description := i18n.T("联系人资料"), ""
+	if inGroup {
+		title, description = i18n.T("成员资料"), i18n.T("群聊中的公开信息")
+	}
+	layout := dialog.Begin(title, description)
 	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
 		f.Column().Fill().Gap(12).Children(func() {
 			f.Row().Items(flex.Center).Gap(13).Children(func() {
@@ -300,13 +325,21 @@ func (u *UI) drawMemberProfile(canvas *ui.Canvas, viewport ui.Rect) {
 					if peerOnline(u, peer.ID) {
 						status = i18n.T("在线")
 					}
-					f.Text(status + " · " + role).FontSize(11).Muted()
+					if role != "" {
+						status += " · " + role
+					}
+					f.Text(status).FontSize(11).Muted()
 				})
 			})
 			f.Divider()
-			u.fileInfoRow(f, i18n.T("群聊"), group.Name)
+			if inGroup {
+				u.fileInfoRow(f, i18n.T("群聊"), group.Name)
+			}
 			u.fileInfoRow(f, i18n.T("联系人分组"), defaultIfEmpty(peer.ContactGroup, i18n.T("未分组")))
 			u.fileInfoRow(f, i18n.T("设备地址"), defaultIfEmpty(peer.Address, i18n.T("未报告地址")))
+			for _, row := range rows[:count] {
+				u.fileInfoRow(f, row.label, row.value)
+			}
 		})
 	})
 	dialog.Actions(layout,
@@ -1099,7 +1132,7 @@ func (u *UI) drawConnectDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
 		Layer: 70, Scope: u.ids.connectScope, DismissID: u.ids.connectDismiss,
 		CloseID: u.ids.connectClose, InitialFocusID: u.ids.connectField,
-		ContentSize: ui.Size{Width: 500}, FitBody: true, BodyHeight: 108,
+		ContentSize: ui.Size{Width: 500}, FitBody: true, BodyHeight: 114,
 		ButtonSize: components.ButtonSizeSmall,
 	})
 	layout := dialog.Begin(i18n.T("手动连接"), i18n.T("输入对方设备地址。连接成功后，对端联系人会出现在列表中。"))
@@ -1109,8 +1142,8 @@ func (u *UI) drawConnectDialog(canvas *ui.Canvas, viewport ui.Rect) {
 		f.Column().Fill().Gap(8).Children(func() {
 			f.Text(i18n.T("设备地址")).FontSize(12).Weight(ui.WeightMedium)
 			connect = f.Field(&u.connectField, u.ids.connectField, i18n.T("设备地址"),
-				i18n.T("例如 192.168.1.12:7331")).Height(38)
-			f.Text(i18n.T("地址只保存在本机连接记录中。")).FontSize(10.5).Muted()
+				i18n.T("例如 192.168.1.12:2425")).Height(38)
+			f.Paragraph(i18n.T("连接内网通或飞秋时，请使用对方的 IPv4 地址和端口 2425。"), 2).FontSize(11).Muted()
 			if u.state.Error != "" {
 				f.Text(u.state.Error).FontSize(11).Color(u.palette.danger).MaxLines(2)
 			}

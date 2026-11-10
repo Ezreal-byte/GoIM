@@ -37,7 +37,7 @@ func writeExtraTestPNG(t *testing.T, name string) string {
 }
 
 func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
-	harness := newShellTestHarness(t, shellTestState(t))
+	harness := newShellTestHarnessAtSize(t, shellTestState(t), 1000, 700)
 	avatar := writeExtraTestPNG(t, "头像.png")
 	if err := harness.driver.QueueOpenFiles([]string{avatar}, nil); err != nil {
 		t.Fatal(err)
@@ -56,6 +56,9 @@ func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
 	if err := harness.driver.Type("新昵称"); err != nil {
 		t.Fatal(err)
 	}
+	harness.clickID(harness.ui.ids.profileGender.At(2))
+	harness.typeInto(harness.ui.ids.profileDetails[0], "示例单位")
+	harness.typeInto(harness.ui.ids.profileDetails[4], "test@example.com")
 	harness.clickID(harness.ui.ids.profileChooseImage)
 	if harness.ui.profile.avatar != avatar {
 		t.Fatalf("profile avatar = %q, want %q", harness.ui.profile.avatar, avatar)
@@ -76,6 +79,10 @@ func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
 	command := harness.lastCommand()
 	if command.Kind != domain.SetProfile || command.Name != "新昵称" || command.Value != avatar {
 		t.Fatalf("profile command = %+v", command)
+	}
+	if details := command.ProfileDetails; details == nil || details.Gender != "female" ||
+		details.Company != "示例单位" || details.Email != "test@example.com" {
+		t.Fatal("profile details did not reach the save command")
 	}
 	if harness.ui.profile.open {
 		t.Fatal("profile editor stayed open after saving")

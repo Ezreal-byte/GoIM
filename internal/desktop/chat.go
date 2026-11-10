@@ -60,6 +60,9 @@ func (u *UI) drawChatSurface(canvas *ui.Canvas, bounds ui.Rect, conversation dom
 	if conversation.ID == "" {
 		u.chatView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
 			f.Column().Fill().Children(func() {
+				if u.state.Error != "" {
+					u.drawChatNotice(f)
+				}
 				u.drawChatEmpty(f)
 			})
 		})

@@ -154,7 +154,8 @@ func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
 	} else {
 		hello.Peer.Address = conn.RemoteAddr().String()
 	}
-	if len(hello.Peer.Name) > 160 || !validProfileDetails(hello.Peer.Signature, hello.Peer.Presence, true) {
+	if len(hello.Peer.Name) > 160 || !validProfileDetails(hello.Peer.Signature, hello.Peer.Presence, true) ||
+		!validContactDetails(hello.Peer.Details) || !validProfileLine(hello.Peer.Version, 40) {
 		conn.Close()
 		return
 	}
@@ -272,21 +273,16 @@ func (n *Node) flushPeer(peer string) {
 	})
 	if legacy {
 		var done []pending
-		remote := make(map[string]legacyRemote)
 		for _, p := range list {
-			r, actual, err := n.legacyPending(peer, p)
-			if err != nil {
+			if err := n.legacyPending(peer, p); err != nil {
 				break
-			}
-			if actual {
-				remote[p.Envelope.ID] = r
 			}
 			done = append(done, p)
 		}
-		n.flushMu.Unlock()
 		if len(done) != 0 {
-			_ = n.legacyCompleted(peer, done, remote)
+			_ = n.legacyCompleted(done)
 		}
+		n.flushMu.Unlock()
 		return
 	}
 	for _, p := range list {

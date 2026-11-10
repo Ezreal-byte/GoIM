@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,9 +23,25 @@ import (
 
 const legacyIPMSG = "ipmsg"
 
-type legacyRemote struct {
-	packet uint64
-	file   uint32
+func (n *Node) connectLegacy(address string) error {
+	target, err := netip.ParseAddrPort(address)
+	if err != nil || !target.Addr().Unmap().Is4() {
+		return errors.New("旧版兼容连接需要 IPv4 地址，例如 192.168.1.20:2425")
+	}
+	n.mu.Lock()
+	service := n.legacy
+	n.mu.Unlock()
+	if service == nil {
+		return errors.New("旧版兼容服务未启动，请检查 UDP 2425 是否可用")
+	}
+	if err := service.Probe(n.ctx, target); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("旧版设备 %s 未回复 UDP 探测，请检查客户端互通设置和防火墙", target)
+		}
+		return fmt.Errorf("连接旧版设备 %s 失败: %w", target, err)
+	}
+	n.notice("已连接旧版设备")
+	return nil
 }
 
 func (n *Node) startIPMSG(version string) {
@@ -36,14 +54,24 @@ func (n *Node) startIPMSG(version string) {
 	if name == "" {
 		name = "GoIM"
 	}
+	var bind netip.Addr
+	if address, ok := n.listener.Addr().(*net.TCPAddr); ok {
+		ip := address.AddrPort().Addr().Unmap()
+		if ip.Is4() && !ip.IsUnspecified() {
+			bind = ip
+		}
+	}
 	service, err := ipmsgproto.Start(ipmsgproto.Config{
 		Host: host, Name: name, Version: version,
-		Hidden: s.Settings.Presence == domain.PresenceInvisible,
-		Away:   s.Settings.Presence == domain.PresenceAway || s.Settings.Presence == domain.PresenceBusy,
+		BindIP:           bind,
+		DisableBroadcast: !n.discovery || s.Settings.DisableAutoDiscovery,
+		Hidden:           s.Settings.Presence == domain.PresenceInvisible,
+		Away:             s.Settings.Presence == domain.PresenceAway || s.Settings.Presence == domain.PresenceBusy,
 		Callbacks: ipmsgproto.Callbacks{
 			Peer:         n.receiveLegacyPeer,
 			Text:         n.receiveLegacyText,
 			Files:        n.receiveLegacyFiles,
+			FilePrepared: n.prepareLegacyOffer,
 			FileProgress: n.receiveLegacyProgress,
 			AllowFile: func(transferID string) bool {
 				n.mu.Lock()
@@ -147,6 +175,7 @@ func (n *Node) receiveLegacyFiles(peerID string, packetNumber uint64, message st
 		}
 		conversationID := ensureDirect(s, peer)
 		packetHex := fmt.Sprintf("%x", packetNumber)
+		receivedAt := time.Now()
 		for _, attachment := range files {
 			if attachment.Size < 0 || strings.TrimSpace(attachment.Name) == "" {
 				continue
@@ -160,10 +189,8 @@ func (n *Node) receiveLegacyFiles(peerID string, packetNumber uint64, message st
 			file := domain.File{
 				ID: fileID, Name: attachment.Name, Size: attachment.Size,
 				Hash: strings.Repeat("0", 64), MIME: mediaType, SenderID: peerID,
-				ConversationID: conversationID, CreatedAt: time.Unix(attachment.ModTime, 0),
-			}
-			if file.CreatedAt.IsZero() || file.CreatedAt.Unix() <= 0 {
-				file.CreatedAt = time.Now()
+				// The source modification time is unrelated to chat order.
+				ConversationID: conversationID, CreatedAt: receivedAt,
 			}
 			if !validFile(file) {
 				continue
@@ -175,7 +202,7 @@ func (n *Node) receiveLegacyFiles(peerID string, packetNumber uint64, message st
 			s.Transfers = append(s.Transfers, domain.Transfer{
 				ID: transferID, FileID: fileID, ConversationID: conversationID,
 				PeerID: peerID, Direction: "receive", Status: status,
-				Name: file.Name, Size: file.Size, UpdatedAt: time.Now(),
+				Name: file.Name, Size: file.Size, UpdatedAt: receivedAt,
 				LegacyTransport: legacyIPMSG, RemotePacket: packetHex,
 				RemoteFile: fmt.Sprintf("%x", attachment.ID),
 			})
@@ -192,11 +219,36 @@ func (n *Node) receiveLegacyFiles(peerID string, packetNumber uint64, message st
 	})
 }
 
-func (n *Node) receiveLegacyProgress(packetNumber uint64, fileID uint32, done, total int64, complete bool) {
+// Commit the request identifiers before the UDP offer leaves the process.
+// Some recipients start the TCP download immediately.
+func (n *Node) prepareLegacyOffer(transferID string, packetNumber uint64, fileID uint32) error {
+	prepared := false
+	err := n.change(func(s *domain.State) {
+		if i := transferIndex(s, transferID); i >= 0 {
+			t := &s.Transfers[i]
+			if t.Direction != "send" || t.Revoked || terminalTransfer(t.Status) {
+				return
+			}
+			t.RemotePacket, t.RemoteFile = fmt.Sprintf("%x", packetNumber), fmt.Sprintf("%x", fileID)
+			t.Status, t.Error, t.UpdatedAt = "offered", "", time.Now()
+			prepared = true
+		}
+	})
+	if err == nil && !prepared {
+		return context.Canceled
+	}
+	return err
+}
+
+func (n *Node) receiveLegacyProgress(packetNumber uint64, fileID uint32, done, total int64, complete bool, failure error) {
 	packetHex, fileHex := fmt.Sprintf("%x", packetNumber), fmt.Sprintf("%x", fileID)
 	status := "transferring"
 	if complete {
 		status = "completed"
+	}
+	problem := ""
+	if failure != nil {
+		status, problem = "failed", failure.Error()
 	}
 	_ = n.change(func(s *domain.State) {
 		for i := range s.Transfers {
@@ -211,7 +263,7 @@ func (n *Node) receiveLegacyProgress(packetNumber uint64, fileID uint32, done, t
 			t.Done = done
 			t.Size = total
 			t.Speed = 0
-			t.Error = ""
+			t.Error = problem
 			t.UpdatedAt = time.Now()
 			return
 		}
@@ -223,53 +275,52 @@ func legacyStableID(parts ...string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func (n *Node) legacyPending(peer string, value pending) (legacyRemote, bool, error) {
+func (n *Node) legacyPending(peer string, value pending) error {
 	n.mu.Lock()
 	service := n.legacy
 	n.mu.Unlock()
 	if service == nil {
-		return legacyRemote{}, false, errors.New("内网通兼容服务尚未就绪")
+		return errors.New("内网通兼容服务尚未就绪")
 	}
 	e := value.Envelope
 	switch e.Type {
 	case "message":
-		return legacyRemote{}, true, service.SendText(peer, e.Message.Text)
+		return service.SendText(peer, e.Message.Text)
 	case "file_offer", "file_retry":
 		s := n.snapshot(false)
 		index := transferIndex(&s, e.TransferID)
 		if index < 0 {
-			return legacyRemote{}, false, errors.New("找不到兼容文件任务")
+			return nil // the local task was removed
 		}
 		t := s.Transfers[index]
+		if t.Revoked || terminalTransfer(t.Status) {
+			return nil
+		}
 		f := s.File(t.FileID)
 		if f.SourcePath == "" {
-			return legacyRemote{}, false, errors.New("源文件不可用")
+			n.setTransfer(t.ID, "failed", t.Done, 0, "源文件不可用")
+			return nil
 		}
-		packet, fileID, err := service.OfferFile(peer, f.SourcePath, t.ID, "")
-		return legacyRemote{packet: packet, file: fileID}, true, err
+		if !s.Peer(peer).Online {
+			return errors.New("等待对方上线")
+		}
+		if _, _, err := service.OfferFile(peer, f.SourcePath, t.ID, ""); err != nil && !errors.Is(err, context.Canceled) {
+			n.setTransfer(t.ID, "failed", t.Done, 0, err.Error())
+		}
+		return nil
 	default:
 		// Protocol-specific control state has no IPMSG equivalent. Removing it
 		// from the outbox keeps legacy peers from blocking later text/files.
-		return legacyRemote{}, false, nil
+		return nil
 	}
 }
 
-func (n *Node) legacyCompleted(peer string, done []pending, remote map[string]legacyRemote) error {
+func (n *Node) legacyCompleted(done []pending) error {
 	return n.durable(func(data *persisted) []pending {
 		for _, value := range done {
 			delete(data.Outbox, value.Envelope.ID)
 			e := value.Envelope
 			if e.Type != "message" {
-				if r, ok := remote[value.Envelope.ID]; ok {
-					if i := transferIndex(&data.State, e.TransferID); i >= 0 && !terminalTransfer(data.State.Transfers[i].Status) {
-						data.State.Transfers[i].RemotePacket = fmt.Sprintf("%x", r.packet)
-						data.State.Transfers[i].RemoteFile = fmt.Sprintf("%x", r.file)
-						data.State.Transfers[i].LegacyTransport = legacyIPMSG
-						data.State.Transfers[i].Status = "offered"
-						data.State.Transfers[i].Error = ""
-						data.State.Transfers[i].UpdatedAt = time.Now()
-					}
-				}
 				continue
 			}
 			for i := range data.State.Messages {

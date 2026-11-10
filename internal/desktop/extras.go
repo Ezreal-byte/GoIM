@@ -3,6 +3,7 @@ package desktop
 import (
 	"errors"
 	"goim/internal/i18n"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -31,6 +32,11 @@ func (u *UI) openProfile() {
 	u.profile.err = ""
 	u.profile.nickname.SetText(u.selfDisplayName())
 	u.profile.signature.SetText(u.state.Settings.Signature)
+	details := u.state.Settings.ProfileDetails
+	u.profile.gender = max(0, slices.Index(profileGenderValues[:], details.Gender))
+	for i, value := range profileDetailValues(details) {
+		u.profile.details[i].SetText(value)
+	}
 	u.profile.presence = u.state.Settings.Presence
 	if u.profile.presence == "" {
 		u.profile.presence = domain.PresenceOnline
@@ -83,7 +89,18 @@ func (u *UI) saveProfile() {
 		u.profile.err = i18n.T("个性签名最多 80 个字符，请保持单行。")
 		return
 	}
-	cmd := domain.Command{Kind: domain.SetProfile, Name: name, Value: avatar, Signature: signature, Presence: u.profile.presence}
+	var values [5]string
+	for i := range u.profile.details {
+		value := strings.TrimSpace(u.profile.details[i].Text())
+		if utf8.RuneCountInString(value) > 80 || strings.ContainsAny(value, "\r\n\x00") {
+			u.profile.err = i18n.T("个人资料字段需为单行，最多 80 个字符")
+			return
+		}
+		values[i] = value
+	}
+	details := &domain.ProfileDetails{Gender: profileGenderValues[u.profile.gender],
+		Company: values[0], Department: values[1], Phone: values[2], Mobile: values[3], Email: values[4]}
+	cmd := domain.Command{Kind: domain.SetProfile, Name: name, Value: avatar, Signature: signature, Presence: u.profile.presence, ProfileDetails: details}
 	if avatar != "" && avatar != u.selfAvatarPath() {
 		bitmap, ok := u.avatarUploadBitmap(avatar)
 		if !ok {
@@ -102,13 +119,13 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
 		Layer: 74, Scope: u.ids.profileScope, DismissID: u.ids.profileDismiss,
 		CloseID: u.ids.profileClose, InitialFocusID: u.ids.profileField,
-		ContentSize: ui.Size{Width: 516}, FitBody: true, BodyHeight: 320,
+		ContentSize: ui.Size{Width: 584}, FitBody: true, BodyHeight: 484,
 		ButtonSize: components.ButtonSizeSmall,
 	})
-	layout := dialog.Begin(i18n.T("个人资料"), i18n.T("设置联系人看到的头像、签名和状态。"))
+	layout := dialog.Begin(i18n.T("个人资料"), i18n.T("已填写的资料对已连接的 GoIM 联系人可见。"))
 	var chooseClicked, submitted bool
 	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
-		f.Column().Fill().Gap(12).Children(func() {
+		f.Column().Fill().Gap(8).Children(func() {
 			f.Row().Items(flex.Center).Gap(14).Children(func() {
 				avatarName := strings.TrimSpace(u.profile.nickname.Text())
 				if avatarName == "" {
@@ -122,13 +139,16 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 					f.Text(i18n.T("支持 PNG、JPEG 和 GIF。")).FontSize(10.5).Muted()
 				})
 			})
-			f.Text(i18n.T("昵称")).FontSize(12).Weight(ui.WeightMedium)
-			field := f.Field(&u.profile.nickname, u.ids.profileField, i18n.T("昵称"), i18n.T("输入昵称")).
-				Height(38).FillWidth()
-			submitted = field.Submitted()
-			f.Text(i18n.T("个性签名")).FontSize(12).Weight(ui.WeightMedium)
-			submitted = f.Field(&u.profile.signature, u.ids.profileSignature, i18n.T("个性签名"), i18n.T("写一句介绍，最多 80 字")).
-				Height(38).FillWidth().Submitted() || submitted
+			f.Row().FillWidth().Gap(16).Children(func() {
+				profileFormColumn(f, i18n.T("昵称"), func() {
+					submitted = f.Field(&u.profile.nickname, u.ids.profileField, i18n.T("昵称"), i18n.T("输入昵称")).
+						Height(38).FillWidth().Submitted()
+				})
+				profileFormColumn(f, i18n.T("个性签名"), func() {
+					submitted = f.Field(&u.profile.signature, u.ids.profileSignature, i18n.T("个性签名"), i18n.T("写一句介绍，最多 80 字")).
+						Height(38).FillWidth().Submitted() || submitted
+				})
+			})
 			f.Row().Items(flex.Center).Gap(8).Children(func() {
 				f.Text(i18n.T("状态")).FontSize(12).Weight(ui.WeightMedium)
 				f.Text(i18n.T(profilePresenceName(u.profile.presence))).FontSize(11).Muted()
@@ -145,7 +165,7 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 						Hover(flex.Look{}.Background(u.palette.hover)).
 						HitWith(u.ids.profilePresence.At(index), label, ui.HitOptions{Role: ui.RoleButton, Selected: active, Hint: label})
 					if active {
-						button.Background(u.palette.selected).Border(1, u.palette.selectedText)
+						button.Background(u.palette.selected).Stroke(1, u.palette.selectedText)
 					}
 					if f.Canvas().FocusVisible() == u.ids.profilePresence.At(index) {
 						button.Stroke(1.5, u.theme.Ring)
@@ -155,6 +175,11 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 						u.profile.presence = presence.value
 					}
 				}
+			})
+			u.drawProfileDetails(f)
+			f.Row().FillWidth().Gap(16).Children(func() {
+				f.Text(i18n.T("版本") + "  " + defaultIfEmpty(u.state.Self.Version, "—")).FontSize(11).Muted().Grow(1).Ellipsis()
+				f.Text("IP  " + defaultIfEmpty(u.state.LocalIP, "—")).FontSize(11).Muted().Grow(1).Ellipsis()
 			})
 			if u.profile.err != "" {
 				f.Text(u.profile.err).FontSize(11).Color(u.palette.danger).MaxLines(2)
@@ -177,6 +202,50 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	case submitted, canvas.Clicked(u.ids.profileSave):
 		u.saveProfile()
 	}
+}
+
+var profileDetailNames = [...]string{"company", "department", "phone", "mobile", "email"}
+var profileDetailLabels = [...]string{"单位", "部门", "电话", "手机", "邮箱"}
+var profileGenderValues = [...]string{"", "male", "female"}
+var profileGenderLabels = [...]string{"不填写", "男", "女"}
+
+func profileDetailValues(details domain.ProfileDetails) [5]string {
+	return [5]string{details.Company, details.Department, details.Phone, details.Mobile, details.Email}
+}
+
+func profileFormColumn(f *flex.Frame, label string, control func()) {
+	f.Column().Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
+		f.Text(label).FontSize(12).Weight(ui.WeightMedium)
+		control()
+	})
+}
+
+func (u *UI) drawProfileDetails(f *flex.Frame) {
+	field := func(i int) {
+		label := i18n.T(profileDetailLabels[i])
+		profileFormColumn(f, label, func() {
+			f.Field(&u.profile.details[i], u.ids.profileDetails[i], label, i18n.T("选填")).Height(34).FillWidth()
+		})
+	}
+	f.Divider()
+	f.Row().FillWidth().Gap(16).Children(func() {
+		profileFormColumn(f, i18n.T("性别"), func() {
+			f.Row().Height(34).Gap(5).Items(flex.Center).Children(func() {
+				for i, label := range profileGenderLabels {
+					button := f.Button(u.ids.profileGender.At(i), i18n.T(label)).XSmall()
+					if i != u.profile.gender {
+						button.Outline()
+					}
+					if button.Clicked() {
+						u.profile.gender = i
+					}
+				}
+			})
+		})
+		field(0)
+	})
+	f.Row().FillWidth().Gap(16).Children(func() { field(1); field(2) })
+	f.Row().FillWidth().Gap(16).Children(func() { field(3); field(4) })
 }
 
 var profilePresences = [...]struct {

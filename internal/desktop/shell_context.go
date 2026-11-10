@@ -160,16 +160,23 @@ func (u *UI) drawContactContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 		u.closeShellMenu()
 		return
 	}
-	menu := u.beginShellMenu(canvas, viewport, 3, 0)
+	count := 4
+	if peer.Transport == "ipmsg" {
+		count--
+	}
+	menu := u.beginShellMenu(canvas, viewport, count, 0)
 	menu.AddItem(components.ContextMenuItem{
 		ID: u.ids.shellMenuTalk, Label: i18n.T("发消息"), Icon: u.iconMessage,
 	})
 	menu.AddItem(components.ContextMenuItem{
 		ID: u.ids.shellMenuOrganize, Label: i18n.T("移动到分组…"), Icon: u.iconFolder,
 	})
-	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuNewGroup, Label: i18n.T("新建群聊"), Icon: u.iconPlus,
-	})
+	menu.AddItem(components.ContextMenuItem{ID: u.ids.shellMenuProfile, Label: i18n.T("查看资料"), Icon: u.iconUsers})
+	if peer.Transport != "ipmsg" {
+		menu.AddItem(components.ContextMenuItem{
+			ID: u.ids.shellMenuNewGroup, Label: i18n.T("新建群聊"), Icon: u.iconPlus,
+		})
+	}
 	menu.End()
 
 	switch {
@@ -178,6 +185,9 @@ func (u *UI) drawContactContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 		u.startChat(peer.ID)
 	case canvas.Clicked(u.ids.shellMenuOrganize):
 		u.openOrganize(peer.ID)
+	case canvas.Clicked(u.ids.shellMenuProfile):
+		u.closeShellMenu()
+		u.memberProfile = peer.ID
 	case canvas.Clicked(u.ids.shellMenuNewGroup):
 		u.closeShellMenu()
 		u.openCompose("create", "")

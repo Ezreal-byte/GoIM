@@ -18,6 +18,12 @@ function Send-Command($TaskProcess,[string]$TaskCommand) {
     $TaskProcess.StandardInput.Flush()
     return Read-Reply $TaskProcess
 }
+function Enter-PasswordKeys($TaskProcess) {
+    foreach ($letter in 'goim-smoke-only'.ToCharArray()) {
+        $null=Send-Command $TaskProcess ('keydown '+$letter)
+        $null=Send-Command $TaskProcess ('keyup '+$letter)
+    }
+}
 function Wait-Control($TaskProcess,[string]$TaskLabel) {
     $taskDeadline=[DateTime]::UtcNow.AddSeconds(15)
     do {
@@ -184,14 +190,14 @@ try {
     Send-Command $taskAlice 'click "锁定应用"'
     Send-Command $taskAlice 'expect text "设置锁定密码"'
     Send-Command $taskAlice 'click "textfield:新密码"'
-    Send-Command $taskAlice 'type goim-smoke-only'
+    Enter-PasswordKeys $taskAlice
     Send-Command $taskAlice 'click "textfield:确认新密码"'
-    Send-Command $taskAlice 'type goim-smoke-only'
+    Enter-PasswordKeys $taskAlice
     Send-Command $taskAlice 'click "设置并锁定"'
     Send-Command $taskAlice 'waitfor "GoIM 已锁定" 10000'
     Send-Command $taskAlice 'expect layout clean'
     Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-locked.png').Replace('\','/')+'"')
-    Send-Command $taskAlice 'type goim-smoke-only'
+    Enter-PasswordKeys $taskAlice
     Send-Command $taskAlice 'key enter'
     Send-Command $taskAlice 'waitfor "快捷键" 10000'
     $taskFolderShare=Join-Path $taskRunDir '交付资料'

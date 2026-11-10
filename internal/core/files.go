@@ -128,8 +128,12 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 	if !shared {
 		c := s.Conversation(convID)
 		for _, id := range targets {
-			if s.Peer(id).Transport == legacyIPMSG && c.Kind == "group" {
-				return errors.New("内网通兼容联系人仅支持单聊发送")
+			if s.Peer(id).Transport == legacyIPMSG {
+				if c.Kind == "group" {
+					return errors.New("内网通兼容联系人仅支持单聊发送")
+				}
+				// Legacy clients receive images through their normal file workflow.
+				f.InlineImage = false
 			}
 		}
 	}

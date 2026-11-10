@@ -2,6 +2,7 @@ package core
 
 import (
 	"testing"
+	"time"
 
 	ipmsgproto "goim/internal/ipmsg"
 )
@@ -22,7 +23,7 @@ func TestLegacyTextAndFileCallbacksCreateDirectConversation(t *testing.T) {
 	node.receiveLegacyPeer(peer)
 	node.receiveLegacyText(peer.ID, 101, "hello")
 	node.receiveLegacyFiles(peer.ID, 102, "report", []ipmsgproto.Attachment{{
-		ID: 9, Name: "report.txt", Size: 128, Kind: 1,
+		ID: 9, Name: "report.txt", Size: 128, Kind: 1, ModTime: time.Now().AddDate(-1, 0, 0).Unix(),
 	}})
 	state := node.Snapshot()
 	gotPeer := state.Peer(peer.ID)
@@ -34,7 +35,8 @@ func TestLegacyTextAndFileCallbacksCreateDirectConversation(t *testing.T) {
 		t.Fatalf("legacy conversation = %+v", conversation)
 	}
 	var textMessages, fileMessages int
-	for _, message := range state.ChatMessages(conversationID) {
+	messages := state.ChatMessages(conversationID)
+	for _, message := range messages {
 		switch message.Kind {
 		case "text":
 			textMessages++
@@ -44,6 +46,9 @@ func TestLegacyTextAndFileCallbacksCreateDirectConversation(t *testing.T) {
 	}
 	if textMessages != 1 || fileMessages != 1 {
 		t.Fatalf("messages = text:%d file:%d", textMessages, fileMessages)
+	}
+	if messages[1].CreatedAt.Before(messages[0].CreatedAt) {
+		t.Fatal("incoming file card uses the source file's timestamp and would sort before the preceding text")
 	}
 	if len(state.Transfers) != 1 {
 		t.Fatalf("transfers = %+v", state.Transfers)

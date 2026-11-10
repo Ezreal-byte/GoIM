@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +43,7 @@ type Node struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	listener      net.Listener
+	localIP       string
 	connections   map[string]*peerConn
 	dialing       map[string]bool
 	commands      chan domain.Command
@@ -122,6 +125,13 @@ func New(opts Options) (*Node, error) {
 	n.data.State.Self = domain.Peer{ID: keyID(key.Public().(ed25519.PublicKey)), Name: n.data.State.Settings.Nickname, Avatar: n.data.State.Settings.Avatar, PublicKey: append([]byte(nil), key.Public().(ed25519.PublicKey)...), Address: listener.Addr().String(), Online: true}
 	n.data.State.Self.Signature = n.data.State.Settings.Signature
 	n.data.State.Self.Presence = n.data.State.Settings.Presence
+	n.data.State.Self.Details = n.data.State.Settings.ProfileDetails
+	if fields := strings.Fields(opts.Version); len(fields) > 0 {
+		n.data.State.Self.Version = fields[0]
+	}
+	if bound, ok := listener.Addr().(*net.TCPAddr); ok {
+		n.localIP = browserIP(bound, n.data.State.Settings.Network).String()
+	}
 	n.data.State.ListenAddress = listener.Addr().String()
 	n.data.State.Version = opts.Version
 	for i := range n.data.State.Peers {
@@ -174,6 +184,7 @@ func (n *Node) snapshot(urls bool) domain.State {
 	var s domain.State
 	_ = json.Unmarshal(b, &s)
 	s.LockResult = n.lockResult
+	s.LocalIP = n.localIP
 	s.ShareFeedback = n.shareFeedback
 	n.attachShareLinks(&s, urls)
 	return s
@@ -276,9 +287,35 @@ func (n *Node) acceptLoop() {
 	}
 }
 func (n *Node) Connect(address string) {
-	n.dialTo(address, "", false)
+	address = strings.TrimSpace(address)
+	if _, port, err := net.SplitHostPort(address); err == nil {
+		if port == strconv.Itoa(ipmsgproto.DefaultPort) {
+			n.async(func() {
+				if err := n.connectLegacy(address); err != nil {
+					n.report(err)
+				}
+			})
+			return
+		}
+		n.dialTo(address, "", false)
+		return
+	}
+	legacyAddress := ""
+	if ip, err := netip.ParseAddr(address); err == nil && ip.Unmap().Is4() {
+		n.mu.Lock()
+		legacy := n.legacy
+		n.mu.Unlock()
+		if legacy != nil {
+			legacyAddress = netip.AddrPortFrom(ip.Unmap(), ipmsgproto.DefaultPort).String()
+		}
+	}
+	n.dialToAddress(address, "", false, legacyAddress)
 }
 func (n *Node) dialTo(address, expected string, quiet bool) {
+	n.dialToAddress(address, expected, quiet, "")
+}
+
+func (n *Node) dialToAddress(address, expected string, quiet bool, legacyAddress string) {
 	address = strings.TrimSpace(address)
 	if _, _, e := net.SplitHostPort(address); e != nil {
 		address = net.JoinHostPort(address, "47842")
@@ -298,6 +335,14 @@ func (n *Node) dialTo(address, expected string, quiet bool) {
 		}
 		raw, err := d.DialContext(n.ctx, "tcp", address)
 		if err != nil {
+			if legacyAddress != "" && n.ctx.Err() == nil {
+				if legacyErr := n.connectLegacy(legacyAddress); legacyErr == nil {
+					return
+				} else {
+					n.report(legacyErr)
+					return
+				}
+			}
 			if !quiet {
 				n.report(fmt.Errorf("连接 %s 失败: %w", address, err))
 			}

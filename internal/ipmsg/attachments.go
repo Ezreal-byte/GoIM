@@ -47,7 +47,8 @@ func decodeAttachments(value string) []Attachment {
 		mtime, _ := strconv.ParseInt(fields[3], 16, 64)
 		kind, errKind := strconv.ParseUint(fields[4], 16, 32)
 		name := decodeLegacyString([]byte(strings.ReplaceAll(fields[1], "\x01", ":")))
-		if errID != nil || errSize != nil || errKind != nil || kind&0xff != fileRegular || size < 0 || name == "" {
+		fileType := kind & 0xff
+		if errID != nil || errSize != nil || errKind != nil || fileType != fileRegular && fileType != fileClipboard || size < 0 || name == "" {
 			continue
 		}
 		files = append(files, Attachment{
@@ -83,7 +84,8 @@ func safeLegacyName(name string) string {
 }
 
 func parseFileRequest(extra string) (packetNumber uint64, fileID uint32, offset int64, err error) {
-	fields := strings.Split(extra, ":")
+	// Neiwangtong 3.4 ends its request with a colon, after the hexadecimal offset.
+	fields := strings.Split(strings.TrimSuffix(extra, ":"), ":")
 	if len(fields) != 3 {
 		return 0, 0, 0, errors.New("invalid IPMSG file request")
 	}

@@ -136,7 +136,7 @@ func (n *Node) execute(c domain.Command) error {
 	case domain.SetSetting:
 		return n.setting(c)
 	case domain.SetProfile:
-		return n.updateProfile(c.Name, c.Value, c.AvatarBGRA, c.AvatarSize, c.Signature, c.Presence)
+		return n.updateProfile(c.Name, c.Value, c.AvatarBGRA, c.AvatarSize, c.Signature, c.Presence, c.ProfileDetails)
 	case domain.SetLockPassword, domain.LockApp, domain.UnlockApp:
 		err := n.updateLock(c)
 		if c.Request == 0 {
@@ -498,14 +498,24 @@ func (n *Node) setting(c domain.Command) error {
 	default:
 		return errors.New("未知设置项")
 	}
-	n.change(func(s *domain.State) { s.Settings = settings; s.Notice = "已保存"; s.Error = "" })
+	if err := n.change(func(s *domain.State) { s.Settings = settings; s.Notice = "已保存"; s.Error = "" }); err != nil {
+		return err
+	}
+	if c.Setting == "disable_auto_discovery" {
+		n.mu.Lock()
+		legacy := n.legacy
+		n.mu.Unlock()
+		if legacy != nil {
+			legacy.SetBroadcastEnabled(n.discovery && !settings.DisableAutoDiscovery)
+		}
+	}
 	return nil
 }
 func (n *Node) broadcastProfile() {
 	s := n.snapshot(false)
 	e := n.profileEnvelope()
 	for _, p := range s.Peers {
-		if p.Online {
+		if p.Online && p.Transport != legacyIPMSG {
 			n.reliable(p.ID, e)
 		}
 	}

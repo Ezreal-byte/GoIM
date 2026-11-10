@@ -60,6 +60,10 @@ func (s *panelSettingsExtra) resetSecrets() {
 	s.passwordError = ""
 }
 
+func (s *panelSettingsExtra) isPasswordField(id ui.ID) bool {
+	return !id.IsZero() && (id == s.passwordOld || id == s.passwordNew || id == s.passwordRepeat)
+}
+
 func (s *panelSettingsExtra) textInput(context app.TextInputContext) *app.TextInput {
 	return flex.Fields(&s.address, &s.old, &s.password, &s.repeat)(context)
 }
@@ -134,7 +138,7 @@ func (p *Panels) drawDiscoverySettings(f *flex.Frame, theme ui.Theme, state doma
 			}
 		})
 	})
-	panelSettingRow(f, theme, i18n.T("手动连接"), i18n.T("可用 IP 或 IP:端口连接可达的设备"), func() {
+	panelSettingRow(f, theme, i18n.T("手动连接"), i18n.T("连接内网通或飞秋时，请使用对方的 IPv4 地址和端口 2425。"), func() {
 		panelControlColumn(f, 260, func() {
 			f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
 				field := f.Field(&s.address, s.connectAddress, i18n.T("对方 IP 地址"), i18n.T("IP 或 IP:端口")).Grow(1)
