@@ -38,7 +38,9 @@ func TestDetachedViewerLoadsFull4KScreenshotAndKeepsChatThumbnailSmall(t *testin
 	h.ui.presentViewer = func() {}
 	h.ui.openImageViewer(file.ID)
 	viewer := &h.ui.chatSurface().viewer
-	h.waitFor(func() bool { return bitmapReady(viewer.original) && bitmapReady(h.ui.fileBitmap(path)) })
+	// Full-resolution decode and rotation are much slower under the race detector.
+	const mediaTimeout = 20 * time.Second
+	h.waitForWithin(mediaTimeout, func() bool { return bitmapReady(viewer.original) && bitmapReady(h.ui.fileBitmap(path)) })
 	if viewer.original.Width != 3840 || viewer.original.Height != 2160 {
 		t.Fatalf("viewer decoded %d × %d", viewer.original.Width, viewer.original.Height)
 	}
@@ -50,7 +52,7 @@ func TestDetachedViewerLoadsFull4KScreenshotAndKeepsChatThumbnailSmall(t *testin
 		t.Fatal("original leaked into the conversation thumbnail cache")
 	}
 	h.ui.rotateImageViewer(1)
-	h.waitFor(func() bool { return bitmapReady(viewer.original) })
+	h.waitForWithin(mediaTimeout, func() bool { return bitmapReady(viewer.original) })
 	if viewer.original.Width != 2160 || viewer.original.Height != 3840 {
 		t.Fatal("rotating selected the low-resolution thumbnail")
 	}

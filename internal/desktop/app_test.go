@@ -241,7 +241,12 @@ func (harness *shellTestHarness) settle() {
 
 func (harness *shellTestHarness) waitFor(predicate func() bool) {
 	harness.t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	harness.waitForWithin(3*time.Second, predicate)
+}
+
+func (harness *shellTestHarness) waitForWithin(timeout time.Duration, predicate func() bool) {
+	harness.t.Helper()
+	deadline := time.Now().Add(timeout)
 	for !predicate() {
 		select {
 		case <-harness.driver.Wakes():
