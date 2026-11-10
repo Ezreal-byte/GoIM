@@ -168,13 +168,15 @@ jobs:
           pattern: GoIM-*
           merge-multiple: true
           path: release
+      - name: Install MSI inspection tool
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends msitools
       - name: Verify fourteen packages and prepare checksums
         env:
           SOURCE_COMMIT: ${{ github.sha }}
           PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
         run: |
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, tarfile, zipfile
+          import hashlib, json, os, pathlib, re, subprocess, tarfile, zipfile
           root = pathlib.Path('release')
           version = os.environ['PACKAGE_VERSION'].removeprefix('v')
           formats = {'windows': ('.zip', '-Setup.exe', '.msi'), 'linux': ('.tar.gz', '.deb'), 'darwin': ('.zip', '.dmg')}
@@ -189,6 +191,14 @@ jobs:
               expected_sum, expected_name = (root/(p.name+'.sha256')).read_text().split()
               assert digest==expected_sum and expected_name==p.name, p.name
               sums.append(digest+'  '+p.name)
+              if p.suffix == '.msi':
+                  summary = subprocess.check_output(['msiinfo', 'suminfo', p], text=True)
+                  template = re.search(r'^Template:\s*([^;\n]+)', summary, re.MULTILINE | re.IGNORECASE)
+                  arch = 'x64' if target[1] == 'amd64' else 'arm64'
+                  assert template and template[1].lower() == arch, (p.name, summary)
+                  table = subprocess.check_output(['msiinfo', 'export', p, 'File'], text=True)
+                  filenames = {line.split('\t')[2].rsplit('|', 1)[-1] for line in table.splitlines()[3:] if line}
+                  assert {'GoIM.exe', 'goim-snip.exe', 'GoIM.ico', 'build-info.json', 'LICENSE'} <= filenames, (p.name, filenames)
               if not p.name.endswith(('.zip', '.tar.gz')): continue
               if p.name.endswith('.zip'):
                   with zipfile.ZipFile(p) as z:

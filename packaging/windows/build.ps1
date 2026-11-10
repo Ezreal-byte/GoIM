@@ -41,22 +41,6 @@ try {
     Pop-Location
 }
 
-# Check the MSI platform and its contents without installing on the runner.
-$installer = New-Object -ComObject WindowsInstaller.Installer
-$database = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($msi, 0))
-$summary = $database.GetType().InvokeMember('SummaryInformation', 'GetProperty', $null, $database, @(0))
-$template = $summary.GetType().InvokeMember('Property', 'GetProperty', $null, $summary, @(7))
-if (($template -split ';')[0] -ine $arch) { throw "Unexpected MSI architecture: $template" }
-$view = $database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $database, @('SELECT `FileName` FROM `File`'))
-$null = $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null)
-$files = while ($record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)) {
-    ($record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, @(1)) -split '\|')[-1]
-}
-$null = $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null)
-foreach ($file in 'GoIM.exe', 'goim-snip.exe', 'GoIM.ico', 'build-info.json', 'LICENSE') {
-    if ($files -notcontains $file) { throw "Missing MSI payload: $file" }
-}
-
 $setupBytes = [IO.File]::ReadAllBytes($setup)
 $header = [BitConverter]::ToInt32($setupBytes, 0x3c)
 $expectedMachine = if ($arch -eq 'x64') { 0x8664 } else { 0xaa64 }
