@@ -29,7 +29,6 @@ type panelTestHarness struct {
 	commands []domain.Command
 	media    *mediaWorker
 	mediaGen uint64
-	home     string
 }
 
 func panelTestDefaultState(t *testing.T) domain.State {
@@ -59,9 +58,7 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 		theme:  ui.LightTheme(),
 		bounds: bounds,
 	}
-	h.home = t.TempDir()
 	h.panels.Init(&h.tree)
-	h.panels.shareBrowser.homeDir = func() (string, error) { return h.home, nil }
 	h.panels.OnWake(state)
 	h.media = newMediaWorker(func() { h.wake.Invalidate() })
 	h.panels.setMediaSubmit(h.media.submitOne)
@@ -644,6 +641,7 @@ func TestPanelTransfersSubmitActionsAndOpenCompletedFiles(t *testing.T) {
 	}
 	now := time.Now()
 	state := panelTestDefaultState(t)
+	state.Settings.DownloadDir = filepath.Join(state.Settings.DownloadDir, "not-created-yet")
 	state.Peers = []domain.Peer{
 		{ID: "peer-a", Name: "Alice"},
 		{ID: "peer-b", Name: "Bob"},
@@ -658,23 +656,24 @@ func TestPanelTransfersSubmitActionsAndOpenCompletedFiles(t *testing.T) {
 	h := panelTestNewHarnessBounds(t, panelModuleTransfers, state, ui.Rect{
 		X: 68, Y: 0, Width: 1372, Height: 1120,
 	})
-	if len(h.panels.transferPending) != 2 || len(h.panels.transferFinished) != 2 {
-		t.Fatalf("transfer groups: pending=%d finished=%d", len(h.panels.transferPending), len(h.panels.transferFinished))
+	if len(h.panels.transferIncoming) != 1 || len(h.panels.transferPending) != 1 || len(h.panels.transferFinished) != 2 {
+		t.Fatalf("transfer groups: incoming=%d active=%d finished=%d", len(h.panels.transferIncoming), len(h.panels.transferPending), len(h.panels.transferFinished))
 	}
-	receiveIndex := panelTestTransferIndex(h.panels.transferPending, "receive-offer")
-	sendIndex := panelTestTransferIndex(h.panels.transferPending, "sending")
-	if receiveIndex < 0 || sendIndex < 0 {
-		t.Fatal("pending transfers are missing")
-	}
-	if h.panels.transferPending[receiveIndex].peer != "Alice" || h.panels.transferPending[sendIndex].peer != "Bob" {
+	incoming, sending := h.panels.transferIncoming[0], h.panels.transferPending[0]
+	if incoming.peer != "Alice" || sending.peer != "Bob" {
 		t.Fatal("per-recipient transfer labels are wrong")
+	}
+	h.click(h.panels.ids.transferDirectory)
+	h.waitMedia()
+	if path, ok := h.driver.LastRevealedPath(); !ok || path != state.Settings.DownloadDir {
+		t.Fatalf("receive directory = %q, observed %v", path, ok)
 	}
 
 	savePath := filepath.Join(t.TempDir(), "chosen.txt")
 	if err := h.driver.QueueSaveFile(savePath, nil); err != nil {
 		t.Fatal(err)
 	}
-	h.click(h.panels.ids.transferSaveAs.At(receiveIndex))
+	h.click(incoming.ids.saveAs)
 	command := h.requireLastCommand()
 	if command.Kind != domain.AcceptTransfer || command.TransferID != "receive-offer" ||
 		len(command.Paths) != 1 || command.Paths[0] != savePath {
@@ -685,21 +684,22 @@ func TestPanelTransfersSubmitActionsAndOpenCompletedFiles(t *testing.T) {
 	}
 
 	h.clearCommands()
-	h.click(h.panels.ids.transferAccept.At(receiveIndex))
+	h.click(incoming.ids.accept)
 	command = h.requireLastCommand()
 	if command.Kind != domain.AcceptTransfer || command.TransferID != "receive-offer" || len(command.Paths) != 0 {
 		t.Fatalf("accept command = %+v", command)
 	}
 
 	h.clearCommands()
-	h.click(h.panels.ids.transferReject.At(receiveIndex))
+	h.click(incoming.ids.more)
+	h.click(incoming.ids.reject)
 	command = h.requireLastCommand()
 	if command.Kind != domain.RejectTransfer || command.TransferID != "receive-offer" {
 		t.Fatalf("reject command = %+v", command)
 	}
 
 	h.clearCommands()
-	h.click(h.panels.ids.transferCancel.At(sendIndex))
+	h.click(sending.ids.cancel)
 	command = h.requireLastCommand()
 	if command.Kind != domain.CancelTransfer || command.TransferID != "sending" {
 		t.Fatalf("cancel command = %+v", command)
@@ -709,25 +709,30 @@ func TestPanelTransfersSubmitActionsAndOpenCompletedFiles(t *testing.T) {
 	if h.panels.transferFilter != panelTransferFinished {
 		t.Fatal("completed transfer filter did not change")
 	}
+	if !h.hasText("report.txt") {
+		t.Fatal("incoming requests were hidden while viewing the history")
+	}
 	completedIndex := panelTestTransferIndex(h.panels.transferFinished, "completed")
 	failedIndex := panelTestTransferIndex(h.panels.transferFinished, "failed")
 	if completedIndex < 0 || failedIndex < 0 {
 		t.Fatal("finished transfers are missing")
 	}
 
-	h.click(h.panels.ids.transferOpen.At(completedIndex))
+	completed := h.panels.transferFinished[completedIndex]
+	h.click(completed.ids.open)
 	h.waitMedia()
 	if path, ok := h.driver.LastOpenedPath(); !ok || path != completedPath {
 		t.Fatalf("opened path = %q, observed %v", path, ok)
 	}
-	h.click(h.panels.ids.transferReveal.At(completedIndex))
+	h.click(completed.ids.more)
+	h.click(completed.ids.reveal)
 	h.waitMedia()
 	if path, ok := h.driver.LastRevealedPath(); !ok || path != completedPath {
 		t.Fatalf("revealed path = %q, observed %v", path, ok)
 	}
 
 	h.clearCommands()
-	h.click(h.panels.ids.transferRetry.At(failedIndex))
+	h.click(h.panels.transferFinished[failedIndex].ids.retry)
 	command = h.requireLastCommand()
 	if command.Kind != domain.RetryTransfer || command.TransferID != "failed" {
 		t.Fatalf("retry command = %+v", command)
@@ -759,7 +764,7 @@ func TestPanelSharesAddFilterGetRemoveAndOpen(t *testing.T) {
 	}
 	state.Revision = 2
 	h := panelTestNewHarness(t, panelModuleShares, state)
-	if len(h.panels.sharesAll) != 2 || h.panels.shareLabels[0] != "我的共享 1" ||
+	if len(h.panels.sharesAll) != 2 || h.panels.shareLabels[0] != "我的分享 1" ||
 		h.panels.shareLabels[1] != "成员共享 1" {
 		t.Fatalf("share groups = %v, labels = %v", len(h.panels.sharesAll), h.panels.shareLabels)
 	}
@@ -773,32 +778,35 @@ func TestPanelSharesAddFilterGetRemoveAndOpen(t *testing.T) {
 	if h.panels.shareFilter != panelSharesMine {
 		t.Fatal("own-shares filter did not change")
 	}
-	if _, ok := h.findHit(h.panels.ids.shareGet.At(0)); ok {
+	if _, ok := h.findHit(h.panels.ids.shareMenuGet); ok {
 		t.Fatal("own share was rendered with a remote-only Get action")
 	}
-	h.click(h.panels.ids.shareOpen.At(0))
+	h.click(h.panels.shareEntriesForTest()[0].moreID)
+	h.click(h.panels.ids.shareMenuOpen)
 	h.waitMedia()
 	if path, ok := h.driver.LastOpenedPath(); !ok || path != ownPath {
 		t.Fatalf("opened share path = %q, observed %v", path, ok)
 	}
-	h.click(h.panels.ids.shareReveal.At(0))
+	h.click(h.panels.shareEntriesForTest()[0].moreID)
+	h.click(h.panels.ids.shareMenuFolder)
 	h.waitMedia()
 	if path, ok := h.driver.LastRevealedPath(); !ok || path != ownPath {
 		t.Fatalf("revealed share path = %q, observed %v", path, ok)
 	}
 	h.clearCommands()
-	h.click(h.panels.ids.shareRemove.At(0))
+	h.click(h.panels.sharesMine[0].moreID)
+	h.click(h.panels.ids.shareMenuUnshare)
 	command := h.requireLastCommand()
 	if command.Kind != domain.RemoveShare || command.FileID != "own-share" {
 		t.Fatalf("remove-share command = %+v", command)
 	}
 
 	h.click(h.panels.ids.sharesFilters.At(panelSharesRemote))
-	if _, ok := h.findHit(h.panels.ids.shareRemove.At(0)); ok {
+	if _, ok := h.findHit(h.panels.ids.shareMenuUnshare); ok {
 		t.Fatal("remote share was rendered with a Remove action")
 	}
 	h.clearCommands()
-	h.click(h.panels.ids.shareGet.At(0))
+	h.click(h.panels.sharesRemote[0].copyID)
 	command = h.requireLastCommand()
 	if command.Kind != domain.GetShared || command.FileID != "remote-share" {
 		t.Fatalf("get-shared command = %+v", command)
@@ -865,38 +873,50 @@ func TestPanelSharesUseWakeCachedTransferPathsAndUnavailableOwnFiles(t *testing.
 	}
 
 	h.click(h.panels.ids.sharesFilters.At(panelSharesRemote))
-	h.click(h.panels.ids.shareOpen.At(0))
+	h.click(h.panels.shareEntriesForTest()[0].moreID)
+	h.click(h.panels.ids.shareMenuOpen)
 	h.waitMedia()
 	if path, ok := h.driver.LastOpenedPath(); !ok || path != latestPath {
 		t.Fatalf("opened remote share = %q, observed %v", path, ok)
 	}
 
 	h.click(h.panels.ids.sharesFilters.At(panelSharesMine))
-	h.requireDisabled(h.panels.ids.shareOpen.At(0))
-	h.requireDisabled(h.panels.ids.shareReveal.At(0))
-	if !h.hasText("源文件当前不可用") {
-		t.Fatal("deleted own share still appears available")
+	h.click(h.panels.sharesMine[0].moreID)
+	if _, ok := h.findHit(h.panels.ids.shareMenuOpen); ok {
+		t.Fatal("unavailable source still offered a local action")
 	}
+	_ = h.driver.Key(ui.KeyEscape, 0)
 
 	h.click(h.panels.ids.sharesFilters.At(panelSharesRemote))
 	if err := os.Remove(latestPath); err != nil {
 		t.Fatal(err)
 	}
-	h.click(h.panels.ids.shareReveal.At(0))
+	h.click(h.panels.shareEntriesForTest()[0].moreID)
+	h.click(h.panels.ids.shareMenuFolder)
 	h.waitMedia()
 	if path, ok := h.driver.LastRevealedPath(); ok {
 		t.Fatalf("missing file was revealed at stale cached path %q", path)
 	}
-	if !strings.Contains(h.panels.localError, "本地文件不可用") {
-		t.Fatalf("opening a stale cached path did not report an error: %q", h.panels.localError)
+	if !strings.Contains(h.panels.shareToast.message.Description, "本地文件不可用") {
+		t.Fatalf("opening a stale cached path did not show a toast: %#v", h.panels.shareToast)
 	}
 
 	state.Revision++
 	h.publish(state)
-	h.requireDisabled(h.panels.ids.shareOpen.At(0))
-	h.requireDisabled(h.panels.ids.shareReveal.At(0))
-	if !h.hasText("本地文件已不可用") {
+	h.click(h.panels.sharesRemote[0].moreID)
+	if _, ok := h.findHit(h.panels.ids.shareMenuOpen); ok {
 		t.Fatal("deleted received file was not marked unavailable on wake")
 	}
+	_ = h.driver.Key(ui.KeyEscape, 0)
+	if err := h.driver.Advance(300 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
 	h.requireLayout()
+}
+
+func (p *Panels) shareEntriesForTest() []panelShareEntry {
+	if p.shareFilter == panelSharesRemote {
+		return p.sharesRemote
+	}
+	return p.sharesMine
 }

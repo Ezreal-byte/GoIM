@@ -3,60 +3,352 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GoIM · 局域网文件分享</title>
+<meta name="theme-color" content="#f5f7fc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101520" media="(prefers-color-scheme: dark)">
+<title>{{if .Title}}{{.Title}} · {{end}}GoIM 文件分享</title>
+<link rel="icon" href="{{logo}}">
 <style>
-:root{color-scheme:light dark;--bg:#f4f6fa;--surface:#fff;--text:#172238;--sub:#526078;--line:#dce3ee;--blue:#2556d8;--blue-hover:#1a47bd;--soft:#eaf0ff;--soft-ink:#224ca8;--bad:#9d2532;--bad-bg:#fff0f0}
-@media(prefers-color-scheme:dark){:root{--bg:#0f1421;--surface:#191f2e;--text:#eef2fd;--sub:#b4bfd5;--line:#303b50;--blue:#3b63df;--blue-hover:#3057d1;--soft:#233354;--soft-ink:#b9caff;--bad:#ffd0d5;--bad-bg:#49252e}}
-*{box-sizing:border-box}body{min-height:100vh;margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
-.top{background:var(--surface);border-bottom:1px solid var(--line)}.top>div{max-width:58rem;margin:auto;min-height:4.2rem;padding:.75rem clamp(1rem,4vw,2rem);display:flex;align-items:center;justify-content:space-between;gap:.65rem}
-.brand{display:flex;align-items:center;gap:.7rem;font-size:1.16rem;font-weight:760;letter-spacing:-.025em}.brand img{flex:none}.tag,.pill{display:inline-flex;align-items:center;gap:.43rem;border-radius:999px;font-size:.75rem;font-weight:650;white-space:nowrap}.tag{padding:.28rem .64rem;border:1px solid var(--line);color:var(--sub)}.tag::before{content:"";width:.4rem;height:.4rem;background:#12a67f;border-radius:50%}
-main{max-width:58rem;margin:clamp(1.45rem,6vw,4.6rem) auto;padding:0 clamp(1rem,4vw,2rem)}
-.intro{max-width:37rem;margin-bottom:1.3rem}.pill{background:var(--soft);color:var(--soft-ink);padding:.27rem .64rem}h1{font-size:clamp(1.8rem,5vw,2.85rem);letter-spacing:-.065em;line-height:1.12;margin:.62rem 0 .55rem}p{color:var(--sub);margin:0}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:1.1rem;overflow:hidden;box-shadow:0 12px 45px -34px #1d4ed8}
-.card-head{padding:.95rem 1.15rem;display:flex;gap:.5rem;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
-h2{font-size:.94rem;margin:0}.count,.meta,footer{color:var(--sub);font-size:.8rem}.files{margin:0;padding:0;list-style:none}
-.file{padding:1.15rem;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.9rem}
-.file-icon{width:3rem;height:3.2rem;display:grid;place-items:center;align-content:center;gap:.05rem;border-radius:.64rem;background:var(--soft);color:var(--soft-ink);font-size:.63rem;font-weight:760}.file-icon svg{width:17px;height:17px}
-.file-name{display:block;font-size:.98rem;overflow-wrap:anywhere}.meta{margin-top:.16rem;overflow-wrap:anywhere}
-.button{display:inline-flex;align-items:center;justify-content:center;gap:.45rem;min-height:2.65rem;border:0;border-radius:.57rem;background:var(--blue);color:#fff;text-decoration:none;font:inherit;font-size:.87rem;font-weight:700;padding:.5rem .9rem;cursor:pointer}.button:hover{background:var(--blue-hover)}.button svg{width:16px;height:16px;flex:none}
-.button:focus-visible,input:focus-visible{outline:3px solid #759cff;outline-offset:3px}.unlock{padding:1.2rem;max-width:31rem}.unlock h2{font-size:1.02rem;margin-bottom:.22rem}.unlock form{margin-top:1rem}.unlock label{display:block;font-size:.84rem;font-weight:650}
-input{width:100%;min-height:2.8rem;border:1px solid var(--line);border-radius:.55rem;background:var(--surface);color:var(--text);margin:.4rem 0 .8rem;padding:.5rem .72rem;font:inherit}.unlock button{width:100%}.error{margin-top:.8rem;padding:.65rem .7rem;border-radius:.55rem;background:var(--bad-bg);color:var(--bad);font-size:.86rem}
-footer{display:flex;align-items:flex-start;gap:.45rem;margin:1.15rem 0 2.3rem}footer svg{flex:none;margin-top:.1rem}.count{white-space:nowrap}
-@media(max-width:530px){.file{grid-template-columns:auto minmax(0,1fr);gap:.75rem}.file .button{grid-column:1/-1}.tag{font-size:.68rem}.card-head,.file,.unlock{padding:.86rem}}
+:root {
+  color-scheme: light dark;
+  --bg:#f5f7fc; --surface:#fff; --ink:#19243b; --sub:#52617a; --muted:#586781;
+  --line:#e2e8f2; --accent:#2454cc; --accent-bg:#e8efff; --hover:#f4f7ff;
+  --hero-a:#edf3ff; --hero-b:#fafcff; --hero-line:#dae5fc;
+  --folder:#235bd3; --folder-bg:#e9f0ff; --pdf:#a52e44; --pdf-bg:#ffedf0;
+  --image:#6c40ad; --image-bg:#f2eaff; --archive:#865205; --archive-bg:#fff2dc;
+  --table:#087456; --table-bg:#e4f6ee; --file:#465874; --file-bg:#edf1f8;
+  --green:#147559; --green-bg:#e6f6ee; --bad:#9d2532; --bad-bg:#fff0f1;
+  --shadow:0 12px 32px -25px #263e744a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#101520; --surface:#171e2b; --ink:#edf2ff; --sub:#b3c0d7; --muted:#a8b6ce;
+    --line:#29364e; --accent:#adc5ff; --accent-bg:#23365b; --hover:#1f2a40;
+    --hero-a:#1a2a49; --hero-b:#182233; --hero-line:#2c4169;
+    --folder:#afc7ff; --folder-bg:#23385d; --pdf:#ffb5c2; --pdf-bg:#432735;
+    --image:#dcbaff; --image-bg:#382b52; --archive:#f8cf82; --archive-bg:#3f3023;
+    --table:#98e8c7; --table-bg:#1e3b37; --file:#becde5; --file-bg:#253047;
+    --green:#a1ebc8; --green-bg:#203d36; --bad:#ffc7ce; --bad-bg:#462936;
+    --shadow:none;
+  }
+}
+* { box-sizing:border-box }
+body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink); font:15px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif }
+a { color:inherit; text-decoration:none }
+a:focus-visible, button:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:3px }
+.top { background:var(--surface); border-bottom:1px solid var(--line) }
+.wrap { width:min(100% - 64px, 1024px); margin-inline:auto }
+.top .wrap { display:flex; min-height:66px; justify-content:space-between; align-items:center; gap:16px }
+.brand { display:flex; align-items:center; gap:10px; font-size:22px; font-weight:750; letter-spacing:-.035em }
+.brand img { display:block; width:35px; height:35px; border-radius:8px }
+.brand small { border-inline-start:1px solid var(--line); margin-inline-start:3px; padding-inline-start:12px; color:var(--sub); font-size:13px; font-weight:550; letter-spacing:0 }
+.connected { display:inline-flex; align-items:center; gap:7px; white-space:nowrap; padding:5px 11px; color:var(--green); background:var(--green-bg); border-radius:100px; font-size:12px; font-weight:650 }
+.connected::before { content:""; display:block; width:6px; height:6px; border-radius:50%; background:currentColor }
+main { padding-block:30px 26px }
+main:has(.project-intro) { padding-top:15px }
+.glyph { width:18px; height:18px; display:inline-block; flex:none; vertical-align:middle; background:currentColor; mask-position:center; mask-repeat:no-repeat; mask-size:contain }
+.g-folder { mask-image:url('{{icon "folder"}}') }
+.g-file,.g-pdf { mask-image:url('{{icon "file-text"}}') }
+.g-image { mask-image:url('{{icon "file-image"}}') }
+.g-archive { mask-image:url('{{icon "archive"}}') }
+.g-table { mask-image:url('{{icon "file-spreadsheet"}}') }
+.g-download { mask-image:url('{{icon "download"}}') }
+.g-next { mask-image:url('{{icon "chevron-right"}}') }
+.g-back { mask-image:url('{{icon "arrow-left"}}') }
+.g-lock { mask-image:url('{{icon "lock-keyhole"}}') }
+.g-info { mask-image:url('{{icon "info"}}') }
+.g-empty { mask-image:url('{{icon "folder-open"}}') }
+.g-alert { mask-image:url('{{icon "circle-alert"}}') }
+.g-upload { mask-image:url('{{icon "upload"}}') }
+.g-close { mask-image:url('{{icon "x"}}') }
+.hero { display:flex; justify-content:space-between; align-items:center; gap:24px; padding:30px 34px 32px; margin-bottom:22px; border:1px solid var(--hero-line); border-radius:20px; background:linear-gradient(113deg,var(--hero-a),var(--hero-b)); box-shadow:var(--shadow) }
+.hero-text { min-width:0 }
+.eyebrow { margin:0 0 9px; color:var(--accent); font-size:12px; font-weight:730; letter-spacing:.07em }
+h1 { margin:0; font-size:clamp(26px,4vw,42px); letter-spacing:-.04em; line-height:1.23; overflow-wrap:anywhere }
+.hero .meta { display:flex; align-items:center; flex-wrap:wrap; column-gap:10px; row-gap:4px; margin-top:12px; font-size:13px; color:var(--sub); overflow-wrap:anywhere }
+.hero .meta strong { color:var(--ink); font-weight:650 }
+.hero .meta > span + span::before { content:""; display:inline-block; width:3px; height:3px; vertical-align:middle; margin-inline-end:10px; border-radius:50%; background:currentColor }
+.hero-tile { width:100px; height:100px; flex:none; display:grid; place-items:center; color:var(--folder); background:var(--folder-bg); border:1px solid var(--hero-line); border-radius:24px }
+.hero-tile .glyph { width:46px; height:46px }
+.panel { background:var(--surface); border:1px solid var(--line); border-radius:17px; box-shadow:var(--shadow) }
+.path { display:flex; align-items:center; gap:12px; min-width:0; padding:12px 20px; border-bottom:1px solid var(--line) }
+.up { display:grid; place-items:center; flex:none; width:42px; height:42px; border:1px solid var(--line); border-radius:10px; color:var(--sub) }
+.up:hover,.crumbs a:hover { color:var(--accent); background:var(--hover) }
+.crumbs { list-style:none; margin:0; padding:0; display:flex; align-items:center; flex-wrap:wrap; min-width:0; gap:2px 4px; color:var(--muted); font-size:13px }
+.crumbs li { display:flex; align-items:center; max-width:100%; min-width:0; gap:4px }
+.crumbs li > :is(a,strong) { overflow-wrap:anywhere; padding:8px 4px; border-radius:6px }
+.crumbs strong { color:var(--ink); font-weight:680 }
+.crumbs .glyph { width:13px; height:13px }
+.list-title { display:flex; align-items:baseline; justify-content:space-between; gap:10px; padding:16px 20px 13px }
+.list-title h2 { font-size:16px; margin:0; overflow-wrap:anywhere }
+.count { color:var(--muted); font-size:12px; text-align:end; flex:none }
+.columns,.entry { display:grid; grid-template-columns:minmax(0,1fr) 160px 138px; align-items:center; gap:14px; padding-inline:20px }
+.columns { min-height:35px; background:var(--bg); border-block:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:650 }
+.columns span:last-child { text-align:end }
+.entries { list-style:none; margin:0; padding:0 }
+.entries > li + li { border-top:1px solid var(--line) }
+.entry { min-height:70px; padding-block:10px }
+.entry:hover,.entry:focus-visible { background:var(--hover) }
+.entries li:last-child .entry { border-radius:0 0 16px 16px }
+.entry-name { display:flex; align-items:center; gap:12px; min-width:0 }
+.entry-name > span:last-child { min-width:0 }
+.name { display:block; font-size:16px; font-weight:650; line-height:1.4; overflow-wrap:anywhere }
+.tile { display:grid; place-items:center; flex:none; width:42px; height:42px; border-radius:10px; color:var(--file); background:var(--file-bg) }
+.tile .glyph { width:21px; height:21px }
+.tile.folder { color:var(--folder); background:var(--folder-bg) }
+.tile.pdf { color:var(--pdf); background:var(--pdf-bg) }
+.tile.image { color:var(--image); background:var(--image-bg) }
+.tile.archive { color:var(--archive); background:var(--archive-bg) }
+.tile.table { color:var(--table); background:var(--table-bg) }
+.cell,.mobile-meta { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums }
+.mobile-meta { display:none }
+.action { display:inline-flex; align-items:center; justify-content:center; justify-self:end; white-space:nowrap; gap:7px; min-height:38px; padding:0 11px; border-radius:8px; color:var(--accent); background:var(--accent-bg); font-size:13px; font-weight:680 }
+.action .glyph { width:15px; height:15px }
+.action.open { background:transparent; color:var(--sub) }
+.empty,.gate { text-align:center; padding:31px 20px }
+.empty .tile,.gate .tile { margin:0 auto 12px }
+.empty p,.gate p { margin:6px 0 0; color:var(--sub); font-size:14px }
+.gate { width:min(100%, 440px); padding:28px; margin-inline:auto }
+.gate h2 { margin:0; font-size:20px }
+.gate form { margin-top:20px; text-align:start }
+.gate label { display:block; font-weight:650; font-size:13px; margin-bottom:7px }
+.gate input { width:100%; min-height:46px; padding:8px 12px; border:1px solid var(--line); border-radius:9px; background:var(--bg); color:var(--ink); font:inherit; font-size:16px }
+.gate .error { padding:9px 10px; border-radius:8px; color:var(--bad); background:var(--bad-bg) }
+.primary { width:100%; display:flex; justify-content:center; align-items:center; gap:8px; min-height:44px; margin-top:12px; padding:8px 14px; border:0; border-radius:9px; background:#2454cc; color:#fff; font:inherit; font-weight:680; cursor:pointer }
+.primary:hover { background:#1742ac }
+.primary:disabled { cursor:default; opacity:.58 }
+.device-intro { margin:0 0 22px }
+.device-intro .eyebrow { width:fit-content; padding:3px 9px; border-radius:20px; background:var(--accent-bg); letter-spacing:0 }
+.device-intro h1 { font-size:clamp(28px, 4vw, 40px) }
+.project-intro h1 { font-size:clamp(27px, 3.5vw, 35px) }
+.device-intro .description { margin:7px 0 0; color:var(--sub); font-size:16px }
+.device-grid { display:grid; grid-template-columns:minmax(0,1.9fr) minmax(230px,1fr); grid-template-areas:"catalog upload"; align-items:start; gap:16px }
+.catalog { grid-area:catalog }
+.upload-panel { grid-area:upload; padding:16px; background:var(--hero-a); border-color:var(--hero-line) }
+.upload-panel h2 { margin:0 0 11px; font-size:18px; font-weight:700 }
+.upload-panel .primary { min-height:47px }
+.upload-drop { display:grid; justify-items:center; align-content:center; gap:5px; min-height:170px; padding:15px; border:1px dashed var(--accent); border-radius:10px; text-align:center; color:var(--ink); background:var(--accent-bg); font-size:16px }
+.upload-drop .glyph { width:35px; height:35px; margin-bottom:4px; color:var(--accent) }
+.upload-drop small { color:var(--sub); font-size:13px }
+.upload-drop.dragging { border-style:solid; background:var(--hover); outline:2px solid var(--accent) }
+.catalog-rows { list-style:none; margin:0; padding:0 17px 10px }
+.catalog-rows li+li { border-top:1px solid var(--line) }
+.catalog-item { display:flex; align-items:center; gap:12px; padding:10px 5px; min-height:74px; min-width:0; border-radius:8px }
+.catalog-item:hover,.catalog-item:focus-visible { background:var(--hover) }
+.catalog-item .entry-name { flex:1 }
+.catalog-item .entry-name > span:last-child { flex:1 }
+.catalog-item .g-next { color:var(--sub) }
+.catalog .list-title { border-bottom:1px solid var(--line) }
+.catalog .list-title h2 { font-size:18px }
+.access-label { display:flex; gap:4px; align-items:center; color:var(--sub); font-size:13px; margin-top:3px }
+.access-label .glyph { width:13px; height:13px }
+.upload-success { display:flex; align-items:center; gap:8px; margin:0 0 16px; padding:10px 14px; color:var(--green); background:var(--green-bg); border-radius:9px; font-size:14px }
+.home-link { display:inline-flex; align-items:center; gap:6px; min-height:36px; color:var(--accent); font-size:14px; font-weight:650; margin-bottom:8px }
+.home-link:hover { text-decoration:underline }
+.home-link .glyph { width:15px; height:15px }
+.project-intro { margin-bottom:14px }
+.project-intro .path { padding:5px 0 0; border:0 }
+.project-intro .crumbs li > :is(a,strong) { padding:5px 3px }
+.project-meta { color:var(--sub); margin:8px 0 0; font-size:13px }
+.project-list .columns { border-top:0; border-radius:16px 16px 0 0 }
+.project-list .entry { min-height:60px }
+.project-list .entry .action:not(.open) { border:1px solid var(--hero-line); background:var(--surface) }
+.project-list .entry:hover .action:not(.open) { background:var(--accent-bg) }
+.parent-row { display:flex; gap:12px; min-height:49px; padding:8px 20px; align-items:center; font-size:14px; font-weight:650 }
+.parent-row:hover { background:var(--hover) }
+.parent-row .glyph { color:var(--sub) }
+.gate { text-align:start }
+.gate h1 { font-size:21px; line-height:1.3; display:flex; gap:8px; align-items:center }
+.gate h1 .glyph { width:21px; height:21px }
+.gate .home-link { display:flex; width:fit-content; margin:7px auto 0 }
+.gate-field { display:flex; align-items:center; position:relative; color:var(--muted) }
+.gate-field .glyph { position:absolute; inset-inline-start:12px; pointer-events:none }
+.gate-field input { padding-inline-start:37px; background:var(--surface) }
+.upload-dialog { max-width:calc(100vw - 28px); width:450px; padding:22px; border:1px solid var(--line); border-radius:14px; background:var(--surface); color:var(--ink); box-shadow:0 18px 60px #10193035 }
+.upload-dialog::backdrop { background:#14233d55 }
+.upload-dialog[open]:not(:modal) { position:fixed; inset:0; z-index:2; height:fit-content; margin:auto }
+.dialog-title { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px }
+.dialog-title h2 { margin:0; font-size:19px; line-height:1.35; overflow-wrap:anywhere }
+.icon-button { display:inline-grid; place-items:center; flex:none; width:38px; height:38px; border:0; border-radius:8px; color:var(--sub); background:transparent; cursor:pointer }
+.icon-button:hover { color:var(--accent); background:var(--hover) }
+.upload-choice { display:flex; align-items:center; min-width:0; gap:8px; padding:6px; border:1px solid var(--line); border-radius:9px; background:var(--bg) }
+.upload-choice input { position:absolute; width:1px; height:1px; opacity:0 }
+.pick-file { flex:none; display:inline-flex; align-items:center; gap:6px; padding:0 10px; min-height:38px; border:1px solid var(--line); border-radius:7px; background:var(--surface); cursor:pointer; font-size:13px; font-weight:650 }
+.pick-file:has(input:focus-visible) { outline:2px solid var(--accent); outline-offset:2px }
+.upload-selection { flex:1; min-width:0; overflow-wrap:anywhere; font-size:14px; color:var(--ink) }
+.upload-help { color:var(--sub); margin:10px 0 0; font-size:12px }
+.upload-error { color:var(--bad); background:var(--bad-bg); padding:9px 10px; border-radius:8px; font-size:13px }
+.upload-live { color:var(--bad); font-size:13px }
+[hidden] { display:none!important }
+footer { display:flex; gap:8px; align-items:flex-start; color:var(--muted); font-size:12px; margin-top:20px; padding:0 3px }
+footer .glyph { width:15px; height:15px; margin-top:2px }
+@media (max-width: 650px) {
+  .wrap { width:calc(100% - 32px) }
+  .top .wrap { min-height:64px }
+  .brand { font-size:20px; gap:8px }
+  .brand img { width:31px; height:31px }
+  .brand small { font-size:12px; padding-inline-start:9px }
+  .connected { font-size:11px; padding:4px 8px }
+  main { padding-block:22px 22px }
+  .hero { gap:10px; padding:19px 15px 19px 17px; border-radius:15px; margin-bottom:14px }
+  .eyebrow { margin-bottom:6px }
+  h1 { font-size:24px; letter-spacing:-.025em }
+  .hero .meta { margin-top:8px; font-size:12px; column-gap:7px }
+  .hero .meta > span + span::before { margin-inline-end:7px }
+  .hero-tile { width:48px; height:48px; border-radius:13px }
+  .hero-tile .glyph { width:26px; height:26px }
+  .panel { border-radius:14px }
+  .path { padding:8px 12px; gap:6px }
+  .up { width:44px; height:44px }
+  .list-title { padding:12px 13px 10px }
+  .list-title h2 { font-size:15px }
+  .columns,.cell { display:none }
+  .entries { border-top:1px solid var(--line) }
+  .entry { grid-template-columns:minmax(0,1fr) 44px; gap:7px; min-height:66px; padding:8px 10px 8px 13px }
+  .entry-name { gap:9px }
+  .tile { width:36px; height:36px }
+  .tile .glyph { width:19px; height:19px }
+  .name { font-size:15px }
+  .mobile-meta { display:block; margin-top:3px; font-size:12px }
+  .action { width:44px; height:44px; padding:0 }
+  .action span:last-child { display:none }
+  .action .glyph { width:18px; height:18px }
+  .entries li:last-child .entry { border-radius:0 0 13px 13px }
+  .gate { padding:22px 16px }
+  .device-intro { margin-bottom:15px }
+  .device-intro .description { font-size:15px; max-width:345px }
+  .device-grid { grid-template-columns:minmax(0,1fr); grid-template-areas:"upload" "catalog"; gap:14px }
+  .upload-panel { padding:13px }
+  .upload-panel h2 { font-size:16px; margin-bottom:8px }
+  .upload-panel .primary { margin-top:0 }
+  .upload-drop { display:none }
+  .catalog-rows { padding:0 12px 6px }
+  .catalog-item { min-height:72px }
+  .catalog .list-title h2 { font-size:16px }
+  .project-intro { margin-bottom:11px }
+  .project-list .entry { min-height:69px }
+  .project-list .action:not(.open) { width:auto; min-width:44px; padding:0 7px; gap:5px }
+  .project-list .entry { grid-template-columns:minmax(0,1fr) auto }
+  .project-list .action:not(.open) span:last-child { display:inline }
+  .project-list .action .glyph { width:15px; height:15px }
+  .parent-row { min-height:50px; padding-inline:13px }
+  .upload-dialog { padding:19px }
+}
+@media (max-width: 340px) {
+  .wrap { width:calc(100% - 22px) }
+  .hero-tile { display:none }
+  .brand small { margin-inline-start:0; padding-inline-start:8px }
+}
 </style>
 </head>
 <body>
-<header class="top"><div>
-  <div class="brand"><img src="{{logo}}" width="34" height="34" alt="">GoIM</div>
-  <span class="tag">局域网直连</span>
+<header class="top"><div class="wrap">
+  <div class="brand"><img src="{{logo}}" width="32" height="32" alt=""><span>GoIM</span><small>文件分享</small></div>
+  <span class="connected">局域网直连</span>
 </div></header>
-<main>
-  <div class="intro"><span class="pill">只读分享</span><h1>局域网文件分享</h1>
-  {{if .Sender}}<p>{{.Sender}} 向你分享了一个文件，可直接在浏览器下载。</p>{{else}}<p>无需安装 GoIM。连接同一局域网即可查看分享。</p>{{end}}</div>
-  {{if .Locked}}
-  <section class="card unlock" aria-labelledby="unlock-title">
-    <h2 id="unlock-title">此分享受密码保护</h2>
-    <p>请向分享人索取密码。</p>
-    {{if .Error}}<p class="error" id="password-error" role="alert">{{.Error}}</p>{{end}}
-    <form method="post" action="{{.Path}}">
-      <label for="password">分享密码</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" {{if .Error}}aria-invalid="true" aria-describedby="password-error"{{end}} required>
-      <button class="button" type="submit">查看文件</button>
+<main class="wrap">
+{{if .Device}}
+  <header class="device-intro">
+    <p class="eyebrow">局域网文件分享</p>
+    <h1>{{.Device}}</h1>
+    <p class="description">已发布 {{len .Catalog}} 个分享，可在局域网内浏览和下载文件。</p>
+  </header>
+  {{if .Uploaded}}<p class="upload-success" role="status"><span class="glyph g-info" aria-hidden="true"></span>上传完成，文件已发送到这台设备。</p>{{end}}
+  <div class="device-grid">
+    <section class="panel upload-panel" aria-labelledby="upload-title">
+      <h2 id="upload-title">上传到此设备</h2>
+      <div class="upload-drop" id="upload-drop">
+        <span class="glyph g-upload" aria-hidden="true"></span>
+        <strong>将文件拖拽到此处</strong>
+        <small>或点击下方按钮选择文件</small>
+      </div>
+      <a class="primary" data-open-upload href="{{.Path}}?upload=1"><span class="glyph g-upload" aria-hidden="true"></span>上传文件</a>
+    </section>
+    <section class="panel catalog" aria-labelledby="catalog-title">
+      <div class="list-title"><h2 id="catalog-title">可下载的分享</h2><span class="count">{{len .Catalog}} 个分享</span></div>
+      {{if .Catalog}}<ul class="catalog-rows">
+      {{range .Catalog}}
+        <li><a class="catalog-item" href="{{.URL}}" aria-label="{{.Name}}{{if .Protected}}，需密码{{end}}">
+          <span class="entry-name"><span class="tile {{.Style}}" aria-hidden="true"><span class="glyph g-{{.Style}}"></span></span>
+            <span><span class="name">{{.Name}}</span><span class="access-label">{{if .Protected}}<span class="glyph g-lock" aria-hidden="true"></span>需密码{{else if .Folder}}无需密码{{else}}{{.Size}}{{end}}</span></span>
+          </span><span class="glyph g-next" aria-hidden="true"></span>
+        </a></li>
+      {{end}}
+      </ul>{{else}}
+      <div class="empty"><span class="tile folder" aria-hidden="true"><span class="glyph g-empty"></span></span><strong>暂时没有分享项目</strong><p>你仍可向这台设备上传文件。</p></div>
+      {{end}}
+    </section>
+  </div>
+  <dialog class="upload-dialog" id="upload-dialog" aria-labelledby="upload-dialog-title" {{if .OpenUpload}}open{{end}}>
+    <div class="dialog-title">
+      <h2 id="upload-dialog-title">上传到{{.Device}}</h2>
+      <a class="icon-button" data-close-upload href="{{.Path}}" aria-label="关闭上传"><span class="glyph g-close" aria-hidden="true"></span></a>
+    </div>
+    {{if .UploadError}}<p class="upload-error" role="alert">{{.UploadError}}</p>{{end}}
+    <form method="post" enctype="multipart/form-data" action="{{.Path}}/upload" id="upload-form" data-limit="{{uploadLimit}}">
+      <div class="upload-choice">
+        <label class="pick-file"><span class="glyph g-upload" aria-hidden="true"></span>选择文件<input id="upload-file" name="file" type="file" aria-describedby="upload-help" required></label>
+        <span class="upload-selection" id="upload-selection">尚未选择文件</span>
+        <button class="icon-button" id="clear-upload" aria-label="移除所选文件" type="button" hidden><span class="glyph g-close" aria-hidden="true"></span></button>
+      </div>
+      <p id="upload-help" class="upload-help">单文件最大 256 MB。上传的文件仅保存在设备接收目录。</p>
+      <div class="upload-live" id="upload-status" role="status"></div>
+      <button class="primary" type="submit">开始上传</button>
     </form>
+  </dialog>
+  <script src="/assets/share-upload.js" defer></script>
+{{else if .Ready}}
+  <header class="project-intro">
+    {{if .Home}}<a class="home-link" href="{{.Home}}"><span class="glyph g-back" aria-hidden="true"></span>设备主页</a>{{end}}
+    <h1>{{.Title}}</h1>
+    {{if .Folder}}<nav class="path" aria-label="当前位置">
+      <ol class="crumbs">
+      {{range $index, $crumb := .Crumbs}}
+        <li>{{if $index}}<span class="glyph g-next" aria-hidden="true"></span>{{end}}{{if .URL}}<a href="{{.URL}}">{{.Name}}</a>{{else}}<strong aria-current="page">{{.Name}}</strong>{{end}}</li>
+      {{end}}
+      </ol>
+    </nav>{{else if .Sender}}<p class="project-meta">{{.Sender}} 分享 · 只读</p>{{end}}
+  </header>
+  <section class="panel project-list" aria-label="{{.Current}}，{{.Count}}">
+    {{if .Items}}
+    <div class="columns" aria-hidden="true"><span>名称</span><span>大小</span><span>操作</span></div>
+    <ul class="entries">
+    {{if .ParentURL}}<li><a class="parent-row" href="{{.ParentURL}}" aria-label="返回上一级"><span class="glyph g-back" aria-hidden="true"></span>返回上一级</a></li>{{end}}
+    {{range .Items}}
+      <li><a class="entry" href="{{.URL}}" {{if .Folder}}aria-label="打开文件夹：{{.Name}}"{{else}}aria-label="下载文件：{{.Name}}"{{end}}>
+        <span class="entry-name"><span class="tile {{.Style}}" aria-hidden="true"><span class="glyph g-{{.Style}}"></span></span>
+          <span><span class="name">{{.Name}}</span><span class="mobile-meta">{{if .Folder}}文件夹{{else}}{{.Kind}} · {{.Size}}{{end}}</span></span>
+        </span>
+        <span class="cell">{{if .Folder}}—{{else}}{{.Size}}{{end}}</span>
+        <span class="action {{if .Folder}}open{{end}}"><span class="glyph {{if .Folder}}g-next{{else}}g-download{{end}}" aria-hidden="true"></span><span>{{if .Folder}}打开{{else}}下载{{end}}</span></span>
+      </a></li>
+    {{end}}
+    </ul>
+    {{else}}
+    {{if .ParentURL}}<a class="parent-row" href="{{.ParentURL}}" aria-label="返回上一级"><span class="glyph g-back" aria-hidden="true"></span>返回上一级</a>{{end}}
+    <div class="empty"><span class="tile folder" aria-hidden="true"><span class="glyph g-empty"></span></span><strong>这个文件夹是空的</strong><p>{{if .ParentURL}}可以返回上一级查看其他文件。{{else}}此分享中暂时没有可下载的文件。{{end}}</p></div>
+    {{end}}
   </section>
-  {{else if .Name}}
-  <section class="card" aria-labelledby="file-list-title">
-    <header class="card-head"><h2 id="file-list-title">分享文件</h2><span class="count">1 个文件</span></header>
-    <ul class="files"><li class="file">
-      <span class="file-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 15h8M8 18h6"/></svg>{{.Kind}}</span>
-      <div><strong class="file-name">{{.Name}}</strong><p class="meta">{{.Size}}{{if .Date}} · {{.Date}}{{end}}</p></div>
-      <a class="button" href="{{.Path}}/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/></svg>下载文件</a>
-    </li></ul>
+{{else if .Locked}}
+  <section class="panel gate" aria-labelledby="unlock-title">
+    <h1 id="unlock-title"><span class="glyph g-lock" aria-hidden="true"></span>输入分享密码</h1>
+    <p>该项目已设置访问密码。</p>
+    {{if .Error}}<p class="error" id="password-error" role="alert">{{.Error}}</p>{{end}}
+    <form method="post" action="{{.ReturnURL}}">
+      <div class="gate-field"><span class="glyph g-lock" aria-hidden="true"></span>
+        <input id="password" name="password" type="password" aria-label="分享密码" autocomplete="current-password" maxlength="256" placeholder="请输入密码" {{if .Error}}aria-invalid="true" aria-describedby="password-error"{{end}} required>
+      </div>
+      <button class="primary" type="submit">进入项目</button>
+    </form>
+    {{if .Home}}<a class="home-link" href="{{.Home}}">返回设备主页</a>{{end}}
   </section>
-  {{else}}
-  <section class="card unlock" aria-labelledby="expired-title"><h2 id="expired-title">无法查看此分享</h2><p class="error" role="alert">{{.Error}}</p></section>
-  {{end}}
-  <footer><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8v1"/></svg>文件由分享人的设备直接提供。下载期间请保持连接同一局域网。</footer>
+{{else}}
+  <section class="panel gate" aria-label="分享状态">
+    <h1><span class="glyph g-alert" aria-hidden="true"></span>无法查看此分享</h1>
+    <p class="error" role="alert">{{.Error}}</p>
+    {{if .Path}}<a class="primary" href="{{.Path}}">返回分享首页</a>{{end}}
+  </section>
+{{end}}
+<footer><span class="glyph g-info" aria-hidden="true"></span><span>文件由分享人的设备直接提供。下载期间请保持连接同一局域网。</span></footer>
 </main>
 </body>
 </html>

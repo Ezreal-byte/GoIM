@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"goim/internal/domain"
 )
@@ -24,19 +25,27 @@ func terminalTransfer(status string) bool {
 	return status == "completed" || status == "cancelled" || status == "rejected"
 }
 func validFile(f domain.File) bool {
+	if f.ShareFolder {
+		return false
+	}
 	if f.ID != strings.ToLower(f.ID) || f.Hash != strings.ToLower(f.Hash) {
 		return false
 	}
 	identifier, e := hex.DecodeString(f.ID)
 	hash, he := hex.DecodeString(f.Hash)
-	name := strings.ToUpper(strings.TrimSpace(strings.Split(f.Name, ".")[0]))
+	return e == nil && len(identifier) == 16 && he == nil && len(hash) == 32 && validFileName(f.Name) && f.Size >= 0
+}
+
+func validFileName(filename string) bool {
+	name := strings.ToUpper(strings.TrimSpace(strings.SplitN(filename, ".", 2)[0]))
 	reserved := name == "CON" || name == "PRN" || name == "AUX" || name == "NUL" || len(name) == 4 && (strings.HasPrefix(name, "COM") || strings.HasPrefix(name, "LPT")) && name[3] >= '1' && name[3] <= '9'
-	for _, r := range f.Name {
+	for _, r := range filename {
 		if r < 32 || r == 127 {
 			return false
 		}
 	}
-	return e == nil && len(identifier) == 16 && he == nil && len(hash) == 32 && f.Name != "" && f.Name != "." && f.Name != ".." && len(f.Name) <= 255 && !strings.ContainsAny(f.Name, "/\\:*?\"<>|\x00") && !reserved && !strings.HasSuffix(f.Name, ".") && !strings.HasSuffix(f.Name, " ") && f.Size >= 0
+	return utf8.ValidString(filename) && filename != "" && filename != "." && filename != ".." && len(filename) <= 255 &&
+		!strings.ContainsAny(filename, "/\\:*?\"<>|\x00") && !reserved && !strings.HasSuffix(filename, ".") && !strings.HasSuffix(filename, " ")
 }
 func fileHash(path string) (string, error) {
 	return fileHashContext(context.Background(), path)
@@ -139,7 +148,6 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 				p.BrowserShares = make(map[string]browserShare)
 			}
 			p.BrowserShares[f.ID] = link
-			s.Notice, s.Error = "分享已创建，可复制链接或显示二维码", ""
 		}
 		s.Files = append(s.Files, f)
 		if !shared {
@@ -147,6 +155,7 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 			if f.InlineImage {
 				kind = "image"
 			}
+			p.MessageTargets[f.ID] = targets
 			s.Messages = append(s.Messages, domain.Message{ID: f.ID, ConversationID: convID, SenderID: s.Self.ID, Kind: kind, FileID: f.ID, Text: f.Name, CreatedAt: f.CreatedAt, Status: "sent"})
 			if i := convIndex(s, convID); i >= 0 {
 				s.Conversations[i].Hidden = false
@@ -164,12 +173,17 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 		return err
 	}
 	if duplicate {
-		return errors.New("这个文件已在共享中，请在右侧管理链接或密码")
+		return errors.New("这个文件已在共享中，请从项目菜单管理链接或密码")
 	}
 	return nil
 }
 func (n *Node) offerFile(peer, convID string, f domain.File, tid string) {
-	_ = n.durable(func(p *persisted) []pending { return []pending{appendFileOffer(&p.State, peer, convID, f, tid)} })
+	_ = n.durable(func(p *persisted) []pending {
+		if p.MessageRecalls[messageRecallKey(f.SenderID, convID, f.ID)] {
+			return nil
+		}
+		return []pending{appendFileOffer(&p.State, peer, convID, f, tid)}
+	})
 }
 func appendFileOffer(s *domain.State, peer, convID string, f domain.File, tid string) pending {
 	if tid == "" {
@@ -217,8 +231,13 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 		f.ConversationID = directID(s.Self.ID, peer)
 		n.change(func(st *domain.State) { ensureDirect(st, s.Peer(peer)) })
 	}
-	requested := false
-	err := n.change(func(s *domain.State) {
+	requested, suppressed := false, false
+	err := n.durable(func(p *persisted) []pending {
+		if p.MessageRecalls[messageRecallKey(peer, f.ConversationID, f.ID)] {
+			suppressed = true
+			return nil
+		}
+		s := &p.State
 		for i := range s.Transfers {
 			v := &s.Transfers[i]
 			if v.FileID == f.ID && v.PeerID == peer && v.Direction == "receive" && v.Status == "retry_requested" {
@@ -251,19 +270,20 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 			}
 			if !found {
 				s.Messages = append(s.Messages, domain.Message{ID: f.ID, ConversationID: f.ConversationID, SenderID: peer, Kind: kind, Text: f.Name, FileID: f.ID, Status: "delivered", CreatedAt: f.CreatedAt})
-			}
-			if i := convIndex(s, f.ConversationID); i >= 0 {
-				s.Conversations[i].Hidden = false
-				s.Conversations[i].Unread++
-				s.Conversations[i].Preview = attachmentPreview(f)
-				s.Conversations[i].UpdatedAt = f.CreatedAt
+				if i := convIndex(s, f.ConversationID); i >= 0 {
+					s.Conversations[i].Hidden = false
+					s.Conversations[i].Unread++
+					s.Conversations[i].Preview = attachmentPreview(f)
+					s.Conversations[i].UpdatedAt = f.CreatedAt
+				}
 			}
 		}
+		return nil
 	})
 	if err != nil {
 		return err
 	}
-	if f.InlineImage || requested {
+	if !suppressed && (f.InlineImage || requested) {
 		n.startReceive(e.TransferID, "")
 	}
 	return nil
@@ -289,6 +309,9 @@ func (n *Node) transferContext(id string) (context.Context, func(), bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if _, ok := n.transfers[id]; ok || n.closing {
+		return nil, nil, false
+	}
+	if index := transferIndex(&n.data.State, id); index >= 0 && n.data.fileMessageRecalled(n.data.State.Transfers[index]) {
 		return nil, nil, false
 	}
 	ctx, cancel := context.WithCancel(n.ctx)
@@ -642,7 +665,7 @@ func (n *Node) sendCatalog(peer string) {
 	s := n.snapshot(false)
 	var list []domain.File
 	for _, f := range s.Files {
-		if f.Shared && !f.ShareProtected && f.SenderID == s.Self.ID {
+		if f.Shared && !f.ShareFolder && !f.ShareProtected && f.SenderID == s.Self.ID {
 			list = append(list, publicFile(f))
 		}
 	}
@@ -659,13 +682,13 @@ func (n *Node) broadcastCatalog() {
 func (n *Node) offerShared(peer, id string) error {
 	s := n.snapshot(false)
 	f := s.File(id)
-	if !f.Shared || f.ShareProtected || f.SenderID != s.Self.ID {
+	if !f.Shared || f.ShareFolder || f.ShareProtected || f.SenderID != s.Self.ID {
 		return errors.New("此分享已不可用")
 	}
 	var conv string
 	return n.durable(func(p *persisted) []pending {
 		i := fileIndex(&p.State, id)
-		if i < 0 || !p.State.Files[i].Shared || p.BrowserShares[id].Password.set() {
+		if i < 0 || !p.State.Files[i].Shared || p.State.Files[i].ShareFolder || p.BrowserShares[id].Password.set() {
 			return nil
 		}
 		conv = ensureDirect(&p.State, s.Peer(peer))

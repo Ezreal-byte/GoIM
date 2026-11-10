@@ -4,17 +4,18 @@ package domain
 import "time"
 
 type Peer struct {
-	ID           string
-	Name         string
-	Address      string
-	Avatar       string
-	ContactGroup string
-	Online       bool
-	LastSeen     time.Time
-	PublicKey    []byte
-	Signature    string   `json:",omitempty"`
-	Presence     Presence `json:",omitempty"`
-	Transport    string   `json:",omitempty"` // empty for GoIM TLS; "ipmsg" for IP Messenger-family peers
+	RecallSupported bool `json:"RecallSupported,omitempty"`
+	ID              string
+	Name            string
+	Address         string
+	Avatar          string
+	ContactGroup    string
+	Online          bool
+	LastSeen        time.Time
+	PublicKey       []byte
+	Signature       string   `json:",omitempty"`
+	Presence        Presence `json:",omitempty"`
+	Transport       string   `json:",omitempty"` // empty for GoIM TLS; "ipmsg" for IP Messenger-family peers
 }
 
 type Presence string
@@ -47,6 +48,8 @@ type Conversation struct {
 }
 
 type Message struct {
+	Recalled       bool `json:",omitempty"`
+	Deleted        bool `json:",omitempty"`
 	ID             string
 	ConversationID string
 	SenderID       string
@@ -101,20 +104,22 @@ type GroupNickname struct {
 }
 
 type File struct {
-	ID             string
-	Name           string
-	Size           int64
-	Hash           string
-	MIME           string
-	InlineImage    bool `json:",omitempty"` // bounded image attachment delivered as a chat message
-	SenderID       string
-	ConversationID string
-	SourcePath     string // local only, never sent over the wire
-	Shared         bool
-	CreatedAt      time.Time
-	ShareURL       string `json:"-"` // snapshot only, never sent to peers
-	ShareProtected bool   `json:"-"`
-	ShareQR        []byte `json:"-"`
+	ID              string
+	Name            string
+	Size            int64
+	Hash            string
+	MIME            string
+	InlineImage     bool `json:",omitempty"` // bounded image attachment delivered as a chat message
+	SenderID        string
+	ConversationID  string
+	SourcePath      string // local only, never sent over the wire
+	Shared          bool
+	ShareFolder     bool `json:",omitempty"` // browser-only directory share
+	CreatedAt       time.Time
+	ShareURL        string `json:"-"` // snapshot only, never sent to peers
+	ShareProtected  bool   `json:"-"`
+	ShareQR         []byte `json:"-"`
+	ShareEntryCount int    `json:"-"`
 }
 
 type Transfer struct {
@@ -147,6 +152,8 @@ type Shortcut struct {
 const ShortcutScreenshot = "截图标注"
 
 type Settings struct {
+	RecentEmoji          []string `json:",omitempty"`
+	Language             string
 	Theme                string
 	Nickname             string
 	Avatar               string
@@ -173,7 +180,7 @@ type Settings struct {
 }
 
 func DefaultSettings(downloadDir string) Settings {
-	return Settings{Theme: "light", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
+	return Settings{Language: "zh-CN", Theme: "light", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
 		DuplicatePolicy: "rename", CloseToTray: true, SendKey: "Enter", Shortcuts: []Shortcut{
 			{Action: "会话内搜索", Keys: "Ctrl+F", Scope: "应用内"},
 			{Action: "快速查找", Keys: "Ctrl+K", Scope: "应用内"},
@@ -212,7 +219,9 @@ type State struct {
 	Error          string
 	Notice         string
 	Locked         bool
-	LockResult     LockResult `json:"-"`
+	LockResult     LockResult    `json:"-"`
+	DeviceShare    DeviceShare   `json:"-"`
+	ShareFeedback  ShareFeedback `json:"-"`
 	ListenAddress  string
 	Version        string
 	Revision       uint64
@@ -222,6 +231,20 @@ type State struct {
 type LockResult struct {
 	Request uint64
 	Error   string
+}
+
+const WebReceiveFolder = "网页接收"
+
+type DeviceShare struct {
+	URL, ReceiveDir string
+	QR              []byte
+}
+
+// ShareFeedback is the latest ephemeral result of a file sharing action.
+type ShareFeedback struct {
+	Sequence      uint64
+	Title, Detail string
+	Failed        bool
 }
 
 func (s State) Peer(id string) Peer {
@@ -262,7 +285,7 @@ func (s State) File(id string) File {
 func (s State) ChatMessages(id string) []Message {
 	var out []Message
 	for _, m := range s.Messages {
-		if m.ConversationID == id {
+		if m.ConversationID == id && !m.Deleted {
 			out = append(out, m)
 		}
 	}
@@ -307,13 +330,21 @@ const (
 	MarkRead           CommandKind = "mark_read"
 	SaveDraft          CommandKind = "save_draft"
 	ShareFiles         CommandKind = "share_files"
+	SetDeviceShare     CommandKind = "set_device_share"
 	RemoveShare        CommandKind = "remove_share"
 	RefreshShares      CommandKind = "refresh_shares"
 	GetShared          CommandKind = "get_shared"
 	ClearError         CommandKind = "clear_error"
 )
 
+const (
+	RecallMessage CommandKind = "recall_message"
+	DeleteMessage CommandKind = "delete_message"
+	RememberEmoji CommandKind = "remember_emoji"
+)
+
 type Command struct {
+	MessageID      string
 	Kind           CommandKind
 	PeerID         string
 	ConversationID string

@@ -23,6 +23,8 @@ type ownershipOffer struct {
 	CreatedAt time.Time
 }
 type persisted struct {
+	MessageTargets     map[string][]string
+	MessageRecalls     map[string]bool
 	CatalogRevisions   map[string]uint64
 	NextSequence       uint64
 	TransferTombstones map[string]string
@@ -33,6 +35,7 @@ type persisted struct {
 	OwnerOffers        map[string]ownershipOffer
 	BrowserShares      map[string]browserShare
 	BrowserPort        string
+	BrowserHomeToken   string
 	LockCredential     credential
 }
 
@@ -65,6 +68,12 @@ func openStore(dir string) (*bolt.DB, persisted, error) {
 		return nil, data, fmt.Errorf("数据库版本 %d 高于当前应用支持版本", data.Version)
 	}
 	data.Version = 1
+	if data.MessageTargets == nil {
+		data.MessageTargets = make(map[string][]string)
+	}
+	if data.MessageRecalls == nil {
+		data.MessageRecalls = make(map[string]bool)
+	}
 	if data.CatalogRevisions == nil {
 		data.CatalogRevisions = make(map[string]uint64)
 	}

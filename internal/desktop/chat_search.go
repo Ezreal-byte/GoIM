@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"goim/internal/i18n"
 	"strings"
 
 	"github.com/vivaui/viva/app"
@@ -179,15 +180,15 @@ func (u *UI) drawChatSearchBar(f *flex.Frame) {
 		Background(u.palette.header).Items(flex.Center).Gap(10).Children(func() {
 		f.Icon(u.iconSearch).Size(16, 16).Color(u.palette.secondaryText)
 		f.Input(components.InputSnapshot{
-			ID: u.ids.chatSearchField, Label: "搜索当前会话", Value: value,
-			Placeholder: "搜索消息文字或文件名", Hint: "筛选当前会话的消息",
+			ID: u.ids.chatSearchField, Label: i18n.T("搜索当前会话"), Value: value,
+			Placeholder: i18n.T("搜索消息文字或文件名"), Hint: i18n.T("筛选当前会话的消息"),
 			Focused: focused, PlatformEditing: focused && value != "",
 			ShowCaret: focused && value == "", Caret: editor.Caret(),
 			SelectionStart: selection.Start, SelectionEnd: selection.End,
 			CompositionStart: composition.Start, CompositionEnd: composition.End,
 		}).Height(34).Grow(1)
-		f.Text(intString(u.chatFind.matchCount) + " 条匹配").FontSize(11).Muted()
-		close := u.iconButton(f, u.ids.chatSearchClose, u.iconX, "关闭会话内搜索", 28)
+		f.Text(intString(u.chatFind.matchCount) + i18n.T(" 条匹配")).FontSize(11).Muted()
+		close := u.iconButton(f, u.ids.chatSearchClose, u.iconX, i18n.T("关闭会话内搜索"), 28)
 		if close.Clicked() {
 			u.closeChatSearch()
 		}

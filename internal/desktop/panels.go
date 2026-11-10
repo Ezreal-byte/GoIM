@@ -2,7 +2,9 @@ package desktop
 
 import (
 	"fmt"
+	"goim/internal/i18n"
 	"net"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
 
@@ -63,6 +66,7 @@ type panelIDs struct {
 	settingsFeature    ui.Scope
 	settingsCategories ui.Scope
 	themeChoice        ui.Scope
+	languageChoice     ui.Scope
 	duplicateChoice    ui.Scope
 	networkChoice      ui.Scope
 	sendKeyChoice      ui.Scope
@@ -96,50 +100,36 @@ type panelIDs struct {
 	aboutBack        ui.ID
 	aboutCopyLicense ui.ID
 
-	transfersFeature    ui.Scope
-	transferScroll      ui.ID
+	transferActions     ui.Scope
 	transferFilters     ui.Scope
-	transferAccept      ui.Scope
-	transferSaveAs      ui.Scope
-	transferReject      ui.Scope
-	transferCancel      ui.Scope
-	transferRetry       ui.Scope
-	transferOpen        ui.Scope
-	transferReveal      ui.Scope
+	transferScroll      ui.ID
+	transferIncoming    ui.ID
+	transferDirectory   ui.ID
+	transferMenuScope   ui.ID
+	transferMenuDismiss ui.ID
+	transferMenuCopy    ui.ID
 	transfersDismiss    ui.ID
 	transfersClearError ui.ID
 
-	sharesFeature    ui.Scope
-	sharesScroll     ui.ID
-	sharesFilters    ui.Scope
-	sharesRefresh    ui.ID
-	sharesAdd        ui.ID
-	shareLocalScroll ui.ID
-	shareLocalRows   ui.Scope
-	sharePathField   ui.ID
-	sharePathGo      ui.ID
-	shareCopyLink    ui.Scope
-	shareShowQR      ui.Scope
-	shareMore        ui.Scope
-	shareHome        ui.ID
-	shareDownloads   ui.ID
-	shareDrives      ui.ID
-	shareRoot        ui.ID
-	shareUp          ui.ID
-	shareLocalReload ui.ID
-	shareLocalRetry  ui.ID
-	shareRow         ui.Scope
-	shareGet         ui.Scope
-	shareRemove      ui.Scope
-	shareOpen        ui.Scope
-	shareReveal      ui.Scope
-	sharesDismiss    ui.ID
-	sharesClearError ui.ID
-	sharesNoticeOff  ui.ID
+	sharesFeature                        ui.Scope
+	sharesScroll                         ui.ID
+	sharesFilters                        ui.Scope
+	sharesRefresh                        ui.ID
+	sharesAdd                            ui.ID
+	sharePickFiles, sharePickFolder      ui.ID
+	deviceShareMenu, shareMenuEnableLink ui.ID
+	shareToastScope, shareToastDismiss   ui.ID
+	deviceShareStart                     ui.ID
+	deviceShareCopy                      ui.ID
+	deviceShareQR                        ui.ID
+	deviceShareInbox                     ui.ID
+	deviceShareStop                      ui.ID
+	shareCopyLink                        ui.Scope
+	shareMore                            ui.Scope
+	shareRow                             ui.Scope
 
 	shareMenuScope     ui.ID
 	shareMenuDismiss   ui.ID
-	shareMenuShare     ui.ID
 	shareMenuOpen      ui.ID
 	shareMenuFolder    ui.ID
 	shareMenuGet       ui.ID
@@ -194,33 +184,32 @@ type panelLocalAction struct {
 }
 
 type panelTransferEntry struct {
-	transfer domain.Transfer
-	peer     string
-	status   string
-	meta     string
-	err      string
-	path     string
-	fraction float32
-	updated  time.Time
+	transfer                            domain.Transfer
+	ids                                 transferActionIDs
+	name, peer, status, meta, err, path string
+	progress, percent, fileKind         string
+	fraction                            float32
+	updated                             time.Time
 
-	accept   bool
-	saveAs   bool
-	reject   bool
-	cancel   bool
-	retry    bool
-	open     bool
-	reveal   bool
-	sharable bool
+	accept bool
+	saveAs bool
+	reject bool
+	cancel bool
+	retry  bool
+	open   bool
+	reveal bool
 }
 
 type panelShareEntry struct {
-	file      domain.File
-	sender    string
-	meta      string
-	state     string
-	own       bool
-	path      string
-	available bool
+	file                                                    domain.File
+	rowID, copyID, moreID                                   ui.ID
+	title, label, kind, date, access, compactMeta, iconKind string
+	sender                                                  string
+	meta                                                    string
+	state                                                   string
+	own                                                     bool
+	path                                                    string
+	available                                               bool
 }
 
 type panelPendingKind uint8
@@ -272,11 +261,17 @@ type Panels struct {
 	duplicateSelect flex.SelectState
 	networkSelect   flex.SelectState
 
-	transferFilter  int
-	shareFilter     int
-	shareAddress    flex.Field
-	shareMoreAnchor flex.Box
-	shareMoreEntry  panelShareEntry
+	transferFilter     int
+	transferMenu       string
+	transferAnchor     flex.Box
+	transferMenuEntry  *panelTransferEntry
+	transferPickerOpen bool
+	shareFilter        int
+	shareAnchor        flex.Box
+	shareSelected      string
+	sharePickerOpen    bool
+	shareToast         shareToastState
+	lastShareFeedback  uint64
 
 	networks         []panelNetworkOption
 	networkChoices   []panelNetworkOption
@@ -293,35 +288,22 @@ type Panels struct {
 	localActions    map[uint64]panelLocalAction
 	nextLocalAction uint64
 
-	transferPending  []panelTransferEntry
-	transferFinished []panelTransferEntry
-	transferLabels   []string
-	sharesAll        []panelShareEntry
-	sharesMine       []panelShareEntry
-	sharesRemote     []panelShareEntry
-	shareLabels      []string
-	shareByPath      map[string]panelShareEntry
+	transferIncoming      []panelTransferEntry
+	transferPending       []panelTransferEntry
+	transferFinished      []panelTransferEntry
+	transferLabels        [2]string
+	transferIncomingLabel string
+	sharesAll             []panelShareEntry
+	sharesMine            []panelShareEntry
+	sharesRemote          []panelShareEntry
+	shareLabels           []string
 
-	shareBrowser        shareBrowser
-	shareEntries        []shareDirEntry
-	shareDir            string
-	shareParent         string
-	shareLocationTitle  string
-	shareDownloadDir    string
-	shareLoading        bool
-	shareLoadError      string
-	shareTruncated      bool
-	sharePendingGen     uint64
-	shareLastRequest    shareBrowseRequest
-	shareBrowserStarted bool
-	shareSelection      map[string]bool
-	shareClickAdditive  bool
-	shareClickTarget    ui.ID
-	shareMenu           shareMenuState
-	shareDialog         shareSendDialogState
-	sharePassword       sharePasswordDialogState
-	shareQR             shareQRDialogState
-	shareQRCache        map[shareQRKey]shareQRResult
+	shareQRWorker shareQRWorker
+	shareMenu     shareMenuState
+	shareDialog   shareSendDialogState
+	sharePassword sharePasswordDialogState
+	shareQR       shareQRDialogState
+	shareQRCache  map[shareQRKey]shareQRResult
 
 	cacheReady    bool
 	cacheRevision uint64
@@ -344,16 +326,14 @@ func (p *Panels) Init(tree *ui.Tree) {
 	p.initialized = true
 	p.shortcutEdit = -1
 	p.localActions = make(map[uint64]panelLocalAction)
-	p.shareSelection = make(map[string]bool)
-	p.shareByPath = make(map[string]panelShareEntry)
 	p.shareQRCache = make(map[shareQRKey]shareQRResult)
-	p.shareBrowser.ensure()
 
 	settings := tree.Feature("settings-panels")
 	p.ids.settingsFeature = settings
 	p.ids.settingsCategories = tree.Sub(settings, tree.Name("categories"))
 	p.settingsExtra.init(tree, settings)
 	p.ids.themeChoice = tree.Sub(settings, tree.Name("theme-choice"))
+	p.ids.languageChoice = tree.Sub(settings, tree.Name("language-choice"))
 	p.ids.duplicateChoice = tree.Sub(settings, tree.Name("duplicate-choice"))
 	p.ids.networkChoice = tree.Sub(settings, tree.Name("network-choice"))
 	p.ids.sendKeyChoice = tree.Sub(settings, tree.Name("send-key-choice"))
@@ -387,16 +367,14 @@ func (p *Panels) Init(tree *ui.Tree) {
 	p.ids.aboutCopyLicense = tree.ID(settings, "copy-license")
 
 	transfers := tree.Feature("transfers-panel")
-	p.ids.transfersFeature = transfers
+	p.ids.transferActions = tree.Sub(transfers, tree.Name("task"))
 	p.ids.transferScroll = tree.ID(transfers, "scroll")
+	p.ids.transferIncoming = tree.ID(transfers, "incoming-scroll")
+	p.ids.transferDirectory = tree.ID(transfers, "receive-directory")
 	p.ids.transferFilters = tree.Sub(transfers, tree.Name("filters"))
-	p.ids.transferAccept = tree.Sub(transfers, tree.Name("accept"))
-	p.ids.transferSaveAs = tree.Sub(transfers, tree.Name("save-as"))
-	p.ids.transferReject = tree.Sub(transfers, tree.Name("reject"))
-	p.ids.transferCancel = tree.Sub(transfers, tree.Name("cancel"))
-	p.ids.transferRetry = tree.Sub(transfers, tree.Name("retry"))
-	p.ids.transferOpen = tree.Sub(transfers, tree.Name("open"))
-	p.ids.transferReveal = tree.Sub(transfers, tree.Name("reveal"))
+	p.ids.transferMenuScope = tree.ID(transfers, "action-menu")
+	p.ids.transferMenuDismiss = tree.ID(transfers, "action-menu-dismiss")
+	p.ids.transferMenuCopy = tree.ID(transfers, "copy-file-name")
 	p.ids.transfersDismiss = tree.ID(transfers, "dismiss-local-error")
 	p.ids.transfersClearError = tree.ID(transfers, "clear-error")
 
@@ -406,32 +384,23 @@ func (p *Panels) Init(tree *ui.Tree) {
 	p.ids.sharesFilters = tree.Sub(shares, tree.Name("filters"))
 	p.ids.sharesRefresh = tree.ID(shares, "refresh")
 	p.ids.sharesAdd = tree.ID(shares, "add")
-	p.ids.shareLocalScroll = tree.ID(shares, "local-scroll")
-	p.ids.shareLocalRows = tree.Sub(shares, tree.Name("local-row"))
-	p.ids.sharePathField = tree.ID(shares, "local-path")
-	p.ids.sharePathGo = tree.ID(shares, "local-path-go")
+	p.ids.sharePickFiles = tree.ID(shares, "pick-files")
+	p.ids.sharePickFolder = tree.ID(shares, "pick-folder")
+	p.ids.deviceShareMenu = tree.ID(shares, "device-menu")
+	p.ids.shareMenuEnableLink = tree.ID(shares, "share-menu-enable-link")
+	p.ids.shareToastScope = tree.ID(shares, "toast")
+	p.ids.shareToastDismiss = tree.ID(shares, "toast-dismiss")
+	p.ids.deviceShareStart = tree.ID(shares, "device-start")
+	p.ids.deviceShareCopy = tree.ID(shares, "device-copy")
+	p.ids.deviceShareQR = tree.ID(shares, "device-qr")
+	p.ids.deviceShareInbox = tree.ID(shares, "device-inbox")
+	p.ids.deviceShareStop = tree.ID(shares, "device-stop")
 	p.ids.shareCopyLink = tree.Sub(shares, tree.Name("copy-link"))
-	p.ids.shareShowQR = tree.Sub(shares, tree.Name("show-qr"))
 	p.ids.shareMore = tree.Sub(shares, tree.Name("more"))
-	p.ids.shareHome = tree.ID(shares, "local-home")
-	p.ids.shareDownloads = tree.ID(shares, "local-downloads")
-	p.ids.shareDrives = tree.ID(shares, "local-drives")
-	p.ids.shareRoot = tree.ID(shares, "local-root")
-	p.ids.shareUp = tree.ID(shares, "local-up")
-	p.ids.shareLocalReload = tree.ID(shares, "local-reload")
-	p.ids.shareLocalRetry = tree.ID(shares, "local-retry")
 	p.ids.shareRow = tree.Sub(shares, tree.Name("share-row"))
-	p.ids.shareGet = tree.Sub(shares, tree.Name("get"))
-	p.ids.shareRemove = tree.Sub(shares, tree.Name("remove"))
-	p.ids.shareOpen = tree.Sub(shares, tree.Name("open"))
-	p.ids.shareReveal = tree.Sub(shares, tree.Name("reveal"))
-	p.ids.sharesDismiss = tree.ID(shares, "dismiss-local-error")
-	p.ids.sharesClearError = tree.ID(shares, "clear-error")
-	p.ids.sharesNoticeOff = tree.ID(shares, "dismiss-local-notice")
 
 	p.ids.shareMenuScope = tree.ID(shares, "share-menu-scope")
 	p.ids.shareMenuDismiss = tree.ID(shares, "share-menu-dismiss")
-	p.ids.shareMenuShare = tree.ID(shares, "share-menu-share")
 	p.ids.shareMenuOpen = tree.ID(shares, "share-menu-open")
 	p.ids.shareMenuFolder = tree.ID(shares, "share-menu-folder")
 	p.ids.shareMenuGet = tree.ID(shares, "share-menu-get")
@@ -485,13 +454,18 @@ func (p *Panels) Draw(canvas *ui.Canvas, theme ui.Theme, bounds ui.Rect, module 
 		p.networkChange = panelNetworkChange{}
 		p.localError = ""
 		p.localNotice = ""
+		p.transferMenu = ""
 		p.closeShareInteractions()
+		p.shareToast = shareToastState{}
 		p.settingsExtra.resetSecrets()
 	}
 	p.module = module
 	if module == panelModuleSettings && previousModule != "" && previousModule != module {
 		p.refreshNetworks()
 	}
+	p.shareAnchor = flex.Box{}
+	p.transferAnchor = flex.Box{}
+	p.transferMenuEntry = nil
 	p.observePending(state)
 	p.prepare(state)
 
@@ -502,18 +476,16 @@ func (p *Panels) Draw(canvas *ui.Canvas, theme ui.Theme, bounds ui.Rect, module 
 		case panelModuleSettings:
 			p.drawSettings(f, theme, state, submit)
 		case panelModuleTransfers:
-			p.drawTransfers(f, theme, state, submit)
+			p.drawTransfers(f, theme, bounds, state, submit)
 		case panelModuleShares:
-			p.drawShares(f, theme, state, submit)
+			p.drawShares(f, theme, bounds, state, submit)
 		}
 	})
 	if module == panelModuleShares {
-		if p.shareMoreEntry.file.ID != "" {
-			anchor := p.shareMoreAnchor.Rect()
-			p.openShareSharedMenu(p.shareMoreEntry, anchor.X+anchor.Width-190, anchor.Y+anchor.Height)
-			p.shareMoreEntry = panelShareEntry{}
-		}
-		p.drawShareContextMenu(canvas, theme, bounds, submit)
+		p.drawShareMenu(canvas, theme, bounds, state.DeviceShare, submit)
+		p.drawShareToast(canvas, theme, bounds, state.ShareFeedback)
+	} else if module == panelModuleTransfers {
+		p.drawTransferMenu(canvas, theme, bounds, submit)
 	}
 	p.captureScroll()
 	canvas.Unclip()
@@ -523,7 +495,6 @@ func (p *Panels) Draw(canvas *ui.Canvas, theme ui.Theme, bounds ui.Rect, module 
 // run on the shared media worker; Draw only reads the cached result.
 func (p *Panels) OnWake(state domain.State) {
 	p.applyShareBrowserEvents()
-	p.shareDownloadDir = strings.TrimSpace(state.Settings.DownloadDir)
 	previous := p.localFiles
 	paths := localFilePaths(state)
 	p.localFiles = make(map[string]panelLocalFile, len(paths))
@@ -540,7 +511,7 @@ func (p *Panels) OnWake(state domain.State) {
 
 func (p *Panels) setMediaSubmit(submit func(mediaJob)) {
 	p.mediaSubmit = submit
-	p.shareBrowser.setNotify(func() {
+	p.shareQRWorker.setNotify(func() {
 		if p.mediaSubmit == nil {
 			return
 		}
@@ -577,22 +548,30 @@ func (p *Panels) applyMediaActions(actions []mediaActionResult) {
 		if action.path != result.path || action.reveal != result.reveal {
 			continue
 		}
-		if !result.available {
-			message := "本地文件不可用"
-			if result.err != "" {
-				message += "：" + result.err
-			}
-			p.localError = message
-			continue
-		}
 		if result.canceled {
 			continue
 		}
+		if !result.available {
+			message := i18n.T("本地文件不可用")
+			if result.err != "" {
+				message += "：" + result.err
+			}
+			p.reportLocalActionError(message)
+			continue
+		}
 		if result.err != "" {
-			p.localError = result.err
+			p.reportLocalActionError(result.err)
 		} else {
 			p.localError = ""
 		}
+	}
+}
+
+func (p *Panels) reportLocalActionError(message string) {
+	if p.module == panelModuleShares {
+		p.setShareToast("无法打开本地项目", message, components.ToastError)
+	} else {
+		p.localError = message
 	}
 }
 
@@ -603,9 +582,6 @@ func (p *Panels) TextInput() app.TextInputProvider {
 	return func(context app.TextInputContext) *app.TextInput {
 		if p.module == panelModuleSettings {
 			return p.settingsExtra.textInput(context)
-		}
-		if p.module == panelModuleShares && !p.shareModalOpen() && !p.shareMenu.open {
-			return flex.Fields(&p.shareAddress)(context)
 		}
 		if !p.shareDialog.open && !p.sharePassword.open {
 			return nil
@@ -620,6 +596,16 @@ func (p *Panels) TextInput() app.TextInputProvider {
 func (p *Panels) Key(event ui.KeyEvent) ui.EventResult {
 	if event.Release {
 		return ui.EventResult{}
+	}
+	if p.module == panelModuleTransfers && p.transferMenu == "" &&
+		(event.Target == p.ids.transferFilters.At(panelTransferPending) || event.Target == p.ids.transferFilters.At(panelTransferFinished)) {
+		options := [...]components.TabOption{
+			{ID: p.ids.transferFilters.At(panelTransferPending)},
+			{ID: p.ids.transferFilters.At(panelTransferFinished)},
+		}
+		if next, ok := components.TabsKeyDown(event.Target, options[:], components.TabsHorizontal, components.DirectionLTR, event.Key); ok {
+			return ui.EventResult{Handled: true, Repaint: true, Focus: next, FocusVisible: true}
+		}
 	}
 	if p.module == panelModuleSettings {
 		if p.settingsTab == panelSettingsGeneral {
@@ -647,7 +633,7 @@ func (p *Panels) Key(event ui.KeyEvent) ui.EventResult {
 			}
 			keys, ok := panelShortcutFromKey(event)
 			if !ok {
-				p.shortcutError = "此按键无法录制，请换一组"
+				p.shortcutError = i18n.T("此按键无法录制，请换一组")
 				return ui.EventResult{Handled: true, Repaint: true}
 			}
 			p.shortcutKeys = keys
@@ -676,6 +662,10 @@ func (p *Panels) Shortcut(event ui.KeyEvent) ui.EventResult {
 // Wheel routes the wheel to an open settings dropdown first, then to the panel
 // scroll area under the pointer.
 func (p *Panels) Wheel(event ui.ScrollEvent) ui.EventResult {
+	if p.module == panelModuleTransfers && p.transferMenu != "" {
+		p.transferMenu = ""
+		return ui.EventResult{Handled: true, Repaint: true}
+	}
 	if p.module == panelModuleSettings && (p.settingsTab == panelSettingsNetwork || p.settingsTab == panelSettingsTransfers) {
 		if p.duplicateSelect.Open {
 			return p.duplicateSelect.Wheel(event)
@@ -770,25 +760,29 @@ func (p *Panels) settingsScrollID(tab panelSettingsTab) ui.ID {
 }
 
 func (p *Panels) rebuildTransfers(state domain.State) {
+	p.transferIncoming = p.transferIncoming[:0]
 	p.transferPending = p.transferPending[:0]
 	p.transferFinished = p.transferFinished[:0]
 	for _, transfer := range state.Transfers {
 		entry := panelBuildTransfer(state, transfer)
-		if panelTransferIsFinished(transfer.Status) {
+		scope := p.tree.Sub(p.ids.transferActions, p.tree.Name(transfer.ID))
+		entry.ids = newTransferActionIDs(p.tree, scope, entry)
+		switch {
+		case entry.accept:
+			p.transferIncoming = append(p.transferIncoming, entry)
+		case panelTransferIsFinished(transfer.Status):
 			p.transferFinished = append(p.transferFinished, entry)
-		} else {
+		default:
 			p.transferPending = append(p.transferPending, entry)
 		}
 	}
-	sort.SliceStable(p.transferPending, func(i, j int) bool {
-		return p.transferPending[i].updated.After(p.transferPending[j].updated)
-	})
-	sort.SliceStable(p.transferFinished, func(i, j int) bool {
-		return p.transferFinished[i].updated.After(p.transferFinished[j].updated)
-	})
-	p.transferLabels = []string{
-		fmt.Sprintf("进行中 %d", len(p.transferPending)),
-		fmt.Sprintf("已完成 %d", len(p.transferFinished)),
+	for _, entries := range [][]panelTransferEntry{p.transferIncoming, p.transferPending, p.transferFinished} {
+		sort.SliceStable(entries, func(i, j int) bool { return entries[i].updated.After(entries[j].updated) })
+	}
+	p.transferIncomingLabel = fmt.Sprintf(i18n.T("待接收 %d"), len(p.transferIncoming))
+	p.transferLabels = [2]string{
+		fmt.Sprintf(i18n.T("传输中 %d"), len(p.transferPending)),
+		fmt.Sprintf(i18n.T("已结束 %d"), len(p.transferFinished)),
 	}
 }
 
@@ -796,37 +790,57 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer) panelTrans
 	peer := state.Peer(transfer.PeerID)
 	name := peer.Name
 	if strings.TrimSpace(name) == "" {
-		name = "未知联系人"
+		name = i18n.T("未知联系人")
 	}
 	entry := panelTransferEntry{
 		transfer: transfer,
+		name:     transfer.Name,
 		peer:     name,
 		status:   panelTransferStatus(transfer.Status, transfer.Direction),
 		fraction: panelTransferFraction(transfer),
 		updated:  transfer.UpdatedAt,
 		err:      transfer.Error,
 	}
-	if transfer.Path != "" {
-		entry.path = transfer.Path
+	if strings.TrimSpace(entry.name) == "" {
+		entry.name = i18n.T("未命名文件")
 	}
-	direction := "发送给 " + name
+	entry.path = transfer.Path
+	switch strings.ToLower(filepath.Ext(transfer.Name)) {
+	case ".zip", ".7z", ".rar", ".tar", ".gz":
+		entry.fileKind = "archive"
+	case ".xlsx", ".xls", ".csv", ".ods":
+		entry.fileKind = "sheet"
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg":
+		entry.fileKind = "image"
+	}
+	direction := i18n.T("发送给 ") + name
 	if transfer.Direction == "receive" {
-		direction = "来自 " + name
+		direction = fmt.Sprintf(i18n.T("%s 发来"), name)
 	}
-	meta := []string{direction, panelFormatBytes(transfer.Size)}
-	if transfer.Done > 0 && transfer.Done < transfer.Size {
-		meta = append(meta, panelFormatBytes(transfer.Done))
+	size := panelFormatBytes(transfer.Size)
+	entry.meta = direction + " · " + size
+	if panelTransferIsFinished(transfer.Status) && !transfer.UpdatedAt.IsZero() {
+		entry.meta += " · " + transfer.UpdatedAt.Local().Format("2006-01-02 15:04")
 	}
-	if transfer.Speed > 0 && !panelTransferIsFinished(transfer.Status) {
-		meta = append(meta, panelFormatBytes(int64(transfer.Speed))+"/s")
-		if remaining := transfer.Size - transfer.Done; remaining > 0 {
-			meta = append(meta, panelETA(remaining, transfer.Speed))
+	if transfer.Size > 0 && (transfer.Status == "transferring" || transfer.Status == "verifying" || transfer.Status == "waiting" && transfer.Done > 0) {
+		entry.meta = direction
+		entry.percent = fmt.Sprintf("%d%%", int(entry.fraction*100))
+		done := transfer.Done
+		if transfer.Status == "verifying" {
+			done = transfer.Size
+		}
+		entry.progress = panelFormatBytes(done) + " / " + size
+		if transfer.Status == "transferring" && transfer.Speed > 0 {
+			entry.progress += " · " + panelFormatBytes(int64(transfer.Speed)) + "/s"
+			if remaining := transfer.Size - done; remaining > 0 {
+				entry.progress += " · " + panelETA(remaining, transfer.Speed)
+			}
 		}
 	}
-	if !transfer.UpdatedAt.IsZero() {
-		meta = append(meta, transfer.UpdatedAt.Format("2006-01-02 15:04"))
+	if transfer.Status == "offered" && transfer.Direction == "send" {
+		entry.meta = direction
+		entry.status = size + " · " + entry.status
 	}
-	entry.meta = strings.Join(meta, " · ")
 
 	switch transfer.Status {
 	case "offered":
@@ -858,27 +872,27 @@ func panelTransferStatus(status, direction string) string {
 	switch status {
 	case "offered":
 		if direction == "receive" {
-			return "等待接收"
+			return i18n.T("等待接收")
 		}
-		return "等待确认"
+		return i18n.T("等待对方接收")
 	case "transferring":
-		return "传输中"
+		return i18n.T("传输中")
 	case "verifying":
-		return "校验中"
+		return i18n.T("校验中")
 	case "completed":
-		return "已完成"
+		return i18n.T("已完成")
 	case "rejected":
-		return "已拒绝"
+		return i18n.T("已拒绝")
 	case "waiting":
-		return "等待连接"
+		return i18n.T("等待连接")
 	case "retry_requested":
-		return "等待对方确认重试"
+		return i18n.T("等待对方确认重试")
 	case "cancelled":
-		return "已取消"
+		return i18n.T("已取消")
 	case "failed":
-		return "失败"
+		return i18n.T("失败")
 	case "":
-		return "状态未知"
+		return i18n.T("状态未知")
 	default:
 		return status
 	}
@@ -900,32 +914,31 @@ func panelTransferFraction(transfer domain.Transfer) float32 {
 
 func panelETA(remaining int64, speed float64) string {
 	if remaining <= 0 || speed <= 0 {
-		return "预计时间计算中"
+		return i18n.T("预计时间计算中")
 	}
 	seconds := float64(remaining) / speed
 	if seconds < 1 {
-		return "预计不到 1 秒"
+		return i18n.T("预计不到 1 秒")
 	}
 	duration := time.Duration(seconds * float64(time.Second)).Round(time.Second)
 	if duration < time.Minute {
-		return fmt.Sprintf("预计 %d 秒", int(duration/time.Second))
+		return fmt.Sprintf(i18n.T("预计 %d 秒"), int(duration/time.Second))
 	}
 	if duration < time.Hour {
 		minutes := int(duration / time.Minute)
 		secs := int((duration % time.Minute) / time.Second)
 		if secs == 0 {
-			return fmt.Sprintf("预计 %d 分钟", minutes)
+			return fmt.Sprintf(i18n.T("预计 %d 分钟"), minutes)
 		}
-		return fmt.Sprintf("预计 %d 分 %d 秒", minutes, secs)
+		return fmt.Sprintf(i18n.T("预计 %d 分 %d 秒"), minutes, secs)
 	}
-	return fmt.Sprintf("预计 %d 小时", int(duration/time.Hour))
+	return fmt.Sprintf(i18n.T("预计 %d 小时"), int(duration/time.Hour))
 }
 
 func (p *Panels) rebuildShares(state domain.State) {
 	p.sharesAll = p.sharesAll[:0]
 	p.sharesMine = p.sharesMine[:0]
 	p.sharesRemote = p.sharesRemote[:0]
-	clear(p.shareByPath)
 	for _, file := range state.Files {
 		if !file.Shared {
 			continue
@@ -933,30 +946,64 @@ func (p *Panels) rebuildShares(state domain.State) {
 		own := file.SenderID != "" && file.SenderID == state.Self.ID
 		sender := state.Peer(file.SenderID).Name
 		if own {
-			sender = "我"
+			sender = i18n.T("我")
 		} else if strings.TrimSpace(sender) == "" {
-			sender = "未知联系人"
+			sender = i18n.T("未知联系人")
 		}
 		local := p.localFiles[file.ID]
 		entry := panelShareEntry{
 			file: file, sender: sender, own: own,
 			path: local.path, available: local.available,
 		}
-		eventTime := file.CreatedAt
-		meta := []string{panelFormatBytes(file.Size), sender}
-		if !eventTime.IsZero() {
-			meta = append(meta, eventTime.Format("2006-01-02 15:04"))
+		entry.title = panelShareName(file)
+		entry.kind = i18n.T("文件")
+		entry.label = i18n.T("共享文件 ") + entry.title
+		entry.meta = panelFormatBytes(file.Size)
+		if file.ShareFolder {
+			entry.kind = i18n.T("文件夹")
+			entry.label = i18n.T("共享文件夹 ") + entry.title
+			entry.meta = fmt.Sprintf(i18n.T("%d 个项目"), file.ShareEntryCount) + " · " + entry.meta
 		}
-		entry.meta = strings.Join(meta, " · ")
+		if !own {
+			entry.meta += " · " + sender
+		}
+		if !file.CreatedAt.IsZero() {
+			entry.date = file.CreatedAt.Local().Format("2006-01-02 15:04")
+		} else {
+			entry.date = "—"
+		}
+		entry.compactMeta = entry.meta
+		if entry.date != "—" {
+			entry.compactMeta += " · " + entry.date
+		}
 		switch {
-		case entry.available:
-			entry.state = "本地文件可用"
-		case own:
-			entry.state = "源文件当前不可用"
-		case entry.path != "":
-			entry.state = "本地文件已不可用"
+		case file.ShareProtected:
+			entry.access = i18n.T("密码访问")
+		case file.ShareURL != "":
+			entry.access = i18n.T("公开访问")
 		default:
-			entry.state = "尚未获取"
+			entry.access = i18n.T("成员访问")
+		}
+		switch strings.ToLower(filepath.Ext(file.Name)) {
+		case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg":
+			entry.iconKind = "image"
+		case ".xlsx", ".xls", ".csv", ".ods":
+			entry.iconKind = "sheet"
+		}
+		entry.rowID = p.tree.ID(p.ids.shareRow, file.ID)
+		entry.copyID = p.tree.ID(p.ids.shareCopyLink, file.ID)
+		entry.moreID = p.tree.ID(p.ids.shareMore, file.ID)
+		switch {
+		case file.ShareFolder:
+			entry.state = i18n.T("通过链接浏览")
+		case entry.available:
+			entry.state = i18n.T("本地文件可用")
+		case own:
+			entry.state = i18n.T("源文件当前不可用")
+		case entry.path != "":
+			entry.state = i18n.T("本地文件已不可用")
+		default:
+			entry.state = i18n.T("尚未获取")
 		}
 		p.sharesAll = append(p.sharesAll, entry)
 		if own {
@@ -969,15 +1016,10 @@ func (p *Panels) rebuildShares(state domain.State) {
 	panelSortShares(p.sharesMine)
 	panelSortShares(p.sharesRemote)
 	p.shareLabels = []string{
-		fmt.Sprintf("我的共享 %d", len(p.sharesMine)),
-		fmt.Sprintf("成员共享 %d", len(p.sharesRemote)),
+		fmt.Sprintf(i18n.T("我的分享 %d"), len(p.sharesMine)),
+		fmt.Sprintf(i18n.T("成员共享 %d"), len(p.sharesRemote)),
 	}
-	for _, entry := range p.sharesMine {
-		if entry.path == "" {
-			continue
-		}
-		p.shareByPath[sharePathKey(entry.path)] = entry
-	}
+
 }
 
 func panelSortShares(entries []panelShareEntry) {
@@ -1005,13 +1047,13 @@ func (p *Panels) refreshNetworks() {
 		if iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
-		status := "未连接"
+		status := i18n.T("未连接")
 		if iface.Flags&net.FlagUp != 0 {
-			status = "已连接"
+			status = i18n.T("已连接")
 		}
 		label := iface.Name + " · " + status
 		if iface.Flags&net.FlagPointToPoint != 0 {
-			label += " · 点对点"
+			label += i18n.T(" · 点对点")
 		}
 		p.networks = append(p.networks, panelNetworkOption{value: iface.Name, label: label})
 	}
@@ -1023,7 +1065,7 @@ func (p *Panels) refreshNetworks() {
 
 func (p *Panels) networkName(value string) string {
 	if value == "" || value == "auto" {
-		return "自动选择"
+		return i18n.T("自动选择")
 	}
 	for _, option := range p.networks {
 		if option.value == value {
@@ -1065,13 +1107,13 @@ func (p *Panels) networkChoicesFor(current string) ([]string, []string, int) {
 	}
 	if p.networkFor != normalized || len(p.networkChoices) == 0 {
 		p.networkChoices = p.networkChoices[:0]
-		p.networkChoices = append(p.networkChoices, panelNetworkOption{value: "auto", label: "自动选择"})
+		p.networkChoices = append(p.networkChoices, panelNetworkOption{value: "auto", label: i18n.T("自动选择")})
 		p.networkChoices = append(p.networkChoices, p.networks...)
 		if normalized != "" && !slices.ContainsFunc(p.networkChoices, func(option panelNetworkOption) bool {
 			return option.value == normalized
 		}) {
 			p.networkChoices = append(p.networkChoices, panelNetworkOption{
-				value: normalized, label: "当前配置 · " + normalized,
+				value: normalized, label: i18n.T("当前配置 · ") + normalized,
 			})
 		}
 		p.networkLabels = p.networkLabels[:0]
@@ -1176,7 +1218,7 @@ func panelShortcutConflict(shortcuts []domain.Shortcut, index int, keys string) 
 		}
 		if strings.EqualFold(shortcut.Scope, shortcuts[index].Scope) &&
 			strings.ToLower(shortcuts[at].Keys) == keys {
-			return "与“" + shortcut.Action + "”冲突"
+			return i18n.T("与“") + shortcut.Action + i18n.T("”冲突")
 		}
 	}
 	return ""
@@ -1228,6 +1270,8 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 	switch pending.kind {
 	case panelPendingValue:
 		switch pending.setting {
+		case "language":
+			return settings.Language == pending.value
 		case "theme":
 			return settings.Theme == pending.value
 		case "download_dir":
@@ -1271,7 +1315,7 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 }
 
 func panelReadBuildInfo() panelBuildInfo {
-	info := panelBuildInfo{goVersion: runtime.Version(), vivaVersion: "未提供"}
+	info := panelBuildInfo{goVersion: runtime.Version(), vivaVersion: i18n.T("未提供")}
 	build, ok := debug.ReadBuildInfo()
 	if !ok {
 		return info
@@ -1287,7 +1331,7 @@ func panelReadBuildInfo() panelBuildInfo {
 		case dependency.Replace != nil && dependency.Replace.Version != "":
 			info.vivaVersion = dependency.Replace.Version
 		case dependency.Replace != nil:
-			info.vivaVersion = "本地替换"
+			info.vivaVersion = i18n.T("本地替换")
 		case dependency.Version != "":
 			info.vivaVersion = dependency.Version
 		}
@@ -1309,42 +1353,45 @@ func panelReadBuildInfo() panelBuildInfo {
 func panelCopy(canvas *ui.Canvas, p *Panels, text string) {
 	canvas.AfterPaint(func() {
 		if err := app.SetClipboardText(text); err != nil {
-			p.localError = "复制失败：" + err.Error()
+			p.localError = i18n.T("复制失败：") + err.Error()
 			return
 		}
 		p.localError = ""
-		p.localNotice = "已复制"
+		p.localNotice = i18n.T("已复制")
 	})
 }
 
 func panelOpenLocal(_ *ui.Canvas, p *Panels, path string, reveal bool) {
-	p.requestLocalAction(path, reveal)
+	p.requestLocalAction(path, reveal, false)
 }
 
-func (p *Panels) requestLocalAction(path string, reveal bool) {
-	if path == "" {
+func (p *Panels) requestLocalAction(path string, reveal, directory bool) {
+	p.queueLocalAction(mediaJob{path: path, reveal: reveal, directory: directory})
+}
+
+func (p *Panels) queueLocalAction(job mediaJob) {
+	if job.path == "" {
 		return
 	}
 	p.nextLocalAction++
-	action := panelLocalAction{id: p.nextLocalAction, path: path, reveal: reveal}
+	action := panelLocalAction{id: p.nextLocalAction, path: job.path, reveal: job.reveal}
 	if p.localActions == nil {
 		p.localActions = make(map[uint64]panelLocalAction)
 	}
 	p.localActions[action.id] = action
 	if p.mediaSubmit == nil {
 		delete(p.localActions, action.id)
-		p.localError = "本地文件检查服务不可用"
+		p.reportLocalActionError(i18n.T("本地文件检查服务不可用"))
 		return
 	}
-	p.mediaSubmit(mediaJob{
-		key:  mediaJobKey{kind: mediaJobLocalAction, id: action.id},
-		kind: mediaJobLocalAction, path: path, actionID: action.id, reveal: reveal,
-	})
+	job.key = mediaJobKey{kind: mediaJobLocalAction, id: action.id}
+	job.kind, job.actionID = mediaJobLocalAction, action.id
+	p.mediaSubmit(job)
 }
 
 func panelFormatBytes(size int64) string {
 	if size < 0 {
-		return "大小未知"
+		return i18n.T("大小未知")
 	}
 	if size < 1024 {
 		return fmt.Sprintf("%d B", size)
@@ -1469,7 +1516,7 @@ func panelBanner(f *flex.Frame, theme ui.Theme, text string, danger bool, dismis
 		Border(1, panelTint(tone, 0.24, theme.Background)).Radius(8).Children(func() {
 		f.Paragraph(text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1).Color(tone)
 		if dismiss != nil {
-			if f.Button(ui.ID{}, "关闭").Small().Ghost().Clicked() {
+			if f.Button(ui.ID{}, i18n.T("关闭")).Small().Ghost().Clicked() {
 				dismiss()
 			}
 		}
@@ -1497,12 +1544,12 @@ func (p *Panels) panelFeedback(f *flex.Frame, theme ui.Theme, state domain.State
 		})
 	}
 	if state.Error != "" {
-		panelBannerWithAction(f, theme, state.Error, true, clearError, func() {
+		panelBannerWithAction(f, theme, i18n.T(state.Error), true, clearError, func() {
 			submit(domain.Command{Kind: domain.ClearError})
 		})
 	}
 	if state.Notice != "" {
-		panelBanner(f, theme, state.Notice, false, nil)
+		panelBanner(f, theme, i18n.T(state.Notice), false, nil)
 	}
 	if p.localNotice != "" {
 		panelBanner(f, theme, p.localNotice, false, nil)
@@ -1519,7 +1566,7 @@ func panelBannerWithAction(f *flex.Frame, theme ui.Theme, text string, danger bo
 		Border(1, panelTint(tone, 0.24, theme.Background)).Radius(8).Children(func() {
 		f.Paragraph(text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1).Color(tone)
 		if dismiss != nil {
-			if f.Button(id, "关闭").Small().Ghost().Clicked() {
+			if f.Button(id, i18n.T("关闭")).Small().Ghost().Clicked() {
 				dismiss()
 			}
 		}

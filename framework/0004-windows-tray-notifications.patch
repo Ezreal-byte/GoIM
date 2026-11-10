@@ -1,0 +1,231 @@
+diff --git a/docs/system-integrations.md b/docs/system-integrations.md
+index 8661b25..41c6bbc 100644
+--- a/docs/system-integrations.md
++++ b/docs/system-integrations.md
+@@ -19,7 +19,7 @@ synchronous forms report `ErrAsyncRequired`, `ErrSecretStoreUnavailable` or
+ | File drop (`OnFileDrop`) | AppKit drag destination, with paths | `WM_DROPFILES`, with paths | XDND / GTK drop, with paths | DOM drag events; `ui.FileDropEvent.Files` carries the browser files and `Paths` is empty |
+ | Open external URL | `NSWorkspace` | `ShellExecuteW` | installed `xdg-open` or `gio` | `window.open`; popup rejection is `ErrUserGestureRequired` |
+ | System sound | AppKit system sounds | `MessageBeep` | `canberra-gtk-play` or X11 bell | `ErrUnsupported` |
+-| Notification | UserNotifications; app bundle ID and permission required | shell notification icon; running window required | the desktop's `org.freedesktop.Notifications` service, under the executable's name; installed `notify-send` without one; no click callback | only when Notification permission is already granted; `RequestNotificationPermission` asks for it asynchronously |
++| Notification | UserNotifications; app bundle ID and permission required | shell notification on the first live status item; falls back to an icon on a running window when there is no status item | the desktop's `org.freedesktop.Notifications` service, under the executable's name; installed `notify-send` without one; no click callback | only when Notification permission is already granted; `RequestNotificationPermission` asks for it asynchronously |
+ | Secret store (`StoreSecretAsync`, `LoadSecretAsync`, `DeleteSecretAsync`) | Keychain | Credential Manager | Secret Service (GNOME Keyring, KWallet) | AES-GCM through WebCrypto with a non-extractable key held in IndexedDB; synchronous calls return `ErrSecretStoreUnavailable` |
+ | Font registration (`RegisterFontAsync`) | CoreText process registration | DirectWrite process registration | Fontconfig process registration | `FontFace` loaded from the application's data; family, weight and italic come from the sfnt tables |
+ | Font enumeration (`FontFamilies`, `MonospaceFamilies`) | system list | system list | fontconfig list | empty: browsers do not expose installed fonts |
+diff --git a/internal/platform/windows/status_item_windows.go b/internal/platform/windows/status_item_windows.go
+index a30587e..fc427d5 100644
+--- a/internal/platform/windows/status_item_windows.go
++++ b/internal/platform/windows/status_item_windows.go
+@@ -173,6 +173,7 @@ func (application *windowsApplication) AddStatusItem(config platform.StatusItemC
+ 	version.Version = notifyVersion4
+ 	shellNotifyIcon.Call(notifySetVersion, uintptr(unsafe.Pointer(&version)))
+ 	status.items[item.id] = item
++	status.publishNotificationTarget()
+ 	return item, nil
+ }
+ 
+@@ -209,17 +210,40 @@ var statusStates sync.Map
+ // to hang on when the application has no other window.
+ var statusWindowHandle atomic.Uintptr
+ 
++// publishNotificationTarget chooses the first live item on the event loop.
++// SendNotification can be called from other threads and needs only its key.
++func (status *statusState) publishNotificationTarget() {
++	var first uint32
++	for id, item := range status.items {
++		if !item.removed.Load() && (first == 0 || id < first) {
++			first = id
++		}
++	}
++	notificationMu.Lock()
++	defer notificationMu.Unlock()
++	statusNotificationWindow, statusNotificationID = status.window, first
++	if first != 0 {
++		removeNotificationIconLocked(notificationWindow)
++	}
++}
++
+ // closeStatus removes every icon and the window that received their messages.
+ func (application *windowsApplication) closeStatus() {
+ 	status := application.status
+ 	if status == nil {
+ 		return
+ 	}
++	notificationMu.Lock()
++	statusWindowHandle.CompareAndSwap(status.window, 0)
++	if statusNotificationWindow == status.window {
++		statusNotificationWindow, statusNotificationID = 0, 0
++	}
++	removeNotificationIconLocked(status.window)
++	notificationMu.Unlock()
+ 	for _, item := range status.items {
+ 		item.delete()
+ 	}
+ 	statusStates.Delete(status.window)
+-	statusWindowHandle.CompareAndSwap(status.window, 0)
+ 	destroyWindow.Call(status.window)
+ 	unregisterClass.Call(uintptr(unsafe.Pointer(status.class)), application.instance)
+ 	application.status = nil
+@@ -358,8 +382,9 @@ func statusProc(window, kind, first, second uintptr) (result uintptr) {
+ 		return 0
+ 	case kind == wmStatusRemove:
+ 		if item := status.items[uint32(first)]; item != nil {
+-			item.delete()
+ 			delete(status.items, item.id)
++			status.publishNotificationTarget()
++			item.delete()
+ 		}
+ 		return 0
+ 	case status.taskbarCreated != 0 && uint32(kind) == status.taskbarCreated:
+diff --git a/internal/platform/windows/status_item_windows_test.go b/internal/platform/windows/status_item_windows_test.go
+index f565f05..7d8c4d7 100644
+--- a/internal/platform/windows/status_item_windows_test.go
++++ b/internal/platform/windows/status_item_windows_test.go
+@@ -1,12 +1,59 @@
+ package windows
+ 
+ import (
++	"errors"
++	"syscall"
+ 	"testing"
+ 
+ 	"github.com/vivaui/viva/internal/platform"
+ 	"github.com/vivaui/viva/ui"
+ )
+ 
++func TestDesktopNotificationReusesStatusItem(t *testing.T) {
++	const window = 123
++	const first, second = 2, 3
++	status := &statusState{window: window, items: map[uint32]*statusItem{
++		first:  {id: first},
++		second: {id: second},
++	}}
++	t.Cleanup(func() {
++		clear(status.items)
++		status.publishNotificationTarget()
++	})
++	status.publishNotificationTarget()
++	calls := 0
++	expectedID := uint32(first)
++	var shellErr error
++	notify := func(op uintptr, data *notifyIconData) error {
++		calls++
++		if op != notifyModify || data.Window != window || data.ID != expectedID {
++			t.Fatalf("notification operation=%d window=%d id=%d; want modify of %d/%d", op, data.Window, data.ID, window, expectedID)
++		}
++		if data.Flags != notifyInfo || data.Icon != 0 || data.CallbackMessage != 0 || data.Tip[0] != 0 {
++			t.Fatalf("notification overwrites status item properties: flags=%#x", data.Flags)
++		}
++		if got := syscall.UTF16ToString(data.Info[:]); got != "New message" {
++			t.Fatalf("notification body = %q", got)
++		}
++		return shellErr
++	}
++	for range 3 {
++		if err := sendNotification("GoIM", "New message", notify); err != nil {
++			t.Fatal(err)
++		}
++	}
++	delete(status.items, first)
++	status.publishNotificationTarget()
++	expectedID = second
++	shellErr = errors.New("shell temporarily unavailable")
++	if err := sendNotification("New message", "", notify); !errors.Is(err, shellErr) {
++		t.Fatalf("expected the shell error, got %v", err)
++	}
++	if calls != 4 {
++		t.Fatalf("got %d shell requests for four notifications", calls)
++	}
++}
++
+ // Exercise the notification dispatcher, not only its button decoder. A menu
+ // must not swallow primary activation when the application also has a callback.
+ func TestStatusNotificationRoutesActivationAndContextMenu(t *testing.T) {
+diff --git a/internal/platform/windows/system_windows.go b/internal/platform/windows/system_windows.go
+index 9b1e784..2fd63a8 100644
+--- a/internal/platform/windows/system_windows.go
++++ b/internal/platform/windows/system_windows.go
+@@ -116,6 +116,8 @@ var clipboardMu sync.Mutex
+ var notificationMu sync.Mutex
+ var notificationWindow uintptr
+ var notificationAdded bool
++var statusNotificationWindow uintptr
++var statusNotificationID uint32
+ 
+ var openDialogClass = guid{Data1: 0xdc1c5a9c, Data2: 0xe88a, Data3: 0x4dde, Data4: [8]byte{0xa5, 0xa1, 0x60, 0xf8, 0x2a, 0x20, 0xae, 0xf7}}
+ var openDialogInterface = guid{Data1: 0xd57c7288, Data2: 0xd4ad, Data3: 0x4768, Data4: [8]byte{0xbe, 0x02, 0x9d, 0x96, 0x95, 0x32, 0xd9, 0x60}}
+@@ -623,11 +625,30 @@ func ShowFatalError(title, message string) {
+ 	messageBox.Call(0, uintptr(unsafe.Pointer(messageText)), uintptr(unsafe.Pointer(titleText)), iconError|setForeground|topMost)
+ }
+ 
+-// SendNotification shows a balloon from the notification area. The icon that
+-// carries it hangs on a window of the application, any one, or on the hidden
+-// window its status items use: the application needs a window or a status item
+-// to be running, not the one window that happened to be used last.
++// SendNotification shows a balloon on an existing status item, or on a
++// fallback icon associated with a running window if there is no status item.
+ func SendNotification(title, body string) error {
++	return sendNotification(title, body, notifyWindowsShell)
++}
++
++func sendNotification(title, body string, notify func(uintptr, *notifyIconData) error) error {
++	data := notifyIconData{Size: uint32(unsafe.Sizeof(notifyIconData{})), Flags: notifyInfo, InfoFlags: notifyInfoIcon}
++	copyUTF16(data.InfoTitle[:], title)
++	copyUTF16(data.Info[:], body)
++	if data.Info[0] == 0 {
++		// An empty szInfo dismisses the balloon, so use the title as its
++		// text for title-only notifications.
++		copyUTF16(data.Info[:], title)
++		data.InfoTitle = [64]uint16{}
++	}
++	notificationMu.Lock()
++	defer notificationMu.Unlock()
++	if statusNotificationID != 0 {
++		data.Window, data.ID = statusNotificationWindow, statusNotificationID
++		// Only NIF_INFO: keep the existing image, tooltip and click callback.
++		return notify(notifyModify, &data)
++	}
++
+ 	host := notificationHost()
+ 	if host == 0 {
+ 		return fmt.Errorf("windows: notification requires a running window or status item")
+@@ -640,12 +661,10 @@ func SendNotification(title, body string) error {
+ 			return windowsCallError("load notification icon", callErr)
+ 		}
+ 	}
+-	data := notifyIconData{Size: uint32(unsafe.Sizeof(notifyIconData{})), Window: host, ID: 1, Flags: notifyIcon | notifyTip | notifyInfo, Icon: icon, InfoFlags: notifyInfoIcon}
++	data.Window, data.ID = host, 1
++	data.Flags |= notifyIcon | notifyTip
++	data.Icon = icon
+ 	copyUTF16(data.Tip[:], "Viva")
+-	copyUTF16(data.InfoTitle[:], title)
+-	copyUTF16(data.Info[:], body)
+-	notificationMu.Lock()
+-	defer notificationMu.Unlock()
+ 	operation := uintptr(notifyModify)
+ 	if !notificationAdded || notificationWindow != host {
+ 		if notificationAdded {
+@@ -653,15 +672,21 @@ func SendNotification(title, body string) error {
+ 		}
+ 		operation = notifyAdd
+ 	}
+-	ok, _, callErr := shellNotifyIcon.Call(operation, uintptr(unsafe.Pointer(&data)))
+-	if ok == 0 {
+-		return windowsCallError("send notification", callErr)
++	if err := notify(operation, &data); err != nil {
++		return err
+ 	}
+ 	notificationAdded = true
+ 	notificationWindow = host
+ 	return nil
+ }
+ 
++func notifyWindowsShell(operation uintptr, data *notifyIconData) error {
++	if ok, _, callErr := shellNotifyIcon.Call(operation, uintptr(unsafe.Pointer(data))); ok == 0 {
++		return windowsCallError("send notification", callErr)
++	}
++	return nil
++}
++
+ func removeNotificationIcon(window uintptr) {
+ 	notificationMu.Lock()
+ 	defer notificationMu.Unlock()

@@ -46,7 +46,7 @@ func main() {
 	}
 }
 func build() error {
-	version := flag.String("version", "0.1.0-alpha.1", "release version")
+	version := flag.String("version", "0.1.0", "release version")
 	commit := flag.String("commit", "working-tree", "source commit")
 	framework := flag.String("framework", "", "override Viva source (defaults to the project pin)")
 	out := flag.String("out", "dist", "artifact directory")

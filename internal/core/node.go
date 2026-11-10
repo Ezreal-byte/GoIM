@@ -30,34 +30,38 @@ type Options struct {
 	DownloadDir      string
 }
 type Node struct {
-	mu          sync.Mutex
-	groupMu     sync.Mutex
-	flushMu     sync.Mutex
-	data        persisted
-	db          *bolt.DB
-	key         ed25519.PrivateKey
-	tls         *tls.Config
-	dir         string
-	ctx         context.Context
-	cancel      context.CancelFunc
-	listener    net.Listener
-	connections map[string]*peerConn
-	dialing     map[string]bool
-	commands    chan domain.Command
-	updates     chan struct{}
-	wg          sync.WaitGroup
-	workers     sync.WaitGroup
-	closing     bool
-	transfers   map[string]context.CancelFunc
-	discovery   bool
-	webServer   *http.Server
-	webAddress  string
-	webKey      [32]byte
-	webSlots    chan struct{}
-	webLinks    map[string]shareLink
-	unlockAfter time.Time
-	lockResult  domain.LockResult
-	legacy      *ipmsgproto.Service
+	mu            sync.Mutex
+	groupMu       sync.Mutex
+	flushMu       sync.Mutex
+	data          persisted
+	db            *bolt.DB
+	key           ed25519.PrivateKey
+	tls           *tls.Config
+	dir           string
+	ctx           context.Context
+	cancel        context.CancelFunc
+	listener      net.Listener
+	connections   map[string]*peerConn
+	dialing       map[string]bool
+	commands      chan domain.Command
+	updates       chan struct{}
+	wg            sync.WaitGroup
+	workers       sync.WaitGroup
+	closing       bool
+	transfers     map[string]context.CancelFunc
+	discovery     bool
+	webServer     *http.Server
+	webAddress    string
+	webKey        [32]byte
+	webSlots      chan struct{}
+	webLinks      map[string]shareLink
+	webHomeLink   shareLink
+	webUploads    chan struct{}
+	webUploadMu   sync.Mutex
+	shareFeedback domain.ShareFeedback
+	unlockAfter   time.Time
+	lockResult    domain.LockResult
+	legacy        *ipmsgproto.Service
 }
 
 func New(opts Options) (*Node, error) {
@@ -136,7 +140,7 @@ func New(opts Options) (*Node, error) {
 		db.Close()
 		return nil, err
 	}
-	if len(n.data.BrowserShares) != 0 {
+	if len(n.data.BrowserShares) != 0 || n.data.BrowserHomeToken != "" {
 		if err := n.startShareServer(); err != nil {
 			n.report(err)
 		}
@@ -170,6 +174,7 @@ func (n *Node) snapshot(urls bool) domain.State {
 	var s domain.State
 	_ = json.Unmarshal(b, &s)
 	s.LockResult = n.lockResult
+	s.ShareFeedback = n.shareFeedback
 	n.attachShareLinks(&s, urls)
 	return s
 }

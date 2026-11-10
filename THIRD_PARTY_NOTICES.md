@@ -15,6 +15,7 @@ GoIM application source is MIT licensed. Releases include the full applicable li
 | jezek/xgb (Linux companion) | 1.1.1 | licenses/jezek-xgb.txt |
 | Go runtime / standard library | 1.27.3 | licenses/Go-BSD.txt |
 | Lucide compiled icons and application icon geometry | Lucide SVG sources compiled by Viva | Lucide ISC and Feather MIT sections in licenses/Viva-third-party.md |
+| Lucide icons in the browser share page | [0.468.0](https://github.com/lucide-icons/lucide/tree/0.468.0) | licenses/lucide-web-ISC.txt |
 
 The Viva notice also preserves upstream notices for its Unicode and font-related material. Native system fonts and graphics libraries are supplied by the operating system; font files are not bundled by GoIM.
 

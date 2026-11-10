@@ -21,6 +21,7 @@ const protocolVersion = 1
 const maxFrame = 4 << 20
 
 type envelope struct {
+	RecallSupported bool `json:",omitempty"`
 	Version         int
 	ID              string
 	Type            string
@@ -95,6 +96,7 @@ func (p *peerConn) send(e envelope) error {
 func (n *Node) hello() envelope {
 	e := n.profileEnvelope()
 	e.Type = "hello"
+	e.RecallSupported = true
 	return e
 }
 func (n *Node) advertisedAddress() string {
@@ -136,6 +138,7 @@ func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
 	}
 	hello.Peer.PublicKey = append([]byte(nil), key...)
 	hello.Peer.Avatar = ""
+	hello.Peer.RecallSupported = hello.RecallSupported
 	if len(hello.Avatar) > 0 {
 		path, err := n.cacheAvatar(hello.Peer.ID, hello.Avatar)
 		if err != nil {
@@ -334,6 +337,8 @@ func (n *Node) receive(peer string, e envelope) error {
 	switch e.Type {
 	case "message":
 		err = n.receiveMessage(peer, e)
+	case "message_recall":
+		err = n.receiveMessageRecall(peer, e)
 	case "profile":
 		err = n.receiveProfile(peer, e)
 	case "group_invite", "group_state", "invite_reply", "group_leave", "ownership_offer", "ownership_accept", "ownership_result", "group_nickname":
@@ -391,6 +396,7 @@ func (n *Node) receive(peer string, e envelope) error {
 }
 func (n *Node) receiveMessage(peer string, e envelope) error {
 	m := e.Message
+	m.Deleted, m.Recalled = false, false
 	if m.ID == "" || m.SenderID != peer || m.Kind != "text" || len(m.Text) > 256<<10 {
 		return errors.New("无效聊天消息")
 	}
@@ -406,10 +412,14 @@ func (n *Node) receiveMessage(peer string, e envelope) error {
 		n.change(func(st *domain.State) { ensureDirect(st, p) })
 	}
 	m.Status = "delivered"
-	return n.change(func(s *domain.State) {
+	return n.durable(func(p *persisted) []pending {
+		if p.MessageRecalls[messageRecallKey(peer, m.ConversationID, m.ID)] {
+			return nil
+		}
+		s := &p.State
 		for _, old := range s.Messages {
 			if old.ID == m.ID {
-				return
+				return nil
 			}
 		}
 		s.Messages = append(s.Messages, m)
@@ -419,6 +429,7 @@ func (n *Node) receiveMessage(peer string, e envelope) error {
 			s.Conversations[i].Preview = m.Text
 			s.Conversations[i].UpdatedAt = m.CreatedAt
 		}
+		return nil
 	})
 }
 

@@ -15,15 +15,18 @@ import (
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/capture"
+	"goim/internal/i18n"
 )
 
 const maxInputPixels = 100_000_000
 
 type options struct {
-	output  string
-	input   string
-	display int
-	all     bool
+	output    string
+	input     string
+	display   int
+	all       bool
+	selection bool
+	language  string
 }
 
 func main() {
@@ -40,6 +43,12 @@ func run(args []string, stderr io.Writer) int {
 		return 1
 	}
 
+	// The normal capture path always starts with a region. Explicit full
+	// desktop capture and imported PNGs still support the standalone editor.
+	if options.input == "" && !options.all {
+		options.selection = true
+	}
+	i18n.SetLanguage(options.language)
 	source, err := loadSource(options)
 	if err != nil {
 		fmt.Fprintf(stderr, "goim-snip: %v\n", err)
@@ -56,7 +65,12 @@ func run(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "goim-snip: prepare editor: %v\n", err)
 		return 1
 	}
+	source.image = nil
 	editor.followSystem = true
+	var overlay *selectionOverlay
+	if options.selection {
+		overlay = newSelectionOverlay(editor, source)
+	}
 
 	var invalidator app.Invalidator
 	stopAppearance := app.WatchSystemAppearance(invalidator.Invalidate)
@@ -72,11 +86,22 @@ func run(args []string, stderr io.Writer) int {
 			}
 			application.Quit()
 		}
-		opened, err := application.OpenWindow(editor.config(&invalidator), &canvas)
+		config := editor.config(&invalidator)
+		if overlay != nil {
+			config = overlay.config(&invalidator)
+		}
+		opened, err := application.OpenWindow(config, &canvas)
 		if err != nil {
 			return err
 		}
 		window = opened
+		if overlay != nil && len(source.displays) > 0 {
+			_ = window.SetAlwaysOnTop(true)
+			if err := window.SetFullscreen(true); err != nil {
+				window.Close()
+				return err
+			}
+		}
 		return nil
 	})
 	if runErr != nil {
@@ -105,8 +130,10 @@ func parseOptions(args []string, output io.Writer) (options, error) {
 	flags.StringVar(&parsed.input, "input", "", "edit an existing PNG instead of capturing the screen")
 	flags.IntVar(&parsed.display, "display", -1, "capture this display index (default: the whole desktop)")
 	flags.BoolVar(&parsed.all, "all", false, "capture the whole virtual desktop (the default)")
+	flags.BoolVar(&parsed.selection, "select", false, "open a region selection overlay")
+	flags.StringVar(&parsed.language, "lang", "", "interface language (zh-CN or en)")
 	flags.Usage = func() {
-		fmt.Fprintln(output, "usage: goim-snip -output PATH [-display INDEX | -all] [-input PNG]")
+		fmt.Fprintln(output, "usage: goim-snip -output PATH [-display INDEX | -all] [-input PNG] [-select] [-lang zh-CN|en]")
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(args); err != nil {
@@ -128,14 +155,20 @@ func parseOptions(args []string, output io.Writer) (options, error) {
 	if parsed.input != "" && (parsed.all || parsed.display >= 0) {
 		return options{}, errors.New("-input cannot be combined with -display or -all")
 	}
+	if parsed.selection && parsed.all {
+		return options{}, errors.New("-select cannot be combined with -all; choose a display")
+	}
 	return parsed, nil
 }
 
 type sourceData struct {
-	image    image.Image
-	bounds   image.Rectangle
-	displays []capture.Display
-	info     sourceInfo
+	image       image.Image
+	bounds      image.Rectangle
+	displays    []capture.Display
+	windows     []image.Rectangle // front to back, in desktop coordinates
+	cursor      image.Point
+	cursorKnown bool
+	info        sourceInfo
 }
 
 type sourceInfo struct {
@@ -165,7 +198,26 @@ func loadSource(options options) (sourceData, error) {
 
 	var desktop *capture.Desktop
 	var err error
-	if options.display >= 0 {
+	var windows []image.Rectangle
+	var cursor image.Point
+	var cursorKnown bool
+	if options.selection {
+		displays, displayErr := capture.Displays()
+		if displayErr != nil {
+			return sourceData{}, displayErr
+		}
+		cursor, cursorKnown = desktopCursor()
+		if options.display < 0 {
+			options.display = primaryDisplay(displays)
+			if display, ok := capture.DisplayAt(displays, cursor); cursorKnown && ok {
+				options.display = display.Index
+			}
+		}
+		windows = desktopWindows()
+	}
+	if options.selection {
+		desktop, err = captureSelectionDisplay(options.display)
+	} else if options.display >= 0 {
 		desktop, err = capture.CaptureDisplay(options.display)
 	} else {
 		desktop, err = capture.CaptureAll()
@@ -185,6 +237,7 @@ func loadSource(options options) (sourceData, error) {
 		image:    desktop.Image,
 		bounds:   desktop.Bounds,
 		displays: desktop.Displays,
+		windows:  windows, cursor: cursor, cursorKnown: cursorKnown,
 		info: sourceInfo{
 			title:    title,
 			detail:   fmt.Sprintf("%s · %d × %d px", displayCount(len(desktop.Displays)), desktop.Bounds.Dx(), desktop.Bounds.Dy()),
@@ -263,4 +316,13 @@ func initialWindowSize(displays []capture.Display) (int, int) {
 
 func initialDark() bool {
 	return app.SystemAppearance() == app.AppearanceDark
+}
+
+func primaryDisplay(displays []capture.Display) int {
+	for _, display := range displays {
+		if display.Primary {
+			return display.Index
+		}
+	}
+	return 0
 }

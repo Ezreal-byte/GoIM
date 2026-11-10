@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"errors"
+	"goim/internal/i18n"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -44,11 +45,11 @@ func (u *UI) closeProfile() {
 
 func (u *UI) chooseProfileAvatar() {
 	paths, err := u.openFilePicker(app.OpenFileOptions{
-		Title:         "选择头像",
+		Title:         i18n.T("选择头像"),
 		AllowMultiple: false,
 		Filters: []app.FileFilter{
-			{Name: "图片", Pattern: "*.png;*.jpg;*.jpeg;*.gif"},
-			{Name: "所有文件", Pattern: "*.*"},
+			{Name: i18n.T("图片"), Pattern: "*.png;*.jpg;*.jpeg;*.gif"},
+			{Name: i18n.T("所有文件"), Pattern: "*.*"},
 		},
 	})
 	if err != nil {
@@ -56,7 +57,7 @@ func (u *UI) chooseProfileAvatar() {
 			errors.Is(err, app.ErrUnsupported) {
 			return
 		}
-		u.profile.err = "无法打开图片选择器"
+		u.profile.err = i18n.T("无法打开图片选择器")
 		return
 	}
 	if len(paths) == 0 || strings.TrimSpace(paths[0]) == "" {
@@ -73,13 +74,13 @@ func (u *UI) saveProfile() {
 	name := strings.TrimSpace(u.profile.nickname.Text())
 	count := utf8.RuneCountInString(name)
 	if count == 0 || count > 40 {
-		u.profile.err = "昵称需为 1 至 40 个字符"
+		u.profile.err = i18n.T("昵称需为 1 至 40 个字符")
 		return
 	}
 	avatar := u.profile.avatar
 	signature := strings.TrimSpace(u.profile.signature.Text())
 	if utf8.RuneCountInString(signature) > 80 || strings.ContainsAny(signature, "\r\n\x00") {
-		u.profile.err = "个性签名最多 80 个字符，请保持单行。"
+		u.profile.err = i18n.T("个性签名最多 80 个字符，请保持单行。")
 		return
 	}
 	cmd := domain.Command{Kind: domain.SetProfile, Name: name, Value: avatar, Signature: signature, Presence: u.profile.presence}
@@ -87,7 +88,7 @@ func (u *UI) saveProfile() {
 		bitmap, ok := u.avatarUploadBitmap(avatar)
 		if !ok {
 			if u.profile.err == "" {
-				u.profile.err = "头像还在处理中，请稍候"
+				u.profile.err = i18n.T("头像还在处理中，请稍候")
 			}
 			return
 		}
@@ -104,7 +105,7 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 		ContentSize: ui.Size{Width: 516}, FitBody: true, BodyHeight: 320,
 		ButtonSize: components.ButtonSizeSmall,
 	})
-	layout := dialog.Begin("个人资料", "设置联系人看到的头像、签名和状态。")
+	layout := dialog.Begin(i18n.T("个人资料"), i18n.T("设置联系人看到的头像、签名和状态。"))
 	var chooseClicked, submitted bool
 	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
 		f.Column().Fill().Gap(12).Children(func() {
@@ -115,26 +116,41 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 				}
 				u.avatarStatus(f, avatarName, u.profile.avatar, 64, true)
 				f.Column().Grow(1).Gap(6).Children(func() {
-					f.Text("头像").FontSize(12).Weight(ui.WeightMedium)
-					choose := f.Button(u.ids.profileChooseImage, "选择图片").XSmall().Outline()
+					f.Text(i18n.T("头像")).FontSize(12).Weight(ui.WeightMedium)
+					choose := f.Button(u.ids.profileChooseImage, i18n.T("选择图片")).XSmall().Outline()
 					chooseClicked = choose.Clicked()
-					f.Text("支持 PNG、JPEG 和 GIF。").FontSize(10.5).Muted()
+					f.Text(i18n.T("支持 PNG、JPEG 和 GIF。")).FontSize(10.5).Muted()
 				})
 			})
-			f.Text("昵称").FontSize(12).Weight(ui.WeightMedium)
-			field := f.Field(&u.profile.nickname, u.ids.profileField, "昵称", "输入昵称").
+			f.Text(i18n.T("昵称")).FontSize(12).Weight(ui.WeightMedium)
+			field := f.Field(&u.profile.nickname, u.ids.profileField, i18n.T("昵称"), i18n.T("输入昵称")).
 				Height(38).FillWidth()
 			submitted = field.Submitted()
-			f.Text("个性签名").FontSize(12).Weight(ui.WeightMedium)
-			submitted = f.Field(&u.profile.signature, u.ids.profileSignature, "个性签名", "写一句介绍，最多 80 字").
+			f.Text(i18n.T("个性签名")).FontSize(12).Weight(ui.WeightMedium)
+			submitted = f.Field(&u.profile.signature, u.ids.profileSignature, i18n.T("个性签名"), i18n.T("写一句介绍，最多 80 字")).
 				Height(38).FillWidth().Submitted() || submitted
-			f.Text("状态").FontSize(12).Weight(ui.WeightMedium)
-			f.Row().FillWidth().Gap(7).Children(func() {
+			f.Row().Items(flex.Center).Gap(8).Children(func() {
+				f.Text(i18n.T("状态")).FontSize(12).Weight(ui.WeightMedium)
+				f.Text(i18n.T(profilePresenceName(u.profile.presence))).FontSize(11).Muted()
+			})
+			f.Row().FillWidth().Gap(8).Children(func() {
 				for index, presence := range profilePresences {
-					button := f.Button(u.ids.profilePresence.At(index), presence.label).Small().Grow(1)
-					if presence.value != u.profile.presence {
-						button.Outline()
+					active := presence.value == u.profile.presence
+					tint := presence.color
+					if u.isDark() {
+						tint = tint.Mix(ui.RGB(255, 255, 255), 0.32)
 					}
+					label := i18n.T(presence.label)
+					button := f.Row().Size(42, 36).Radius(8).Items(flex.Center).Justify(flex.Center).
+						Hover(flex.Look{}.Background(u.palette.hover)).
+						HitWith(u.ids.profilePresence.At(index), label, ui.HitOptions{Role: ui.RoleButton, Selected: active, Hint: label})
+					if active {
+						button.Background(u.palette.selected).Border(1, u.palette.selectedText)
+					}
+					if f.Canvas().FocusVisible() == u.ids.profilePresence.At(index) {
+						button.Stroke(1.5, u.theme.Ring)
+					}
+					button.Children(func() { f.Icon(presence.icon).Size(19, 19).Color(tint) })
 					if button.Clicked() {
 						u.profile.presence = presence.value
 					}
@@ -143,13 +159,13 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 			if u.profile.err != "" {
 				f.Text(u.profile.err).FontSize(11).Color(u.palette.danger).MaxLines(2)
 			} else {
-				f.Text("隐身时不广播上线，已连接的会话仍可收发。").FontSize(10.5).Muted()
+				f.Text(i18n.T("隐身时不广播上线，已连接的会话仍可收发。")).FontSize(10.5).Muted()
 			}
 		})
 	})
 	dialog.Actions(layout,
-		components.ButtonAction{ID: u.ids.profileCancel, Label: "取消", Variant: components.ButtonOutline},
-		components.ButtonAction{ID: u.ids.profileSave, Label: "保存"},
+		components.ButtonAction{ID: u.ids.profileCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},
+		components.ButtonAction{ID: u.ids.profileSave, Label: i18n.T("保存")},
 	)
 	dialog.End()
 	switch {
@@ -166,27 +182,49 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 var profilePresences = [...]struct {
 	value domain.Presence
 	label string
+	icon  ui.Icon
+	color ui.Color
 }{
-	{domain.PresenceOnline, "在线"},
-	{domain.PresenceAway, "离开"},
-	{domain.PresenceBusy, "工作中"},
-	{domain.PresenceInvisible, "隐身"},
+	{domain.PresenceOnline, "在线", CircleCheck, ui.RGB(31, 139, 83)},
+	{domain.PresenceAway, "离开", Clock, ui.RGB(168, 103, 28)},
+	{domain.PresenceBusy, "工作中", presenceBriefcase, ui.RGB(174, 63, 68)},
+	{domain.PresenceInvisible, "隐身", presenceHidden, ui.RGB(100, 109, 130)},
 }
+
+func profilePresenceName(value domain.Presence) string {
+	for _, p := range profilePresences {
+		if p.value == value {
+			return p.label
+		}
+	}
+	return profilePresences[0].label
+}
+
+var presenceBriefcase = viewerLineIcon(
+	ui.MoveTo(3, 7), ui.LineTo(21, 7), ui.LineTo(21, 20), ui.LineTo(3, 20), ui.ClosePath(),
+	ui.MoveTo(8, 7), ui.LineTo(8, 4), ui.LineTo(16, 4), ui.LineTo(16, 7), ui.MoveTo(3, 12), ui.LineTo(21, 12),
+)
+var presenceHidden = viewerLineIcon(
+	ui.MoveTo(3, 3), ui.LineTo(21, 21),
+	ui.MoveTo(10, 5.5), ui.CubicTo(15, 3, 20, 8, 22, 12), ui.QuadTo(20, 15, 18, 16.5),
+	ui.MoveTo(6, 7), ui.QuadTo(3, 9, 2, 12), ui.CubicTo(6, 18, 12, 21, 16, 18),
+)
 
 func peerPresenceLabel(peer domain.Peer) string {
 	if !peer.VisibleOnline() {
-		return "离线"
+		return i18n.T("离线")
 	}
 	for _, status := range profilePresences {
 		if peer.Presence == status.value {
-			return status.label
+			return i18n.T(status.label)
 		}
 	}
-	return "在线"
+	return i18n.T("在线")
 }
 
 func (u *UI) closeChatPickers() {
 	u.emojiOpen = false
+	u.emojiScrollDrag = false
 	u.closeMention()
 }
 
@@ -330,11 +368,11 @@ func (u *UI) drawMentionPicker(canvas *ui.Canvas, viewport ui.Rect) {
 		Side: components.PopoverTop, Align: components.PopoverAlignStart,
 		SideOffset: 8, ContentSize: ui.Size{Width: 390}, BodyHeight: bodyHeight,
 	})
-	layout := popover.Begin("提及成员", "↑↓ 选择 · Enter 插入 · Esc 关闭")
+	layout := popover.Begin(i18n.T("提及成员"), i18n.T("↑↓ 选择 · Enter 插入 · Esc 关闭"))
 	u.mentionView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
 		f.Column().Fill().Gap(2).Children(func() {
 			if len(u.mention.candidates) == 0 {
-				u.emptyListMessage(f, "没有匹配的成员", "换一个群昵称或昵称试试。")
+				u.emptyListMessage(f, i18n.T("没有匹配的成员"), i18n.T("换一个群昵称或昵称试试。"))
 				return
 			}
 			for index, candidate := range u.mention.candidates {
@@ -344,7 +382,7 @@ func (u *UI) drawMentionPicker(canvas *ui.Canvas, viewport ui.Rect) {
 				}
 				row := f.Row().FillWidth().Height(36).PadSides(7, 8, 7, 8).Radius(7).
 					Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
-					HitWith(u.mentionCandidateIDs[candidate.peerID], "提及 "+candidate.name,
+					HitWith(u.mentionCandidateIDs[candidate.peerID], i18n.T("提及 ")+candidate.name,
 						ui.HitOptions{Role: ui.RoleButton, Selected: index == u.mention.selected}).
 					Children(func() {
 						u.avatarStatus(f, candidate.name, candidate.avatar, 26, candidate.online)
@@ -364,54 +402,15 @@ func (u *UI) drawMentionPicker(canvas *ui.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) drawEmojiPicker(canvas *ui.Canvas, viewport ui.Rect) {
-	if !u.emojiOpen {
-		return
-	}
-	anchor := u.emojiButton.Rect()
-	if anchor.Width <= 0 || u.selected == "" {
-		u.emojiOpen = false
-		return
-	}
-	popover := components.BeginPopover(canvas, u.theme, viewport, anchor, components.PopoverOptions{
-		Layer: 58, Scope: u.ids.emojiScope, DismissID: u.ids.emojiDismiss,
-		Side: components.PopoverTop, Align: components.PopoverAlignStart,
-		SideOffset: 8, ContentSize: ui.Size{Width: 360}, BodyHeight: 144,
-	})
-	layout := popover.Begin("经典表情", "选择一个表情插入消息。")
-	u.emojiView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
-		f.Column().Fill().Gap(2).Children(func() {
-			for start := 0; start < len(emojiChoices); start += 8 {
-				end := min(start+8, len(emojiChoices))
-				f.Row().FillWidth().Height(40).Gap(2).Children(func() {
-					for _, choice := range emojiChoices[start:end] {
-						tile := f.Row().Width(40).Height(40).Radius(7).Items(flex.Center).
-							Justify(flex.Center).Hover(flex.Look{}.Background(u.palette.hover)).
-							HitWith(u.emojiIDs[choice.Name], "表情 "+choice.Label,
-								ui.HitOptions{Role: ui.RoleButton, Hint: choice.Label}).
-							Children(func() {
-								f.Icon(choice.Art).Size(27, 27)
-							})
-						if tile.Clicked() {
-							u.insertChatText(choice.Value)
-							u.emojiOpen = false
-						}
-					}
-				})
-			}
-		})
-	})
-	popover.End()
-	if canvas.Clicked(u.ids.emojiDismiss) {
-		u.emojiOpen = false
-	}
-}
-
 func (u *UI) avatarStatus(f *flex.Frame, name, path string, size float32, online bool) {
 	u.avatarStatusOn(f, name, path, size, online, u.palette.chat)
 }
 
 func (u *UI) avatarStatusOn(f *flex.Frame, name, path string, size float32, online bool, ring ui.Color) {
+	u.avatarWithPresence(f, name, path, size, online, true, ring)
+}
+
+func (u *UI) avatarWithPresence(f *flex.Frame, name, path string, size float32, online, presence bool, ring ui.Color) {
 	if name == "" {
 		name = "?"
 	}
@@ -429,6 +428,9 @@ func (u *UI) avatarStatusOn(f *flex.Frame, name, path string, size float32, onli
 					Color(u.palette.avatarText).TextCenter()
 			})
 		})
+		if !presence {
+			return
+		}
 		dot := max(8, size*0.22)
 		color := u.palette.secondaryText
 		if online {
@@ -470,7 +472,7 @@ func (u *UI) openGroupNicknameEdit(group domain.Group) {
 func (u *UI) saveGroupNickname(group domain.Group) {
 	value := strings.TrimSpace(u.nicknameField.Text())
 	if utf8.RuneCountInString(value) > 30 {
-		u.nicknameErr = "群昵称最多 30 个字符"
+		u.nicknameErr = i18n.T("群昵称最多 30 个字符")
 		return
 	}
 	u.submit(domain.Command{Kind: domain.SetGroupNickname, GroupID: group.ID, Value: value})
@@ -486,15 +488,15 @@ func (u *UI) drawGroupNicknameEditor(f *flex.Frame, group domain.Group) {
 	current := u.groupNickname(group.ID, u.state.Self.ID)
 	display := current
 	if display == "" {
-		display = "使用本名"
+		display = i18n.T("使用本名")
 	}
 	if !u.nicknameOpen {
 		f.Row().Height(40).Items(flex.Center).Gap(10).Children(func() {
 			f.Column().Grow(1).Gap(2).Children(func() {
-				f.Text("我在群里的昵称").FontSize(13)
+				f.Text(i18n.T("我在群里的昵称")).FontSize(13)
 				f.Text(display).FontSize(10.5).Muted().Ellipsis()
 			})
-			edit := u.iconButton(f, u.ids.memberStartNickname, u.iconPencil, "修改我的群昵称", 28)
+			edit := u.iconButton(f, u.ids.memberStartNickname, u.iconPencil, i18n.T("修改我的群昵称"), 28)
 			if edit.Clicked() {
 				u.openGroupNicknameEdit(group)
 			}
@@ -503,13 +505,13 @@ func (u *UI) drawGroupNicknameEditor(f *flex.Frame, group domain.Group) {
 	}
 	f.Column().FillWidth().Gap(5).Children(func() {
 		f.Row().Height(36).Items(flex.Center).Gap(8).Children(func() {
-			field := f.Field(&u.nicknameField, u.ids.memberNickname, "我在群里的昵称",
-				"留空使用本名").Height(36).Grow(1)
-			if f.Button(u.ids.memberCancelNickname, "取消").XSmall().Outline().Clicked() {
+			field := f.Field(&u.nicknameField, u.ids.memberNickname, i18n.T("我在群里的昵称"),
+				i18n.T("留空使用本名")).Height(36).Grow(1)
+			if f.Button(u.ids.memberCancelNickname, i18n.T("取消")).XSmall().Outline().Clicked() {
 				u.nicknameOpen = false
 				u.nicknameErr = ""
 			}
-			if f.Button(u.ids.memberSaveNickname, "保存").XSmall().Clicked() || field.Submitted() {
+			if f.Button(u.ids.memberSaveNickname, i18n.T("保存")).XSmall().Clicked() || field.Submitted() {
 				u.saveGroupNickname(group)
 			}
 		})
@@ -573,7 +575,7 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 	}
 	if pending > 0 {
 		f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-			f.Text("待确认邀请").FontSize(12).Weight(ui.WeightSemibold)
+			f.Text(i18n.T("待确认邀请")).FontSize(12).Weight(ui.WeightSemibold)
 			u.badgeText(f, intString(pending), false)
 		})
 		for _, peerID := range group.Pending {
@@ -581,7 +583,7 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 				continue
 			}
 			invitation, _ := u.outgoingInvitation(group.ID, peerID, "pending", "failed")
-			u.drawOutgoingInviteRow(f, group, peerID, invitation, "待确认", owner, "withdraw")
+			u.drawOutgoingInviteRow(f, group, peerID, invitation, i18n.T("待确认"), owner, "withdraw")
 		}
 		for _, invitation := range u.outgoingInvites {
 			if invitation.GroupID != group.ID || invitation.ToID == "" ||
@@ -591,7 +593,7 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 			if invitation.Status != "" && invitation.Status != "pending" {
 				continue
 			}
-			u.drawOutgoingInviteRow(f, group, invitation.ToID, invitation, "待确认", owner, "withdraw")
+			u.drawOutgoingInviteRow(f, group, invitation.ToID, invitation, i18n.T("待确认"), owner, "withdraw")
 		}
 	}
 
@@ -613,7 +615,7 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 	}
 	if failed > 0 {
 		f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-			f.Text("发送失败的邀请").FontSize(12).Weight(ui.WeightSemibold)
+			f.Text(i18n.T("发送失败的邀请")).FontSize(12).Weight(ui.WeightSemibold)
 			u.badgeText(f, intString(failed), false)
 		})
 		for _, peerID := range group.Pending {
@@ -624,14 +626,14 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 			if !found || invitation.Status != "failed" {
 				continue
 			}
-			u.drawOutgoingInviteRow(f, group, peerID, invitation, "发送失败", owner, "retry")
+			u.drawOutgoingInviteRow(f, group, peerID, invitation, i18n.T("发送失败"), owner, "retry")
 		}
 		for _, invitation := range u.outgoingInvites {
 			if invitation.GroupID != group.ID || invitation.Status != "failed" ||
 				invitation.ToID == "" || containsString(group.Pending, invitation.ToID) {
 				continue
 			}
-			u.drawOutgoingInviteRow(f, group, invitation.ToID, invitation, "发送失败", owner, "retry")
+			u.drawOutgoingInviteRow(f, group, invitation.ToID, invitation, i18n.T("发送失败"), owner, "retry")
 		}
 	}
 
@@ -643,14 +645,14 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 	}
 	if rejected > 0 {
 		f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-			f.Text("已拒绝邀请").FontSize(12).Weight(ui.WeightSemibold)
+			f.Text(i18n.T("已拒绝邀请")).FontSize(12).Weight(ui.WeightSemibold)
 			u.badgeText(f, intString(rejected), false)
 		})
 		for _, invitation := range u.outgoingInvites {
 			if invitation.GroupID != group.ID || invitation.Status != "rejected" || invitation.ToID == "" {
 				continue
 			}
-			u.drawOutgoingInviteRow(f, group, invitation.ToID, invitation, "已拒绝", owner, "retry")
+			u.drawOutgoingInviteRow(f, group, invitation.ToID, invitation, i18n.T("已拒绝"), owner, "retry")
 		}
 	}
 }
@@ -669,7 +671,7 @@ func (u *UI) drawOutgoingOwnershipInvites(f *flex.Frame, group domain.Group, own
 		return
 	}
 	f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-		f.Text("群主转让").FontSize(12).Weight(ui.WeightSemibold)
+		f.Text(i18n.T("群主转让")).FontSize(12).Weight(ui.WeightSemibold)
 		u.badgeText(f, intString(count), false)
 	})
 	for _, invitation := range u.ownershipInvites {
@@ -677,23 +679,23 @@ func (u *UI) drawOutgoingOwnershipInvites(f *flex.Frame, group domain.Group, own
 			continue
 		}
 		peer := u.state.Peer(invitation.ToID)
-		status := "等待 " + peer.Name + " 接受群主转让"
+		status := i18n.T("等待 ") + peer.Name + i18n.T(" 接受群主转让")
 		switch invitation.Status {
 		case "failed":
-			status = "群主转让邀请发送失败"
+			status = i18n.T("群主转让邀请发送失败")
 		case "rejected":
-			status = peer.Name + " 已拒绝群主转让"
+			status = peer.Name + i18n.T(" 已拒绝群主转让")
 		case "accepted":
-			status = "已接受，正在完成群主转让"
+			status = i18n.T("已接受，正在完成群主转让")
 		case "completed":
-			status = "群主转让已完成"
+			status = i18n.T("群主转让已完成")
 		case "expired":
-			status = "群主转让邀请已过期"
+			status = i18n.T("群主转让邀请已过期")
 		}
 		f.Row().FillWidth().MinHeight(42).PadX(8).Items(flex.Center).Gap(9).Children(func() {
 			u.avatarStatus(f, peer.Name, peer.Avatar, 26, peerOnline(u, peer.ID))
 			f.Column().Grow(1).Gap(2).Children(func() {
-				f.Text("群主转让给 " + peer.Name).FontSize(12).Weight(ui.WeightMedium).Ellipsis()
+				f.Text(i18n.T("群主转让给 ") + peer.Name).FontSize(12).Weight(ui.WeightMedium).Ellipsis()
 				f.Text(status).FontSize(10.5).Muted().Ellipsis()
 			})
 		})
@@ -714,7 +716,7 @@ func (u *UI) drawOutgoingInviteRow(f *flex.Frame, group domain.Group, peerID str
 			return
 		}
 		if action == "withdraw" {
-			withdraw := f.Button(u.inviteWithdrawIDs[key], "撤回").XSmall().Outline()
+			withdraw := f.Button(u.inviteWithdrawIDs[key], i18n.T("撤回")).XSmall().Outline()
 			if withdraw.Clicked() {
 				u.inviteWithdraw(group, peer, invitation)
 			}
@@ -723,12 +725,12 @@ func (u *UI) drawOutgoingInviteRow(f *flex.Frame, group domain.Group, peerID str
 		if action != "retry" {
 			return
 		}
-		label := "重试"
-		if status == "已拒绝" {
-			label = "重新邀请"
+		label := i18n.T("重试")
+		if status == i18n.T("已拒绝") {
+			label = i18n.T("重新邀请")
 		}
 		if !peer.Online {
-			label += "（离线）"
+			label += i18n.T("（离线）")
 		}
 		again := f.Button(u.inviteReinviteIDs[key], label).XSmall().Outline().
 			Disabled(!peer.Online)

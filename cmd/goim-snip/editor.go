@@ -579,8 +579,8 @@ func viewToSource(x, y float32, crop image.Rectangle, imageBounds ui.Rect) captu
 	x = min(max(x, imageBounds.X), imageBounds.Right())
 	y = min(max(y, imageBounds.Y), imageBounds.Bottom())
 	return capture.Point{
-		X: float64(crop.Min.X) + float64(x-imageBounds.X)/float64(imageBounds.Width)*float64(crop.Dx()),
-		Y: float64(crop.Min.Y) + float64(y-imageBounds.Y)/float64(imageBounds.Height)*float64(crop.Dy()),
+		X: float64(crop.Min.X) + float64(x-imageBounds.X)*float64(crop.Dx())/float64(imageBounds.Width),
+		Y: float64(crop.Min.Y) + float64(y-imageBounds.Y)*float64(crop.Dy())/float64(imageBounds.Height),
 	}
 }
 

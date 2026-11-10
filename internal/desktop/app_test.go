@@ -809,13 +809,13 @@ func TestFileDropSendsPathsToTheVisibleConversation(t *testing.T) {
 	}
 }
 
-func TestIncomingMessagesDoNotShowDeliveryStatus(t *testing.T) {
+func TestMessagesDoNotShowSuccessfulDeliveryStatus(t *testing.T) {
 	harness := newShellTestHarness(t, shellTestState(t))
 	if harness.hasText("已送达") {
 		t.Fatal("incoming messages displayed a delivery status")
 	}
-	if !harness.hasText("已发送") {
-		t.Fatal("outgoing messages did not display their status")
+	if harness.hasText("已发送") {
+		t.Fatal("outgoing messages displayed a sent status")
 	}
 }
 

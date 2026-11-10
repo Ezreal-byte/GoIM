@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"goim/internal/i18n"
 	"strings"
 	"unicode/utf8"
 
@@ -74,9 +75,9 @@ func (u *UI) drawLocked(canvas *ui.Canvas, bounds ui.Rect) {
 	var logo flex.Box
 	u.dialogView.Draw(canvas, u.theme, panel, func(f *flex.Frame) {
 		f.Column().Fill().Pad(30).Gap(12).Radius(20).Border(1, u.theme.Border).Background(u.theme.Background).Children(func() {
-			title, description, action, label := "GoIM 已锁定", "输入密码以恢复你的会话。", "解锁", "锁定密码"
+			title, description, action, label := i18n.T("GoIM 已锁定"), i18n.T("输入密码以恢复你的会话。"), i18n.T("解锁"), i18n.T("锁定密码")
 			if s.setup {
-				title, description, action, label = "设置锁定密码", "密码至少 6 个字符。可在设置 → 安全中更改。", "设置并锁定", "新密码"
+				title, description, action, label = i18n.T("设置锁定密码"), i18n.T("密码至少 6 个字符。可在设置 → 安全中更改。"), i18n.T("设置并锁定"), i18n.T("新密码")
 			}
 			logo = f.Slot().Size(44, 44)
 			f.Text(title).FontSize(26).Weight(ui.WeightSemibold)
@@ -84,18 +85,18 @@ func (u *UI) drawLocked(canvas *ui.Canvas, bounds ui.Rect) {
 			field := f.Field(&s.field, s.focus, label, label).Height(52).FillWidth().Disabled(s.pending)
 			submitted := field.Submitted()
 			if s.setup {
-				submitted = f.Field(&s.confirmation, s.confirmID, "确认新密码", "再输入一次新密码").
+				submitted = f.Field(&s.confirmation, s.confirmID, i18n.T("确认新密码"), i18n.T("再输入一次新密码")).
 					Height(52).FillWidth().Disabled(s.pending).Submitted() || submitted
 			}
 			if s.err != "" {
 				f.Paragraph(s.err, 2).FontSize(12).Color(u.theme.Danger)
 			}
 			f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
-				if s.setup && f.Button(s.cancel, "取消").Height(48).Outline().Disabled(s.pending).Clicked() {
+				if s.setup && f.Button(s.cancel, i18n.T("取消")).Height(48).Outline().Disabled(s.pending).Clicked() {
 					u.cancelLockSetup()
 				}
 				if s.pending {
-					action = "正在验证…"
+					action = i18n.T("正在验证…")
 				}
 				if f.Button(s.submit, action).Grow(1).Height(48).Disabled(s.pending).Clicked() || submitted && !s.pending {
 					u.submitLock()
@@ -122,7 +123,7 @@ func (u *UI) submitLock() {
 		}
 	}
 	if password == "" {
-		s.err = "请输入密码"
+		s.err = i18n.T("请输入密码")
 		return
 	}
 	s.pending, s.err = true, ""
@@ -139,10 +140,10 @@ func (u *UI) submitLock() {
 
 func validatePasswordPair(password, confirmation string) string {
 	if strings.TrimSpace(password) == "" || utf8.RuneCountInString(password) < 6 || len(password) > 256 {
-		return "密码至少 6 个字符，且不能超过 256 字节"
+		return i18n.T("密码至少 6 个字符，且不能超过 256 字节")
 	}
 	if password != confirmation {
-		return "两次输入的密码不一致"
+		return i18n.T("两次输入的密码不一致")
 	}
 	return ""
 }

@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"goim/internal/i18n"
 	"sync"
 	"weak"
 
@@ -20,7 +21,7 @@ const (
 	chatSplitterExtent    = float32(8)
 	chatFilesMinWidth     = float32(260)
 	chatFilesMaxWidth     = float32(400)
-	chatHeaderExtent      = float32(80)
+	chatHeaderExtent      = float32(64)
 	chatDividerExtent     = float32(1)
 	chatSearchExtent      = float32(53)
 	chatComposerDefault   = float32(148)
@@ -30,16 +31,18 @@ type chatSurfaceIDs struct {
 	sidebarSplitter ui.ID
 	historySplitter ui.ID
 
-	viewerScope    ui.ID
-	viewerStage    ui.ID
-	viewerClose    ui.ID
-	viewerPrevious ui.ID
-	viewerNext     ui.ID
-	viewerFit      ui.ID
-	viewerActual   ui.ID
-	viewerZoomOut  ui.ID
-	viewerZoomIn   ui.ID
-	viewerRotate   ui.ID
+	viewerScope                             ui.ID
+	viewerStage                             ui.ID
+	viewerClose                             ui.ID
+	viewerPrevious                          ui.ID
+	viewerNext                              ui.ID
+	viewerFit                               ui.ID
+	viewerActual                            ui.ID
+	viewerZoomOut                           ui.ID
+	viewerZoomIn                            ui.ID
+	viewerRotate                            ui.ID
+	viewerPin, viewerFullscreen, viewerSave ui.ID
+	viewerMenu                              viewerMenuIDs
 }
 
 type chatSurface struct {
@@ -110,18 +113,22 @@ func (u *UI) newChatSurface() *chatSurface {
 	return &chatSurface{
 		sidebar: flex.SplitterState{Pos: sidebarWidth},
 		ids: chatSurfaceIDs{
-			sidebarSplitter: u.tree.ID(u.ids.side, "workspace-divider"),
-			historySplitter: u.tree.ID(u.ids.chat, "history-composer-divider"),
-			viewerScope:     u.tree.ID(u.ids.dialog, "image-viewer-scope"),
-			viewerStage:     u.tree.ID(u.ids.dialog, "image-viewer-stage"),
-			viewerClose:     u.tree.ID(u.ids.dialog, "image-viewer-close"),
-			viewerPrevious:  u.tree.ID(u.ids.dialog, "image-viewer-previous"),
-			viewerNext:      u.tree.ID(u.ids.dialog, "image-viewer-next"),
-			viewerFit:       u.tree.ID(u.ids.dialog, "image-viewer-fit"),
-			viewerActual:    u.tree.ID(u.ids.dialog, "image-viewer-actual"),
-			viewerZoomOut:   u.tree.ID(u.ids.dialog, "image-viewer-zoom-out"),
-			viewerZoomIn:    u.tree.ID(u.ids.dialog, "image-viewer-zoom-in"),
-			viewerRotate:    u.tree.ID(u.ids.dialog, "image-viewer-rotate"),
+			sidebarSplitter:  u.tree.ID(u.ids.side, "workspace-divider"),
+			historySplitter:  u.tree.ID(u.ids.chat, "history-composer-divider"),
+			viewerScope:      u.tree.ID(u.ids.dialog, "image-viewer-scope"),
+			viewerStage:      u.tree.ID(u.ids.dialog, "image-viewer-stage"),
+			viewerClose:      u.tree.ID(u.ids.dialog, "image-viewer-close"),
+			viewerPrevious:   u.tree.ID(u.ids.dialog, "image-viewer-previous"),
+			viewerNext:       u.tree.ID(u.ids.dialog, "image-viewer-next"),
+			viewerFit:        u.tree.ID(u.ids.dialog, "image-viewer-fit"),
+			viewerActual:     u.tree.ID(u.ids.dialog, "image-viewer-actual"),
+			viewerZoomOut:    u.tree.ID(u.ids.dialog, "image-viewer-zoom-out"),
+			viewerZoomIn:     u.tree.ID(u.ids.dialog, "image-viewer-zoom-in"),
+			viewerRotate:     u.tree.ID(u.ids.dialog, "image-viewer-rotate"),
+			viewerPin:        u.tree.ID(u.ids.dialog, "image-viewer-pin"),
+			viewerFullscreen: u.tree.ID(u.ids.dialog, "image-viewer-fullscreen"),
+			viewerSave:       u.tree.ID(u.ids.dialog, "image-viewer-save"),
+			viewerMenu:       newViewerMenuIDs(&u.tree, u.ids.dialog),
 		},
 	}
 }
@@ -136,7 +143,7 @@ func (u *UI) drawMainBody(canvas *ui.Canvas, body ui.Rect) {
 	}
 	u.drawRail(canvas, rail)
 	if u.isPanelSection() {
-		if u.chatSurface().viewer.open {
+		if u.presentViewer == nil && u.chatSurface().viewer.open {
 			u.closeImageViewer()
 		}
 		main := ui.Rect{
@@ -162,7 +169,7 @@ func (u *UI) drawChatWorkspace(canvas *ui.Canvas, body ui.Rect) {
 		sidebar = f.Row().Width(surface.sidebar.Pos)
 		f.Splitter(surface.ids.sidebarSplitter, &surface.sidebar).
 			Mins(chatSidebarMinWidth, chatWorkspaceMinWidth).
-			Label("调整联系人和聊天区域宽度")
+			Label(i18n.T("调整联系人和聊天区域宽度"))
 		chat = f.Row().Grow(1)
 	})
 	f.End()

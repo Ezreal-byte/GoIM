@@ -46,7 +46,8 @@ func inlineImageType(path string, size int64) string {
 		return ""
 	}
 	maxPixels := int64(16_000_000)
-	if format == "png" || format == "gif" {
+	// Allow full 4K PNG screenshots without making them ordinary file offers.
+	if format == "gif" {
 		maxPixels = 8_000_000
 	}
 	if int64(config.Width)*int64(config.Height) > maxPixels || imageSuffix("image/"+format) == "" {

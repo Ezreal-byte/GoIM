@@ -124,6 +124,14 @@ func TestEmojiPickerInsertsUnicodeTextWithoutSending(t *testing.T) {
 	if harness.ui.emojiOpen {
 		t.Fatal("emoji picker stayed open after selection")
 	}
+	if cmd := harness.lastCommand(); cmd.Kind != domain.RememberEmoji || cmd.Text != "😀" {
+		t.Fatalf("recent emoji was not persisted: %+v", cmd)
+	}
+	harness.clickID(harness.ui.ids.chatEmoji)
+	if !harness.hasText("最近使用") || !harness.hasHit(harness.ui.emojiRecentIDs["grin"]) {
+		t.Fatal("recent emoji did not appear when reopening the picker")
+	}
+
 	for _, command := range harness.backend.commandLog() {
 		if command.Kind == domain.SendText {
 			t.Fatalf("emoji selection sent the message: %+v", command)

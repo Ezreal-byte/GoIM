@@ -51,6 +51,12 @@ func (n *Node) execute(c domain.Command) error {
 				s.Conversations[i].Hidden = false
 			}
 		})
+	case domain.RecallMessage:
+		return n.recallMessage(c.ConversationID, c.MessageID)
+	case domain.DeleteMessage:
+		return n.deleteMessage(c.ConversationID, c.MessageID)
+	case domain.RememberEmoji:
+		return n.rememberEmoji(c.Text)
 	case domain.SendText:
 		return n.sendText(c.ConversationID, c.Text)
 	case domain.SendFiles:
@@ -146,7 +152,7 @@ func (n *Node) execute(c domain.Command) error {
 		n.signal()
 		return nil
 	case domain.SetSharePassword:
-		return n.updateSharePassword(c.FileID, c.Text)
+		n.finishShareCommand("分享设置已更新", n.updateSharePassword(c.FileID, c.Text))
 	case domain.DeleteConversation:
 		return n.deleteConversation(c.ConversationID)
 	case domain.SetContactGroup, domain.CreateContactGroup, domain.RenameContactGroup, domain.DeleteContactGroup:
@@ -169,25 +175,54 @@ func (n *Node) execute(c domain.Command) error {
 		})
 	case domain.ShareFiles:
 		n.async(func() {
+			var first error
+			created := 0
 			for _, path := range c.Paths {
 				if err := n.shareFile(path, c.Text); err != nil {
-					n.report(err)
+					if first == nil {
+						first = err
+					}
+				} else {
+					created++
 				}
 			}
-			n.broadcastCatalog()
+			if created > 0 {
+				n.broadcastCatalog()
+			}
+			if first != nil {
+				title := "分享失败"
+				if created > 0 {
+					title = "部分文件未能分享"
+				}
+				n.emitShareFeedback(title, first.Error(), true)
+			} else if created > 0 {
+				n.emitShareFeedback("分享已创建", "", false)
+			}
 		})
+	case domain.SetDeviceShare:
+		title := "设备主页已关闭"
+		if c.Bool {
+			title = "设备主页已启用"
+		}
+		n.finishShareCommand(title, n.setDeviceShare(c.Bool))
 	case domain.RemoveShare:
+		removed := false
 		if err := n.durable(func(p *persisted) []pending {
 			s := &p.State
-			if i := fileIndex(s, c.FileID); i < 0 || s.Files[i].SenderID != s.Self.ID {
+			if i := fileIndex(s, c.FileID); i < 0 || !s.Files[i].Shared || s.Files[i].SenderID != s.Self.ID {
 				return nil
 			} else {
 				s.Files[i].Shared = false
+				removed = true
 			}
 			delete(p.BrowserShares, c.FileID)
 			return n.revokeShareGrants(p, c.FileID, "分享已撤回")
 		}); err != nil {
-			return err
+			n.finishShareCommand("", err)
+			return nil
+		}
+		if removed {
+			n.emitShareFeedback("已取消分享", "", false)
 		}
 		n.broadcastCatalog()
 	case domain.RefreshShares:
@@ -201,12 +236,15 @@ func (n *Node) execute(c domain.Command) error {
 		s := n.snapshot(false)
 		f := s.File(c.FileID)
 		if f.ID == "" || !f.Shared {
-			return errors.New("分享已失效")
+			n.finishShareCommand("", errors.New("分享已失效"))
+			return nil
 		}
 		if f.SenderID == s.Self.ID {
-			return errors.New("这是你自己的文件")
+			n.finishShareCommand("", errors.New("这是你自己的文件"))
+			return nil
 		}
 		n.reliable(f.SenderID, envelope{Type: "get_shared", File: domain.File{ID: f.ID}})
+		n.emitShareFeedback("已请求获取文件", f.Name, false)
 	case domain.ClearError:
 		n.change(func(s *domain.State) { s.Error = ""; s.Notice = "" })
 	case domain.ReportError:
@@ -327,6 +365,7 @@ func (n *Node) sendText(convID, text string) error {
 	}
 	return n.durable(func(p *persisted) []pending {
 		addMessageState(&p.State, m)
+		p.MessageTargets[m.ID] = targets
 		var deliveries []pending
 		for _, id := range targets {
 			deliveries = append(deliveries, pending{PeerID: id, Envelope: envelope{Type: "message", Message: m}})
@@ -377,6 +416,11 @@ func (n *Node) setting(c domain.Command) error {
 		settings.DisableAutoDiscovery = c.Bool
 	case "auto_accept_images":
 		settings.AutoAcceptImages = c.Bool
+	case "language":
+		if c.Value != "zh-CN" && c.Value != "en" {
+			return errors.New("仅支持简体中文和英语")
+		}
+		settings.Language = c.Value
 	case "theme":
 		if c.Value != "light" && c.Value != "dark" {
 			return errors.New("仅支持明亮和暗黑主题")

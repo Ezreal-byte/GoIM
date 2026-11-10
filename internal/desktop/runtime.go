@@ -2,9 +2,13 @@ package desktop
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"goim/internal/i18n"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
@@ -19,11 +23,24 @@ type desktopRuntime struct {
 	tray              *app.StatusItem
 	seen              map[string]bool
 	badge             int
+	trayLanguage      string
 	global            string
 	stopGlobal        func()
 	screenshotGlobal  string
 	stopScreenshot    func()
 	notificationError bool
+	trayNormal        app.StatusIcon
+	trayFlash         app.StatusIcon
+	flashTimer        *time.Timer
+	flashDue          time.Time
+	flashUntil        time.Time
+	flashOn           bool
+	screenshotRunning atomic.Bool
+	viewerWindow      *app.Window
+	viewerWake        app.Invalidator
+	viewerPending     bool
+	viewerSavePath    string
+	viewerSaving      bool
 }
 
 // Run owns the native window and optional tray. The same lifecycle is exercised
@@ -32,11 +49,14 @@ func Run(backend domain.Backend) error {
 	shell := New(backend)
 	defer shell.Close()
 	icon, statusIcon := windowIcon(), trayIcon()
-	r := &desktopRuntime{ui: shell, backend: backend, seen: make(map[string]bool), badge: -1}
+	r := &desktopRuntime{ui: shell, backend: backend, seen: make(map[string]bool), badge: -1, trayNormal: statusIcon, trayFlash: attentionIcon(statusIcon)}
 	for _, m := range shell.state.Messages {
 		r.seen[m.ID] = true
 	}
 	defer func() {
+		if r.flashTimer != nil {
+			r.flashTimer.Stop()
+		}
 		if r.stopGlobal != nil {
 			r.stopGlobal()
 		}
@@ -49,10 +69,26 @@ func Run(backend domain.Backend) error {
 	}()
 	return app.RunApplication(func(application *app.Application) error {
 		r.application = application
+		shell.requestScreenshot = r.launchScreenshot
+		shell.presentViewer = func() {
+			r.viewerPending = true
+			shell.invalidator.Invalidate()
+		}
+		shell.dismissViewer = r.closeViewer
+		shell.pinViewer = r.pinViewer
+		shell.saveViewer = r.requestSaveViewer
+		shell.fullscreenViewer = r.fullscreenViewer
 		config := shell.Config()
 		config.Icon = icon
 		config.Class = "GoIM.Desktop"
 		config.OnMinimize = func(minimized bool) { shell.SetWindowVisible(!minimized && (r.window == nil || !r.window.Hidden())) }
+		closed := config.OnClosed
+		config.OnClosed = func() {
+			r.closeViewer()
+			if closed != nil {
+				closed()
+			}
+		}
 		wake := config.OnWake
 		config.OnWake = func() {
 			if r.window != nil {
@@ -62,6 +98,8 @@ func Run(backend domain.Backend) error {
 				wake()
 			}
 			r.observe()
+			r.tickAttention(time.Now())
+			r.syncViewer()
 		}
 		config.OnCloseRequest = func(allow func()) {
 			if shell.state.Settings.CloseToTray && r.tray != nil {
@@ -76,7 +114,7 @@ func Run(backend domain.Backend) error {
 				}
 			}
 			if active && !shell.state.Locked {
-				shell.confirm = confirmation{open: true, title: "退出 GoIM？", body: "进行中的文件传输将中断，重新连接后可继续。", action: application.Quit}
+				shell.confirm = confirmation{open: true, title: i18n.T("退出 GoIM？"), body: i18n.T("进行中的文件传输将中断，重新连接后可继续。"), action: application.Quit}
 				shell.invalidator.Invalidate()
 				return
 			}
@@ -92,9 +130,9 @@ func Run(backend domain.Backend) error {
 		// Background work can finish between constructing the UI and binding its
 		// invalidator to a native window. Wake once after binding to collect it.
 		shell.invalidator.Invalidate()
-		show := func() { window.Show(); shell.SetWindowVisible(true) }
-		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: "GoIM · 局域网即时通讯", Icon: statusIcon, OnClick: func(app.StatusClick) { show() }, Menu: func() []app.MenuItem {
-			return []app.MenuItem{{Title: "打开 GoIM", OnSelect: show}, {Separator: true}, {Title: "退出 GoIM", OnSelect: func() {
+		show := func() { r.stopAttention(); window.Show(); shell.SetWindowVisible(true) }
+		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: i18n.T("GoIM · 局域网即时通讯"), Icon: statusIcon, OnClick: func(app.StatusClick) { show() }, Menu: func() []app.MenuItem {
+			return []app.MenuItem{{Title: i18n.T("打开 GoIM"), OnSelect: show}, {Separator: true}, {Title: i18n.T("退出 GoIM"), OnSelect: func() {
 				active := false
 				for _, t := range shell.state.Transfers {
 					if t.Status == "transferring" || t.Status == "verifying" {
@@ -103,7 +141,7 @@ func Run(backend domain.Backend) error {
 				}
 				if active && !shell.state.Locked {
 					show()
-					shell.confirm = confirmation{open: true, title: "退出 GoIM？", body: "进行中的文件传输将中断，重新连接后可继续。", action: application.Quit}
+					shell.confirm = confirmation{open: true, title: i18n.T("退出 GoIM？"), body: i18n.T("进行中的文件传输将中断，重新连接后可继续。"), action: application.Quit}
 					shell.invalidator.Invalidate()
 				} else {
 					application.Quit()
@@ -113,7 +151,7 @@ func Run(backend domain.Backend) error {
 		if err == nil {
 			r.tray = tray
 		} else if shell.state.Settings.CloseToTray {
-			backend.Submit(domain.Command{Kind: domain.ReportError, Text: "系统托盘暂不可用，关闭主窗口将退出应用：" + err.Error()})
+			backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("系统托盘暂不可用，关闭主窗口将退出应用：") + err.Error()})
 		}
 		r.observe()
 		return nil
@@ -121,13 +159,21 @@ func Run(backend domain.Backend) error {
 }
 
 func (r *desktopRuntime) observe() {
+	if r.window == nil {
+		return
+	}
 	s := r.ui.state
 	r.applyGlobal(s)
+	attention := false
 	unread := 0
 	for _, c := range s.Conversations {
 		unread += c.Unread
 	}
-	if unread != r.badge {
+	if unread == 0 {
+		r.stopAttention()
+	}
+	if unread != r.badge || r.trayLanguage != i18n.Language() {
+		r.trayLanguage = i18n.Language()
 		r.badge = unread
 		text := ""
 		if unread > 0 {
@@ -135,7 +181,7 @@ func (r *desktopRuntime) observe() {
 		}
 		r.application.SetDockBadge(text)
 		if r.tray != nil {
-			r.tray.SetTooltip(fmt.Sprintf("GoIM · %d 条未读消息", unread))
+			r.tray.SetTooltip(fmt.Sprintf(i18n.T("GoIM · %d 条未读消息"), unread))
 		}
 	}
 	var done, total int64
@@ -155,26 +201,27 @@ func (r *desktopRuntime) observe() {
 			continue
 		}
 		r.seen[m.ID] = true
-		if m.SenderID == s.Self.ID {
+		if m.SenderID == s.Self.ID || m.Kind == "system" {
 			continue
 		}
 		conv := s.Conversation(m.ConversationID)
 		if conv.Muted {
 			continue
 		}
-		if !s.Locked && !r.window.Hidden() && !r.window.Minimized() && !r.ui.isPanelSection() && r.ui.selected == m.ConversationID {
+		if !s.Locked && !r.window.Hidden() && !r.window.Minimized() && mainWindowForeground() && !r.ui.isPanelSection() && r.ui.selected == m.ConversationID {
 			continue
 		}
+		attention = true
 		name := s.Peer(m.SenderID).Name
 		if m.Nickname != "" {
 			name = m.Nickname
 		}
 		body := m.Text
 		if m.Kind == "file" {
-			body = "[文件] " + body
+			body = i18n.T("[文件] ") + body
 		}
 		if m.Kind == "image" {
-			body = "[图片]"
+			body = i18n.T("[图片]")
 		}
 		if len([]rune(body)) > 100 {
 			body = string([]rune(body)[:100]) + "…"
@@ -183,17 +230,20 @@ func (r *desktopRuntime) observe() {
 			name = conv.Title + " · " + name
 		}
 		if s.Locked || s.Settings.HideNotificationText {
-			name, body = "GoIM", "收到一条新消息"
+			name, body = "GoIM", i18n.T("收到一条新消息")
 		}
 		if s.Settings.DesktopNotifications {
 			if err := app.SendNotification(app.Notification{Title: name, Body: body}); err != nil && !r.notificationError {
 				r.notificationError = true
-				r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: "系统通知暂不可用：" + err.Error()})
+				r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("系统通知暂不可用：") + err.Error()})
 			}
 		}
 		if s.Settings.Sound {
 			_ = app.PlaySystemSound(app.SoundInformation)
 		}
+	}
+	if attention && unread > 0 {
+		r.startAttention(time.Now())
 	}
 }
 
@@ -212,7 +262,7 @@ func parseGlobal(keys string) (app.GlobalShortcut, error) {
 			s.Modifiers |= ui.ModifierMeta
 		default:
 			if s.Key != "" {
-				return s, fmt.Errorf("无效的快捷键组合")
+				return s, errors.New(i18n.T("无效的快捷键组合"))
 			}
 			s.Key = strings.TrimSpace(part)
 		}
@@ -232,6 +282,7 @@ func (r *desktopRuntime) applyGlobal(s domain.State) {
 	}
 	r.applyGlobalShortcut("显示或隐藏窗口", desired, &r.global, &r.stopGlobal, func() {
 		if r.window.Hidden() || r.window.Minimized() {
+			r.stopAttention()
 			r.window.Show()
 			r.ui.SetWindowVisible(true)
 		} else {
@@ -270,7 +321,7 @@ func (r *desktopRuntime) applyGlobalShortcut(action, desired string, current *st
 		}
 		data, _ := json.Marshal(keys)
 		r.backend.Submit(domain.Command{Kind: domain.SetSetting, Setting: "shortcuts", Value: string(data)})
-		r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: action + "快捷键不可用，已保留之前的设置：" + err.Error()})
+		r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T(action) + i18n.T("快捷键不可用，已保留之前的设置：") + err.Error()})
 		return
 	}
 	if *stopCurrent != nil {

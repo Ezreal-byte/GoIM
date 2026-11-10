@@ -5,9 +5,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
+	"goim/internal/i18n"
 )
 
 type imageViewerState struct {
@@ -15,16 +17,25 @@ type imageViewerState struct {
 	fileID         string
 	conversationID string
 
-	fit       bool
-	zoom      float32
-	rotation  int
-	panX      float32
-	panY      float32
-	fitScale  float32
-	imageRect ui.Rect
-	drag      bool
-	dragX     float32
-	dragY     float32
+	pinned     bool
+	menuOpen   bool
+	hover      components.HoverTooltip
+	fullscreen bool
+	fit        bool
+	zoom       float32
+	rotation   int
+	panX       float32
+	panY       float32
+	fitScale   float32
+	imageRect  ui.Rect
+	drag       bool
+	dragX      float32
+	dragY      float32
+
+	original     ui.Bitmap
+	originalPath string
+	originalTurn int
+	originalGen  uint64
 
 	cached             ui.Bitmap
 	cachedSourceID     uint64
@@ -36,7 +47,7 @@ type imageViewerState struct {
 }
 
 func (u *UI) imageViewerOpen() bool {
-	return u.chatSurface().viewer.open && !u.lockVisible() && !u.isPanelSection()
+	return u.presentViewer == nil && u.chatSurface().viewer.open && !u.lockVisible() && !u.isPanelSection()
 }
 
 func (u *UI) openImageViewer(fileID string) {
@@ -58,6 +69,10 @@ func (u *UI) openImageViewer(fileID string) {
 	if path := u.fileLocalPath[fileID]; path != "" {
 		u.ensureImage(path)
 	}
+	u.queueViewerOriginal()
+	if u.presentViewer != nil {
+		u.presentViewer()
+	}
 }
 
 func (u *UI) closeImageViewer() {
@@ -65,18 +80,25 @@ func (u *UI) closeImageViewer() {
 	surface.viewer.open = false
 	surface.viewer.drag = false
 	surface.viewer.cached = ui.Bitmap{}
+	surface.viewer.original = ui.Bitmap{}
+	surface.viewer.originalPath = ""
+	surface.viewer.originalGen = 0
 	surface.viewer.fileID = ""
 	surface.viewer.conversationID = ""
 	surface.viewer.images = surface.viewer.images[:0]
+	surface.viewer.imagesConversation = ""
+	if u.dismissViewer != nil {
+		u.dismissViewer()
+	}
 }
 
 func (u *UI) viewerImageFiles(state *imageViewerState) []domain.File {
-	if state.imagesConversation == u.selected && state.imagesRevision == u.state.Revision {
+	if state.imagesConversation == state.conversationID && state.imagesRevision == u.state.Revision {
 		return state.images
 	}
 	state.images = state.images[:0]
-	for _, file := range u.files {
-		if fileIsImage(file) {
+	for _, file := range u.state.Files {
+		if file.ConversationID == state.conversationID && fileIsImage(file) {
 			state.images = append(state.images, file)
 		}
 	}
@@ -87,7 +109,7 @@ func (u *UI) viewerImageFiles(state *imageViewerState) []domain.File {
 		}
 		return left.ID < right.ID
 	})
-	state.imagesConversation = u.selected
+	state.imagesConversation = state.conversationID
 	state.imagesRevision = u.state.Revision
 	return state.images
 }
@@ -129,6 +151,7 @@ func (u *UI) selectImageViewerFile(fileID string) {
 	state.panY = 0
 	state.drag = false
 	state.cached = ui.Bitmap{}
+	u.queueViewerOriginal()
 	if path := u.fileLocalPath[fileID]; path != "" {
 		u.ensureImage(path)
 		if bitmap := u.fileBitmap(path); bitmapReady(bitmap) {
@@ -175,6 +198,7 @@ func (u *UI) rotateImageViewer(direction int) {
 	state.cached = ui.Bitmap{}
 	state.panX = 0
 	state.panY = 0
+	u.queueViewerOriginal()
 	if path := u.fileLocalPath[state.fileID]; path != "" {
 		if bitmap := u.fileBitmap(path); bitmapReady(bitmap) {
 			u.viewerRotatedBitmap(state, bitmap)
@@ -187,13 +211,26 @@ func (u *UI) imageViewerKey(event ui.KeyEvent) ui.EventResult {
 	if !state.open || event.Release {
 		return ui.EventResult{}
 	}
+	if state.menuOpen {
+		if event.Key == ui.KeyEscape {
+			state.menuOpen = false
+			return ui.EventResult{Handled: true, Repaint: true, Focus: u.chatSurface().ids.viewerMenu.trigger}
+		}
+		return ui.EventResult{}
+	}
 	switch event.Key {
 	case ui.KeyTab:
 		return ui.EventResult{}
 	case ui.KeyEnter, ui.KeySpace:
 		return ui.EventResult{}
 	case ui.KeyEscape:
-		u.closeImageViewer()
+		if state.fullscreen && u.fullscreenViewer != nil {
+			if u.fullscreenViewer(false) {
+				state.fullscreen = false
+			}
+		} else {
+			u.closeImageViewer()
+		}
 		return ui.EventResult{Handled: true, Repaint: true}
 	case ui.KeyLeft, ui.KeyPageUp:
 		u.navigateImageViewer(-1)
@@ -213,6 +250,12 @@ func (u *UI) imageViewerKey(event ui.KeyEvent) ui.EventResult {
 			u.selectImageViewerFile(files[len(files)-1].ID)
 		}
 		return ui.EventResult{Handled: true, Repaint: true}
+	}
+	if event.Modifiers&(ui.ModifierControl|ui.ModifierMeta) != 0 && strings.EqualFold(event.Text, "s") && u.saveViewer != nil {
+		if !event.Repeat {
+			u.saveViewer(u.fileLocalPath[state.fileID])
+		}
+		return ui.EventResult{Handled: true}
 	}
 	if event.Modifiers&(ui.ModifierControl|ui.ModifierMeta|ui.ModifierAlt) != 0 {
 		return ui.EventResult{Handled: true}
@@ -239,7 +282,7 @@ func (u *UI) imageViewerKey(event ui.KeyEvent) ui.EventResult {
 }
 
 func (u *UI) imageViewerWheel(event ui.ScrollEvent) ui.EventResult {
-	if !u.imageViewerOpen() || event.DeltaY == 0 {
+	if !u.chatSurface().viewer.open || event.DeltaY == 0 {
 		return ui.EventResult{Handled: true}
 	}
 	factor := float32(math.Exp(-float64(event.DeltaY) / 240))
@@ -248,11 +291,17 @@ func (u *UI) imageViewerWheel(event ui.ScrollEvent) ui.EventResult {
 }
 
 func (u *UI) drawChatImageViewer(canvas *ui.Canvas) {
+	if u.presentViewer == nil {
+		u.drawImageViewer(canvas, u.lastBody, false)
+	}
+}
+
+func (u *UI) drawImageViewer(canvas *ui.Canvas, viewport ui.Rect, detached bool) {
 	state := &u.chatSurface().viewer
 	if !state.open {
 		return
 	}
-	if state.conversationID != u.selected || u.selected == "" {
+	if !detached && (state.conversationID != u.selected || u.selected == "") {
 		u.closeImageViewer()
 		return
 	}
@@ -262,20 +311,29 @@ func (u *UI) drawChatImageViewer(canvas *ui.Canvas) {
 		u.closeImageViewer()
 		return
 	}
-	viewport := u.lastBody
 	if viewport.Width <= 0 || viewport.Height <= 0 {
 		return
 	}
 	ids := u.chatSurface().ids
 	canvas.PushLayer(80)
 	defer canvas.PopLayer()
-	canvas.Fill(viewport, ui.RGBA(8, 10, 14, 1))
-	canvas.Block(viewport)
+	theme := ui.DarkTheme()
+	background := ui.RGB(8, 10, 14)
+	muted := ui.RGB(167, 174, 186)
+	topHeight, bottomHeight := float32(58), float32(82)
+	if detached {
+		theme = themeForName(u.state.Settings.Theme)
+		colors := paletteFor(theme)
+		background, muted = colors.chat, colors.secondaryText
+		topHeight, bottomHeight = viewerTitlebarHeight, 26
+	} else {
+		canvas.Block(viewport)
+	}
+	canvas.Fill(viewport, background)
 	canvas.PushFocusScope(ids.viewerScope)
 	defer canvas.PopFocusScope()
 
-	top := ui.Rect{X: viewport.X, Y: viewport.Y, Width: viewport.Width, Height: 58}
-	bottomHeight := float32(82)
+	top := ui.Rect{X: viewport.X, Y: viewport.Y, Width: viewport.Width, Height: topHeight}
 	stage := ui.Rect{
 		X: viewport.X, Y: viewport.Y + top.Height,
 		Width: viewport.Width, Height: max(viewport.Height-top.Height-bottomHeight, 1),
@@ -284,23 +342,30 @@ func (u *UI) drawChatImageViewer(canvas *ui.Canvas) {
 	path := u.fileLocalPath[file.ID]
 	source := u.fileBitmap(path)
 	bitmap := source
-	if bitmapReady(source) {
+	if detached && state.originalPath == path && state.originalTurn == state.rotation && bitmapReady(state.original) {
+		bitmap = state.original
+	} else if bitmapReady(source) {
 		bitmap = u.viewerRotatedBitmap(state, source)
 	}
 
-	canvas.Fill(top, ui.RGBA(255, 255, 255, 0.035))
-	canvas.Label(
-		intString(index+1)+" / "+intString(len(files)),
-		ui.Rect{X: viewport.X + 20, Y: top.Y, Width: 90, Height: top.Height},
-		ui.TextStyle{Size: 12, Color: ui.RGBA(167, 174, 186, 1)},
-	)
-	titleWidth := max(viewport.Width-260, 160)
-	canvas.LabelCenter(
-		file.Name,
-		ui.Rect{X: viewport.X + 110, Y: top.Y, Width: titleWidth, Height: top.Height},
-		ui.TextStyle{Size: 14, Weight: ui.WeightMedium, Color: ui.RGBA(238, 241, 247, 1)},
-	)
+	if !detached {
+		canvas.Fill(top, ui.RGBA(255, 255, 255, 0.035))
+		canvas.Label(
+			intString(index+1)+" / "+intString(len(files)),
+			ui.Rect{X: viewport.X + 20, Y: top.Y, Width: 90, Height: top.Height},
+			ui.TextStyle{Size: 12, Color: ui.RGBA(167, 174, 186, 1)},
+		)
+		titleWidth := max(viewport.Width-260, 160)
+		canvas.LabelCenter(
+			file.Name,
+			ui.Rect{X: viewport.X + 110, Y: top.Y, Width: titleWidth, Height: top.Height},
+			ui.TextStyle{Size: 14, Weight: ui.WeightMedium, Color: ui.RGBA(238, 241, 247, 1)},
+		)
 
+	}
+	if detached {
+		canvas.LabelCenter(file.Name, ui.Rect{X: 12, Y: stage.Bottom(), Width: max(viewport.Width-24, 1), Height: bottomHeight}, ui.TextStyle{Size: 12, Color: muted})
+	}
 	if bitmapReady(bitmap) {
 		imageRect := u.viewerImageRect(state, stage, bitmap)
 		state.imageRect = imageRect
@@ -309,12 +374,12 @@ func (u *UI) drawChatImageViewer(canvas *ui.Canvas) {
 		canvas.Unclip()
 	} else {
 		state.imageRect = ui.Rect{}
-		message := "正在加载图片…"
+		message := i18n.T("正在加载图片…")
 		if path == "" {
-			message = "图片尚未保存到本机"
+			message = i18n.T("图片尚未保存到本机")
 		}
 		canvas.LabelCenter(message, stage, ui.TextStyle{
-			Size: 14, Color: ui.RGBA(167, 174, 186, 1),
+			Size: 14, Color: muted,
 		})
 	}
 
@@ -322,28 +387,35 @@ func (u *UI) drawChatImageViewer(canvas *ui.Canvas) {
 	if state.imageRect.Width > stage.Width || state.imageRect.Height > stage.Height {
 		cursor = ui.PointerCursorHand
 	}
-	canvas.HitWithOptions(ids.viewerStage, stage, "拖动查看图片", ui.HitOptions{
+	canvas.HitWithOptions(ids.viewerStage, stage, i18n.T("拖动查看图片"), ui.HitOptions{
 		Role: ui.RoleGroup, SkipFocus: true, Cursor: cursor,
 	})
 	if event, ok := canvas.PointerOn(ids.viewerStage); ok {
-		u.handleImageViewerPointer(canvas, state, event, stage)
+		u.handleImageViewerPointer(canvas, state, event, stage, detached)
 	}
 
+	if detached {
+		u.drawViewerTitlebar(canvas, top, viewport, theme, ids, state, index, len(files), path)
+		if !state.menuOpen {
+			state.hover.Paint(canvas, theme, viewport, components.TooltipOptions{Layer: 82}, 0)
+		}
+		return
+	}
 	previousEnabled := index > 0
 	nextEnabled := index+1 < len(files)
 	arrowY := stage.Y + stage.Height/2 - 25
 	if u.viewerIconButton(canvas, ui.Rect{X: viewport.X + 22, Y: arrowY, Width: 50, Height: 50},
-		ids.viewerPrevious, "上一张图片（←）", u.iconChevronRight,
+		ids.viewerPrevious, i18n.T("上一张图片（←）"), u.iconChevronRight,
 		ui.IconTransform{Rotate: float32(math.Pi)}, !previousEnabled, false) {
 		u.navigateImageViewer(-1)
 	}
 	if u.viewerIconButton(canvas, ui.Rect{X: viewport.X + viewport.Width - 72, Y: arrowY, Width: 50, Height: 50},
-		ids.viewerNext, "下一张图片（→）", u.iconChevronRight,
+		ids.viewerNext, i18n.T("下一张图片（→）"), u.iconChevronRight,
 		ui.IconTransform{}, !nextEnabled, false) {
 		u.navigateImageViewer(1)
 	}
 	if u.viewerIconButton(canvas, ui.Rect{X: viewport.X + viewport.Width - 58, Y: viewport.Y + 10, Width: 38, Height: 38},
-		ids.viewerClose, "关闭图片查看器（Esc）", u.iconX,
+		ids.viewerClose, i18n.T("关闭图片查看器（Esc）"), u.iconX,
 		ui.IconTransform{}, false, false) {
 		u.closeImageViewer()
 		return
@@ -370,9 +442,9 @@ func (u *UI) viewerRotatedBitmap(state *imageViewerState, source ui.Bitmap) ui.B
 	}
 	rotated := rotateBitmapQuarter(source, turns)
 	if bitmapReady(rotated) {
+		u.nextImageID++
 		rotated.ID = u.nextImageID
 		rotated.Version = 1
-		u.nextImageID++
 	}
 	state.cached = rotated
 	state.cachedRotation = turns
@@ -440,7 +512,7 @@ func (u *UI) viewerImageRect(state *imageViewerState, stage ui.Rect, bitmap ui.B
 }
 
 func (u *UI) handleImageViewerPointer(canvas *ui.Canvas, state *imageViewerState,
-	event ui.PointerEvent, stage ui.Rect) {
+	event ui.PointerEvent, stage ui.Rect, detached bool) {
 	switch event.Kind {
 	case ui.PointerDown:
 		if event.Button != ui.PointerButtonPrimary {
@@ -454,7 +526,7 @@ func (u *UI) handleImageViewerPointer(canvas *ui.Canvas, state *imageViewerState
 				} else {
 					u.fitImageViewer()
 				}
-			} else {
+			} else if !detached {
 				u.closeImageViewer()
 			}
 			canvas.Consume()
@@ -462,7 +534,9 @@ func (u *UI) handleImageViewerPointer(canvas *ui.Canvas, state *imageViewerState
 			return
 		}
 		if !pointInside(event.X, event.Y, state.imageRect) {
-			u.closeImageViewer()
+			if !detached {
+				u.closeImageViewer()
+			}
 			canvas.Consume()
 			canvas.RequestFrame()
 			return
@@ -505,7 +579,7 @@ func (u *UI) drawImageViewerToolbar(canvas *ui.Canvas, viewport ui.Rect,
 	x := bar.X + 8
 	buttonY := bar.Y + 5
 	if u.viewerTextButton(canvas, ui.Rect{X: x, Y: buttonY, Width: 38, Height: 38},
-		ids.viewerZoomOut, "缩小图片", "−", false, false) {
+		ids.viewerZoomOut, i18n.T("缩小图片"), "−", false, false) {
 		u.zoomImageViewer(0.8)
 	}
 	x += 40
@@ -514,24 +588,24 @@ func (u *UI) drawImageViewerToolbar(canvas *ui.Canvas, viewport ui.Rect,
 		ui.TextStyle{Size: 11.5, Color: ui.RGBA(206, 212, 222, 1)})
 	x += 64
 	if u.viewerTextButton(canvas, ui.Rect{X: x, Y: buttonY, Width: 38, Height: 38},
-		ids.viewerZoomIn, "放大图片", "+", false, false) {
+		ids.viewerZoomIn, i18n.T("放大图片"), "+", false, false) {
 		u.zoomImageViewer(1.25)
 	}
 	x += 50
 	canvas.Fill(ui.Rect{X: x, Y: bar.Y + 12, Width: 1, Height: 24}, ui.RGBA(255, 255, 255, 0.12))
 	x += 9
 	if u.viewerTextButton(canvas, ui.Rect{X: x, Y: buttonY, Width: 48, Height: 38},
-		ids.viewerActual, "实际大小 1:1", "1:1", false, !state.fit && math.Abs(float64(state.zoom-1)) < 0.01) {
+		ids.viewerActual, i18n.T("实际大小 1:1"), "1:1", false, !state.fit && math.Abs(float64(state.zoom-1)) < 0.01) {
 		u.showImageViewerActualSize()
 	}
 	x += 52
 	if u.viewerTextButton(canvas, ui.Rect{X: x, Y: buttonY, Width: 52, Height: 38},
-		ids.viewerFit, "适应窗口", "适应", false, state.fit) {
+		ids.viewerFit, i18n.T("适应窗口"), i18n.T("适应"), false, state.fit) {
 		u.fitImageViewer()
 	}
 	x += 56
 	if u.viewerIconButton(canvas, ui.Rect{X: x, Y: buttonY, Width: 38, Height: 38},
-		ids.viewerRotate, "顺时针旋转图片", u.iconRotate,
+		ids.viewerRotate, i18n.T("顺时针旋转图片"), u.iconRotate,
 		ui.IconTransform{}, false, false) {
 		u.rotateImageViewer(1)
 	}
@@ -559,7 +633,7 @@ func (u *UI) viewerTextButton(canvas *ui.Canvas, bounds ui.Rect, id ui.ID,
 		canvas.RoundedBorder(bounds, 10, 1, ui.RGBA(255, 255, 255, 0.7), ui.Color{})
 	}
 	canvas.HitWithOptions(id, bounds, label, ui.HitOptions{
-		Role: ui.RoleButton, Disabled: disabled, Cursor: ui.PointerCursorHand,
+		Role: ui.RoleButton, Hint: label, Disabled: disabled, Cursor: ui.PointerCursorHand,
 	})
 	return !disabled && canvas.Clicked(id)
 }
@@ -576,7 +650,7 @@ func (u *UI) viewerIconButton(canvas *ui.Canvas, bounds ui.Rect, id ui.ID,
 		canvas.RoundedBorder(bounds, 10, 1, ui.RGBA(255, 255, 255, 0.7), ui.Color{})
 	}
 	canvas.HitWithOptions(id, bounds, label, ui.HitOptions{
-		Role: ui.RoleButton, Disabled: disabled, Cursor: ui.PointerCursorHand,
+		Role: ui.RoleButton, Hint: label, Disabled: disabled, Cursor: ui.PointerCursorHand,
 	})
 	return !disabled && canvas.Clicked(id)
 }

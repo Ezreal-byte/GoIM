@@ -326,7 +326,8 @@ func TestLocalOpenRunsOnMediaWorkerBeforeWake(t *testing.T) {
 		})
 	})
 
-	harness.click(harness.panels.ids.shareOpen.At(0))
+	harness.click(harness.panels.sharesMine[0].moreID)
+	harness.click(harness.panels.ids.shareMenuOpen)
 	select {
 	case <-started:
 	case <-time.After(2 * time.Second):

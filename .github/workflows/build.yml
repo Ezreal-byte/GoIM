@@ -6,7 +6,7 @@ on:
     inputs:
       version:
         description: Package version
-        default: 0.1.0-alpha.1
+        default: 0.1.0
         required: true
         type: string
 permissions:
@@ -43,11 +43,11 @@ jobs:
           repository: vivaui/viva
           ref: ${{ steps.viva-pin.outputs.ref }}
           path: viva
-      - name: Apply reviewed framework patch
+      - name: Apply reviewed framework patches
         run: |
           test "$(git -C ../viva rev-parse HEAD)" = "$(tr -d '\r\n' < framework/viva-commit.txt)"
           git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
-          git -C ../viva apply ../GoIM/framework/0003-window-size.patch
+          git -C ../viva apply ../GoIM/framework/0003-window-size.patch ../GoIM/framework/0004-windows-tray-notifications.patch
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.27.3'
@@ -66,6 +66,9 @@ jobs:
           test -z "$(gofmt -l cmd internal)"
           go vet ./...
           go test ./... -count=1 -timeout=180s
+      - name: Windows notification area regression
+        if: runner.os == 'Windows'
+        run: go test github.com/vivaui/viva/internal/platform/windows -run '^TestDesktopNotificationReusesStatusItem$' -count=1
       - name: Core and background media race tests
         if: matrix.os == 'linux' && matrix.arch == 'amd64'
         run: go test -race ./internal/core ./internal/desktop -count=1 -timeout=180s
@@ -77,8 +80,10 @@ jobs:
           GOIM_QA_SCREENSHOTS: ${{ github.workspace }}/GoIM/artifacts/screenshots
           GOIM_CHAT_QA_SCREENSHOTS: ${{ github.workspace }}/GoIM/artifacts/screenshots/chat
           GOIM_SNIP_SHOT_DIR: ${{ github.workspace }}/GoIM/artifacts/screenshots/snip
+          GOIM_SHARE_LIST_QA: ${{ github.workspace }}/GoIM/artifacts/screenshots/shares
+          GOIM_TRANSFER_QA: ${{ github.workspace }}/GoIM/artifacts/screenshots/transfers
         run: |
-          go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestSharePageScreenshots|TestChatLayoutScreenshotQA' -count=1 -timeout=180s
+          go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestShareListDesignScreenshots|TestTransferDesignScreenshots|TestChatLayoutScreenshotQA' -count=1 -timeout=180s
           go test -tags vivahead ./cmd/goim-snip -run '^TestEditorScreenshots$' -count=1 -timeout=60s
       - name: Native content resize
         env:
@@ -115,7 +120,7 @@ jobs:
           ./scripts/smoke-headless.ps1
       - name: Native release package
         env:
-          PACKAGE_VERSION: ${{ inputs.version || (github.ref_type == 'tag' && github.ref_name) || '0.1.0-alpha.1' }}
+          PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
         run: go run ./cmd/package --version "${PACKAGE_VERSION#v}" --commit "$GITHUB_SHA"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -144,16 +149,20 @@ jobs:
       - name: Verify six packages and prepare checksums
         env:
           SOURCE_COMMIT: ${{ github.sha }}
+          PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
         run: |
           python3 - <<'PY'
           import hashlib, json, os, pathlib, tarfile, zipfile
           root = pathlib.Path('release')
+          version = os.environ['PACKAGE_VERSION'].removeprefix('v')
           expected = {(o,a) for o in ('windows','linux','darwin') for a in ('amd64','arm64')}
           found, sums, frameworks, toolchains = set(), [], set(), set()
           for p in sorted(root.iterdir()):
               if not (p.name.endswith('.zip') or p.name.endswith('.tar.gz')): continue
               target = tuple(p.name.removesuffix('.tar.gz').removesuffix('.zip').rsplit('_',2)[1:])
               assert target in expected and target not in found, p.name
+              ext = '.tar.gz' if target[0] == 'linux' else '.zip'
+              assert p.name == f'GoIM_{version}_{target[0]}_{target[1]}{ext}', p.name
               found.add(target)
               if p.name.endswith('.zip'):
                   with zipfile.ZipFile(p) as z:
@@ -174,7 +183,7 @@ jobs:
                       assert z.getmember(next(n for n in names if n.endswith('/goim-snip'))).mode & 0o111
                       assert any(n.endswith('/share/applications/dev.goim.desktop.desktop') for n in names)
                       assert any(n.endswith('/share/icons/hicolor/256x256/apps/goim.png') for n in names)
-              assert info['commit']==os.environ['SOURCE_COMMIT'] and (info['os'],info['arch'])==target
+              assert info['commit']==os.environ['SOURCE_COMMIT'] and info['version']==version and (info['os'],info['arch'])==target
               frameworks.add(info['viva'])
               toolchains.add(info['go'])
               assert any('/licenses/' in n for n in names)
@@ -185,7 +194,7 @@ jobs:
           assert found==expected, (found,expected)
           assert len(frameworks)==len(toolchains)==1, (frameworks,toolchains)
           (root/'SHA256SUMS').write_text('\n'.join(sums)+'\n')
-          notes='GoIM preview: native LAN chat, browser file links with passwords and QR codes, application lock, and expanded settings.\n\nSix native builds passed tests and package checks. Windows three-process smoke verified TLS chat, images, emoji, group and file transfer, lock, and password-protected browser download. Native hotkey lifecycle checks passed on Windows, macOS and X11. Linux race checks passed. Physical multi-device desktop testing remains separate.\n\nWindows is unsigned. macOS is ad-hoc signed and not notarized. Linux global shortcuts require X11.\n\nSource: '+os.environ['SOURCE_COMMIT']+'\nViva: '+next(iter(frameworks))+' (local window-size patch, vivaui/viva#172).\nGo: '+next(iter(toolchains))+'\n'
+          notes=f'GoIM {version}\n\nSix native builds passed tests and package checks. Windows three-process smoke and Linux race checks passed.\n\nSource: {os.environ["SOURCE_COMMIT"]}\nViva: {next(iter(frameworks))}\nGo: {next(iter(toolchains))}\n'
           (root/'RELEASE_NOTES.md').write_text(notes)
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

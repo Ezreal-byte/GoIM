@@ -5,6 +5,7 @@ package desktop
 import (
 	"bytes"
 	"errors"
+	"goim/internal/i18n"
 	"os/exec"
 	"runtime"
 )
@@ -30,9 +31,9 @@ end run`, path)
 			command = exec.Command("xclip", "-selection", "clipboard", "-t", "image/png", "-i", path)
 			break
 		}
-		return errors.New("需要安装 wl-copy 或 xclip 才能复制截图")
+		return errors.New(i18n.T("需要安装 wl-copy 或 xclip 才能复制截图"))
 	default:
-		return errors.New("当前平台暂不支持直接复制截图")
+		return errors.New(i18n.T("当前平台暂不支持直接复制截图"))
 	}
 	if output, err := command.CombinedOutput(); err != nil {
 		return errors.New(string(bytes.TrimSpace(output)))

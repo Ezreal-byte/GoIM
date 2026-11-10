@@ -5,14 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"image"
-	"io"
-	"os"
-	"path/filepath"
-	"runtime"
-	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/vivaui/viva/ui"
 
@@ -20,45 +14,10 @@ import (
 )
 
 const (
-	maxShareDirectoryEntries = 4000
-	maxShareQRBytes          = 512 << 10
-	maxShareQRPixels         = 2_000_000
-	shareQRDecodeSize        = 224
+	maxShareQRBytes   = 512 << 10
+	maxShareQRPixels  = 2_000_000
+	shareQRDecodeSize = 224
 )
-
-type shareBrowseKind uint8
-
-const (
-	shareBrowsePath shareBrowseKind = iota
-	shareBrowseHome
-	shareBrowseDownloads
-	shareBrowseRoot
-	shareBrowseDrives
-)
-
-type shareBrowseRequest struct {
-	kind shareBrowseKind
-	path string
-}
-
-type shareDirEntry struct {
-	name     string
-	path     string
-	dir      bool
-	size     int64
-	modified time.Time
-}
-
-type shareDirResult struct {
-	generation uint64
-	kind       shareBrowseKind
-	path       string
-	parent     string
-	title      string
-	entries    []shareDirEntry
-	err        string
-	truncated  bool
-}
 
 type shareQRKey struct {
 	fileID string
@@ -73,65 +32,21 @@ type shareQRResult struct {
 	err    string
 }
 
-type shareBrowserEvent struct {
-	dir *shareDirResult
-	qr  *shareQRResult
+// shareQRWorker decodes only requested QR images off the painter thread.
+type shareQRWorker struct {
+	mu        sync.Mutex
+	events    []shareQRResult
+	onReady   func()
+	qrPending map[shareQRKey]bool
 }
 
-// shareBrowser owns the filesystem work behind the file page. UI code starts a
-// request and reads only delivered events during OnWake; Paint never opens a
-// directory or decodes an image.
-type shareBrowser struct {
-	mu         sync.Mutex
-	generation uint64
-	events     []shareBrowserEvent
-	onReady    func()
-	qrPending  map[shareQRKey]bool
-
-	homeDir    func() (string, error)
-	readDir    func(string) shareDirResult
-	listDrives func() []shareDirEntry
-	decodeQR   func([]byte, int) (ui.Bitmap, bool)
-}
-
-func (b *shareBrowser) ensure() {
-	if b.homeDir == nil {
-		b.homeDir = os.UserHomeDir
-	}
-	if b.readDir == nil {
-		b.readDir = shareReadDirectory
-	}
-	if b.listDrives == nil {
-		b.listDrives = shareSystemDrives
-	}
-	if b.decodeQR == nil {
-		b.decodeQR = decodeShareQR
-	}
-}
-
-func (b *shareBrowser) setNotify(notify func()) {
+func (b *shareQRWorker) setNotify(notify func()) {
 	b.mu.Lock()
 	b.onReady = notify
 	b.mu.Unlock()
 }
 
-func (b *shareBrowser) start(request shareBrowseRequest) uint64 {
-	b.ensure()
-	b.mu.Lock()
-	b.generation++
-	generation := b.generation
-	homeDir, readDir, listDrives := b.homeDir, b.readDir, b.listDrives
-	b.mu.Unlock()
-
-	go func() {
-		result := shareLoadDirectory(request, generation, homeDir, readDir, listDrives)
-		b.push(shareBrowserEvent{dir: &result})
-	}()
-	return generation
-}
-
-func (b *shareBrowser) startQR(key shareQRKey, data []byte) {
-	b.ensure()
+func (b *shareQRWorker) startQR(key shareQRKey, data []byte) {
 	b.mu.Lock()
 	if b.qrPending == nil {
 		b.qrPending = make(map[shareQRKey]bool)
@@ -141,11 +56,10 @@ func (b *shareBrowser) startQR(key shareQRKey, data []byte) {
 		return
 	}
 	b.qrPending[key] = true
-	decode := b.decodeQR
 	b.mu.Unlock()
 
 	go func() {
-		bitmap, ok := decode(data, shareQRDecodeSize)
+		bitmap, ok := decodeShareQR(data, shareQRDecodeSize)
 		if ok {
 			bitmap.ID = shareQRBitmapID(key)
 			bitmap.Version = 1
@@ -153,11 +67,11 @@ func (b *shareBrowser) startQR(key shareQRKey, data []byte) {
 		b.mu.Lock()
 		delete(b.qrPending, key)
 		b.mu.Unlock()
-		b.push(shareBrowserEvent{qr: &shareQRResult{key: key, bitmap: bitmap, ok: ok}})
+		b.push(shareQRResult{key: key, bitmap: bitmap, ok: ok})
 	}()
 }
 
-func (b *shareBrowser) push(event shareBrowserEvent) {
+func (b *shareQRWorker) push(event shareQRResult) {
 	b.mu.Lock()
 	b.events = append(b.events, event)
 	notify := b.onReady
@@ -167,152 +81,12 @@ func (b *shareBrowser) push(event shareBrowserEvent) {
 	}
 }
 
-func (b *shareBrowser) take() []shareBrowserEvent {
+func (b *shareQRWorker) take() []shareQRResult {
 	b.mu.Lock()
 	events := b.events
 	b.events = nil
 	b.mu.Unlock()
 	return events
-}
-
-func shareLoadDirectory(request shareBrowseRequest, generation uint64,
-	homeDir func() (string, error), readDir func(string) shareDirResult,
-	listDrives func() []shareDirEntry) shareDirResult {
-	result := shareDirResult{generation: generation, kind: request.kind}
-	path := strings.TrimSpace(request.path)
-	switch request.kind {
-	case shareBrowseHome:
-		home, err := homeDir()
-		if err != nil {
-			result.err = "无法定位主目录：" + err.Error()
-			return result
-		}
-		path = home
-	case shareBrowseDownloads:
-		if path == "" {
-			home, err := homeDir()
-			if err != nil {
-				result.err = "无法定位下载文件夹：" + err.Error()
-				return result
-			}
-			path = filepath.Join(home, "Downloads")
-		}
-	case shareBrowseRoot:
-		if path == "" {
-			home, err := homeDir()
-			if err != nil {
-				result.err = "无法定位根目录：" + err.Error()
-				return result
-			}
-			path = home
-		}
-		path = shareRootPath(path)
-	case shareBrowseDrives:
-		result.title = "此电脑"
-		result.entries = append([]shareDirEntry(nil), listDrives()...)
-		return result
-	}
-	if strings.TrimSpace(path) == "" {
-		result.err = "无法确定要打开的文件夹"
-		return result
-	}
-	loaded := readDir(path)
-	loaded.generation = generation
-	loaded.kind = request.kind
-	return loaded
-}
-
-func shareReadDirectory(path string) shareDirResult {
-	result := shareDirResult{}
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		result.err = "无法打开文件夹：" + err.Error()
-		return result
-	}
-	result.path = absolute
-	result.parent = shareParentPath(absolute)
-	directory, err := os.Open(absolute)
-	if err != nil {
-		result.err = "无法读取文件夹：" + err.Error()
-		return result
-	}
-	defer directory.Close()
-	entries := make([]os.DirEntry, 0, min(maxShareDirectoryEntries, 256))
-	for len(entries) < maxShareDirectoryEntries {
-		batch, readErr := directory.ReadDir(min(256, maxShareDirectoryEntries-len(entries)))
-		entries = append(entries, batch...)
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			result.err = "无法读取文件夹：" + readErr.Error()
-			return result
-		}
-		if len(batch) == 0 {
-			break
-		}
-	}
-	if len(entries) == maxShareDirectoryEntries {
-		if extra, readErr := directory.ReadDir(1); readErr == nil && len(extra) > 0 {
-			result.truncated = true
-		} else if readErr != nil && readErr != io.EOF {
-			result.err = "无法读取文件夹：" + readErr.Error()
-			return result
-		}
-	}
-	result.entries = make([]shareDirEntry, 0, len(entries))
-	for _, entry := range entries {
-		item := shareDirEntry{
-			name: entry.Name(),
-			path: filepath.Join(absolute, entry.Name()),
-			dir:  entry.IsDir(),
-		}
-		if info, infoErr := entry.Info(); infoErr == nil && info != nil {
-			item.size = info.Size()
-			item.modified = info.ModTime()
-			item.dir = info.IsDir()
-		} else if item.dir {
-			item.size = -1
-		}
-		result.entries = append(result.entries, item)
-	}
-	sort.SliceStable(result.entries, func(i, j int) bool {
-		if result.entries[i].dir != result.entries[j].dir {
-			return result.entries[i].dir
-		}
-		left := strings.ToLower(result.entries[i].name)
-		right := strings.ToLower(result.entries[j].name)
-		if left != right {
-			return left < right
-		}
-		return result.entries[i].name < result.entries[j].name
-	})
-	return result
-}
-
-func shareParentPath(path string) string {
-	path = filepath.Clean(path)
-	parent := filepath.Dir(path)
-	if parent == path {
-		return ""
-	}
-	return parent
-}
-
-func shareRootPath(path string) string {
-	path = filepath.Clean(path)
-	if volume := filepath.VolumeName(path); volume != "" {
-		return volume + string(filepath.Separator)
-	}
-	return string(filepath.Separator)
-}
-
-func sharePathKey(path string) string {
-	key := filepath.Clean(strings.TrimSpace(path))
-	if runtime.GOOS == "windows" {
-		key = strings.ToLower(key)
-	}
-	return key
 }
 
 func shareQRKeyFor(file domain.File) (shareQRKey, bool) {

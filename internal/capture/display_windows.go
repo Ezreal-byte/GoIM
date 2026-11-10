@@ -42,6 +42,7 @@ const (
 	dpiAwarenessPerMonitor2 = ^uintptr(3)
 	dibRGBColors            = 0
 	sourceCopy              = 0x00CC0020
+	captureLayeredWindows   = 0x40000000
 )
 
 type windowsRect struct {
@@ -250,17 +251,15 @@ func platformCapture(bounds image.Rectangle) (*image.RGBA, error) {
 	}
 	defer procSelectObject.Call(memory, previous)
 
-	copied, _, callErr := procBitBlt.Call(
-		memory,
-		0,
-		0,
-		uintptr(width),
-		uintptr(height),
-		screen,
-		uintptr(int32(bounds.Min.X)),
-		uintptr(int32(bounds.Min.Y)),
-		sourceCopy,
-	)
+	copyDesktop := func(rop uintptr) (uintptr, error) {
+		copied, _, err := procBitBlt.Call(memory, 0, 0, uintptr(width), uintptr(height), screen,
+			uintptr(int32(bounds.Min.X)), uintptr(int32(bounds.Min.Y)), rop)
+		return copied, err
+	}
+	copied, callErr := copyDesktop(sourceCopy | captureLayeredWindows)
+	if copied == 0 {
+		copied, callErr = copyDesktop(sourceCopy)
+	}
 	if copied == 0 {
 		return nil, fmt.Errorf("capture: BitBlt: %w", callErr)
 	}

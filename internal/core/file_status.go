@@ -64,6 +64,12 @@ func (n *Node) receiveFileStatus(peer string, e envelope) error {
 	})
 }
 func (n *Node) retryTransfer(t domain.Transfer) error {
+	n.mu.Lock()
+	recalled := n.data.fileMessageRecalled(t)
+	n.mu.Unlock()
+	if recalled {
+		return errors.New("文件消息已撤回")
+	}
 	if t.Status == "completed" {
 		return nil
 	}
@@ -71,6 +77,9 @@ func (n *Node) retryTransfer(t domain.Transfer) error {
 	if t.Direction == "receive" {
 		if t.Status == "cancelled" || t.Status == "rejected" {
 			return n.durable(func(p *persisted) []pending {
+				if p.fileMessageRecalled(t) {
+					return nil
+				}
 				if i := transferIndex(&p.State, t.ID); i >= 0 {
 					p.State.Transfers[i].Status = "retry_requested"
 				}

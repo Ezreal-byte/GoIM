@@ -3,6 +3,7 @@ package desktop
 
 import (
 	"image"
+	"image/draw"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
@@ -23,6 +24,7 @@ import (
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
+	"goim/internal/i18n"
 )
 
 const (
@@ -149,51 +151,55 @@ type appIDs struct {
 	emptyConnect   ui.ID
 	emptyCompose   ui.ID
 
-	chatMessages                ui.ID
-	chatEditor                  ui.ID
-	chatSend                    ui.ID
-	chatImage                   ui.ID
-	chatFile                    ui.ID
-	chatEmoji                   ui.ID
-	chatHeaderFile              ui.ID
-	chatHeaderSearch            ui.ID
-	chatHeaderMembers           ui.ID
-	chatHeaderMore              ui.ID
-	chatSearchField             ui.ID
-	chatSearchClose             ui.ID
-	chatEmptyConnect            ui.ID
-	chatEmptyCompose            ui.ID
-	chatMenuDismiss             ui.ID
-	chatMenuPin                 ui.ID
-	chatMenuMute                ui.ID
-	chatMenuRead                ui.ID
-	chatMenuLeave               ui.ID
-	chatNoticeDismiss           ui.ID
-	chatMenuScope               ui.ID
-	shellMenuDismiss            ui.ID
-	shellMenuPin                ui.ID
-	shellMenuMute               ui.ID
-	shellMenuRead               ui.ID
-	shellMenuDelete             ui.ID
-	shellMenuTalk               ui.ID
-	shellMenuOrganize           ui.ID
-	shellMenuProfile            ui.ID
-	shellMenuNewGroup           ui.ID
-	shellMenuNewContactGroup    ui.ID
-	shellMenuRenameContactGroup ui.ID
-	shellMenuDeleteContactGroup ui.ID
-	shellMenuConnect            ui.ID
-	shellMenuExpand             ui.ID
-	shellMenuCollapse           ui.ID
-	shellMenuScope              ui.ID
-	sidebarSurface              ui.ID
-	selfRow                     ui.ID
-	sidebarContactList          ui.ID
-	sidebarChatList             ui.ID
-	mentionScope                ui.ID
-	mentionDismiss              ui.ID
-	emojiScope                  ui.ID
-	emojiDismiss                ui.ID
+	chatMessages                                                           ui.ID
+	chatEditor                                                             ui.ID
+	chatScreenshot                                                         ui.ID
+	chatSend                                                               ui.ID
+	chatImage                                                              ui.ID
+	chatFile                                                               ui.ID
+	chatEmoji                                                              ui.ID
+	chatHeaderFile                                                         ui.ID
+	chatHeaderSearch                                                       ui.ID
+	chatHeaderMembers                                                      ui.ID
+	chatHeaderMore                                                         ui.ID
+	chatSearchField                                                        ui.ID
+	chatSearchClose                                                        ui.ID
+	chatEmptyConnect                                                       ui.ID
+	chatEmptyCompose                                                       ui.ID
+	chatMenuDismiss                                                        ui.ID
+	chatMenuPin                                                            ui.ID
+	chatMenuMute                                                           ui.ID
+	chatMenuRead                                                           ui.ID
+	chatMenuLeave                                                          ui.ID
+	chatNoticeDismiss                                                      ui.ID
+	chatMenuScope                                                          ui.ID
+	shellMenuDismiss                                                       ui.ID
+	shellMenuPin                                                           ui.ID
+	shellMenuMute                                                          ui.ID
+	shellMenuRead                                                          ui.ID
+	shellMenuDelete                                                        ui.ID
+	shellMenuTalk                                                          ui.ID
+	shellMenuOrganize                                                      ui.ID
+	shellMenuProfile                                                       ui.ID
+	shellMenuNewGroup                                                      ui.ID
+	shellMenuNewContactGroup                                               ui.ID
+	shellMenuRenameContactGroup                                            ui.ID
+	shellMenuDeleteContactGroup                                            ui.ID
+	shellMenuConnect                                                       ui.ID
+	shellMenuExpand                                                        ui.ID
+	shellMenuCollapse                                                      ui.ID
+	shellMenuScope                                                         ui.ID
+	sidebarSurface                                                         ui.ID
+	selfRow                                                                ui.ID
+	sidebarContactList                                                     ui.ID
+	sidebarChatList                                                        ui.ID
+	mentionScope                                                           ui.ID
+	mentionDismiss                                                         ui.ID
+	emojiScope                                                             ui.ID
+	emojiScrollbar                                                         ui.ID
+	emojiScroll                                                            ui.ID
+	messageMenuCopy, messageMenuSave, messageMenuRecall, messageMenuDelete ui.ID
+	emojiDismiss                                                           ui.ID
 
 	connectScope   ui.ID
 	connectDismiss ui.ID
@@ -318,16 +324,22 @@ type UI struct {
 	connectOpen   bool
 	connectField  flex.Field
 
-	chatEditor      *text.Editor
-	chatInput       app.TextInput
-	chatLayout      components.TextareaLayout
-	drafts          map[string]string
-	draftSaved      map[string]string
-	moreOpen        bool
-	dragging        bool
-	chatScrollToEnd bool
-	emojiOpen       bool
-	emojiButton     flex.Box
+	chatEditor        *text.Editor
+	requestScreenshot func()
+	presentViewer     func()
+	pinViewer         func(bool) bool
+	saveViewer        func(string)
+	fullscreenViewer  func(bool) bool
+	dismissViewer     func()
+	chatInput         app.TextInput
+	chatLayout        components.TextareaLayout
+	drafts            map[string]string
+	draftSaved        map[string]string
+	moreOpen          bool
+	dragging          bool
+	chatScrollToEnd   bool
+	emojiOpen         bool
+	emojiButton       flex.Box
 
 	mention       mentionState
 	mentionEditor flex.Box
@@ -413,6 +425,12 @@ type UI struct {
 	inviteReinviteIDs   map[string]ui.ID
 	mentionCandidateIDs map[string]ui.ID
 	emojiIDs            map[string]ui.ID
+	emojiRecentIDs      map[string]ui.ID
+	recentEmoji         []string
+	emojiScrollDrag     bool
+	emojiScrollGrab     float32
+	emojiPanel          ui.Rect
+	messageIDs          map[string]ui.ID
 
 	imageCache  map[string]ui.Bitmap
 	avatarCache map[string]ui.Bitmap
@@ -528,6 +546,8 @@ func New(backend domain.Backend) *UI {
 		inviteReinviteIDs:   make(map[string]ui.ID),
 		mentionCandidateIDs: make(map[string]ui.ID),
 		emojiIDs:            make(map[string]ui.ID),
+		emojiRecentIDs:      make(map[string]ui.ID),
+		messageIDs:          make(map[string]ui.ID),
 		imageCache:          make(map[string]ui.Bitmap),
 		avatarCache:         make(map[string]ui.Bitmap),
 		imageStamps:         make(map[string]imageStamp),
@@ -603,10 +623,11 @@ func New(backend domain.Backend) *UI {
 	u.panels.Init(&u.tree)
 	u.panels.settingsExtra.openProfile = u.openProfile
 	u.panels.setMediaSubmit(u.media.submitOne)
-	u.panels.shareBrowser.setNotify(u.invalidator.Invalidate)
+	u.panels.shareQRWorker.setNotify(u.invalidator.Invalidate)
 	u.panelInput = u.panels.TextInput()
 	if backend != nil {
 		u.refresh()
+		u.recentEmoji = append([]string(nil), u.state.Settings.RecentEmoji...)
 		u.queueMediaJobs()
 		go u.watchUpdates()
 	}
@@ -700,6 +721,7 @@ func (u *UI) refresh() {
 	}
 	oldError := u.state.Error
 	u.state = u.backend.Snapshot()
+	i18n.SetLanguage(u.state.Settings.Language)
 	u.panels.OnWake(u.state)
 	u.rebuildPresentation(oldError)
 	u.markSelectedConversationRead()
@@ -728,6 +750,7 @@ func (u *UI) requestFileAvailability(fileID, path string, previous bool, previou
 }
 
 func (u *UI) queueMediaJobs() {
+	u.queueViewerOriginal()
 	for fileID, path := range u.fileLocalPath {
 		available, known := u.fileAvailable[fileID]
 		u.requestFileAvailability(fileID, path, available, known)
@@ -749,6 +772,7 @@ func (u *UI) applyMediaResults() {
 }
 
 func (u *UI) applyMediaBatch(batch mediaResultBatch) {
+	u.applyViewerOriginal(batch.viewerImage)
 	availability := make([]mediaFileResult, 0, len(batch.files))
 	for _, result := range batch.files {
 		queued, ok := u.mediaFiles[result.fileID]
@@ -786,7 +810,7 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 				if _, ok := u.imageCache[result.path]; ok {
 					u.profile.err = ""
 				} else {
-					u.profile.err = "无法读取这张图片"
+					u.profile.err = i18n.T("无法读取这张图片")
 				}
 			}
 			continue
@@ -795,7 +819,7 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 			delete(u.imageCache, result.path)
 			delete(u.avatarCache, result.path)
 			if u.profile.open && u.profile.avatar == result.path {
-				u.profile.err = "无法读取这张图片"
+				u.profile.err = i18n.T("无法读取这张图片")
 			}
 			continue
 		}
@@ -819,7 +843,7 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 }
 
 func (u *UI) markSelectedConversationRead() {
-	if !u.windowVisible.Load() || u.isPanelSection() || u.selected == "" ||
+	if !u.windowVisible.Load() || (u.nativeWindow != nil && !mainWindowForeground()) || u.isPanelSection() || u.selected == "" ||
 		u.chatFind.open || u.modalOpen() {
 		u.readMarkID = ""
 		u.readMarkCount = 0
@@ -908,10 +932,17 @@ func (u *UI) initIDs() {
 	u.ids.mentionScope = u.tree.ID(u.ids.chat, "mention-scope")
 	u.ids.mentionDismiss = u.tree.ID(u.ids.chat, "mention-dismiss")
 	u.ids.emojiScope = u.tree.ID(u.ids.chat, "emoji-scope")
+	u.ids.emojiScroll = u.tree.ID(u.ids.chat, "emoji-scroll")
+	u.ids.emojiScrollbar = u.tree.ID(u.ids.chat, "emoji-scrollbar")
+	u.ids.messageMenuCopy = u.tree.ID(u.ids.menu, "message-copy")
+	u.ids.messageMenuSave = u.tree.ID(u.ids.menu, "message-save")
+	u.ids.messageMenuRecall = u.tree.ID(u.ids.menu, "message-recall")
+	u.ids.messageMenuDelete = u.tree.ID(u.ids.menu, "message-delete")
 	u.ids.emojiDismiss = u.tree.ID(u.ids.chat, "emoji-dismiss")
 
 	u.ids.chatMessages = u.tree.ID(u.ids.chat, "messages")
 	u.ids.chatEditor = u.tree.ID(u.ids.chat, "editor")
+	u.ids.chatScreenshot = u.tree.ID(u.ids.chat, "screenshot")
 	u.ids.chatSend = u.tree.ID(u.ids.chat, "send")
 	u.ids.chatImage = u.tree.ID(u.ids.chat, "send-image")
 	u.ids.chatFile = u.tree.ID(u.ids.chat, "send-file")
@@ -1035,6 +1066,7 @@ func (u *UI) initIDs() {
 
 	for _, choice := range emojiChoices {
 		u.emojiIDs[choice.Name] = u.tree.ID(u.ids.chat, "emoji:"+choice.Name)
+		u.emojiRecentIDs[choice.Name] = u.tree.ID(u.ids.chat, "emoji-recent:"+choice.Name)
 	}
 }
 
@@ -1107,37 +1139,37 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 	unreadBadge, unreadHint := "", ""
 	if unread := u.unreadTotal(); unread > 0 {
 		unreadBadge = compactCount(unread)
-		unreadHint = intString(unread) + " 条未读"
+		unreadHint = intString(unread) + i18n.T(" 条未读")
 	}
 	transferBadge, transferHint := "", ""
 	if active := u.incompleteTransferCount(); active > 0 {
 		transferBadge = compactCount(active)
-		transferHint = intString(active) + " 个文件任务未完成"
+		transferHint = intString(active) + i18n.T(" 个文件任务未完成")
 	}
 	selfName := u.selfDisplayName()
 	selfAvatar := u.selfAvatarPath()
 	u.railView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
 		f.Column().Fill().PadY(14).Items(flex.Center).Gap(5).Children(func() {
-			avatarSlot = f.Stack().Size(42, 42).HitWith(u.ids.profileAvatar, "编辑个人资料",
-				ui.HitOptions{Role: ui.RoleButton, Hint: "编辑昵称和头像"}).
+			avatarSlot = f.Stack().Size(42, 42).HitWith(u.ids.profileAvatar, i18n.T("编辑个人资料"),
+				ui.HitOptions{Role: ui.RoleButton, Hint: i18n.T("编辑昵称和头像")}).
 				Children(func() {
 					u.avatarStatusOn(f, selfName, selfAvatar, 42, u.state.Self.Presence != domain.PresenceInvisible, u.palette.rail)
 				})
 			f.Row().Height(10)
-			messages = u.railItemBadged(f, u.ids.navMessages, u.iconMessage, "消息",
+			messages = u.railItemBadged(f, u.ids.navMessages, u.iconMessage, i18n.T("消息"),
 				u.section == sectionMessages, unreadBadge, unreadHint)
-			contacts = u.railItem(f, u.ids.navContacts, u.iconUsers, "联系人", u.section == sectionContacts)
-			transfers = u.railItemBadged(f, u.ids.navTransfers, u.iconTransfers, "传输",
+			contacts = u.railItem(f, u.ids.navContacts, u.iconUsers, i18n.T("联系人"), u.section == sectionContacts)
+			transfers = u.railItemBadged(f, u.ids.navTransfers, u.iconTransfers, i18n.T("传输"),
 				u.section == sectionTransfers, transferBadge, transferHint)
-			shares = u.railItem(f, u.ids.navShares, u.iconFolder, "文件", u.section == sectionShares)
+			shares = u.railItem(f, u.ids.navShares, FolderOutput, "文件共享", u.section == sectionShares)
 			f.Spacer()
-			lock = u.railItem(f, u.ids.navLock, u.iconLock, "锁定应用", false)
+			lock = u.railItem(f, u.ids.navLock, u.iconLock, i18n.T("锁定应用"), false)
 			themeIcon, themeLabel := u.iconMoon, "切换到暗色外观"
 			if u.isDark() {
 				themeIcon, themeLabel = u.iconSun, "切换到明亮外观"
 			}
 			themeToggle = u.railItem(f, u.ids.navTheme, themeIcon, themeLabel, false)
-			settings = u.railItem(f, u.ids.navSettings, u.iconSettings, "设置", u.section == sectionSettings)
+			settings = u.railItem(f, u.ids.navSettings, u.iconSettings, i18n.T("设置"), u.section == sectionSettings)
 		})
 	})
 	if messages.Clicked() {
@@ -1183,11 +1215,17 @@ func (u *UI) railItemBadged(f *flex.Frame, id ui.ID, icon ui.Icon, label string,
 	if active {
 		hover = background
 	}
-	visual := label
+	visual := i18n.T(label)
+	if label == "文件共享" && i18n.Language() == i18n.English {
+		visual = "Shares"
+	}
 	if label == "切换到暗色外观" || label == "切换到明亮外观" {
 		visual = "外观"
+		if i18n.Language() == i18n.English {
+			visual = "Theme"
+		}
 	}
-	accessible := label
+	accessible := i18n.T(label)
 	if badge != "" && badgeHint != "" {
 		accessible += "，" + badgeHint
 	}
@@ -1219,10 +1257,10 @@ func (u *UI) drawSidebar(canvas *ui.Canvas, bounds ui.Rect) {
 	u.sidebarView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
 		f.Column().Fill().PadSides(24, 16, 14, 16).Children(func() {
 			f.Row().Height(38).Items(flex.Center).Gap(8).Children(func() {
-				f.Field(&u.sidebarSearch, u.ids.sidebarSearch, "搜索", u.searchPlaceholder()).
+				f.Field(&u.sidebarSearch, u.ids.sidebarSearch, i18n.T("搜索"), u.searchPlaceholder()).
 					Height(38).Grow(1)
-				connect = u.iconButton(f, u.ids.sidebarConnect, u.iconUserPlus, "手动连接", 32)
-				create = u.iconButton(f, u.ids.sidebarCreate, u.iconPlus, "创建群聊", 32)
+				connect = u.iconButton(f, u.ids.sidebarConnect, u.iconUserPlus, i18n.T("手动连接"), 32)
+				create = u.iconButton(f, u.ids.sidebarCreate, u.iconPlus, i18n.T("创建群聊"), 32)
 			})
 			f.Row().Height(10)
 			if u.section == sectionContacts {
@@ -1234,7 +1272,7 @@ func (u *UI) drawSidebar(canvas *ui.Canvas, bounds ui.Rect) {
 				listID = u.ids.sidebarContactList
 			}
 			f.ScrollArea(listID).Grow(1).Gap(4).
-				HitWith(u.ids.sidebarSurface, "侧栏列表",
+				HitWith(u.ids.sidebarSurface, i18n.T("侧栏列表"),
 					ui.HitOptions{Role: ui.RoleGroup, SkipFocus: true}).
 				Children(func() {
 					if u.section == sectionContacts {
@@ -1262,17 +1300,21 @@ func (u *UI) drawSidebar(canvas *ui.Canvas, bounds ui.Rect) {
 
 func (u *UI) searchPlaceholder() string {
 	if u.section == sectionContacts {
-		return "搜索联系人"
+		return i18n.T("搜索联系人")
 	}
-	return "搜索会话"
+	return i18n.T("搜索会话")
 }
 
 func (u *UI) iconButton(f *flex.Frame, id ui.ID, icon ui.Icon, label string, size float32) flex.Box {
+	return u.sizedIconButton(f, id, icon, label, size, 18)
+}
+
+func (u *UI) sizedIconButton(f *flex.Frame, id ui.ID, icon ui.Icon, label string, size, glyph float32) flex.Box {
 	return f.Row().Size(size, size).Radius(8).Items(flex.Center).Justify(flex.Center).
 		Hover(flex.Look{}.Background(u.palette.hover)).
 		HitWith(id, label, ui.HitOptions{Role: ui.RoleButton, Hint: label}).
 		Children(func() {
-			f.Icon(icon).Size(18, 18).Color(u.palette.icon)
+			f.Icon(icon).Size(glyph, glyph).Color(u.palette.icon)
 		})
 }
 
@@ -1296,8 +1338,8 @@ func (u *UI) drawContactFilters(f *flex.Frame) {
 		value string
 		count int
 	}{
-		{u.ids.filterAll, "全部", "all", peerCount},
-		{u.ids.filterOnline, "在线", "online", allOnline},
+		{u.ids.filterAll, i18n.T("全部"), "all", peerCount},
+		{u.ids.filterOnline, i18n.T("在线"), "online", allOnline},
 	}
 	f.Row().Height(32).Gap(8).Children(func() {
 		for _, item := range labels {
@@ -1327,9 +1369,9 @@ func (u *UI) drawSidebarFooter(f *flex.Frame) {
 		f.Spacer()
 		f.Row().Items(flex.Center).Gap(5).Children(func() {
 			f.Stack().Size(7, 7).Radius(4).Background(u.palette.success)
-			label := "局域网在线"
+			label := i18n.T("局域网在线")
 			if u.state.ListenAddress == "" {
-				label = "等待网络"
+				label = i18n.T("等待网络")
 			}
 			color := u.palette.secondaryText
 			if u.state.ListenAddress == "" {
@@ -1373,11 +1415,11 @@ func (u *UI) drawContacts(f *flex.Frame) {
 	}
 	if otherPeers == 0 {
 		f.Row().Height(8)
-		u.emptyListMessage(f, "还没有其他联系人", "联系人上线后会自动出现，也可手动连接。")
+		u.emptyListMessage(f, i18n.T("还没有其他联系人"), i18n.T("联系人上线后会自动出现，也可手动连接。"))
 		return
 	}
 	if visible == 0 && query != "" && !containsFold(u.selfDisplayName(), query) {
-		u.emptyListMessage(f, "没有匹配的联系人", "换一个昵称或分组名称试试。")
+		u.emptyListMessage(f, i18n.T("没有匹配的联系人"), i18n.T("换一个昵称或分组名称试试。"))
 		return
 	}
 }
@@ -1389,14 +1431,14 @@ func (u *UI) selfContactRow(f *flex.Frame) {
 	}
 	name := u.selfDisplayName()
 	query := strings.TrimSpace(u.sidebarSearch.Text())
-	if query != "" && !containsFold(name, query) && !containsFold("我", query) &&
-		!containsFold("个人资料", query) {
+	if query != "" && !containsFold(name, query) && !containsFold(i18n.T("我"), query) &&
+		!containsFold(i18n.T("个人资料"), query) {
 		return
 	}
 	row := f.Row().FillWidth().Height(58).PadSides(8, 9, 8, 9).Radius(9).Gap(10).
 		Hover(flex.Look{}.Background(u.palette.hover)).
-		HitWith(u.ids.selfRow, name+"，个人资料",
-			ui.HitOptions{Role: ui.RoleButton, Hint: "编辑个人资料"}).
+		HitWith(u.ids.selfRow, name+i18n.T("，个人资料"),
+			ui.HitOptions{Role: ui.RoleButton, Hint: i18n.T("编辑个人资料")}).
 		Children(func() {
 			u.avatarStatus(f, name, u.selfAvatarPath(), 38, true)
 			f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
@@ -1404,7 +1446,7 @@ func (u *UI) selfContactRow(f *flex.Frame) {
 					f.Text(name).FontSize(14).Weight(ui.WeightMedium).Ellipsis()
 					f.Stack().Size(6, 6).Radius(3).Background(u.palette.success)
 				})
-				f.Text("个人资料 · 本机").FontSize(11).Muted().Ellipsis()
+				f.Text(i18n.T("个人资料 · 本机")).FontSize(11).Muted().Ellipsis()
 			})
 		})
 	if event, ok := f.Canvas().PointerOn(u.ids.selfRow); ok &&
@@ -1436,7 +1478,7 @@ func (u *UI) drawInvitations(f *flex.Frame) {
 	f.Row().Height(8)
 	if joinCount > 0 {
 		f.Row().Height(24).Items(flex.Center).Children(func() {
-			f.Text("群聊邀请").FontSize(12).Weight(ui.WeightSemibold)
+			f.Text(i18n.T("群聊邀请")).FontSize(12).Weight(ui.WeightSemibold)
 			f.Row().Width(6)
 			u.badgeText(f, intString(joinCount), false)
 		})
@@ -1451,7 +1493,7 @@ func (u *UI) drawInvitations(f *flex.Frame) {
 			f.Row().Height(4)
 		}
 		f.Row().Height(24).Items(flex.Center).Children(func() {
-			f.Text("群主转让").FontSize(12).Weight(ui.WeightSemibold)
+			f.Text(i18n.T("群主转让")).FontSize(12).Weight(ui.WeightSemibold)
 			f.Row().Width(6)
 			u.badgeText(f, intString(transferCount), false)
 		})
@@ -1472,16 +1514,16 @@ func (u *UI) invitationCard(f *flex.Frame, invitation domain.Invitation, ownersh
 			f.Column().Grow(1).Gap(2).Children(func() {
 				name := invitation.GroupName
 				if name == "" {
-					name = "群聊"
+					name = i18n.T("群聊")
 				}
 				f.Text(name).FontSize(13).Weight(ui.WeightMedium).Ellipsis()
 				from := invitation.FromName
 				if from == "" {
 					from = u.state.Peer(invitation.FromID).Name
 				}
-				description := from + " 邀请你加入"
+				description := from + i18n.T(" 邀请你加入")
 				if ownership {
-					description = from + " 提议将群主转让给你"
+					description = from + i18n.T(" 提议将群主转让给你")
 				}
 				f.Text(description).FontSize(11).Muted().Ellipsis()
 				if !ownership {
@@ -1492,11 +1534,11 @@ func (u *UI) invitationCard(f *flex.Frame, invitation domain.Invitation, ownersh
 		f.Row().Height(28).Justify(flex.End).Gap(8).Children(func() {
 			reject := u.inviteRejectIDs[invitation.ID]
 			accept := u.inviteAcceptIDs[invitation.ID]
-			rejectLabel := "拒绝"
-			acceptLabel := "加入"
+			rejectLabel := i18n.T("拒绝")
+			acceptLabel := i18n.T("加入")
 			if ownership {
-				rejectLabel = "拒绝转让"
-				acceptLabel = "接受转让"
+				rejectLabel = i18n.T("拒绝转让")
+				acceptLabel = i18n.T("接受转让")
 			}
 			if f.Button(reject, rejectLabel).XSmall().Outline().Clicked() {
 				u.submit(domain.Command{Kind: domain.RejectInvite, InvitationID: invitation.ID})
@@ -1518,13 +1560,13 @@ func invitationKind(invitation domain.Invitation) string {
 func (u *UI) invitationMemberLine(invitation domain.Invitation) string {
 	group := u.state.Group(invitation.GroupID)
 	if group.ID == "" || len(group.Members) == 0 {
-		return "当前成员信息将在接受前同步"
+		return i18n.T("当前成员信息将在接受前同步")
 	}
 	names := make([]string, 0, len(group.Members))
 	for _, peerID := range group.Members {
 		name := u.state.Peer(peerID).Name
 		if peerID == u.state.Self.ID {
-			name = "我"
+			name = i18n.T("我")
 		}
 		if strings.TrimSpace(name) == "" {
 			continue
@@ -1532,13 +1574,13 @@ func (u *UI) invitationMemberLine(invitation domain.Invitation) string {
 		names = append(names, name)
 	}
 	if len(names) == 0 {
-		return "当前成员信息将在接受前同步"
+		return i18n.T("当前成员信息将在接受前同步")
 	}
 	shown := names
 	if len(shown) > 4 {
-		shown = append(append([]string(nil), shown[:4]...), "等 "+intString(len(names))+" 人")
+		shown = append(append([]string(nil), shown[:4]...), i18n.T("等 ")+intString(len(names))+i18n.T(" 人"))
 	}
-	return "当前成员（" + intString(len(names)) + "）：" + strings.Join(shown, "、")
+	return i18n.T("当前成员（") + intString(len(names)) + "）：" + strings.Join(shown, "、")
 }
 
 func (u *UI) contactGroupHeader(f *flex.Frame, group contactGroupView, collapsed bool) {
@@ -1552,7 +1594,7 @@ func (u *UI) contactGroupHeader(f *flex.Frame, group contactGroupView, collapsed
 		HitWith(id, group.Name, ui.HitOptions{Role: ui.RoleButton, Expanded: !collapsed}).
 		Children(func() {
 			f.Icon(icon).Size(15, 15).Color(u.palette.secondaryText)
-			f.Text(group.Name).FontSize(13).Weight(ui.WeightSemibold).Ellipsis()
+			f.Text(displayContactGroup(group.Name)).FontSize(13).Weight(ui.WeightSemibold).Ellipsis()
 			f.Spacer()
 			f.Text(intString(group.Online) + "/" + intString(group.Total)).FontSize(11).Muted()
 		})
@@ -1611,7 +1653,7 @@ func (u *UI) drawGroupChats(f *flex.Frame) {
 	f.Row().Height(6)
 	f.Row().Height(32).Items(flex.Center).Gap(6).Children(func() {
 		f.Icon(u.iconChevronDown).Size(15, 15).Color(u.palette.secondaryText)
-		f.Text("我的群聊").FontSize(13).Weight(ui.WeightSemibold)
+		f.Text(i18n.T("我的群聊")).FontSize(13).Weight(ui.WeightSemibold)
 		f.Spacer()
 		f.Text(intString(len(u.groupChats))).FontSize(11).Muted()
 	})
@@ -1634,11 +1676,11 @@ func (u *UI) drawConversationList(f *flex.Frame) {
 		u.conversationRow(f, conversation, 74)
 	}
 	if len(u.conversations) == 0 {
-		u.emptySidebar(f, "还没有会话", "发现联系人后开始聊天，或手动连接一个已知地址。", true)
+		u.emptySidebar(f, i18n.T("还没有会话"), i18n.T("发现联系人后开始聊天，或手动连接一个已知地址。"), true)
 		return
 	}
 	if shown == 0 {
-		u.emptyListMessage(f, "没有匹配的会话", "换一个昵称或消息内容试试。")
+		u.emptyListMessage(f, i18n.T("没有匹配的会话"), i18n.T("换一个昵称或消息内容试试。"))
 	}
 }
 
@@ -1686,7 +1728,7 @@ func (u *UI) conversationRow(f *flex.Frame, conversation domain.Conversation, he
 				f.Row().Items(flex.Center).Gap(6).Children(func() {
 					preview := conversation.Preview
 					if preview == "" {
-						preview = "还没有消息"
+						preview = i18n.T("还没有消息")
 					}
 					f.Text(preview).FontSize(11.5).Muted().Ellipsis()
 					f.Spacer()
@@ -1716,10 +1758,10 @@ func (u *UI) emptySidebar(f *flex.Frame, title, description string, actions bool
 		f.Paragraph(description, 3).FontSize(12).Muted().TextCenter().LineHeight(18)
 		if actions {
 			f.Row().Gap(8).Justify(flex.Center).Children(func() {
-				if f.Button(u.ids.emptyConnect, "手动连接").Small().Outline().Clicked() {
+				if f.Button(u.ids.emptyConnect, i18n.T("手动连接")).Small().Outline().Clicked() {
 					u.openConnect()
 				}
-				if f.Button(u.ids.emptyCompose, "创建群聊").Small().Clicked() {
+				if f.Button(u.ids.emptyCompose, i18n.T("创建群聊")).Small().Clicked() {
 					u.openCompose("create", "")
 				}
 			})
@@ -1766,7 +1808,7 @@ func (u *UI) conversationTitle(conversation domain.Conversation) string {
 		if group := u.state.Group(conversation.GroupID); group.Name != "" {
 			return group.Name
 		}
-		return "群聊"
+		return i18n.T("群聊")
 	}
 	return u.state.Peer(conversation.PeerID).Name
 }
@@ -2005,6 +2047,9 @@ func (u *UI) selectAfterSnapshot(oldSelected string) {
 
 func (u *UI) rebuildSelection() {
 	u.messages = append(u.messages[:0], u.state.ChatMessages(u.selected)...)
+	for _, m := range u.messages {
+		u.ensureID(u.messageIDs, u.ids.chat, "message:", m.ID)
+	}
 	sort.SliceStable(u.messages, func(i, j int) bool {
 		return u.messages[i].CreatedAt.Before(u.messages[j].CreatedAt)
 	})
@@ -2042,7 +2087,7 @@ func (u *UI) reconcileCompose(oldError string) {
 				}
 			}
 			if u.state.Error != "" && u.state.Error != oldError {
-				u.localNotice = "群聊已创建；部分邀请发送失败：" + u.state.Error
+				u.localNotice = i18n.T("群聊已创建；部分邀请发送失败：") + u.state.Error
 				u.submit(domain.Command{Kind: domain.ClearError})
 			}
 			return
@@ -2298,8 +2343,8 @@ func (u *UI) requestCloseComposeThen(after func()) {
 	}
 	u.confirm = confirmation{
 		open:  true,
-		title: "放弃未保存的内容？",
-		body:  "群聊选择或群名尚未提交。",
+		title: i18n.T("放弃未保存的内容？"),
+		body:  i18n.T("群聊选择或群名尚未提交。"),
 		action: func() {
 			u.compose.open = false
 			if after != nil {
@@ -2380,6 +2425,11 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 }
 
 func (u *UI) onScroll(event ui.ScrollEvent) ui.EventResult {
+	if !u.lockVisible() && u.emojiOpen && pointInside(event.X, event.Y, u.emojiPanel) {
+		result := u.emojiView.Wheel(event)
+		result.Handled = true
+		return result
+	}
 	if u.lockVisible() {
 		return ui.EventResult{Handled: true}
 	}
@@ -2700,6 +2750,9 @@ func (u *UI) refreshImages() {
 			u.markImage(u.fileLocalPath[file.ID])
 		}
 	}
+	if viewer := &u.chatSurface().viewer; viewer.open {
+		u.markImage(u.fileLocalPath[viewer.fileID])
+	}
 	for path := range u.imageCache {
 		if !u.mediaDesiredImages[path] {
 			delete(u.imageCache, path)
@@ -2789,7 +2842,7 @@ func (u *UI) selfDisplayName() string {
 		name = strings.TrimSpace(u.state.Self.Name)
 	}
 	if name == "" {
-		name = "我"
+		name = i18n.T("我")
 	}
 	return name
 }
@@ -2982,16 +3035,20 @@ func paletteFor(theme ui.Theme) palette {
 }
 
 func (u *UI) windowControls() app.WindowControlsStyle {
+	return windowControlsFor(u.palette)
+}
+
+func windowControlsFor(colors palette) app.WindowControlsStyle {
 	return app.WindowControlsStyle{
-		Foreground:      u.palette.icon,
-		Hover:           u.palette.hover,
-		Pressed:         u.palette.selected,
+		Foreground:      colors.icon,
+		Hover:           colors.hover,
+		Pressed:         colors.selected,
 		Close:           ui.RGB(218, 54, 51),
 		CloseForeground: ui.RGB(255, 255, 255),
-		Minimize:        "最小化",
-		Maximize:        "最大化",
-		Restore:         "还原",
-		CloseName:       "关闭",
+		Minimize:        i18n.T("最小化"),
+		Maximize:        i18n.T("最大化"),
+		Restore:         i18n.T("还原"),
+		CloseName:       i18n.T("关闭"),
 	}
 }
 
@@ -3006,6 +3063,7 @@ func pointInside(x, y float32, bounds ui.Rect) bool {
 const (
 	maxImageFileBytes    = int64(32 << 20)
 	maxImageDecodePixels = int64(16_000_000)
+	maxImageDimension    = 8192
 )
 
 func decodeBitmap(path string, limit int) (ui.Bitmap, bool) {
@@ -3027,10 +3085,10 @@ func decodeBitmap(path string, limit int) (ui.Bitmap, bool) {
 		return ui.Bitmap{}, false
 	}
 	maxPixels := maxImageDecodePixels
-	if format == "png" || format == "gif" {
+	if format == "gif" || (format == "png" && limit <= 192) {
 		maxPixels = min(maxPixels, 8_000_000)
 	}
-	if config.Width <= 0 || config.Height <= 0 || config.Width > 8192 || config.Height > 8192 ||
+	if config.Width <= 0 || config.Height <= 0 || config.Width > maxImageDimension || config.Height > maxImageDimension ||
 		int64(config.Width)*int64(config.Height) > maxPixels {
 		return ui.Bitmap{}, false
 	}
@@ -3050,6 +3108,17 @@ func decodeBitmap(path string, limit int) (ui.Bitmap, bool) {
 		scale := min(float64(limit)/float64(width), float64(limit)/float64(height))
 		width = max(1, int(float64(width)*scale))
 		height = max(1, int(float64(height)*scale))
+	}
+	if width == bounds.Dx() && height == bounds.Dy() {
+		rgba, ok := source.(*image.RGBA)
+		if !ok || rgba.Stride != width*4 || len(rgba.Pix) != width*height*4 {
+			rgba = image.NewRGBA(image.Rect(0, 0, width, height))
+			draw.Draw(rgba, rgba.Bounds(), source, bounds.Min, draw.Src)
+		}
+		for i := 0; i < len(rgba.Pix); i += 4 {
+			rgba.Pix[i], rgba.Pix[i+2] = rgba.Pix[i+2], rgba.Pix[i]
+		}
+		return ui.Bitmap{Pix: rgba.Pix, Width: width, Height: height, Stride: rgba.Stride}, true
 	}
 	pixels := make([]byte, width*height*4)
 	for y := 0; y < height; y++ {
@@ -3132,7 +3201,7 @@ func generatedGroupName(u *UI, ids []string) string {
 	}
 	switch len(names) {
 	case 0:
-		return "新群聊"
+		return i18n.T("新群聊")
 	case 1:
 		return truncateRunes(names[0]+"的群聊", 30)
 	case 2:
@@ -3153,4 +3222,11 @@ func fileIsImage(file domain.File) bool {
 		}
 	}
 	return false
+}
+
+func displayContactGroup(name string) string {
+	if name == "未分组" {
+		return i18n.T(name)
+	}
+	return name
 }

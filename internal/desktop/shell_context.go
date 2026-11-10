@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"goim/internal/i18n"
 	"strings"
 	"unicode/utf8"
 
@@ -17,6 +18,7 @@ const (
 	shellMenuSelf         = "self"
 	shellMenuSidebar      = "sidebar"
 	shellMenuContactGroup = "contact-group"
+	shellMenuMessage      = "message"
 )
 
 type shellMenuState struct {
@@ -91,6 +93,8 @@ func (u *UI) drawShellMenu(canvas *ui.Canvas, viewport ui.Rect) {
 		u.drawSidebarContextMenu(canvas, viewport)
 	case shellMenuContactGroup:
 		u.drawContactGroupContextMenu(canvas, viewport)
+	case shellMenuMessage:
+		u.drawMessageContextMenu(canvas, viewport)
 	default:
 		u.closeShellMenu()
 	}
@@ -114,20 +118,20 @@ func (u *UI) drawConversationContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	}
 	menu := u.beginShellMenu(canvas, viewport, 4, 1)
 	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuPin, Label: "置顶聊天", Kind: components.ContextMenuCheckbox,
+		ID: u.ids.shellMenuPin, Label: i18n.T("置顶聊天"), Kind: components.ContextMenuCheckbox,
 		Checked: conversation.Pinned, Icon: u.iconPin,
 	})
 	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuMute, Label: "消息免打扰", Kind: components.ContextMenuCheckbox,
+		ID: u.ids.shellMenuMute, Label: i18n.T("消息免打扰"), Kind: components.ContextMenuCheckbox,
 		Checked: conversation.Muted, Icon: u.iconBellOff,
 	})
 	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuRead, Label: "标为已读", Icon: u.iconCheckCheck,
+		ID: u.ids.shellMenuRead, Label: i18n.T("标为已读"), Icon: u.iconCheckCheck,
 		Disabled: conversation.Unread == 0,
 	})
 	menu.AddSeparator()
 	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuDelete, Label: "删除会话", Variant: components.ContextMenuItemDestructive,
+		ID: u.ids.shellMenuDelete, Label: i18n.T("删除会话"), Variant: components.ContextMenuItemDestructive,
 		Icon: u.iconTrash,
 	})
 	menu.End()
@@ -158,13 +162,13 @@ func (u *UI) drawContactContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	}
 	menu := u.beginShellMenu(canvas, viewport, 3, 0)
 	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuTalk, Label: "发消息", Icon: u.iconMessage,
+		ID: u.ids.shellMenuTalk, Label: i18n.T("发消息"), Icon: u.iconMessage,
 	})
 	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuOrganize, Label: "移动到分组…", Icon: u.iconFolder,
+		ID: u.ids.shellMenuOrganize, Label: i18n.T("移动到分组…"), Icon: u.iconFolder,
 	})
 	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuNewGroup, Label: "新建群聊", Icon: u.iconPlus,
+		ID: u.ids.shellMenuNewGroup, Label: i18n.T("新建群聊"), Icon: u.iconPlus,
 	})
 	menu.End()
 
@@ -185,7 +189,7 @@ func (u *UI) drawContactContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 func (u *UI) drawSelfContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	menu := u.beginShellMenu(canvas, viewport, 1, 0)
 	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuProfile, Label: "编辑个人资料", Icon: u.iconPencil,
+		ID: u.ids.shellMenuProfile, Label: i18n.T("编辑个人资料"), Icon: u.iconPencil,
 	})
 	menu.End()
 	switch {
@@ -204,21 +208,21 @@ func (u *UI) drawSidebarContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	}
 	menu := u.beginShellMenu(canvas, viewport, items, 1)
 	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuNewGroup, Label: "新建群聊", Icon: u.iconPlus,
+		ID: u.ids.shellMenuNewGroup, Label: i18n.T("新建群聊"), Icon: u.iconPlus,
 	})
 	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuConnect, Label: "手动连接", Icon: u.iconUserPlus,
+		ID: u.ids.shellMenuConnect, Label: i18n.T("手动连接"), Icon: u.iconUserPlus,
 	})
 	if u.section == sectionContacts {
 		menu.AddSeparator()
 		menu.AddItem(components.ContextMenuItem{
-			ID: u.ids.shellMenuNewContactGroup, Label: "新建联系人分组…", Icon: u.iconFolder,
+			ID: u.ids.shellMenuNewContactGroup, Label: i18n.T("新建联系人分组…"), Icon: u.iconFolder,
 		})
 		menu.AddItem(components.ContextMenuItem{
-			ID: u.ids.shellMenuExpand, Label: "展开全部分组", Icon: u.iconChevronDown,
+			ID: u.ids.shellMenuExpand, Label: i18n.T("展开全部分组"), Icon: u.iconChevronDown,
 		})
 		menu.AddItem(components.ContextMenuItem{
-			ID: u.ids.shellMenuCollapse, Label: "折叠全部分组", Icon: u.iconChevronRight,
+			ID: u.ids.shellMenuCollapse, Label: i18n.T("折叠全部分组"), Icon: u.iconChevronRight,
 		})
 	}
 	menu.End()
@@ -250,15 +254,15 @@ func (u *UI) drawSidebarContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 func (u *UI) drawContactGroupContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	name := u.shellMenu.target
 	menu := u.beginShellMenu(canvas, viewport, 2, 0)
-	menu.AddItem(components.ContextMenuItem{ID: u.ids.shellMenuRenameContactGroup, Label: "重命名分组…", Icon: u.iconPencil})
-	menu.AddItem(components.ContextMenuItem{ID: u.ids.shellMenuDeleteContactGroup, Label: "删除分组", Variant: components.ContextMenuItemDestructive, Icon: u.iconTrash})
+	menu.AddItem(components.ContextMenuItem{ID: u.ids.shellMenuRenameContactGroup, Label: i18n.T("重命名分组…"), Icon: u.iconPencil})
+	menu.AddItem(components.ContextMenuItem{ID: u.ids.shellMenuDeleteContactGroup, Label: i18n.T("删除分组"), Variant: components.ContextMenuItemDestructive, Icon: u.iconTrash})
 	menu.End()
 	switch {
 	case canvas.Clicked(u.ids.shellMenuRenameContactGroup):
 		u.openContactGroupEditor(domain.RenameContactGroup, name)
 	case canvas.Clicked(u.ids.shellMenuDeleteContactGroup):
 		u.closeShellMenu()
-		u.confirm = confirmation{open: true, title: "删除联系人分组？", body: "“" + name + "”内的联系人会移至未分组。",
+		u.confirm = confirmation{open: true, title: i18n.T("删除联系人分组？"), body: "“" + name + i18n.T("”内的联系人会移至未分组。"),
 			action: func() { u.submit(domain.Command{Kind: domain.DeleteContactGroup, Name: name}) }}
 	case canvas.Clicked(u.ids.shellMenuDismiss):
 		u.closeShellMenu()
@@ -275,12 +279,12 @@ func (u *UI) openContactGroupEditor(mode domain.CommandKind, group string) {
 func (u *UI) requestDeleteConversation(conversation domain.Conversation) {
 	title := u.conversationTitle(conversation)
 	if strings.TrimSpace(title) == "" {
-		title = "该会话"
+		title = i18n.T("该会话")
 	}
 	u.confirm = confirmation{
 		open:  true,
-		title: "删除会话？",
-		body:  "将删除“" + title + "”在本机的聊天记录。收到新消息后，会话会重新出现。",
+		title: i18n.T("删除会话？"),
+		body:  i18n.T("将删除“") + title + i18n.T("”在本机的聊天记录。收到新消息后，会话会重新出现。"),
 		action: func() {
 			u.submit(domain.Command{Kind: domain.DeleteConversation, ConversationID: conversation.ID})
 			delete(u.drafts, conversation.ID)
@@ -322,7 +326,7 @@ func (u *UI) saveOrganize() {
 	if mode := u.organize.mode; mode != "" {
 		name := strings.TrimSpace(u.organize.field.Text())
 		if name == "" || name == "未分组" || utf8.RuneCountInString(name) > 30 {
-			u.organize.errText = "请输入 1 至 30 个字符的分组名称"
+			u.organize.errText = i18n.T("请输入 1 至 30 个字符的分组名称")
 			return
 		}
 		u.submit(domain.Command{Kind: mode, Name: name, Text: u.organize.group})
@@ -339,7 +343,7 @@ func (u *UI) saveOrganize() {
 		name = ""
 	}
 	if utf8.RuneCountInString(name) > 30 {
-		u.organize.errText = "分组名称最多 30 个字符"
+		u.organize.errText = i18n.T("分组名称最多 30 个字符")
 		return
 	}
 	u.submit(domain.Command{Kind: domain.SetContactGroup, PeerID: peer.ID, Name: name})
@@ -359,14 +363,14 @@ func (u *UI) drawOrganizeDialog(canvas *ui.Canvas, viewport ui.Rect) {
 		ContentSize: ui.Size{Width: 460}, FitBody: true, BodyHeight: 92,
 		ButtonSize: components.ButtonSizeSmall,
 	})
-	title := "移动到分组"
+	title := i18n.T("移动到分组")
 	if mode == domain.CreateContactGroup {
-		title = "新建联系人分组"
+		title = i18n.T("新建联系人分组")
 	}
 	if mode == domain.RenameContactGroup {
-		title = "重命名分组"
+		title = i18n.T("重命名分组")
 	}
-	layout := dialog.Begin(title, "分组只用于本机整理，不会同步给对方。")
+	layout := dialog.Begin(title, i18n.T("分组只用于本机整理，不会同步给对方。"))
 	var submitted bool
 	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
 		f.Column().Fill().Gap(10).Children(func() {
@@ -379,26 +383,26 @@ func (u *UI) drawOrganizeDialog(canvas *ui.Canvas, viewport ui.Rect) {
 						if current == "" {
 							current = "未分组"
 						}
-						f.Text("当前：" + current).FontSize(10.5).Muted().Ellipsis()
+						f.Text(i18n.T("当前：") + current).FontSize(10.5).Muted().Ellipsis()
 					})
 				})
 			}
-			placeholder := "输入分组名称"
+			placeholder := i18n.T("输入分组名称")
 			if mode == "" {
-				placeholder = "留空表示未分组"
+				placeholder = i18n.T("留空表示未分组")
 			}
-			field := f.Field(&u.organize.field, u.ids.organizeField, "分组名称", placeholder).Height(38).FillWidth()
+			field := f.Field(&u.organize.field, u.ids.organizeField, i18n.T("分组名称"), placeholder).Height(38).FillWidth()
 			submitted = field.Submitted()
 			if u.organize.errText != "" {
 				f.Text(u.organize.errText).FontSize(10.5).Color(u.palette.danger)
 			} else if mode == "" {
-				f.Text("输入现有分组名称可直接归档，也可新建分组。").FontSize(10.5).Muted()
+				f.Text(i18n.T("输入现有分组名称可直接归档，也可新建分组。")).FontSize(10.5).Muted()
 			}
 		})
 	})
 	dialog.Actions(layout,
-		components.ButtonAction{ID: u.ids.organizeCancel, Label: "取消", Variant: components.ButtonOutline},
-		components.ButtonAction{ID: u.ids.organizeSave, Label: "保存"},
+		components.ButtonAction{ID: u.ids.organizeCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},
+		components.ButtonAction{ID: u.ids.organizeSave, Label: i18n.T("保存")},
 	)
 	dialog.End()
 

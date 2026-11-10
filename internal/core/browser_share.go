@@ -4,7 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	_ "embed"
+	"embed"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -28,18 +28,33 @@ import (
 type browserShare struct {
 	Token    string
 	Password credential
+	Entries  []shareFolderEntry
 }
 
 type shareLink struct {
-	URL string
-	QR  []byte
+	URL     string
+	QR      []byte
+	entries int
+	size    int64
 }
 
 //go:embed share_page.html
 var sharePageHTML string
+
+//go:embed share_icons/*.svg
+var shareIcons embed.FS
+
 var shareLogo = template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(brand.PNG("goim-64")))
 var sharePage = template.Must(template.New("share").Funcs(template.FuncMap{
-	"logo": func() template.URL { return shareLogo },
+	"logo":        func() template.URL { return shareLogo },
+	"uploadLimit": func() int { return webUploadLimit },
+	"icon": func(name string) template.URL {
+		raw, err := shareIcons.ReadFile("share_icons/" + name + ".svg")
+		if err != nil {
+			return ""
+		}
+		return template.URL("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(raw))
+	},
 }).Parse(sharePageHTML))
 
 func randomToken() string {
@@ -61,6 +76,13 @@ func (n *Node) shareFile(path, password string) error {
 		return err
 	}
 	link.Token = randomToken()
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return n.shareFolder(path, link)
+	}
 	return n.sendFileWithLink("", path, true, "", link)
 }
 
@@ -94,7 +116,6 @@ func (n *Node) updateSharePassword(id, password string) error {
 		}
 		p.BrowserShares[id] = record
 		changed = true
-		s.Notice, s.Error = "分享密码已更新", ""
 		if !next.set() {
 			return nil
 		}
@@ -113,6 +134,9 @@ func (n *Node) updateSharePassword(id, password string) error {
 // attachShareLinks runs under n.mu. The bearer URLs never enter persisted
 // public state or peer envelopes. QR images are generated once per active URL.
 func (n *Node) attachShareLinks(s *domain.State, urls bool) {
+	if urls {
+		n.attachDeviceShare(s)
+	}
 	if len(n.data.BrowserShares) == 0 {
 		return
 	}
@@ -137,9 +161,18 @@ func (n *Node) attachShareLinks(s *domain.State, urls bool) {
 		url := "http://" + n.webAddress + "/s/" + record.Token
 		link := n.webLinks[f.ID]
 		if link.URL != url {
-			link.URL = url
+			link = shareLink{URL: url}
 			link.QR, _ = qrcode.Encode(url, qrcode.Medium, 224)
+			if f.ShareFolder {
+				link.entries = len(record.Entries)
+				for _, entry := range record.Entries {
+					link.size += entry.Size
+				}
+			}
 			n.webLinks[f.ID] = link
+		}
+		if f.ShareFolder {
+			f.ShareEntryCount, f.Size = link.entries, link.size
 		}
 		f.ShareURL, f.ShareQR = url, append([]byte(nil), link.QR...)
 	}
@@ -241,6 +274,7 @@ func (n *Node) startShareServer() error {
 	_, n.data.BrowserPort, _ = net.SplitHostPort(n.webAddress)
 	rand.Read(n.webKey[:])
 	n.webSlots = make(chan struct{}, 8)
+	n.webUploads = make(chan struct{}, 2)
 	server := &http.Server{
 		Handler:           n.shareHandler(ip),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 12 * time.Second,
@@ -316,9 +350,22 @@ func (n *Node) hasShareSession(r *http.Request, record browserShare) bool {
 }
 
 type sharePageData struct {
-	Name, Size, Path, Error string
-	Sender, Kind, Date      string
-	Locked                  bool
+	Title, Path, ReturnURL, Error, Sender, Date string
+	Current, ParentURL, Count                   string
+	Folder, Locked, Ready                       bool
+	Crumbs                                      []shareCrumb
+	Items                                       []sharePageItem
+	Home, Device                                string
+	Catalog                                     []deviceShareEntry
+	OpenUpload, Uploaded                        bool
+	UploadError                                 string
+}
+
+type shareCrumb struct{ Name, URL string }
+
+type sharePageItem struct {
+	Name, Size, Kind, Date, URL, Style string
+	Folder                             bool
 }
 
 func shareFileSize(size int64) string {
@@ -340,13 +387,24 @@ func renderShare(w http.ResponseWriter, status int, data sharePageData) {
 }
 
 func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 	// Keep cross-origin requests free of the bearer URL without making a
 	// browser's same-origin form POST serialize its Origin as "null".
 	w.Header().Set("Referrer-Policy", "same-origin")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if r.Host != n.webAddress || !strings.HasPrefix(r.URL.Path, "/s/") {
+	if r.Host != n.webAddress {
+		http.NotFound(w, r)
+		return
+	}
+	switch {
+	case r.URL.Path == "/assets/share-upload.js":
+		serveShareUploadScript(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/d/"):
+		n.handleDeviceShare(w, r)
+		return
+	case !strings.HasPrefix(r.URL.Path, "/s/"):
 		http.NotFound(w, r)
 		return
 	}
@@ -361,6 +419,13 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := sharePageData{Path: "/s/" + token, Locked: record.Password.set()}
+	page.Home = n.deviceHomePath()
+	page.ReturnURL = page.Path
+	if tail == "" {
+		if id, err := strconv.Atoi(r.URL.Query().Get("dir")); err == nil && id > 0 {
+			page.ReturnURL = folderPageURL(page.Path, id)
+		}
+	}
 	if r.Method == http.MethodPost && tail == "" && page.Locked {
 		if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+r.Host {
 			http.Error(w, "来源无效", http.StatusForbidden)
@@ -383,7 +448,7 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		expiry := strconv.FormatInt(exp.Unix(), 10)
 		http.SetCookie(w, &http.Cookie{Name: "goim_share", Value: expiry + "." + n.authDigest(record, expiry),
 			Path: page.Path, Expires: exp, HttpOnly: true, SameSite: http.SameSiteStrictMode})
-		http.Redirect(w, r, page.Path, http.StatusSeeOther)
+		http.Redirect(w, r, page.ReturnURL, http.StatusSeeOther)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -399,11 +464,7 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		renderShare(w, status, page)
 		return
 	}
-	page.Locked, page.Name, page.Size = false, f.Name, shareFileSize(f.Size)
-	page.Kind = strings.ToUpper(strings.TrimPrefix(filepath.Ext(f.Name), "."))
-	if page.Kind == "" || len(page.Kind) > 5 {
-		page.Kind = "文件"
-	}
+	page.Locked, page.Title, page.Folder = false, f.Name, f.ShareFolder
 	if !f.CreatedAt.IsZero() {
 		page.Date = f.CreatedAt.Local().Format("2006-01-02")
 	}
@@ -411,7 +472,17 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		n.mu.Lock()
 		page.Sender = n.data.State.Self.Name
 		n.mu.Unlock()
-		renderShare(w, http.StatusOK, page)
+		if f.ShareFolder {
+			n.renderFolderShare(w, r, f, record, page)
+		} else {
+			page.Ready, page.Current, page.Count = true, "分享内容", "1 个文件"
+			page.Items = []sharePageItem{webFileItem(f.Name, f.Size, f.CreatedAt, page.Path+"/download")}
+			renderShare(w, http.StatusOK, page)
+		}
+		return
+	}
+	if f.ShareFolder {
+		n.downloadFolderFile(w, r, f, record, page.Path)
 		return
 	}
 	select {
@@ -441,6 +512,29 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": f.Name}))
 	w.Header().Set("ETag", `"`+f.Hash+`"`)
 	http.ServeContent(w, r, f.Name, stat.ModTime(), source)
+}
+
+func webFileItem(name string, size int64, date time.Time, url string) sharePageItem {
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+	kind, style := strings.ToUpper(ext), "file"
+	switch ext {
+	case "png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "avif":
+		style = "image"
+	case "zip", "7z", "rar", "gz", "tar":
+		style = "archive"
+	case "pdf":
+		style = "pdf"
+	case "xls", "xlsx", "csv":
+		style = "table"
+	}
+	if len(kind) == 0 || len(kind) > 6 {
+		kind = "文件"
+	}
+	item := sharePageItem{Name: name, Size: shareFileSize(size), Kind: kind, URL: url, Style: style}
+	if !date.IsZero() {
+		item.Date = date.Local().Format("2006-01-02")
+	}
+	return item
 }
 
 func verifyWebFile(r *http.Request, source *os.File, f domain.File) bool {

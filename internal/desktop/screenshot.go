@@ -15,12 +15,17 @@ import (
 	"github.com/vivaui/viva/app"
 
 	"goim/internal/domain"
+	"goim/internal/i18n"
 )
 
 const maxScreenshotBytes = 128 << 20
 
 func (r *desktopRuntime) launchScreenshot() {
+	if !r.screenshotRunning.CompareAndSwap(false, true) {
+		return
+	}
 	go func() {
+		defer r.screenshotRunning.Store(false)
 		tool, err := screenshotToolPath()
 		if err != nil {
 			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: err.Error()})
@@ -28,16 +33,16 @@ func (r *desktopRuntime) launchScreenshot() {
 		}
 		cache, err := os.UserCacheDir()
 		if err != nil {
-			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: "无法定位截图缓存目录：" + err.Error()})
+			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("无法定位截图缓存目录：") + err.Error()})
 			return
 		}
 		directory := filepath.Join(cache, "GoIM", "screenshots")
 		if err := os.MkdirAll(directory, 0o700); err != nil {
-			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: "无法创建截图缓存目录：" + err.Error()})
+			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("无法创建截图缓存目录：") + err.Error()})
 			return
 		}
 		output := filepath.Join(directory, fmt.Sprintf("goim-%d.png", time.Now().UnixNano()))
-		command := exec.Command(tool, "-output", output)
+		command := exec.Command(tool, "-select", "-lang", i18n.Language(), "-output", output)
 		var stderr bytes.Buffer
 		command.Stderr = &stderr
 		if err := command.Run(); err != nil {
@@ -49,22 +54,22 @@ func (r *desktopRuntime) launchScreenshot() {
 			if detail == "" {
 				detail = err.Error()
 			}
-			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: "截图工具启动失败：" + detail})
+			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("截图工具启动失败：") + detail})
 			return
 		}
 		data, err := readScreenshot(output)
 		if err != nil {
-			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: "读取截图失败：" + err.Error()})
+			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("读取截图失败：") + err.Error()})
 			return
 		}
 		if err := setClipboardPNG(output, data); err != nil {
 			r.backend.Submit(domain.Command{Kind: domain.ReportError,
-				Text: "截图已保存在 " + output + "，但写入剪贴板失败：" + err.Error()})
+				Text: i18n.T("截图已保存在 ") + output + i18n.T("，但写入剪贴板失败：") + err.Error()})
 			return
 		}
 		_ = app.SendNotification(app.Notification{
-			Title: "GoIM 截图",
-			Body:  "截图已复制，可在当前聊天中直接粘贴发送。",
+			Title: i18n.T("GoIM 截图"),
+			Body:  i18n.T("截图已复制，可在当前聊天中直接粘贴发送。"),
 		})
 		_ = os.Remove(output)
 	}()
@@ -75,11 +80,11 @@ func screenshotToolPath() (string, error) {
 		if info, err := os.Stat(override); err == nil && info.Mode().IsRegular() {
 			return override, nil
 		}
-		return "", errors.New("GOIM_SNIP_PATH 指向的截图工具不存在")
+		return "", errors.New(i18n.T("GOIM_SNIP_PATH 指向的截图工具不存在"))
 	}
 	executable, err := os.Executable()
 	if err != nil {
-		return "", errors.New("无法定位 GoIM 程序目录：" + err.Error())
+		return "", errors.New(i18n.T("无法定位 GoIM 程序目录：") + err.Error())
 	}
 	name := "goim-snip"
 	if runtime.GOOS == "windows" {
@@ -89,7 +94,7 @@ func screenshotToolPath() (string, error) {
 	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
 		return path, nil
 	}
-	return "", errors.New("找不到 goim-snip，请确认截图组件与 GoIM 位于同一目录")
+	return "", errors.New(i18n.T("找不到 goim-snip，请确认截图组件与 GoIM 位于同一目录"))
 }
 
 func readScreenshot(path string) ([]byte, error) {
@@ -103,17 +108,17 @@ func readScreenshot(path string) ([]byte, error) {
 		return nil, err
 	}
 	if info.Size() <= 0 || info.Size() > maxScreenshotBytes {
-		return nil, fmt.Errorf("PNG 大小无效（%d 字节）", info.Size())
+		return nil, fmt.Errorf(i18n.T("PNG 大小无效（%d 字节）"), info.Size())
 	}
 	data, err := io.ReadAll(io.LimitReader(file, maxScreenshotBytes+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(data) > maxScreenshotBytes {
-		return nil, errors.New("截图 PNG 过大")
+		return nil, errors.New(i18n.T("截图 PNG 过大"))
 	}
 	if !bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")) {
-		return nil, errors.New("截图工具没有生成有效 PNG")
+		return nil, errors.New(i18n.T("截图工具没有生成有效 PNG"))
 	}
 	return data, nil
 }

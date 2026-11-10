@@ -11,6 +11,7 @@ import (
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
+	"goim/internal/i18n"
 )
 
 var (
@@ -61,10 +62,10 @@ func (p *Panels) drawSettings(f *flex.Frame, theme ui.Theme, state domain.State,
 
 func (p *Panels) drawSettingsCategories(f *flex.Frame, theme ui.Theme) {
 	f.Column().Width(panelSettingsWidth).FillHeight().PadSides(22, 20, 14, 20).Gap(3).Children(func() {
-		f.Text("设置").FontSize(26).Weight(ui.WeightSemibold)
+		f.Text(i18n.T("设置")).FontSize(26).Weight(ui.WeightSemibold)
 		f.Slot().Height(18)
 		for _, tab := range panelSettingsOrder {
-			label := panelSettingsLabels[tab]
+			label := i18n.T(panelSettingsLabels[tab])
 			id := p.ids.settingsCategories.At(int(tab))
 			active := p.settingsTab == tab
 			icon := panelIconGear
@@ -123,26 +124,26 @@ func (p *Panels) drawSettingsCategories(f *flex.Frame, theme ui.Theme) {
 
 func (p *Panels) drawSettingsSidebarFooter(f *flex.Frame, theme ui.Theme) {
 	f.Divider().FillWidth()
-	f.Text("设置自动保存在本机").Muted().FontSize(theme.Metrics.FontSizeS)
+	f.Text(i18n.T("设置自动保存在本机")).Muted().FontSize(theme.Metrics.FontSizeS)
 }
 
 func (p *Panels) drawSettingsHeader(f *flex.Frame, theme ui.Theme, state domain.State) {
-	title, description := panelSettingsLabels[p.settingsTab], "管理外观、消息发送与窗口行为"
+	title, description := i18n.T(panelSettingsLabels[p.settingsTab]), i18n.T("管理外观、消息发送与窗口行为")
 	switch p.settingsTab {
 	case panelSettingsShortcuts:
-		title, description = "快捷键", "设置组合键，并检查应用内和系统快捷键冲突"
+		title, description = i18n.T("快捷键"), i18n.T("设置组合键，并检查应用内和系统快捷键冲突")
 	case panelSettingsAbout:
-		title, description = "关于", "版本、构建信息与开源许可"
+		title, description = i18n.T("关于"), i18n.T("版本、构建信息与开源许可")
 	case panelSettingsProfile:
-		description = "在局域网内展示的昵称与头像"
+		description = i18n.T("在局域网内展示的昵称与头像")
 	case panelSettingsNotifications:
-		description = "设置消息提醒、声音和预览"
+		description = i18n.T("设置消息提醒、声音和预览")
 	case panelSettingsNetwork:
-		description = "局域网发现、网卡和手动连接"
+		description = i18n.T("局域网发现、网卡和手动连接")
 	case panelSettingsTransfers:
-		description = "设置接收方式和文件保存位置"
+		description = i18n.T("设置接收方式和文件保存位置")
 	case panelSettingsSecurity:
-		description = "设置锁定密码与启动保护"
+		description = i18n.T("设置锁定密码与启动保护")
 	}
 	panelPageHeader(f, theme, title, description, func() {
 		if p.settingsTab != panelSettingsAbout {
@@ -152,14 +153,14 @@ func (p *Panels) drawSettingsHeader(f *flex.Frame, theme ui.Theme, state domain.
 }
 
 func (p *Panels) drawSettingsSaveStatus(f *flex.Frame, theme ui.Theme) {
-	text := "已保存"
+	text := i18n.T("已保存")
 	tone := theme.Success
 	showCheck := true
 	switch {
 	case p.pending != nil:
-		text, tone, showCheck = "保存中", theme.MutedForeground, false
+		text, tone, showCheck = i18n.T("保存中"), theme.MutedForeground, false
 	case p.saveFailed:
-		text, tone, showCheck = "保存失败", theme.Danger, false
+		text, tone, showCheck = i18n.T("保存失败"), theme.Danger, false
 	}
 	f.Row().Gap(6).Items(flex.Center).Children(func() {
 		if showCheck {
@@ -182,18 +183,18 @@ func (p *Panels) settingsScrollArea(f *flex.Frame, tab panelSettingsTab) flex.Bo
 func (p *Panels) settingsFooterText() string {
 	switch p.settingsTab {
 	case panelSettingsShortcuts:
-		return "录制后点击保存"
+		return i18n.T("录制后点击保存")
 	case panelSettingsAbout:
-		return "此页面可离线查看"
+		return i18n.T("此页面可离线查看")
 	default:
-		return "修改后自动保存"
+		return i18n.T("修改后自动保存")
 	}
 }
 
 func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	settings := state.Settings
-	panelSection(f, "外观", "", func() {
-		panelSettingRow(f, theme, "主题", "仅提供明亮与暗黑两种外观", func() {
+	panelSection(f, i18n.T("外观"), "", func() {
+		panelSettingRow(f, theme, i18n.T("主题"), i18n.T("仅提供明亮与暗黑两种外观"), func() {
 			selected := -1
 			for index, value := range panelThemeValues {
 				if settings.Theme == value {
@@ -202,17 +203,28 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 				}
 			}
 			panelControlColumn(f, 260, func() {
-				choice := f.Choice(p.ids.themeChoice, panelThemeLabels, selected)
+				choice := f.Choice(p.ids.themeChoice, i18n.Labels(panelThemeLabels), selected)
 				if index, ok := choice.ChosenIndex(); ok {
 					p.submitString(submit, state, "theme", panelThemeValues[index])
 				}
 			})
 		})
 	})
+	panelSettingRow(f, theme, i18n.T("界面语言"), i18n.T("立即切换 GoIM 的界面语言"), func() {
+		selected := 0
+		if i18n.Normalize(settings.Language) == i18n.English {
+			selected = 1
+		}
+		panelControlColumn(f, 260, func() {
+			if index, ok := f.Choice(p.ids.languageChoice, []string{"简体中文", "English"}, selected).ChosenIndex(); ok {
+				p.submitString(submit, state, "language", [...]string{i18n.Chinese, i18n.English}[index])
+			}
+		})
+	})
 	p.drawBackgroundSettings(f, theme, state, submit)
 	panelSectionGap(f)
-	panelSection(f, "发送", "", func() {
-		panelSettingRow(f, theme, "发送消息", "Shift+Enter 始终换行", func() {
+	panelSection(f, i18n.T("发送"), "", func() {
+		panelSettingRow(f, theme, i18n.T("发送消息"), i18n.T("Shift+Enter 始终换行"), func() {
 			selected := 0
 			for index, value := range panelSendKeyValues {
 				if settings.SendKey == value {
@@ -221,7 +233,7 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 				}
 			}
 			panelControlColumn(f, 250, func() {
-				choice := f.Choice(p.ids.sendKeyChoice, panelSendKeyLabels, selected)
+				choice := f.Choice(p.ids.sendKeyChoice, i18n.Labels(panelSendKeyLabels), selected)
 				if index, ok := choice.ChosenIndex(); ok {
 					p.submitString(submit, state, "send_key", panelSendKeyValues[index])
 				}
@@ -229,15 +241,15 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 		})
 	})
 	panelSectionGap(f)
-	panelSection(f, "启动与关闭", "", func() {
-		description := "关闭主窗口时退出应用"
+	panelSection(f, i18n.T("启动与关闭"), "", func() {
+		description := i18n.T("关闭主窗口时退出应用")
 		if settings.CloseToTray {
-			description = "关闭主窗口后继续在托盘接收消息"
+			description = i18n.T("关闭主窗口后继续在托盘接收消息")
 		}
-		panelSettingRow(f, theme, "关闭主窗口", description, func() {
+		panelSettingRow(f, theme, i18n.T("关闭主窗口"), description, func() {
 			panelControlColumn(f, 80, func() {
 				if f.Switch(p.ids.settingsCloseToTray, settings.CloseToTray).
-					Label("关闭主窗口时最小化到托盘").Clicked() {
+					Label(i18n.T("关闭主窗口时最小化到托盘")).Clicked() {
 					p.submitBool(submit, state, "close_to_tray", !settings.CloseToTray)
 				}
 			})
@@ -247,25 +259,25 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 
 func (p *Panels) drawSettingsNotifications(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	settings := state.Settings
-	panelSection(f, "消息通知", "", func() {
-		panelSettingRow(f, theme, "桌面通知", "收到新消息时提醒", func() {
+	panelSection(f, i18n.T("消息通知"), "", func() {
+		panelSettingRow(f, theme, i18n.T("桌面通知"), i18n.T("收到新消息时提醒"), func() {
 			panelControlColumn(f, 80, func() {
 				if f.Switch(p.ids.settingsNotification, settings.DesktopNotifications).
-					Label("桌面通知").Clicked() {
+					Label(i18n.T("桌面通知")).Clicked() {
 					p.submitBool(submit, state, "desktop_notifications", !settings.DesktopNotifications)
 				}
 			})
 		})
-		panelSettingRow(f, theme, "提示音", "消息免打扰的会话不播放提示音", func() {
+		panelSettingRow(f, theme, i18n.T("提示音"), i18n.T("消息免打扰的会话不播放提示音"), func() {
 			panelControlColumn(f, 80, func() {
-				if f.Switch(p.ids.settingsSound, settings.Sound).Label("提示音").Clicked() {
+				if f.Switch(p.ids.settingsSound, settings.Sound).Label(i18n.T("提示音")).Clicked() {
 					p.submitBool(submit, state, "sound", !settings.Sound)
 				}
 			})
 		})
-		panelSettingRow(f, theme, "隐藏消息预览", "通知仅提示收到新消息", func() {
+		panelSettingRow(f, theme, i18n.T("隐藏消息预览"), i18n.T("通知仅提示收到新消息"), func() {
 			panelControlColumn(f, 80, func() {
-				if f.Switch(p.settingsExtra.notificationPrivacy, settings.HideNotificationText).Label("隐藏消息预览").Clicked() {
+				if f.Switch(p.settingsExtra.notificationPrivacy, settings.HideNotificationText).Label(i18n.T("隐藏消息预览")).Clicked() {
 					p.submitBool(submit, state, "hide_notification_text", !settings.HideNotificationText)
 				}
 			})
@@ -275,33 +287,33 @@ func (p *Panels) drawSettingsNotifications(f *flex.Frame, theme ui.Theme, state 
 
 func (p *Panels) drawSettingsTransfers(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	settings := state.Settings
-	panelSection(f, "文件传输", "", func() {
-		description := "仅影响之后接收的文件；正在进行的传输继续使用原目录"
-		panelSettingRow(f, theme, "默认保存位置", description, func() {
+	panelSection(f, i18n.T("文件传输"), "", func() {
+		description := i18n.T("仅影响之后接收的文件；正在进行的传输继续使用原目录")
+		panelSettingRow(f, theme, i18n.T("默认保存位置"), description, func() {
 			panelControlColumn(f, 420, func() {
 				path := settings.DownloadDir
 				f.Row().FillWidth().Gap(8).Children(func() {
 					display := path
 					if strings.TrimSpace(display) == "" {
-						display = "尚未选择保存位置"
+						display = i18n.T("尚未选择保存位置")
 					}
 					f.Row().Grow(1).Height(theme.Metrics.ControlHeight).PadX(10).
 						Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl).
 						Clip().Items(flex.Center).Children(func() {
 						f.Text(display).FontSize(theme.Metrics.FontSizeS + 1).PadX(4).Grow(1).Ellipsis()
 					})
-					if f.Button(p.ids.settingsChooseDir, "更改…").Small().Outline().Clicked() {
+					if f.Button(p.ids.settingsChooseDir, i18n.T("更改…")).Small().Outline().Clicked() {
 						p.chooseDownloadDirectory(f.Canvas(), submit, state)
 					}
 				})
-				open := f.Button(p.ids.settingsOpenDir, "打开文件夹").Small().Link().
+				open := f.Button(p.ids.settingsOpenDir, i18n.T("打开文件夹")).Small().Link().
 					Disabled(strings.TrimSpace(path) == "")
 				if open.Clicked() {
 					panelOpenLocal(f.Canvas(), p, path, true)
 				}
 			})
 		})
-		panelSettingRow(f, theme, "同名文件", "不覆盖已有文件", func() {
+		panelSettingRow(f, theme, i18n.T("同名文件"), i18n.T("不覆盖已有文件"), func() {
 			selected := -1
 			for index, value := range panelDuplicateValues {
 				if settings.DuplicatePolicy == value {
@@ -310,36 +322,36 @@ func (p *Panels) drawSettingsTransfers(f *flex.Frame, theme ui.Theme, state doma
 				}
 			}
 			panelControlColumn(f, 250, func() {
-				selectBox := f.Select(p.ids.duplicateChoice, &p.duplicateSelect, panelDuplicateLabels, selected).
-					Label("同名文件")
+				selectBox := f.Select(p.ids.duplicateChoice, &p.duplicateSelect, i18n.Labels(panelDuplicateLabels), selected).
+					Label(i18n.T("同名文件"))
 				if index, ok := selectBox.Picked(); ok && index < len(panelDuplicateValues) {
 					p.submitString(submit, state, "duplicate_policy", panelDuplicateValues[index])
 				}
 			})
 		})
-		panelSettingRow(f, theme, "接收方式", "聊天图片自动显示；其他文件在你确认后才下载", func() {
-			f.Text("文件需确认").FontSize(12).Muted()
+		panelSettingRow(f, theme, i18n.T("接收方式"), i18n.T("聊天图片自动显示；其他文件在你确认后才下载"), func() {
+			f.Text(i18n.T("文件需确认")).FontSize(12).Muted()
 		})
 	})
 }
 
 func (p *Panels) drawSettingsNetwork(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	settings := state.Settings
-	panelSection(f, "局域网", "", func() {
-		description := "进行中的传输不会因网络切换而中断"
+	panelSection(f, i18n.T("局域网"), "", func() {
+		description := i18n.T("进行中的传输不会因网络切换而中断")
 		if settings.PendingNetwork != "" {
-			description = "传输结束后将切换至 " + p.networkName(settings.PendingNetwork)
+			description = i18n.T("传输结束后将切换至 ") + p.networkName(settings.PendingNetwork)
 		}
 		if p.networkReadError != "" {
-			description += "；无法读取网络接口：" + p.networkReadError
+			description += i18n.T("；无法读取网络接口：") + p.networkReadError
 		} else if state.ListenAddress != "" {
-			description += "；当前监听 " + state.ListenAddress
+			description += i18n.T("；当前监听 ") + state.ListenAddress
 		}
 		labels, values, selected := p.networkChoicesFor(settings.Network)
-		panelSettingRow(f, theme, "使用的网络", description, func() {
+		panelSettingRow(f, theme, i18n.T("使用的网络"), description, func() {
 			panelControlColumn(f, 280, func() {
 				selectBox := f.Select(p.ids.networkChoice, &p.networkSelect, labels, selected).
-					Label("使用的网络")
+					Label(i18n.T("使用的网络"))
 				if index, ok := selectBox.Picked(); ok && index < len(values) {
 					value := values[index]
 					if value == "" {
@@ -347,7 +359,7 @@ func (p *Panels) drawSettingsNetwork(f *flex.Frame, theme ui.Theme, state domain
 					}
 					p.chooseNetwork(submit, state, value, labels[index])
 				}
-				if f.Button(p.ids.settingsRefreshNet, "刷新网络适配器").Small().Ghost().Clicked() {
+				if f.Button(p.ids.settingsRefreshNet, i18n.T("刷新网络适配器")).Small().Ghost().Clicked() {
 					p.networkSelect.Open = false
 					p.networkChange = panelNetworkChange{}
 					p.refreshNetworks()
@@ -364,17 +376,17 @@ func (p *Panels) drawSettingsNetwork(f *flex.Frame, theme ui.Theme, state domain
 func (p *Panels) drawNetworkChangeConfirmation(f *flex.Frame, theme ui.Theme, submit func(domain.Command), state domain.State) {
 	change := p.networkChange
 	text := fmt.Sprintf(
-		"有 %d 个传输正在进行。切换到“%s”将等待这些传输结束后生效；首期不中断当前任务，如需立即切换请先取消相关传输。",
+		i18n.T("有 %d 个传输正在进行。切换到“%s”将等待这些传输结束后生效；首期不中断当前任务，如需立即切换请先取消相关传输。"),
 		change.active, change.label,
 	)
 	f.Row().FillWidth().PadSides(10, 12, 10, 12).Gap(12).Items(flex.Center).
 		Background(panelTint(theme.Primary, 0.06, theme.Background)).
 		Border(1, panelTint(theme.Primary, 0.20, theme.Background)).Radius(8).Children(func() {
 		f.Paragraph(text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1)
-		if f.Button(p.ids.networkCancel, "取消更改").Small().Ghost().Clicked() {
+		if f.Button(p.ids.networkCancel, i18n.T("取消更改")).Small().Ghost().Clicked() {
 			p.networkChange = panelNetworkChange{}
 		}
-		if f.Button(p.ids.networkDefer, "传输结束后切换").Small().Clicked() {
+		if f.Button(p.ids.networkDefer, i18n.T("传输结束后切换")).Small().Clicked() {
 			value := change.value
 			p.networkChange = panelNetworkChange{}
 			p.submitString(submit, state, "network", value)
@@ -384,15 +396,15 @@ func (p *Panels) drawNetworkChangeConfirmation(f *flex.Frame, theme ui.Theme, su
 
 func (p *Panels) drawSettingsShortcuts(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	f.Row().FillWidth().PadY(8).Items(flex.Center).Gap(12).Children(func() {
-		f.Text("应用内快捷键会在当前窗口生效；全局快捷键只有注册成功后才会生效。").Muted().
+		f.Text(i18n.T("应用内快捷键会在当前窗口生效；全局快捷键只有注册成功后才会生效。")).Muted().
 			FontSize(theme.Metrics.FontSizeS).Grow(1)
-		if f.Button(p.ids.shortcutReset, "恢复默认").Small().Outline().Clicked() {
+		if f.Button(p.ids.shortcutReset, i18n.T("恢复默认")).Small().Outline().Clicked() {
 			p.cancelShortcutEdit()
 			p.resetShortcuts = true
 		}
 	})
 	if p.resetShortcuts {
-		panelKeyboardConfirm(f, theme, "恢复默认只会重置快捷键，不影响其他设置。",
+		panelKeyboardConfirm(f, theme, i18n.T("恢复默认只会重置快捷键，不影响其他设置。"),
 			p.ids.shortcutCancelReset, p.ids.shortcutConfirmReset,
 			func() { p.resetShortcuts = false },
 			func() {
@@ -403,9 +415,9 @@ func (p *Panels) drawSettingsShortcuts(f *flex.Frame, theme ui.Theme, state doma
 	}
 	f.Divider().FillWidth()
 	f.Row().FillWidth().PadY(8).Gap(12).Items(flex.Center).Children(func() {
-		f.Text("操作").Muted().FontSize(theme.Metrics.FontSizeS).Grow(1)
-		f.Text("按键").Muted().FontSize(theme.Metrics.FontSizeS).Width(190)
-		f.Text("作用范围").Muted().FontSize(theme.Metrics.FontSizeS).Width(80)
+		f.Text(i18n.T("操作")).Muted().FontSize(theme.Metrics.FontSizeS).Grow(1)
+		f.Text(i18n.T("按键")).Muted().FontSize(theme.Metrics.FontSizeS).Width(190)
+		f.Text(i18n.T("作用范围")).Muted().FontSize(theme.Metrics.FontSizeS).Width(80)
 		f.Slot().Width(64)
 	})
 	f.Divider().FillWidth()
@@ -422,7 +434,7 @@ func (p *Panels) drawSettingsShortcuts(f *flex.Frame, theme ui.Theme, state doma
 			case p.shortcutError != "":
 				problem = p.shortcutError
 			case keys != "" && !panelShortcutValid(keys):
-				problem = "快捷键需要 Ctrl、Alt、Meta 或功能键"
+				problem = i18n.T("快捷键需要 Ctrl、Alt、Meta 或功能键")
 			case conflict != "":
 				problem = conflict
 			}
@@ -430,16 +442,16 @@ func (p *Panels) drawSettingsShortcuts(f *flex.Frame, theme ui.Theme, state doma
 		f.Column().FillWidth().PadY(11).Gap(8).Children(func() {
 			f.Row().FillWidth().Gap(12).Items(flex.Center).Children(func() {
 				f.Column().Grow(1).Gap(2).Children(func() {
-					f.Text(shortcut.Action).FontSize(theme.Metrics.FontSizeM).Weight(ui.WeightMedium)
+					f.Text(i18n.T(shortcut.Action)).FontSize(theme.Metrics.FontSizeM).Weight(ui.WeightMedium)
 					if !editing {
-						f.Text("点击更改后录制组合键").Muted().FontSize(theme.Metrics.FontSizeS)
+						f.Text(i18n.T("点击更改后录制组合键")).Muted().FontSize(theme.Metrics.FontSizeS)
 					}
 				})
 				panelKeycap(f, theme, keys, 190, editing)
-				f.Text(shortcut.Scope).Muted().FontSize(theme.Metrics.FontSizeS).Width(80)
+				f.Text(i18n.T(shortcut.Scope)).Muted().FontSize(theme.Metrics.FontSizeS).Width(80)
 				if editing {
 					f.Slot().Width(64)
-				} else if f.Button(p.ids.shortcutRecord.At(index), "更改").Small().Outline().Clicked() {
+				} else if f.Button(p.ids.shortcutRecord.At(index), i18n.T("更改")).Small().Outline().Clicked() {
 					p.cancelShortcutEdit()
 					p.shortcutEdit = index
 					p.shortcutKeys = ""
@@ -450,7 +462,7 @@ func (p *Panels) drawSettingsShortcuts(f *flex.Frame, theme ui.Theme, state doma
 				f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
 					message := problem
 					if message == "" && keys == "" {
-						message = "请按下组合键"
+						message = i18n.T("请按下组合键")
 					}
 					if message != "" {
 						tone := theme.MutedForeground
@@ -461,14 +473,14 @@ func (p *Panels) drawSettingsShortcuts(f *flex.Frame, theme ui.Theme, state doma
 					} else {
 						f.Spacer()
 					}
-					if f.Button(p.ids.shortcutCancel.At(index), "取消").Small().Ghost().Clicked() {
+					if f.Button(p.ids.shortcutCancel.At(index), i18n.T("取消")).Small().Ghost().Clicked() {
 						p.cancelShortcutEdit()
 					}
-					if f.Button(p.ids.shortcutRecord.At(index), "清除").Small().Ghost().Clicked() {
+					if f.Button(p.ids.shortcutRecord.At(index), i18n.T("清除")).Small().Ghost().Clicked() {
 						p.shortcutKeys = ""
 						p.shortcutError = ""
 					}
-					save := f.Button(p.ids.shortcutSave.At(index), "保存").Small()
+					save := f.Button(p.ids.shortcutSave.At(index), i18n.T("保存")).Small()
 					if problem != "" {
 						save = save.Disabled(true)
 					}
@@ -483,14 +495,14 @@ func (p *Panels) drawSettingsShortcuts(f *flex.Frame, theme ui.Theme, state doma
 		})
 		f.Divider().FillWidth()
 	}
-	f.Text("发送消息使用 Enter 或 Ctrl+Enter，可在“常规”中修改。").Muted().
+	f.Text(i18n.T("发送消息使用 Enter 或 Ctrl+Enter，可在“常规”中修改。")).Muted().
 		FontSize(theme.Metrics.FontSizeS).PadY(12)
 }
 
 func panelKeycap(f *flex.Frame, theme ui.Theme, keys string, width float32, active bool) {
 	display := keys
 	if strings.TrimSpace(display) == "" {
-		display = "未设置"
+		display = i18n.T("未设置")
 	}
 	foreground := theme.Foreground
 	border := theme.Border
@@ -503,7 +515,7 @@ func panelKeycap(f *flex.Frame, theme ui.Theme, keys string, width float32, acti
 		background = panelAccentSurface(theme)
 		foreground = panelAccentText(theme)
 		if strings.TrimSpace(keys) == "" {
-			display = "请按下组合键…"
+			display = i18n.T("请按下组合键…")
 		}
 	}
 	f.Row().Width(width).Height(28).PadX(9).Border(1, border).Background(background).
@@ -517,10 +529,10 @@ func panelKeyboardConfirm(f *flex.Frame, theme ui.Theme, text string, cancelID, 
 		Background(panelTint(theme.Primary, 0.06, theme.Background)).
 		Border(1, panelTint(theme.Primary, 0.20, theme.Background)).Radius(8).Children(func() {
 		f.Text(text).FontSize(theme.Metrics.FontSizeS + 1).Grow(1)
-		if f.Button(cancelID, "取消").Small().Ghost().Clicked() {
+		if f.Button(cancelID, i18n.T("取消")).Small().Ghost().Clicked() {
 			cancel()
 		}
-		if f.Button(confirmID, "恢复默认").Small().DestructiveOutline().Clicked() {
+		if f.Button(confirmID, i18n.T("恢复默认")).Small().DestructiveOutline().Clicked() {
 			confirm()
 		}
 	})
@@ -538,40 +550,40 @@ func (p *Panels) drawSettingsAbout(f *flex.Frame, theme ui.Theme, state domain.S
 		})
 		f.Column().Grow(1).Gap(3).Children(func() {
 			f.Text("GoIM").FontSize(22).Weight(ui.WeightSemibold)
-			f.Paragraph("局域网内的原生即时通讯与文件传输工具。", 2).Muted().
+			f.Paragraph(i18n.T("局域网内的原生即时通讯与文件传输工具。"), 2).Muted().
 				FontSize(theme.Metrics.FontSizeS + 1)
 		})
 	})
 
 	panelSectionGap(f)
-	panelSection(f, "构建", "", func() {
+	panelSection(f, i18n.T("构建"), "", func() {
 		version := state.Version
 		if strings.TrimSpace(version) == "" {
-			version = "未提供"
+			version = i18n.T("未提供")
 		}
 		build := p.build.revision
 		if build == "" {
-			build = "未提供"
+			build = i18n.T("未提供")
 		}
 		if p.build.buildTime != "" {
 			build += " · " + p.build.buildTime
 		}
-		panelInfoRow(f, theme, "应用版本", version)
-		panelInfoRow(f, theme, "构建", build)
+		panelInfoRow(f, theme, i18n.T("应用版本"), version)
+		panelInfoRow(f, theme, i18n.T("构建"), build)
 		panelInfoRow(f, theme, "Go", p.build.goVersion)
 		panelInfoRow(f, theme, "Viva", p.build.vivaVersion)
 	})
 	f.Row().FillWidth().PadY(16).Gap(10).Items(flex.Center).Children(func() {
-		if f.Button(p.ids.aboutCopyVersion, "复制版本信息").Small().Outline().Clicked() {
+		if f.Button(p.ids.aboutCopyVersion, i18n.T("复制版本信息")).Small().Outline().Clicked() {
 			panelCopy(f.Canvas(), p, panelVersionReport(state, p.build))
 		}
-		if f.Button(p.ids.aboutLicense, "开源许可").Small().Outline().Clicked() {
+		if f.Button(p.ids.aboutLicense, i18n.T("开源许可")).Small().Outline().Clicked() {
 			p.aboutLicense = true
 			p.localError = ""
 			p.localNotice = ""
 		}
 	})
-	f.Paragraph("复制的内容只包含版本与构建信息，不包含聊天内容、联系人、文件路径或本机地址。", 3).
+	f.Paragraph(i18n.T("复制的内容只包含版本与构建信息，不包含聊天内容、联系人、文件路径或本机地址。"), 3).
 		Muted().FontSize(theme.Metrics.FontSizeS)
 }
 
@@ -585,11 +597,11 @@ func panelInfoRow(f *flex.Frame, theme ui.Theme, label, value string) {
 
 func (p *Panels) drawLicense(f *flex.Frame, theme ui.Theme) {
 	f.Row().FillWidth().Gap(8).PadY(8).Items(flex.Center).Children(func() {
-		if f.Button(p.ids.aboutBack, "返回关于").Small().Ghost().Clicked() {
+		if f.Button(p.ids.aboutBack, i18n.T("返回关于")).Small().Ghost().Clicked() {
 			p.aboutLicense = false
 		}
 		f.Spacer()
-		if f.Button(p.ids.aboutCopyLicense, "复制许可摘要").Small().Outline().Clicked() {
+		if f.Button(p.ids.aboutCopyLicense, i18n.T("复制许可摘要")).Small().Outline().Clicked() {
 			panelCopy(f.Canvas(), p, panelLicenseText)
 		}
 	})
@@ -602,32 +614,32 @@ func (p *Panels) drawLicense(f *flex.Frame, theme ui.Theme) {
 func panelVersionReport(state domain.State, build panelBuildInfo) string {
 	version := state.Version
 	if strings.TrimSpace(version) == "" {
-		version = "未提供"
+		version = i18n.T("未提供")
 	}
 	revision := build.revision
 	if revision == "" {
-		revision = "未提供"
+		revision = i18n.T("未提供")
 	}
-	line := fmt.Sprintf("GoIM %s\nGo %s\nViva %s\n构建 %s", version, build.goVersion, build.vivaVersion, revision)
+	line := fmt.Sprintf(i18n.T("GoIM %s\nGo %s\nViva %s\n构建 %s"), version, build.goVersion, build.vivaVersion, revision)
 	if build.buildTime != "" {
-		line += "\n构建时间 " + build.buildTime
+		line += i18n.T("\n构建时间 ") + build.buildTime
 	}
 	return line
 }
 
 func (p *Panels) chooseDownloadDirectory(canvas *ui.Canvas, submit func(domain.Command), state domain.State) {
 	canvas.AfterPaint(func() {
-		path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: "选择默认保存位置"})
+		path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: i18n.T("选择默认保存位置")})
 		switch {
 		case errors.Is(err, app.ErrCanceled):
 			p.localError = ""
 			return
 		case err != nil:
-			p.localError = "无法选择保存位置：" + err.Error()
+			p.localError = i18n.T("无法选择保存位置：") + err.Error()
 			return
 		}
 		if err := panelWritableDirectory(path); err != nil {
-			p.localError = "保存位置不可写：" + err.Error()
+			p.localError = i18n.T("保存位置不可写：") + err.Error()
 			return
 		}
 		p.localError = ""
@@ -642,7 +654,7 @@ func panelWritableDirectory(path string) error {
 		return err
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("%q 不是目录", path)
+		return fmt.Errorf(i18n.T("%q 不是目录"), path)
 	}
 	file, err := os.CreateTemp(path, ".goim-write-check-*")
 	if err != nil {

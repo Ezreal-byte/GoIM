@@ -129,6 +129,7 @@ func (n *Node) discoveryLoop() {
 			// Keep the signed announcement compatible with previous clients.
 			p.Signature, p.Presence = "", ""
 			p.Address = n.advertisedAddress()
+			p.RecallSupported = false
 			a := announcement{Version: protocolVersion, Peer: p}
 			raw, _ := json.Marshal(a)
 			a.Signature = ed25519.Sign(n.key, raw)

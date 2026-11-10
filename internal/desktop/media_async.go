@@ -17,6 +17,7 @@ type mediaJobKind uint8
 const (
 	mediaJobFileAvailability mediaJobKind = iota
 	mediaJobImage
+	mediaJobViewerImage
 	mediaJobLocalAction
 )
 
@@ -27,13 +28,14 @@ type mediaJobKey struct {
 }
 
 type mediaJob struct {
-	cancel     <-chan struct{}
-	key        mediaJobKey
-	kind       mediaJobKind
-	path       string
-	fileID     string
-	generation uint64
-	imageLimit int
+	cancel        <-chan struct{}
+	key           mediaJobKey
+	kind          mediaJobKind
+	path          string
+	fileID        string
+	generation    uint64
+	imageLimit    int
+	imageRotation int
 
 	imagePrevious    imageStamp
 	imagePreviousSet bool
@@ -41,8 +43,10 @@ type mediaJob struct {
 	previousAvailable    bool
 	previousAvailableSet bool
 
-	actionID uint64
-	reveal   bool
+	actionID        uint64
+	reveal          bool
+	directory       bool
+	ensureDirectory bool
 }
 
 type mediaImageResult struct {
@@ -76,19 +80,21 @@ type mediaFileRequest struct {
 }
 
 type mediaResultBatch struct {
-	files   []mediaFileResult
-	images  []mediaImageResult
-	actions []mediaActionResult
+	files       []mediaFileResult
+	images      []mediaImageResult
+	viewerImage mediaImageResult
+	actions     []mediaActionResult
 }
 
 type mediaReadyResults struct {
-	files   map[string]mediaFileResult
-	images  map[string]mediaImageResult
-	actions map[uint64]mediaActionResult
+	files       map[string]mediaFileResult
+	images      map[string]mediaImageResult
+	viewerImage mediaImageResult
+	actions     map[uint64]mediaActionResult
 }
 
 func (r *mediaReadyResults) empty() bool {
-	return len(r.files) == 0 && len(r.images) == 0 && len(r.actions) == 0
+	return len(r.files) == 0 && len(r.images) == 0 && len(r.actions) == 0 && r.viewerImage.generation == 0
 }
 
 // mediaWorker owns every filesystem probe and image decode used by the shell.
@@ -160,9 +166,10 @@ func (worker *mediaWorker) take() (mediaResultBatch, bool) {
 		return mediaResultBatch{}, false
 	}
 	batch := mediaResultBatch{
-		files:   make([]mediaFileResult, 0, len(worker.ready.files)),
-		images:  make([]mediaImageResult, 0, len(worker.ready.images)),
-		actions: make([]mediaActionResult, 0, len(worker.ready.actions)),
+		files:       make([]mediaFileResult, 0, len(worker.ready.files)),
+		images:      make([]mediaImageResult, 0, len(worker.ready.images)),
+		viewerImage: worker.ready.viewerImage,
+		actions:     make([]mediaActionResult, 0, len(worker.ready.actions)),
 	}
 	for _, result := range worker.ready.files {
 		batch.files = append(batch.files, result)
@@ -249,6 +256,8 @@ func (worker *mediaWorker) run() {
 				worker.ready.files[result.file.fileID] = result.file
 			case mediaJobImage:
 				worker.ready.images[result.image.path] = result.image
+			case mediaJobViewerImage:
+				worker.ready.viewerImage = result.image
 			case mediaJobLocalAction:
 				worker.ready.actions[result.action.id] = result.action
 			}
@@ -305,10 +314,17 @@ func processMediaJob(job mediaJob) mediaProcessingResult {
 			},
 			notify: !job.previousAvailableSet || job.previousAvailable != available,
 		}
-	case mediaJobImage:
+	case mediaJobImage, mediaJobViewerImage:
 		return processMediaImage(job)
 	case mediaJobLocalAction:
-		available, errText := probeMediaFile(job.path)
+		if job.ensureDirectory {
+			if err := os.MkdirAll(job.path, 0700); err != nil {
+				return mediaProcessingResult{kind: job.kind, job: job, notify: true, action: mediaActionResult{
+					id: job.actionID, path: job.path, reveal: job.reveal, err: err.Error(),
+				}}
+			}
+		}
+		available, errText := probeMediaPath(job.path, job.directory)
 		canceled := false
 		if available {
 			select {
@@ -356,7 +372,7 @@ func processMediaImage(job mediaJob) mediaProcessingResult {
 	}
 	if job.imagePreviousSet && job.imagePrevious == stamp {
 		return mediaProcessingResult{
-			kind: mediaJobImage,
+			kind: job.kind,
 			job:  job,
 			image: mediaImageResult{
 				path: job.path, generation: job.generation, stamp: stamp, unchanged: true,
@@ -364,7 +380,7 @@ func processMediaImage(job mediaJob) mediaProcessingResult {
 		}
 	}
 	result := mediaProcessingResult{
-		kind: mediaJobImage,
+		kind: job.kind,
 		job:  job,
 		image: mediaImageResult{
 			path: job.path, generation: job.generation, stamp: stamp,
@@ -375,15 +391,25 @@ func processMediaImage(job mediaJob) mediaProcessingResult {
 		return result
 	}
 	result.image.bitmap, result.image.decoded = decodeBitmap(job.path, limit)
+	if result.image.decoded && job.imageRotation != 0 {
+		result.image.bitmap = rotateBitmapQuarter(result.image.bitmap, job.imageRotation)
+	}
 	return result
 }
 
 func probeMediaFile(path string) (bool, string) {
+	return probeMediaPath(path, false)
+}
+
+func probeMediaPath(path string, directory bool) (bool, string) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false, err.Error()
 	}
-	if info == nil || info.IsDir() {
+	if directory && !info.IsDir() {
+		return false, "路径不是文件夹"
+	}
+	if !directory && !info.Mode().IsRegular() {
 		return false, "路径不是普通文件"
 	}
 	return true, ""
