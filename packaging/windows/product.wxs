@@ -1,0 +1,33 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="GoIM" Manufacturer="Ezreal-byte" Version="$(ProductVersion)"
+           Scope="perMachine" InstallerVersion="500"
+           UpgradeCode="73FB8334-EF13-4453-9D8C-67F7E5898388">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of GoIM is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="GoIMIcon" SourceFile="$(Payload)\GoIM.ico" />
+    <Property Id="ARPPRODUCTICON" Value="GoIMIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://ezreal-byte.github.io/GoIM/" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="GoIM">
+        <Component Id="GoIMExecutable" Guid="*">
+          <File Id="GoIMExe" Source="$(Payload)\GoIM.exe" KeyPath="yes">
+            <Shortcut Id="GoIMStartMenu" Directory="ProgramMenuFolder" Name="GoIM"
+                      Advertise="yes" Icon="GoIMIcon" />
+          </File>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <ComponentGroup Id="GoIMPayload" Directory="INSTALLFOLDER">
+      <Files Include="!(bindpath.payload)\**">
+        <Exclude Files="!(bindpath.payload)\GoIM.exe" />
+      </Files>
+    </ComponentGroup>
+    <Feature Id="GoIM" Title="GoIM">
+      <ComponentRef Id="GoIMExecutable" />
+      <ComponentGroupRef Id="GoIMPayload" />
+    </Feature>
+  </Package>
+</Wix>

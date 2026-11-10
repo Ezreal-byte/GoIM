@@ -52,8 +52,9 @@ func build() error {
 	out := flag.String("out", "dist", "artifact directory")
 	stamp := flag.String("stamp-windows", "", "apply the Windows icon and metadata to an existing GoIM executable")
 	flag.Parse()
+	platformVersion, _, _ := strings.Cut(*version, "-")
 	if *stamp != "" {
-		return stampWindowsExecutable(*stamp)
+		return stampWindowsExecutable(*stamp, platformVersion)
 	}
 	if *framework == "" {
 		raw, err := os.ReadFile("framework/viva-commit.txt")
@@ -104,7 +105,7 @@ func build() error {
 	}
 	switch runtime.GOOS {
 	case "windows":
-		if err := stampWindowsExecutable(executable); err != nil {
+		if err := stampWindowsExecutable(executable, platformVersion); err != nil {
 			return err
 		}
 		if err := copyFile(filepath.Join(logoAssets, "goim.ico"), filepath.Join(staging, "GoIM.ico")); err != nil {
@@ -112,7 +113,7 @@ func build() error {
 		}
 	case "darwin":
 		bundle := filepath.Join(staging, "GoIM.app")
-		_, err := appbundle.Assemble(appbundle.Options{Dest: bundle, Executable: executable, Icon: filepath.Join(logoAssets, "goim.icns"), Info: appbundle.Info{Name: "GoIM", ID: "dev.goim.desktop", Version: "0.1.0", Executable: "GoIM", MinSystem: "13.0", Category: "public.app-category.social-networking", Copyright: "2026 Ezreal-byte"}})
+		_, err := appbundle.Assemble(appbundle.Options{Dest: bundle, Executable: executable, Icon: filepath.Join(logoAssets, "goim.icns"), Info: appbundle.Info{Name: "GoIM", ID: "dev.goim.desktop", Version: platformVersion, Executable: "GoIM", MinSystem: "13.0", Category: "public.app-category.social-networking", Copyright: "2026 Ezreal-byte"}})
 		if err != nil {
 			return err
 		}
@@ -190,7 +191,7 @@ func build() error {
 	return nil
 }
 
-func stampWindowsExecutable(path string) error {
+func stampWindowsExecutable(path, version string) error {
 	ico, _, err := winpkg.LoadIcon(filepath.Join(logoAssets, "goim.ico"))
 	if err != nil {
 		return err
@@ -199,7 +200,7 @@ func stampWindowsExecutable(path string) error {
 	if err != nil {
 		return err
 	}
-	executable, err = winres.Patch(executable, ico, winres.Info{Name: "GoIM", Description: "GoIM LAN Messenger", Version: "0.1.0", Publisher: "Ezreal-byte", File: "GoIM.exe"})
+	executable, err = winres.Patch(executable, ico, winres.Info{Name: "GoIM", Description: "GoIM LAN Messenger", Version: version, Publisher: "Ezreal-byte", File: "GoIM.exe"})
 	if err != nil {
 		return err
 	}

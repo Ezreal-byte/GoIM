@@ -6,7 +6,7 @@ on:
     inputs:
       version:
         description: Package version
-        default: 0.1.0
+        default: 0.1.1
         required: true
         type: string
 permissions:
@@ -71,7 +71,7 @@ jobs:
         run: go test github.com/vivaui/viva/internal/platform/windows -run '^TestDesktopNotificationReusesStatusItem$' -count=1
       - name: Core and background media race tests
         if: matrix.os == 'linux' && matrix.arch == 'amd64'
-        run: go test -race ./internal/core ./internal/desktop -count=1 -timeout=180s
+        run: go test -race ./internal/core ./internal/desktop ./internal/ipmsg -count=1 -timeout=180s
       - name: Shared catalog ordering regression on macOS Intel
         if: matrix.os == 'darwin' && matrix.arch == 'amd64'
         run: go test ./internal/core -run 'TestCatalogRejectsOutOfOrderInitialSnapshot|TestUnsharingPreservesDownloadedMetadata' -count=20 -timeout=120s
@@ -122,12 +122,34 @@ jobs:
         env:
           PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
         run: go run ./cmd/package --version "${PACKAGE_VERSION#v}" --commit "$GITHUB_SHA"
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: '8.0.x'
+      - name: Windows Setup and MSI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: ./packaging/windows/build.ps1 -Version $env:PACKAGE_VERSION.TrimStart('v') -Architecture $env:PACKAGE_ARCH
+      - name: Linux DEB or macOS DMG
+        if: runner.os != 'Windows'
+        env:
+          PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
+          PACKAGE_OS: ${{ matrix.os }}
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: bash packaging/unix.sh "${PACKAGE_VERSION#v}" "$PACKAGE_OS" "$PACKAGE_ARCH"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: GoIM-${{ matrix.os }}-${{ matrix.arch }}
           path: |
             GoIM/dist/*.zip
             GoIM/dist/*.tar.gz
+            GoIM/dist/*-Setup.exe
+            GoIM/dist/*.msi
+            GoIM/dist/*.dmg
+            GoIM/dist/*.deb
             GoIM/dist/*.sha256
           if-no-files-found: error
           retention-days: 14
@@ -146,7 +168,7 @@ jobs:
           pattern: GoIM-*
           merge-multiple: true
           path: release
-      - name: Verify six packages and prepare checksums
+      - name: Verify fourteen packages and prepare checksums
         env:
           SOURCE_COMMIT: ${{ github.sha }}
           PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
@@ -155,15 +177,19 @@ jobs:
           import hashlib, json, os, pathlib, tarfile, zipfile
           root = pathlib.Path('release')
           version = os.environ['PACKAGE_VERSION'].removeprefix('v')
-          expected = {(o,a) for o in ('windows','linux','darwin') for a in ('amd64','arm64')}
+          formats = {'windows': ('.zip', '-Setup.exe', '.msi'), 'linux': ('.tar.gz', '.deb'), 'darwin': ('.zip', '.dmg')}
+          expected = {f'GoIM_{version}_{o}_{a}{ext}': (o,a) for o in formats for a in ('amd64','arm64') for ext in formats[o]}
           found, sums, frameworks, toolchains = set(), [], set(), set()
           for p in sorted(root.iterdir()):
-              if not (p.name.endswith('.zip') or p.name.endswith('.tar.gz')): continue
-              target = tuple(p.name.removesuffix('.tar.gz').removesuffix('.zip').rsplit('_',2)[1:])
-              assert target in expected and target not in found, p.name
-              ext = '.tar.gz' if target[0] == 'linux' else '.zip'
-              assert p.name == f'GoIM_{version}_{target[0]}_{target[1]}{ext}', p.name
-              found.add(target)
+              if p.suffix == '.sha256': continue
+              assert p.name in expected and p.is_file() and p.stat().st_size > 0, p.name
+              target = expected[p.name]
+              found.add(p.name)
+              digest = hashlib.sha256(p.read_bytes()).hexdigest()
+              expected_sum, expected_name = (root/(p.name+'.sha256')).read_text().split()
+              assert digest==expected_sum and expected_name==p.name, p.name
+              sums.append(digest+'  '+p.name)
+              if not p.name.endswith(('.zip', '.tar.gz')): continue
               if p.name.endswith('.zip'):
                   with zipfile.ZipFile(p) as z:
                       names=z.namelist()
@@ -187,14 +213,10 @@ jobs:
               frameworks.add(info['viva'])
               toolchains.add(info['go'])
               assert any('/licenses/' in n for n in names)
-              digest=hashlib.sha256(p.read_bytes()).hexdigest()
-              expected_sum=(root/(p.name+'.sha256')).read_text().split()[0]
-              assert digest==expected_sum
-              sums.append(digest+'  '+p.name)
-          assert found==expected, (found,expected)
+          assert found==expected.keys(), (found,expected.keys())
           assert len(frameworks)==len(toolchains)==1, (frameworks,toolchains)
           (root/'SHA256SUMS').write_text('\n'.join(sums)+'\n')
-          notes=f'GoIM {version}\n\nSix native builds passed tests and package checks. Windows three-process smoke and Linux race checks passed.\n\nSource: {os.environ["SOURCE_COMMIT"]}\nViva: {next(iter(frameworks))}\nGo: {next(iter(toolchains))}\n'
+          notes=f'GoIM {version}\n\nSix native targets and fourteen packages passed CI. Includes Windows ZIP, Setup and MSI, macOS ZIP and DMG, and Linux tar.gz and DEB. Windows three-process smoke and Linux race checks passed.\n\nSource: {os.environ["SOURCE_COMMIT"]}\nViva: {next(iter(frameworks))}\nGo: {next(iter(toolchains))}\n'
           (root/'RELEASE_NOTES.md').write_text(notes)
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

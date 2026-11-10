@@ -1,0 +1,13 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle Name="GoIM" Manufacturer="Ezreal-byte" Version="$(Version)"
+          UpgradeCode="9E103F25-0615-4F96-9BEE-83B1A02A2896"
+          IconSourceFile="$(Payload)\GoIM.ico" Compressed="yes">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" />
+    </BootstrapperApplication>
+    <Chain>
+      <MsiPackage SourceFile="$(MSI)" />
+    </Chain>
+  </Bundle>
+</Wix>
