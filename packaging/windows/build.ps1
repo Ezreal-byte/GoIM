@@ -28,12 +28,14 @@ if (!(Test-Path -LiteralPath $wix)) {
 Push-Location $toolPath
 try {
     Invoke-Checked $wix @('extension', 'add', "WixToolset.Bal.wixext/$wixVersion")
+    # WiX 5.0.2 ships Bal under a different DLL name than the NuGet package ID.
+    $bal = Join-Path $toolPath ".wix/extensions/WixToolset.Bal.wixext/$wixVersion/wixext5/WixToolset.BootstrapperApplications.wixext.dll"
     $productVersion = ($Version -split '-', 2)[0]
     Invoke-Checked $wix @('build', '-arch', $arch, '-d', "ProductVersion=$productVersion",
         '-d', "Payload=$payload", '-bindpath', "payload=$payload", '-out', $msi,
         (Join-Path $PSScriptRoot 'product.wxs'))
     Invoke-Checked $wix @('build', '-arch', $arch, '-d', "Version=$Version", '-d', "Payload=$payload",
-        '-d', "MSI=$msi", '-ext', 'WixToolset.Bal.wixext', '-out', $setup,
+        '-d', "MSI=$msi", '-ext', $bal, '-out', $setup,
         (Join-Path $PSScriptRoot 'setup.wxs'))
 } finally {
     Pop-Location
