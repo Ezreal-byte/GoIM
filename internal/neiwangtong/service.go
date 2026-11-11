@@ -218,22 +218,24 @@ func (s *Service) discoveryReadLoop() {
 				tcp9013: netip.AddrPortFrom(netip.AddrFrom4([4]byte(remoteIP)), uint16(s.cfg.TransferPort)),
 			}
 			s.peers[peerID] = p
-		} else {
-			p.udp9012.Port = ctrlPort
+		} else if p.udp9012.Port != ctrlPort {
+			p.udp9012 = &net.UDPAddr{IP: remoteIP, Port: ctrlPort}
 		}
 		p.lastSeen = time.Now()
 		p.profileTag = d.ProfileTag
+		peerCopy := p.peer
+		udpTarget := p.udp9012
 		s.peersMu.Unlock()
 
 		if s.cfg.Callbacks.Peer != nil {
-			s.cfg.Callbacks.Peer(p.peer)
+			s.cfg.Callbacks.Peer(peerCopy)
 		}
 
 		if d.Kind == Announce {
 			s.replyDiscovery(remote)
 		}
 
-		go s.handshakePeer(p)
+		go s.handshakePeer(udpTarget)
 	}
 }
 
@@ -278,17 +280,17 @@ func (s *Service) broadcastAnnounce() {
 	_, _ = s.discConn.WriteToUDP(payload, bcastAddr)
 }
 
-func (s *Service) handshakePeer(p *nativePeer) {
+func (s *Service) handshakePeer(target *net.UDPAddr) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	_, err := s.enet.Connect(ctx, p.udp9012)
+	_, err := s.enet.Connect(ctx, target)
 	if err != nil {
 		return
 	}
 
 	hs := FormatHandshark(s.cfg.Name, s.cfg.Group, s.cfg.Sign, 0, uint16(s.transfer.Port()), uint16(s.enet.localAddr.Port), 1, "avatar")
-	_ = s.enet.SendAppCommand(p.udp9012, CmdHandshark, hs)
+	_ = s.enet.SendAppCommand(target, CmdHandshark, hs)
 }
 
 func (s *Service) onENetCommand(remote *net.UDPAddr, appKind uint32, plain []byte) {
@@ -394,61 +396,70 @@ func (s *Service) findPeerIDByUDP(addr *net.UDPAddr) string {
 func (s *Service) SendText(peerID, text string) error {
 	s.peersMu.RLock()
 	p, ok := s.peers[peerID]
-	s.peersMu.RUnlock()
 	if !ok {
+		s.peersMu.RUnlock()
 		return fmt.Errorf("unknown neiwangtong peer %s", peerID)
 	}
+	udp := p.udp9012
+	s.peersMu.RUnlock()
 
 	payload, err := FormatSendMsg(uint64(time.Now().UnixNano()), text)
 	if err != nil {
 		return err
 	}
-	return s.enet.SendAppCommand(p.udp9012, CmdSendMsg, payload)
+	return s.enet.SendAppCommand(udp, CmdSendMsg, payload)
 }
 
 func (s *Service) SendFileOffer(peerID string, taskID uint64, name string, size, lastMod int64, localPath string) error {
 	s.peersMu.RLock()
 	p, ok := s.peers[peerID]
-	s.peersMu.RUnlock()
 	if !ok {
+		s.peersMu.RUnlock()
 		return fmt.Errorf("unknown neiwangtong peer %s", peerID)
 	}
+	udp := p.udp9012
+	s.peersMu.RUnlock()
 
 	s.transfer.RegisterFile(taskID, localPath, size)
 
 	payload := FormatSendFile(taskID, taskID, name, size, lastMod)
-	return s.enet.SendAppCommand(p.udp9012, CmdSendFile, payload)
+	return s.enet.SendAppCommand(udp, CmdSendFile, payload)
 }
 
 func (s *Service) RejectFile(peerID string, taskID uint64) error {
 	s.peersMu.RLock()
 	p, ok := s.peers[peerID]
-	s.peersMu.RUnlock()
 	if !ok {
+		s.peersMu.RUnlock()
 		return fmt.Errorf("unknown neiwangtong peer %s", peerID)
 	}
+	udp := p.udp9012
+	s.peersMu.RUnlock()
 
 	payload := FormatOperateRecvFile(taskID, 3)
-	return s.enet.SendAppCommand(p.udp9012, CmdOperateRecvFile, payload)
+	return s.enet.SendAppCommand(udp, CmdOperateRecvFile, payload)
 }
 
 func (s *Service) AcceptFile(ctx context.Context, peerID string, taskID uint64, totalSize int64, destPath string) error {
 	s.peersMu.RLock()
 	p, ok := s.peers[peerID]
-	s.peersMu.RUnlock()
 	if !ok {
+		s.peersMu.RUnlock()
 		return fmt.Errorf("unknown neiwangtong peer %s", peerID)
 	}
+	udp := p.udp9012
+	tcp := p.tcp9013
+	s.peersMu.RUnlock()
 
 	payload := FormatOperateRecvFile(taskID, 2)
-	_ = s.enet.SendAppCommand(p.udp9012, CmdOperateRecvFile, payload)
+	_ = s.enet.SendAppCommand(udp, CmdOperateRecvFile, payload)
 
-	err := DownloadFile(ctx, p.tcp9013, taskID, totalSize, destPath, func(done, total int64) {
+	err := DownloadFile(ctx, tcp, taskID, totalSize, destPath, func(done, total int64) {
 		if s.cfg.Callbacks.FileProgress != nil {
 			s.cfg.Callbacks.FileProgress(taskID, done, total, done >= total, nil)
 		}
 		progPayload := FormatProgressRecvFile(taskID, total, done, "0KB/s")
-		_ = s.enet.SendAppCommand(p.udp9012, CmdProgressRecvFile, progPayload)
+		_ = s.enet.SendAppCommand(udp, CmdProgressRecvFile, progPayload)
 	})
 
 	if s.cfg.Callbacks.FileProgress != nil {
@@ -474,15 +485,20 @@ func (s *Service) SetPeerTransferPort(peerID string, tcpPort netip.AddrPort) {
 func (s *Service) FetchAvatar(peerID string) {
 	s.peersMu.RLock()
 	p, ok := s.peers[peerID]
-	s.peersMu.RUnlock()
 	if !ok {
+		s.peersMu.RUnlock()
+		return
+	}
+	tcp := p.tcp9013
+	s.peersMu.RUnlock()
+	if !tcp.IsValid() {
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	png, err := FetchOfferedAvatar(ctx, s.bindIP, p.tcp9013)
+	png, err := FetchOfferedAvatar(ctx, s.bindIP, tcp)
 	if err == nil && len(png) > 0 && s.cfg.Callbacks.AvatarUpdated != nil {
 		s.cfg.Callbacks.AvatarUpdated(peerID, png)
 	}
@@ -519,11 +535,13 @@ func (s *Service) Probe(ctx context.Context, target netip.AddrPort, controlPort,
 		s.peers[peerID] = p
 	}
 	p.lastSeen = time.Now()
+	peerCopy := p.peer
+	udpTarget := p.udp9012
 	s.peersMu.Unlock()
 
 	if s.cfg.Callbacks.Peer != nil {
-		s.cfg.Callbacks.Peer(p.peer)
+		s.cfg.Callbacks.Peer(peerCopy)
 	}
-	go s.handshakePeer(p)
+	go s.handshakePeer(udpTarget)
 	return nil
 }
