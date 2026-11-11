@@ -12,11 +12,11 @@ import (
 )
 
 const (
-	enetCmdAcknowledge uint8 = 1
-	enetCmdConnect     uint8 = 2
-	enetCmdVerify      uint8 = 3
-	enetCmdDisconnect  uint8 = 4
-	enetCmdPing        uint8 = 5
+	enetCmdAcknowledge  uint8 = 1
+	enetCmdConnect      uint8 = 2
+	enetCmdVerify       uint8 = 3
+	enetCmdDisconnect   uint8 = 4
+	enetCmdPing         uint8 = 5
 	enetCmdSendReliable uint8 = 6
 	enetCmdSendFragment uint8 = 8
 
@@ -26,26 +26,26 @@ const (
 )
 
 type enetSession struct {
-	remoteAddr    *net.UDPAddr
-	remoteSlot    uint16
-	toRemote      uint8
-	fromRemote    uint8
-	outgoing      uint16
-	cookie        [4]byte
-	established   atomic.Bool
-	lastSeen      time.Time
-	mu            sync.Mutex
-	reliableSeq   uint16
-	fragMap       map[uint32][][]byte
+	remoteAddr  *net.UDPAddr
+	remoteSlot  uint16
+	toRemote    uint8
+	fromRemote  uint8
+	outgoing    uint16
+	cookie      [4]byte
+	established atomic.Bool
+	lastSeen    time.Time
+	mu          sync.Mutex
+	reliableSeq uint16
+	fragMap     map[uint32][][]byte
 }
 
 type ENetTransport struct {
-	conn       *net.UDPConn
-	localAddr  *net.UDPAddr
-	sessions   map[string]*enetSession
-	mu         sync.Mutex
-	closing    atomic.Bool
-	onCommand  func(addr *net.UDPAddr, appKind uint32, payload []byte)
+	conn      *net.UDPConn
+	localAddr *net.UDPAddr
+	sessions  map[string]*enetSession
+	mu        sync.Mutex
+	closing   atomic.Bool
+	onCommand func(addr *net.UDPAddr, appKind uint32, payload []byte)
 }
 
 func NewENetTransport(bind netip.Addr, port int, onCommand func(addr *net.UDPAddr, appKind uint32, payload []byte)) (*ENetTransport, error) {

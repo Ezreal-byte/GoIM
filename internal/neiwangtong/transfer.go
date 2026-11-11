@@ -21,13 +21,13 @@ type OutgoingFile struct {
 }
 
 type TransferServer struct {
-	listener  net.Listener
-	port      int
-	closing   atomic.Bool
-	avatarMu  sync.RWMutex
-	avatarPNG []byte
-	filesMu   sync.RWMutex
-	files     map[uint64]OutgoingFile
+	listener   net.Listener
+	port       int
+	closing    atomic.Bool
+	avatarMu   sync.RWMutex
+	avatarPNG  []byte
+	filesMu    sync.RWMutex
+	files      map[uint64]OutgoingFile
 	onProgress func(taskID uint64, done, total int64)
 }
 

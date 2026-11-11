@@ -46,18 +46,18 @@ type Config struct {
 }
 
 type Service struct {
-	cfg         Config
-	bindIP      netip.Addr
-	discConn    *net.UDPConn
-	enet        *ENetTransport
-	transfer    *TransferServer
-	peers       map[string]*nativePeer
-	peersMu     sync.RWMutex
+	cfg              Config
+	bindIP           netip.Addr
+	discConn         *net.UDPConn
+	enet             *ENetTransport
+	transfer         *TransferServer
+	peers            map[string]*nativePeer
+	peersMu          sync.RWMutex
 	closing          atomic.Bool
 	broadcastEnabled atomic.Bool
 	stopCh           chan struct{}
-	selfDisc    Discovery
-	markerHex   string
+	selfDisc         Discovery
+	markerHex        string
 }
 
 type nativePeer struct {

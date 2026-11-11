@@ -16,9 +16,9 @@ import (
 const (
 	avatarSelector = 18000
 	selectorOffset = 56
-	avatarHeader = 100
+	avatarHeader   = 100
 	avatarMaxBytes = 1 << 20
-	avatarMaxEdge = 512
+	avatarMaxEdge  = 512
 )
 
 var ErrNoAvatarOffer = errors.New("native peer did not send an avatar after confirming the request")

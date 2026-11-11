@@ -13,30 +13,30 @@ import (
 )
 
 const (
-	DiscoveryPort uint16 = 9011
-	ControlPort uint16 = 9012
-	AvatarPort uint16 = 9013
-	discoverySize = 304
-	discoveryMagic = 0x5fc1d8ec
-	discoveryTag = "#3#4#"
+	DiscoveryPort  uint16 = 9011
+	ControlPort    uint16 = 9012
+	AvatarPort     uint16 = 9013
+	discoverySize         = 304
+	discoveryMagic        = 0x5fc1d8ec
+	discoveryTag          = "#3#4#"
 )
 
 type DiscoveryKind uint32
 
 const (
-	Announce DiscoveryKind = 1
-	Reply DiscoveryKind = 2
+	Announce       DiscoveryKind = 1
+	Reply          DiscoveryKind = 2
 	ControlProfile DiscoveryKind = 4
 )
 
 // Discovery is the public discovery record. ProfileTag changes when the test
 // client changes its profile, but its individual fields are not a revision clock.
 type Discovery struct {
-	Kind DiscoveryKind
-	ID [16]byte
+	Kind       DiscoveryKind
+	ID         [16]byte
 	ProfileTag [16]byte
-	Broadcast netip.Addr
-	Trailer uint16
+	Broadcast  netip.Addr
+	Trailer    uint16
 }
 
 var errDiscovery = errors.New("invalid native discovery record")
@@ -48,10 +48,10 @@ func ParseDiscovery(p []byte) (Discovery, error) {
 		return Discovery{}, errDiscovery
 	}
 	d := Discovery{
-		Kind: DiscoveryKind(binary.BigEndian.Uint32(p[4:])),
-		Broadcast: netip.AddrFrom4([4]byte(p[20:24])),
+		Kind:       DiscoveryKind(binary.BigEndian.Uint32(p[4:])),
+		Broadcast:  netip.AddrFrom4([4]byte(p[20:24])),
 		ProfileTag: [16]byte(p[95:111]),
-		Trailer: binary.BigEndian.Uint16(p[165:167]),
+		Trailer:    binary.BigEndian.Uint16(p[165:167]),
 	}
 	if !d.validKind() {
 		return Discovery{}, errDiscovery
