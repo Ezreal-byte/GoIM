@@ -304,6 +304,8 @@ func (s *Service) onENetCommand(remote *net.UDPAddr, appKind uint32, plain []byt
 	case CmdHandshark:
 		hs, err := ParseHandshark(plain)
 		if err == nil {
+			var callbackPeer Peer
+			var hasCallback bool
 			s.peersMu.Lock()
 			if peerID == "" && len(s.peers) == 1 {
 				for id := range s.peers {
@@ -322,15 +324,17 @@ func (s *Service) onENetCommand(remote *net.UDPAddr, appKind uint32, plain []byt
 					p.tcp9013 = netip.AddrPortFrom(p.tcp9013.Addr(), hs.Net.FileTranTCPPort)
 				}
 				if hs.Net.FileTranENetPort != 0 {
-					p.udp9012.Port = int(hs.Net.FileTranENetPort)
+					p.udp9012 = &net.UDPAddr{IP: p.udp9012.IP, Port: int(hs.Net.FileTranENetPort)}
 				}
-				if s.cfg.Callbacks.Peer != nil {
-					s.cfg.Callbacks.Peer(p.peer)
-				}
+				callbackPeer = p.peer
+				hasCallback = true
 			}
 			s.peersMu.Unlock()
 
-			if hs.Info.UserFace.ID != 0 && peerID != "" {
+			if hasCallback && s.cfg.Callbacks.Peer != nil {
+				s.cfg.Callbacks.Peer(callbackPeer)
+			}
+			if (hs.Info.UserFace.ID != 0 || hs.Info.UserFace.Hash != "") && peerID != "" {
 				go s.FetchAvatar(peerID)
 			}
 		}
