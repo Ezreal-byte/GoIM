@@ -4,7 +4,7 @@ package ipmsg
 
 import "net"
 
-func listenUDPShared(network, address string) (*net.UDPConn, error) {
+func listenUDP(network, address string) (*net.UDPConn, error) {
 	return net.ListenUDP(network, mustResolve(address))
 }
 

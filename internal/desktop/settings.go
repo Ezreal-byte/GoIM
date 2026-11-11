@@ -182,6 +182,8 @@ func (p *Panels) settingsScrollArea(f *flex.Frame, tab panelSettingsTab) flex.Bo
 
 func (p *Panels) settingsFooterText() string {
 	switch p.settingsTab {
+	case panelSettingsNetwork:
+		return i18n.T("互通设置修改后请点击保存")
 	case panelSettingsShortcuts:
 		return i18n.T("录制后点击保存")
 	case panelSettingsAbout:
@@ -371,6 +373,7 @@ func (p *Panels) drawSettingsNetwork(f *flex.Frame, theme ui.Theme, state domain
 		}
 		p.drawDiscoverySettings(f, theme, state, submit)
 	})
+	p.drawCompatibility(f, theme, state, submit)
 }
 
 func (p *Panels) drawNetworkChangeConfirmation(f *flex.Frame, theme ui.Theme, submit func(domain.Command), state domain.State) {

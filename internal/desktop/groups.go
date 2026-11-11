@@ -272,86 +272,44 @@ func (u *UI) drawMemberProfile(canvas *ui.Canvas, viewport ui.Rect) {
 		u.memberProfile = ""
 		return
 	}
-	group := u.state.Group(u.state.Conversation(u.selected).GroupID)
-	inGroup := group.ID != "" && slices.Contains(group.Members, peer.ID)
-	name, role := peer.Name, ""
-	if inGroup {
-		name, role = u.groupMemberName(group.ID, peer.ID), i18n.T("群成员")
+	groupID := u.state.Conversation(u.selected).GroupID
+	if u.section == sectionContacts {
+		groupID = u.contactGroup
 	}
-	if peer.ID == group.OwnerID {
-		role = i18n.T("群主")
-	}
-	if peer.ID == u.state.Self.ID {
-		role = i18n.T("我 · 群主")
-		if peer.ID != group.OwnerID {
-			role = i18n.T("我")
-		}
-	}
-	type profileRow struct{ label, value string }
-	var rows [8]profileRow
-	count := 0
-	add := func(label, value string) {
-		if value != "" {
-			rows[count] = profileRow{i18n.T(label), value}
-			count++
-		}
-	}
-	add("个性签名", peer.Signature)
-	if gender := slices.Index(profileGenderValues[:], peer.Details.Gender); gender > 0 {
-		add("性别", i18n.T(profileGenderLabels[gender]))
-	}
-	for i, value := range profileDetailValues(peer.Details) {
-		add(profileDetailLabels[i], value)
-	}
-	add("版本", peer.Version)
+	group := u.state.Group(groupID)
 	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
 		Layer: 74, Scope: u.ids.memberProfileScope, DismissID: u.ids.memberProfileDismiss,
 		CloseID: u.ids.memberProfileClose, InitialFocusID: u.ids.memberProfileTalk,
-		ContentSize: ui.Size{Width: 460}, FitBody: true, BodyHeight: 164 + float32(count)*42,
+		ContentSize: ui.Size{Width: 460}, FitBody: true, BodyHeight: min(478, viewport.Height*0.66),
 		ButtonSize: components.ButtonSizeSmall,
 	})
-	title, description := i18n.T("联系人资料"), ""
-	if inGroup {
-		title, description = i18n.T("成员资料"), i18n.T("群聊中的公开信息")
+	title := i18n.T("联系人资料")
+	if group.ID != "" && slices.Contains(group.Members, peer.ID) {
+		title = i18n.T("成员资料")
 	}
-	layout := dialog.Begin(title, description)
+	layout := dialog.Begin(title, "")
 	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
-		f.Column().Fill().Gap(12).Children(func() {
-			f.Row().Items(flex.Center).Gap(13).Children(func() {
-				u.avatarStatus(f, name, peer.Avatar, 52, peerOnline(u, peer.ID))
-				f.Column().Grow(1).Gap(4).Children(func() {
-					f.Text(name).FontSize(18).Weight(ui.WeightSemibold).Ellipsis()
-					status := i18n.T("离线")
-					if peerOnline(u, peer.ID) {
-						status = i18n.T("在线")
-					}
-					if role != "" {
-						status += " · " + role
-					}
-					f.Text(status).FontSize(11).Muted()
-				})
-			})
-			f.Divider()
-			if inGroup {
-				u.fileInfoRow(f, i18n.T("群聊"), group.Name)
-			}
-			u.fileInfoRow(f, i18n.T("联系人分组"), defaultIfEmpty(peer.ContactGroup, i18n.T("未分组")))
-			u.fileInfoRow(f, i18n.T("设备地址"), defaultIfEmpty(peer.Address, i18n.T("未报告地址")))
-			for _, row := range rows[:count] {
-				u.fileInfoRow(f, row.label, row.value)
-			}
+		f.ScrollArea(u.ids.memberProfileScroll).Fill().Gap(8).Children(func() {
+			u.drawContactProfile(f, peer, group, 52)
 		})
 	})
-	dialog.Actions(layout,
-		components.ButtonAction{ID: u.ids.memberProfileTalk, Label: i18n.T("发消息")},
-	)
+	self := peer.ID == u.state.Self.ID
+	action := i18n.T("发消息")
+	if self {
+		action = i18n.T("编辑资料")
+	}
+	dialog.Actions(layout, components.ButtonAction{ID: u.ids.memberProfileTalk, Label: action})
 	dialog.End()
-
 	switch {
 	case canvas.Clicked(u.ids.memberProfileDismiss), canvas.Clicked(u.ids.memberProfileClose):
 		u.memberProfile = ""
 	case canvas.Clicked(u.ids.memberProfileTalk):
-		u.startDirectFromMembers(peer.ID)
+		if self {
+			u.memberProfile = ""
+			u.openProfile()
+		} else {
+			u.startDirectFromMembers(peer.ID)
+		}
 	}
 }
 
@@ -1132,7 +1090,7 @@ func (u *UI) drawConnectDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
 		Layer: 70, Scope: u.ids.connectScope, DismissID: u.ids.connectDismiss,
 		CloseID: u.ids.connectClose, InitialFocusID: u.ids.connectField,
-		ContentSize: ui.Size{Width: 500}, FitBody: true, BodyHeight: 114,
+		ContentSize: ui.Size{Width: 500}, FitBody: true, BodyHeight: 163,
 		ButtonSize: components.ButtonSizeSmall,
 	})
 	layout := dialog.Begin(i18n.T("手动连接"), i18n.T("输入对方设备地址。连接成功后，对端联系人会出现在列表中。"))
@@ -1140,10 +1098,15 @@ func (u *UI) drawConnectDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	var submitted bool
 	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
 		f.Column().Fill().Gap(8).Children(func() {
+			if index, picked := f.Select(u.ids.connectProtocol, &u.connectProtocol, connectionLabels(), u.connectRoute).Label(i18n.T("连接方式")).Picked(); picked {
+				u.connectRoute = index
+			}
 			f.Text(i18n.T("设备地址")).FontSize(12).Weight(ui.WeightMedium)
 			connect = f.Field(&u.connectField, u.ids.connectField, i18n.T("设备地址"),
-				i18n.T("例如 192.168.1.12:2425")).Height(38)
-			f.Paragraph(i18n.T("连接内网通或飞秋时，请使用对方的 IPv4 地址和端口 2425。"), 2).FontSize(11).Muted()
+				connectionHint(u.state, u.connectRoute)).Height(38)
+			if !connectionAvailable(u.state, u.connectRoute) {
+				f.Paragraph(connectionProblem(u.state, u.connectRoute), 2).FontSize(11).Muted()
+			}
 			if u.state.Error != "" {
 				f.Text(u.state.Error).FontSize(11).Color(u.palette.danger).MaxLines(2)
 			}
@@ -1152,7 +1115,7 @@ func (u *UI) drawConnectDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	submitted = connect.Submitted()
 	dialog.Actions(layout,
 		components.ButtonAction{ID: u.ids.connectCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},
-		components.ButtonAction{ID: u.ids.connectSubmit, Label: i18n.T("连接")},
+		components.ButtonAction{ID: u.ids.connectSubmit, Label: i18n.T("连接"), Disabled: !connectionAvailable(u.state, u.connectRoute)},
 	)
 	dialog.End()
 
@@ -1161,12 +1124,12 @@ func (u *UI) drawConnectDialog(canvas *ui.Canvas, viewport ui.Rect) {
 		u.connectOpen = false
 		return
 	}
-	if submitted || canvas.Clicked(u.ids.connectSubmit) {
+	if connectionAvailable(u.state, u.connectRoute) && (submitted || canvas.Clicked(u.ids.connectSubmit)) {
 		address := strings.TrimSpace(u.connectField.Text())
 		if address == "" {
 			return
 		}
-		u.submit(domain.Command{Kind: domain.Connect, Address: address})
+		u.submit(domain.Command{Kind: domain.Connect, Address: address, Transport: connectionTransport(u.connectRoute)})
 		u.connectOpen = false
 	}
 }

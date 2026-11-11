@@ -87,9 +87,23 @@ func TestShellContextScreenshotQA(t *testing.T) {
 	state.Settings.Avatar = state.Self.Avatar
 	state.Settings.Background = background
 	state.Settings.BackgroundShade = 35
+	state.NeiwangtongStatus = domain.CompatibilityStatus{Unavailable: true, Problem: "内网通原生文字、文件和头像尚未完成真机验收"}
 	shell, session := openShellQA(t, state, 1440, 960)
 
+	shellQAClick(t, session, shell.ids.navContacts)
+	shellQAClick(t, session, shell.peerRowIDs["peer-a"])
+	if err := session.Expect("layout", "clean"); err != nil {
+		t.Fatal(err)
+	}
 	shellQAShot(t, session, directory, "shell-contacts-light.png")
+	shellQAClick(t, session, shell.convRowIDs["conv-group"])
+	if err := session.Expect("text", "群聊资料"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Expect("layout", "clean"); err != nil {
+		t.Fatal(err)
+	}
+	shellQAShot(t, session, directory, "shell-group-profile-light.png")
 	shellQARightClick(t, session, shell.peerRowIDs["peer-a"])
 	shellQAShot(t, session, directory, "shell-contact-menu-light.png")
 	shellQAClick(t, session, shell.ids.shellMenuOrganize)
@@ -105,12 +119,19 @@ func TestShellContextScreenshotQA(t *testing.T) {
 	shellQAEscape(t, session)
 	shellQAClick(t, session, shell.ids.navLock)
 	shellQAShot(t, session, directory, "shell-lock-setup-light.png")
+	shellQAEscape(t, session)
 
 	darkState := shellTestState(t)
 	darkState.Settings.Theme = "dark"
 	darkState.Settings.Background = background
 	darkState.Settings.BackgroundShade = 55
 	darkShell, darkSession := openShellQA(t, darkState, 1440, 960)
+	shellQAClick(t, darkSession, darkShell.ids.navContacts)
+	shellQAClick(t, darkSession, darkShell.peerRowIDs["peer-a"])
+	if err := darkSession.Expect("layout", "clean"); err != nil {
+		t.Fatal(err)
+	}
+	shellQAShot(t, darkSession, directory, "shell-contacts-dark.png")
 	shellQARightClick(t, darkSession, darkShell.peerRowIDs["peer-a"])
 	shellQAShot(t, darkSession, directory, "shell-contact-menu-dark.png")
 	shellQAClick(t, darkSession, darkShell.ids.shellMenuOrganize)
@@ -132,6 +153,20 @@ func TestShellContextScreenshotQA(t *testing.T) {
 
 	selfState := shellMinimalState(t)
 	selfState.Settings.Nickname = "本机用户"
-	_, selfSession := openShellQA(t, selfState, 1000, 700)
+	selfShell, selfSession := openShellQA(t, selfState, 1000, 700)
+	shellQAClick(t, selfSession, selfShell.ids.navContacts)
+	shellQAClick(t, selfSession, selfShell.ids.selfRow)
 	shellQAShot(t, selfSession, directory, "shell-self-only-minimum.png")
+	shellQAClick(t, session, shell.ids.navSettings)
+	shellQAClick(t, session, shell.panels.ids.settingsCategories.At(int(panelSettingsNetwork)))
+	if err := session.Expect("text", "内网通互通"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Expect("text", "飞鸽／飞秋互通"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Expect("layout", "clean"); err != nil {
+		t.Fatal(err)
+	}
+	shellQAShot(t, session, directory, "shell-network-compat-light.png")
 }

@@ -71,7 +71,7 @@ Native chat uses TCP 47842 and IPv4 multicast at `239.192.77.77:47841` for disco
 | Neiwangtong (内网通) 3.4.3055 | Initial Windows/VMware tests verified discovery, text and individual files in both directions. Regression tests cover the TCP request format and chat attachment cards. | Images can travel as ordinary attachments. Proprietary inline media, screenshots, stickers, native share browsing and group chats are outside the adapter. |
 | FeiQ (飞秋) | Automated coverage for the extended header, Chinese encoding, discovery, and the standard IPMSG file path. | The FeiQ desktop client and version-specific extensions still need hands-on verification. |
 
-Enter `IPv4:2425` for a legacy peer when automatic discovery is unavailable. Legacy discovery and text use UDP 2425, and file downloads use TCP 2425. Run one legacy-enabled client per host to avoid port conflicts. The IPMSG adapter uses plain LAN traffic and can be disabled with `--no-ipmsg`.
+GoIM peers use the native TLS protocol. Compatibility adapters can be enabled individually under **Settings → Network** for **Neiwangtong** (UDP 9011 discovery, ENet 9012 control, and TCP 9013 avatar/file streaming) and **IP Messenger / FeiQ** (port 2425). Fresh installs leave compatibility off by default to maintain a clean local environment.
 
 ## Build from source
 

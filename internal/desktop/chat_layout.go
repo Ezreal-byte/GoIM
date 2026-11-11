@@ -185,7 +185,11 @@ func (u *UI) drawChatWorkspace(canvas *ui.Canvas, body ui.Rect) {
 			Width: 1, Height: sidebarBounds.Height,
 		}, u.palette.sidebar)
 	}
-	u.drawChat(canvas, chatBounds)
+	if u.section == sectionContacts {
+		u.drawContactDetails(canvas, chatBounds)
+	} else {
+		u.drawChat(canvas, chatBounds)
+	}
 	u.lastChat = chatBounds
 }
 

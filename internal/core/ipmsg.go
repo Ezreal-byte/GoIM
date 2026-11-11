@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -21,7 +22,7 @@ import (
 	ipmsgproto "goim/internal/ipmsg"
 )
 
-const legacyIPMSG = "ipmsg"
+const legacyIPMSG = domain.TransportIPMSG
 
 func (n *Node) connectLegacy(address string) error {
 	target, err := netip.ParseAddrPort(address)
@@ -32,7 +33,7 @@ func (n *Node) connectLegacy(address string) error {
 	service := n.legacy
 	n.mu.Unlock()
 	if service == nil {
-		return errors.New("旧版兼容服务未启动，请检查 UDP 2425 是否可用")
+		return errors.New("飞鸽／飞秋互通未运行，请检查网络设置")
 	}
 	if err := service.Probe(n.ctx, target); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -44,7 +45,7 @@ func (n *Node) connectLegacy(address string) error {
 	return nil
 }
 
-func (n *Node) startIPMSG(version string) {
+func (n *Node) newIPMSG(port int, live *atomic.Bool) (*ipmsgproto.Service, error) {
 	host, err := os.Hostname()
 	if err != nil || strings.TrimSpace(host) == "" {
 		host = "goim-host"
@@ -61,47 +62,56 @@ func (n *Node) startIPMSG(version string) {
 			bind = ip
 		}
 	}
-	service, err := ipmsgproto.Start(ipmsgproto.Config{
-		Host: host, Name: name, Version: version,
+	return ipmsgproto.Start(ipmsgproto.Config{
+		Host: host, Name: name, Version: n.version, Port: port, RequireFiles: true,
 		BindIP:           bind,
-		DisableBroadcast: !n.discovery || s.Settings.DisableAutoDiscovery,
+		DisableBroadcast: true,
 		Hidden:           s.Settings.Presence == domain.PresenceInvisible,
 		Away:             s.Settings.Presence == domain.PresenceAway || s.Settings.Presence == domain.PresenceBusy,
 		Callbacks: ipmsgproto.Callbacks{
-			Peer:         n.receiveLegacyPeer,
-			Text:         n.receiveLegacyText,
-			Files:        n.receiveLegacyFiles,
-			FilePrepared: n.prepareLegacyOffer,
-			FileProgress: n.receiveLegacyProgress,
+			Peer: func(p ipmsgproto.Peer) {
+				if live.Load() {
+					n.receiveLegacyPeer(p)
+				}
+			},
+			Text: func(id string, packet uint64, text string) {
+				if live.Load() {
+					n.receiveLegacyText(id, packet, text)
+				}
+			},
+			Files: func(id string, packet uint64, text string, files []ipmsgproto.Attachment) {
+				if live.Load() {
+					n.receiveLegacyFiles(id, packet, text, files)
+				}
+			},
+			FilePrepared: func(id string, packet uint64, file uint32) error {
+				if !live.Load() {
+					return context.Canceled
+				}
+				return n.prepareLegacyOffer(id, packet, file)
+			},
+			FileProgress: func(packet uint64, file uint32, done, total int64, complete bool, err error) {
+				if live.Load() {
+					n.receiveLegacyProgress(packet, file, done, total, complete, err)
+				}
+			},
 			AllowFile: func(transferID string) bool {
 				n.mu.Lock()
 				defer n.mu.Unlock()
 				index := transferIndex(&n.data.State, transferID)
-				if n.closing || index < 0 {
+				if n.closing || !live.Load() || index < 0 {
 					return false
 				}
 				transfer := n.data.State.Transfers[index]
 				return transfer.Direction == "send" && !transfer.Revoked && transfer.Status != "cancelled" && transfer.Status != "rejected"
 			},
 			Error: func(err error) {
-				if err != nil {
-					n.report(fmt.Errorf("内网通兼容模式: %w", err))
+				if err != nil && live.Load() {
+					n.report(fmt.Errorf("飞鸽／飞秋互通: %w", err))
 				}
 			},
 		},
 	})
-	if err != nil {
-		n.report(fmt.Errorf("内网通兼容模式未启动: %w", err))
-		return
-	}
-	n.mu.Lock()
-	if n.closing {
-		n.mu.Unlock()
-		service.Close()
-		return
-	}
-	n.legacy = service
-	n.mu.Unlock()
 }
 
 func (n *Node) receiveLegacyPeer(peer ipmsgproto.Peer) {
@@ -119,21 +129,25 @@ func (n *Node) receiveLegacyPeer(peer ipmsgproto.Peer) {
 	_ = n.change(func(s *domain.State) {
 		i := peerIndex(s, peer.ID)
 		group := ""
+		client := domain.ClientIPMSG
+		if peer.Neiwangtong {
+			client = domain.ClientNeiwangtong
+		}
 		if i >= 0 {
 			group = s.Peers[i].ContactGroup
+			if s.Peers[i].ClientType == domain.ClientNeiwangtong {
+				client = domain.ClientNeiwangtong
+			}
 		}
 		value := domain.Peer{
 			ID: peer.ID, Name: name, Address: peer.Address, ContactGroup: group,
 			Online: peer.Online, LastSeen: time.Now(), Presence: presence,
-			Transport: legacyIPMSG,
+			Transport: legacyIPMSG, ClientType: client,
 		}
 		if i < 0 {
 			s.Peers = append(s.Peers, value)
 		} else {
 			s.Peers[i] = value
-		}
-		if peer.Online {
-			ensureDirect(s, value)
 		}
 	})
 	if peer.Online {
@@ -280,7 +294,7 @@ func (n *Node) legacyPending(peer string, value pending) error {
 	service := n.legacy
 	n.mu.Unlock()
 	if service == nil {
-		return errors.New("内网通兼容服务尚未就绪")
+		return errors.New("飞鸽／飞秋互通服务尚未就绪")
 	}
 	e := value.Envelope
 	switch e.Type {
@@ -338,7 +352,7 @@ func (n *Node) downloadLegacy(ctx context.Context, transfer domain.Transfer, fil
 	service := n.legacy
 	n.mu.Unlock()
 	if service == nil {
-		return errors.New("内网通兼容服务尚未就绪")
+		return errors.New("飞鸽／飞秋互通服务尚未就绪")
 	}
 	packet, err := strconv.ParseUint(transfer.RemotePacket, 16, 64)
 	if err != nil {

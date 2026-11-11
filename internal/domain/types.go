@@ -17,7 +17,8 @@ type Peer struct {
 	Presence        Presence       `json:",omitempty"`
 	Details         ProfileDetails `json:",omitzero"`
 	Version         string         `json:",omitempty"`
-	Transport       string         `json:",omitempty"` // empty for GoIM TLS; "ipmsg" for IP Messenger-family peers
+	Transport       string         `json:",omitempty"` // empty for GoIM TLS
+	ClientType      ClientType     `json:",omitempty"`
 }
 
 // ProfileDetails contains optional information shared with connected GoIM peers.
@@ -28,6 +29,34 @@ type ProfileDetails struct {
 	Phone      string `json:",omitempty"`
 	Mobile     string `json:",omitempty"`
 	Email      string `json:",omitempty"`
+}
+
+type ClientType string
+
+const (
+	ClientGoIM        ClientType = "goim"
+	ClientNeiwangtong ClientType = "neiwangtong"
+	ClientIPMSG       ClientType = "ipmsg"
+)
+
+const (
+	TransportGoIM            = ""
+	TransportIPMSG           = "ipmsg"
+	TransportNeiwangtong     = "neiwangtong"
+	IPMSGPort                = 2425
+	NeiwangtongDiscoveryPort = 9011
+)
+
+type CompatibilityConfig struct {
+	Enabled bool
+	Port    int
+}
+
+type CompatibilityStatus struct {
+	Unavailable bool
+	Active      bool
+	Pending     *CompatibilityConfig
+	Problem     string
 }
 
 type Presence string
@@ -53,6 +82,7 @@ type Conversation struct {
 	Pinned    bool
 	Muted     bool
 	Hidden    bool // local session removed; a new message can restore it
+	Opened    bool `json:",omitempty"` // explicitly opened, even before the first message
 	Unread    int
 	Draft     string
 	Preview   string
@@ -164,36 +194,39 @@ type Shortcut struct {
 const ShortcutScreenshot = "截图标注"
 
 type Settings struct {
-	RecentEmoji          []string `json:",omitempty"`
-	Language             string
-	Theme                string
-	Nickname             string
-	Avatar               string
-	Signature            string
-	ProfileDetails       ProfileDetails `json:",omitzero"`
-	Presence             Presence
-	Background           string
-	BackgroundShade      int
-	HasLockPassword      bool
-	LockOnStartup        bool
-	HideNotificationText bool
-	HideOfflineContacts  bool
-	DisableAutoDiscovery bool
-	AutoAcceptImages     bool
-	DesktopNotifications bool
-	Sound                bool
-	DownloadDir          string
-	DuplicatePolicy      string
-	AutoAccept           bool
-	Network              string
-	PendingNetwork       string
-	CloseToTray          bool
-	SendKey              string
-	Shortcuts            []Shortcut
+	IPMSG                   CompatibilityConfig
+	Neiwangtong             CompatibilityConfig
+	CompatibilityConfigured bool
+	RecentEmoji             []string `json:",omitempty"`
+	Language                string
+	Theme                   string
+	Nickname                string
+	Avatar                  string
+	Signature               string
+	ProfileDetails          ProfileDetails `json:",omitzero"`
+	Presence                Presence
+	Background              string
+	BackgroundShade         int
+	HasLockPassword         bool
+	LockOnStartup           bool
+	HideNotificationText    bool
+	HideOfflineContacts     bool
+	DisableAutoDiscovery    bool
+	AutoAcceptImages        bool
+	DesktopNotifications    bool
+	Sound                   bool
+	DownloadDir             string
+	DuplicatePolicy         string
+	AutoAccept              bool
+	Network                 string
+	PendingNetwork          string
+	CloseToTray             bool
+	SendKey                 string
+	Shortcuts               []Shortcut
 }
 
 func DefaultSettings(downloadDir string) Settings {
-	return Settings{Language: "zh-CN", Theme: "light", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
+	return Settings{CompatibilityConfigured: true, IPMSG: CompatibilityConfig{Port: IPMSGPort}, Neiwangtong: CompatibilityConfig{Port: NeiwangtongDiscoveryPort}, Language: "zh-CN", Theme: "light", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
 		DuplicatePolicy: "rename", CloseToTray: true, SendKey: "Enter", Shortcuts: []Shortcut{
 			{Action: "会话内搜索", Keys: "Ctrl+F", Scope: "应用内"},
 			{Action: "快速查找", Keys: "Ctrl+K", Scope: "应用内"},
@@ -219,27 +252,29 @@ func (s *Settings) EnsureDefaultShortcuts() {
 }
 
 type State struct {
-	Self           Peer
-	Peers          []Peer
-	ContactGroups  []string
-	Conversations  []Conversation
-	Messages       []Message
-	Groups         []Group
-	Invitations    []Invitation
-	Files          []File
-	Transfers      []Transfer
-	Settings       Settings
-	Error          string
-	Notice         string
-	Locked         bool
-	LockResult     LockResult    `json:"-"`
-	DeviceShare    DeviceShare   `json:"-"`
-	ShareFeedback  ShareFeedback `json:"-"`
-	ListenAddress  string
-	LocalIP        string `json:"-"`
-	Version        string
-	Revision       uint64
-	GroupNicknames []GroupNickname
+	IPMSGStatus       CompatibilityStatus `json:"-"`
+	NeiwangtongStatus CompatibilityStatus `json:"-"`
+	Self              Peer
+	Peers             []Peer
+	ContactGroups     []string
+	Conversations     []Conversation
+	Messages          []Message
+	Groups            []Group
+	Invitations       []Invitation
+	Files             []File
+	Transfers         []Transfer
+	Settings          Settings
+	Error             string
+	Notice            string
+	Locked            bool
+	LockResult        LockResult    `json:"-"`
+	DeviceShare       DeviceShare   `json:"-"`
+	ShareFeedback     ShareFeedback `json:"-"`
+	ListenAddress     string
+	LocalIP           string `json:"-"`
+	Version           string
+	Revision          uint64
+	GroupNicknames    []GroupNickname
 }
 
 type LockResult struct {
@@ -310,6 +345,7 @@ type CommandKind string
 
 const (
 	Connect            CommandKind = "connect"
+	SetCompatibility   CommandKind = "set_compatibility"
 	StartChat          CommandKind = "start_chat"
 	SendText           CommandKind = "send_text"
 	SendFiles          CommandKind = "send_files"
@@ -358,6 +394,8 @@ const (
 )
 
 type Command struct {
+	Transport      string
+	Compatibility  CompatibilityConfig
 	MessageID      string
 	Kind           CommandKind
 	PeerID         string

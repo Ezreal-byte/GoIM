@@ -137,6 +137,7 @@ func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
 		return
 	}
 	hello.Peer.PublicKey = append([]byte(nil), key...)
+	hello.Peer.Transport, hello.Peer.ClientType = domain.TransportGoIM, domain.ClientGoIM
 	hello.Peer.Avatar = ""
 	hello.Peer.RecallSupported = hello.RecallSupported
 	if len(hello.Avatar) > 0 {
@@ -263,7 +264,9 @@ func (n *Node) flushPeer(peer string) {
 			list = append(list, p)
 		}
 	}
-	legacy := n.data.State.Peer(peer).Transport == legacyIPMSG
+	pTransport := n.data.State.Peer(peer).Transport
+	legacy := pTransport == legacyIPMSG
+	isNWT := pTransport == domain.TransportNeiwangtong
 	n.mu.Unlock()
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].Sequence == list[j].Sequence {
@@ -275,6 +278,20 @@ func (n *Node) flushPeer(peer string) {
 		var done []pending
 		for _, p := range list {
 			if err := n.legacyPending(peer, p); err != nil {
+				break
+			}
+			done = append(done, p)
+		}
+		if len(done) != 0 {
+			_ = n.legacyCompleted(done)
+		}
+		n.flushMu.Unlock()
+		return
+	}
+	if isNWT {
+		var done []pending
+		for _, p := range list {
+			if err := n.neiwangtongPending(peer, p); err != nil {
 				break
 			}
 			done = append(done, p)

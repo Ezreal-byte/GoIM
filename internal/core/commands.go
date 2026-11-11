@@ -26,7 +26,9 @@ func (n *Node) execute(c domain.Command) error {
 		if strings.TrimSpace(c.Address) == "" {
 			return errors.New("请输入 IP 或 IP:端口")
 		}
-		n.Connect(c.Address)
+		return n.connectVia(c.Transport, c.Address)
+	case domain.SetCompatibility:
+		return n.setCompatibility(c.Transport, c.Compatibility)
 	case domain.StartChat:
 		s := n.snapshot(false)
 		if c.ConversationID != "" {
@@ -49,6 +51,7 @@ func (n *Node) execute(c domain.Command) error {
 			id := ensureDirect(s, p)
 			if i := convIndex(s, id); i >= 0 {
 				s.Conversations[i].Hidden = false
+				s.Conversations[i].Opened = true
 			}
 		})
 	case domain.RecallMessage:
@@ -498,7 +501,15 @@ func (n *Node) setting(c domain.Command) error {
 	default:
 		return errors.New("未知设置项")
 	}
-	if err := n.change(func(s *domain.State) { s.Settings = settings; s.Notice = "已保存"; s.Error = "" }); err != nil {
+	if err := n.change(func(s *domain.State) {
+		// A deferred compatibility rebind can commit while this command
+		// imports an asset or validates another setting.
+		settings.IPMSG = s.Settings.IPMSG
+		settings.Neiwangtong = s.Settings.Neiwangtong
+		settings.CompatibilityConfigured = s.Settings.CompatibilityConfigured
+		s.Settings = settings
+		s.Notice, s.Error = "已保存", ""
+	}); err != nil {
 		return err
 	}
 	if c.Setting == "disable_auto_discovery" {

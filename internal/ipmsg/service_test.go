@@ -292,19 +292,19 @@ func TestDownloadFromClassicFileSender(t *testing.T) {
 
 func freeIPMSGPort(t *testing.T) int {
 	t.Helper()
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	for range 16 {
+		packet, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := packet.LocalAddr().(*net.UDPAddr).Port
+		listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+		_ = packet.Close()
+		if err == nil {
+			_ = listener.Close()
+			return port
+		}
 	}
-	_, portText, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		listener.Close()
-		t.Fatal(err)
-	}
-	listener.Close()
-	port, err := strconv.Atoi(portText)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return port
+	t.Fatal("no port available for both UDP and TCP")
+	return 0
 }

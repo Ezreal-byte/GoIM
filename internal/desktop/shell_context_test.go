@@ -65,6 +65,7 @@ func TestSelfRowAppearsWithNoOtherContactsAndOpensProfile(t *testing.T) {
 	state := shellMinimalState(t)
 	state.Settings.Nickname = "本机用户"
 	harness := newShellTestHarness(t, state)
+	harness.clickID(harness.ui.ids.navContacts)
 
 	if !harness.hasHit(harness.ui.ids.selfRow) {
 		t.Fatal("the self row is missing when there are no contacts")
@@ -76,6 +77,11 @@ func TestSelfRowAppearsWithNoOtherContactsAndOpensProfile(t *testing.T) {
 	requireShellLayout(t, harness.snapshot())
 
 	harness.clickID(harness.ui.ids.selfRow)
+	harness.settle()
+	if harness.ui.profile.open || !harness.hasText("用户类型") {
+		t.Fatal("self selection must show the profile without editing")
+	}
+	harness.clickID(harness.ui.ids.contactTalk)
 	harness.settle()
 	if !harness.ui.profile.open || !harness.hasText("个人资料") {
 		t.Fatal("clicking the self row did not open the profile editor")
@@ -153,13 +159,18 @@ func TestHiddenConversationIsNotListedCountedOrReused(t *testing.T) {
 	harness.settle()
 	harness.clickID(harness.ui.peerRowIDs["peer-a"])
 	harness.settle()
-	command := harness.lastCommand()
-	if command.Kind != domain.StartChat || command.PeerID != "peer-a" {
-		t.Fatalf("contact click reused a hidden direct conversation: %+v", command)
+	if harness.ui.section != sectionContacts || harness.ui.selected != "conv-group" {
+		t.Fatal("contact selection changed the chat")
+	}
+	harness.clickID(harness.ui.ids.contactTalk)
+	harness.settle()
+	command, found := findShellCommand(harness.backend.commandLog(), domain.StartChat)
+	if !found || command.PeerID != "peer-a" {
+		t.Fatalf("send-message action did not reopen the hidden direct conversation: %+v", command)
 	}
 }
 
-func TestHiddenGroupConversationLeavesTheContactsSidebar(t *testing.T) {
+func TestHiddenGroupConversationRemainsInContacts(t *testing.T) {
 	state := shellTestState(t)
 	state.Conversations[0].Hidden = true
 	harness := newShellTestHarness(t, state)
@@ -168,8 +179,16 @@ func TestHiddenGroupConversationLeavesTheContactsSidebar(t *testing.T) {
 	}
 	harness.clickID(harness.ui.ids.navContacts)
 	harness.settle()
-	if harness.hasHit(harness.ui.convRowIDs["conv-group"]) {
-		t.Fatal("a hidden group conversation stayed in the contacts sidebar")
+	if !harness.hasHit(harness.ui.convRowIDs["conv-group"]) {
+		t.Fatal("a hidden group conversation disappeared from Contacts")
+	}
+	harness.clickID(harness.ui.convRowIDs["conv-group"])
+	if !harness.hasText("群聊资料") {
+		t.Fatal("group selection did not open its details")
+	}
+	harness.clickID(harness.ui.ids.contactTalk)
+	if command := harness.lastCommand(); command.Kind != domain.StartChat || command.ConversationID != "conv-group" {
+		t.Fatalf("reopen group: %+v", command)
 	}
 }
 
@@ -257,6 +276,7 @@ func TestContactContextMenuOrganizesIntoExistingNewAndUngroupedGroups(t *testing
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			harness := newShellTestHarness(t, shellTestState(t))
+			harness.clickID(harness.ui.ids.navContacts)
 			harness.rightClickID(harness.ui.peerRowIDs["peer-a"])
 			harness.settle()
 			if !harness.ui.shellMenu.open || harness.ui.shellMenu.kind != shellMenuContact {
@@ -293,6 +313,7 @@ func TestSidebarContextMenuCollapsesAndExpandsContactGroups(t *testing.T) {
 		{ID: "peer-b", Name: "Bob", ContactGroup: "工程", Online: false},
 	}
 	harness := newShellTestHarness(t, state)
+	harness.clickID(harness.ui.ids.navContacts)
 	surface, ok := harness.findHit(harness.ui.ids.sidebarSurface)
 	if !ok {
 		t.Fatal("sidebar surface is missing")
@@ -591,7 +612,7 @@ func TestRailLockEntryUsesLockSetupAndBlocksTheShell(t *testing.T) {
 		if harness.ui.lockUI.setup || harness.ui.lockVisible() {
 			t.Fatal("Escape did not cancel lock setup")
 		}
-		if !harness.hasHit(harness.ui.ids.selfRow) {
+		if !harness.hasHit(harness.ui.ids.navMessages) {
 			t.Fatal("the shell did not return after canceling lock setup")
 		}
 	})

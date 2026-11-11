@@ -9,6 +9,8 @@ import (
 	"goim/internal/domain"
 )
 
+const discoveryPort = 47841
+
 func (n *Node) selectedInterface() *net.Interface {
 	name := n.snapshot(false).Settings.Network
 	if name == "" || name == "auto" {
@@ -87,7 +89,7 @@ func (n *Node) readDiscovery(c *net.UDPConn) {
 }
 func (n *Node) discoveryLoop() {
 	defer n.wg.Done()
-	address := &net.UDPAddr{IP: net.IPv4(239, 192, 77, 77), Port: 47841}
+	address := &net.UDPAddr{IP: net.IPv4(239, 192, 77, 77), Port: discoveryPort}
 	var connection *net.UDPConn
 	networkName := "__initial__"
 	defer func() {

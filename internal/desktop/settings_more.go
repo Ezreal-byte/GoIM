@@ -19,6 +19,10 @@ type panelSettingsExtra struct {
 	profile, connect, connectAddress, lockStartup, passwordOld, passwordNew, passwordRepeat, passwordSave ui.ID
 	shade                                                                                                 flex.SliderState
 	shadeDirty                                                                                            bool
+	connectProtocol                                                                                       ui.Scope
+	connectRoute                                                                                          int
+	connectSelect                                                                                         flex.SelectState
+	compat                                                                                                [2]compatibilityEditor
 	address, old, password, repeat                                                                        flex.Field
 	passwordError                                                                                         string
 	openProfile                                                                                           func()
@@ -47,6 +51,9 @@ func (s *panelSettingsExtra) init(tree *ui.Tree, scope ui.Scope) {
 	s.profile = tree.ID(scope, "open-profile")
 	s.connect = tree.ID(scope, "manual-connect")
 	s.connectAddress = tree.ID(scope, "manual-address")
+	s.connectProtocol = tree.Sub(scope, tree.Name("manual-protocol"))
+	s.compat[0].init(tree, tree.Sub(scope, tree.Name("neiwangtong")))
+	s.compat[1].init(tree, tree.Sub(scope, tree.Name("ipmsg")))
 	s.lockStartup = tree.ID(scope, "lock-startup")
 	s.passwordOld = tree.ID(scope, "password-old")
 	s.passwordNew = tree.ID(scope, "password-new")
@@ -65,7 +72,7 @@ func (s *panelSettingsExtra) isPasswordField(id ui.ID) bool {
 }
 
 func (s *panelSettingsExtra) textInput(context app.TextInputContext) *app.TextInput {
-	return flex.Fields(&s.address, &s.old, &s.password, &s.repeat)(context)
+	return flex.Fields(&s.address, &s.old, &s.password, &s.repeat, &s.compat[0].field, &s.compat[1].field)(context)
 }
 
 func (p *Panels) drawBackgroundSettings(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
@@ -138,18 +145,22 @@ func (p *Panels) drawDiscoverySettings(f *flex.Frame, theme ui.Theme, state doma
 			}
 		})
 	})
-	panelSettingRow(f, theme, i18n.T("手动连接"), i18n.T("连接内网通或飞秋时，请使用对方的 IPv4 地址和端口 2425。"), func() {
-		panelControlColumn(f, 260, func() {
+	panelSettingRow(f, theme, i18n.T("手动连接"), i18n.T("先选择协议，再输入对方设备地址。"), func() {
+		panelControlColumn(f, 280, func() {
+			if index, picked := f.Select(s.connectProtocol, &s.connectSelect, connectionLabels(), s.connectRoute).Label(i18n.T("连接方式")).Picked(); picked {
+				s.connectRoute = index
+			}
 			f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
-				field := f.Field(&s.address, s.connectAddress, i18n.T("对方 IP 地址"), i18n.T("IP 或 IP:端口")).Grow(1)
-				if f.Button(s.connect, i18n.T("连接")).Small().Outline().Clicked() || field.Submitted() {
+				available := connectionAvailable(state, s.connectRoute)
+				field := f.Field(&s.address, s.connectAddress, i18n.T("对方 IP 地址"), connectionHint(state, s.connectRoute)).Grow(1)
+				if f.Button(s.connect, i18n.T("连接")).Small().Outline().Disabled(!available).Clicked() || available && field.Submitted() {
 					address := strings.TrimSpace(s.address.Text())
 					if address == "" {
 						p.localError = i18n.T("请输入对方 IP 地址")
 						return
 					}
 					p.localError, p.localNotice = "", i18n.T("已发起连接")
-					submit(domain.Command{Kind: domain.Connect, Address: address})
+					submit(domain.Command{Kind: domain.Connect, Address: address, Transport: connectionTransport(s.connectRoute)})
 				}
 			})
 		})

@@ -23,12 +23,13 @@ import (
 )
 
 type Peer struct {
-	ID      string
-	Name    string
-	Host    string
-	Address string
-	Online  bool
-	Away    bool
+	ID          string
+	Name        string
+	Host        string
+	Address     string
+	Online      bool
+	Away        bool
+	Neiwangtong bool
 }
 
 type Callbacks struct {
@@ -50,6 +51,7 @@ type Config struct {
 	Hidden           bool
 	Away             bool
 	DisableBroadcast bool
+	RequireFiles     bool
 	Callbacks        Callbacks
 }
 
@@ -115,7 +117,7 @@ func Start(cfg Config) (*Service, error) {
 		bind = cfg.BindIP
 	}
 	endpoint := netip.AddrPortFrom(bind, uint16(cfg.Port)).String()
-	packet, err := listenUDPShared("udp4", endpoint)
+	packet, err := listenUDP("udp4", endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("IPMSG UDP %d: %w", cfg.Port, err)
 	}
@@ -129,7 +131,12 @@ func Start(cfg Config) (*Service, error) {
 	service.fileID.Store(1)
 	service.profile.Store(&localProfile{name: cfg.Name, hidden: cfg.Hidden, away: cfg.Away})
 	service.broadcast.Store(!cfg.DisableBroadcast)
-	service.tcp, _ = net.Listen("tcp4", endpoint)
+	service.tcp, err = net.Listen("tcp4", endpoint)
+	if err != nil && cfg.RequireFiles {
+		cancel()
+		_ = packet.Close()
+		return nil, fmt.Errorf("IPMSG TCP %d: %w", cfg.Port, err)
+	}
 	service.wg.Add(1)
 	go service.readUDP()
 	if service.tcp != nil {
@@ -371,7 +378,7 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 	id := peerID(message.Host, from.IP.String())
 	peer := Peer{ID: id, Name: message.Sender, Host: message.Host,
 		Address: from.String(),
-		Online:  true, Away: message.has(optionAbsence)}
+		Online:  true, Away: message.has(optionAbsence), Neiwangtong: message.isNeiwangtong()}
 	presence := base == commandEntry || base == commandAnswer || base == commandAbsence
 	if presence {
 		if nickname, _ := decodeMessage(message.Extra, message.has(optionUTF8)); strings.TrimSpace(nickname) != "" {
@@ -398,6 +405,7 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 	} else if !presence {
 		// A text packet names the login, not necessarily the display nickname.
 		peer.Name, peer.Away = state.peer.Name, state.peer.Away
+		peer.Neiwangtong = peer.Neiwangtong || state.peer.Neiwangtong
 	}
 	if base == commandExit {
 		peer.Online = false

@@ -178,7 +178,11 @@ func (u *UI) drawChatHeader(f *flex.Frame, conversation domain.Conversation) {
 				avatarName = peer.Name
 			}
 		}
-		u.avatarWithPresence(f, avatarName, avatar, 42, online, false, u.palette.chat)
+		if conversation.Kind == "direct" {
+			u.chatPeerAvatar(f, u.ids.chatHeaderAvatar, conversation.PeerID, avatarName, avatar, 42)
+		} else {
+			u.avatarWithPresence(f, avatarName, avatar, 42, online, false, u.palette.chat)
+		}
 		f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
 			f.Text(title).FontSize(17).Weight(ui.WeightSemibold).Ellipsis()
 			f.Row().Items(flex.Center).Gap(7).Children(func() {
@@ -380,7 +384,7 @@ func (u *UI) drawTextMessage(f *flex.Frame, conversation domain.Conversation, me
 	f.Row().FillWidth().Justify(flex.Start).Items(flex.End).Gap(10).Children(func() {
 		peer := u.state.Peer(message.SenderID)
 		name := u.messageSenderName(conversation, message)
-		u.avatarWithPresence(f, name, peer.Avatar, 34, false, false, u.palette.chat)
+		u.chatPeerAvatar(f, u.messageAvatarIDs[message.ID], peer.ID, name, peer.Avatar, 34)
 		f.Column().Gap(4).Items(flex.Start).Children(func() {
 			if conversation.Kind == "group" {
 				f.Text(name).FontSize(11.5).Muted().Ellipsis()
@@ -459,7 +463,7 @@ func (u *UI) drawImageMessage(f *flex.Frame, conversation domain.Conversation, m
 	f.Row().FillWidth().Justify(justify).Items(flex.Start).Gap(10).Children(func() {
 		if !own {
 			peer := u.state.Peer(message.SenderID)
-			u.avatarWithPresence(f, u.messageSenderName(conversation, message), peer.Avatar, 34, false, false, u.palette.chat)
+			u.chatPeerAvatar(f, u.messageAvatarIDs[message.ID], peer.ID, u.messageSenderName(conversation, message), peer.Avatar, 34)
 		}
 		f.Column().Gap(4).Items(align).Children(func() {
 			if !own && conversation.Kind == "group" {
@@ -516,7 +520,7 @@ func (u *UI) drawFileMessage(f *flex.Frame, conversation domain.Conversation, me
 	f.Row().FillWidth().Justify(justify).Items(flex.Start).Gap(10).Children(func() {
 		if !own {
 			peer := u.state.Peer(message.SenderID)
-			u.avatarWithPresence(f, u.messageSenderName(conversation, message), peer.Avatar, 34, false, false, u.palette.chat)
+			u.chatPeerAvatar(f, u.messageAvatarIDs[message.ID], peer.ID, u.messageSenderName(conversation, message), peer.Avatar, 34)
 		}
 		f.Column().Gap(4).Children(func() {
 			if !own && conversation.Kind == "group" {

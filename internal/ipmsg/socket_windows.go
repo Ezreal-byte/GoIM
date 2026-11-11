@@ -10,12 +10,20 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func listenUDPShared(network, address string) (*net.UDPConn, error) {
+func listenUDP(network, address string) (*net.UDPConn, error) {
 	config := net.ListenConfig{Control: func(_, _ string, raw syscall.RawConn) error {
-		return raw.Control(func(fd uintptr) {
-			_ = windows.SetsockoptInt(windows.Handle(fd), windows.SOL_SOCKET, windows.SO_REUSEADDR, 1)
-			_ = windows.SetsockoptInt(windows.Handle(fd), windows.SOL_SOCKET, windows.SO_BROADCAST, 1)
+		// Winsock2 defines SO_EXCLUSIVEADDRUSE as the complement of SO_REUSEADDR.
+		var socketErr error
+		err := raw.Control(func(fd uintptr) {
+			socketErr = windows.SetsockoptInt(windows.Handle(fd), windows.SOL_SOCKET, ^windows.SO_REUSEADDR, 1)
+			if socketErr == nil {
+				socketErr = windows.SetsockoptInt(windows.Handle(fd), windows.SOL_SOCKET, windows.SO_BROADCAST, 1)
+			}
 		})
+		if err != nil {
+			return err
+		}
+		return socketErr
 	}}
 	packet, err := config.ListenPacket(context.Background(), network, address)
 	if err != nil {

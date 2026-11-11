@@ -203,12 +203,17 @@ type appIDs struct {
 	messageMenuCopy, messageMenuSave, messageMenuRecall, messageMenuDelete ui.ID
 	emojiDismiss                                                           ui.ID
 
-	connectScope   ui.ID
-	connectDismiss ui.ID
-	connectClose   ui.ID
-	connectField   ui.ID
-	connectCancel  ui.ID
-	connectSubmit  ui.ID
+	connectScope       ui.ID
+	connectDismiss     ui.ID
+	connectClose       ui.ID
+	connectField       ui.ID
+	connectProtocol    ui.Scope
+	contactDetails     ui.ID
+	contactTalk        ui.ID
+	contactMemberScope ui.Scope
+	chatHeaderAvatar   ui.ID
+	connectCancel      ui.ID
+	connectSubmit      ui.ID
 
 	composeScope   ui.ID
 	composeDismiss ui.ID
@@ -261,6 +266,7 @@ type appIDs struct {
 	memberProfileDismiss ui.ID
 	memberProfileClose   ui.ID
 	memberProfileTalk    ui.ID
+	memberProfileScroll  ui.ID
 	memberMuteToggle     ui.ID
 	memberPinToggle      ui.ID
 
@@ -318,15 +324,19 @@ type UI struct {
 
 	ids appIDs
 
-	section       string
-	selected      string
-	pendingPeer   string
-	pendingGroup  string
-	sidebarFilter string
-	collapsed     map[string]bool
-	sidebarSearch flex.Field
-	connectOpen   bool
-	connectField  flex.Field
+	section         string
+	selected        string
+	pendingPeer     string
+	pendingGroup    string
+	sidebarFilter   string
+	collapsed       map[string]bool
+	sidebarSearch   flex.Field
+	connectOpen     bool
+	connectField    flex.Field
+	connectProtocol flex.SelectState
+	connectRoute    int
+	contactPeer     string
+	contactGroup    string
 
 	chatEditor        *text.Editor
 	requestScreenshot func()
@@ -421,6 +431,7 @@ type UI struct {
 	groupRemoveIDs      map[string]ui.ID
 	memberMenuIDs       map[string]ui.ID
 	memberInfoIDs       map[string]ui.ID
+	contactMemberIDs    map[string]ui.ID
 	memberMessageIDs    map[string]ui.ID
 	memberRemoveIDs     map[string]ui.ID
 	memberTransferIDs   map[string]ui.ID
@@ -435,6 +446,7 @@ type UI struct {
 	emojiScrollGrab     float32
 	emojiPanel          ui.Rect
 	messageIDs          map[string]ui.ID
+	messageAvatarIDs    map[string]ui.ID
 
 	imageCache  map[string]ui.Bitmap
 	avatarCache map[string]ui.Bitmap
@@ -513,7 +525,7 @@ func New(backend domain.Backend) *UI {
 		backend:             backend,
 		theme:               ui.LightTheme(),
 		done:                make(chan struct{}),
-		section:             sectionContacts,
+		section:             sectionMessages,
 		collapsed:           make(map[string]bool),
 		chatEditor:          text.NewEditor(""),
 		drafts:              make(map[string]string),
@@ -542,6 +554,7 @@ func New(backend domain.Backend) *UI {
 		groupRemoveIDs:      make(map[string]ui.ID),
 		memberMenuIDs:       make(map[string]ui.ID),
 		memberInfoIDs:       make(map[string]ui.ID),
+		contactMemberIDs:    make(map[string]ui.ID),
 		memberMessageIDs:    make(map[string]ui.ID),
 		memberRemoveIDs:     make(map[string]ui.ID),
 		memberTransferIDs:   make(map[string]ui.ID),
@@ -552,6 +565,7 @@ func New(backend domain.Backend) *UI {
 		emojiIDs:            make(map[string]ui.ID),
 		emojiRecentIDs:      make(map[string]ui.ID),
 		messageIDs:          make(map[string]ui.ID),
+		messageAvatarIDs:    make(map[string]ui.ID),
 		imageCache:          make(map[string]ui.Bitmap),
 		avatarCache:         make(map[string]ui.Bitmap),
 		imageStamps:         make(map[string]imageStamp),
@@ -847,8 +861,8 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 }
 
 func (u *UI) markSelectedConversationRead() {
-	if !u.windowVisible.Load() || (u.nativeWindow != nil && !mainWindowForeground()) || u.isPanelSection() || u.selected == "" ||
-		u.chatFind.open || u.modalOpen() {
+	if !u.windowVisible.Load() || (u.nativeWindow != nil && !mainWindowForeground()) || u.section != sectionMessages || u.selected == "" ||
+		u.pendingPeer != "" || u.pendingGroup != "" || u.chatFind.open || u.modalOpen() {
 		u.readMarkID = ""
 		u.readMarkCount = 0
 		return
@@ -987,6 +1001,12 @@ func (u *UI) initIDs() {
 	u.ids.connectDismiss = u.tree.ID(u.ids.dialog, "connect-dismiss")
 	u.ids.connectClose = u.tree.ID(u.ids.dialog, "connect-close")
 	u.ids.connectField = u.tree.ID(u.ids.dialog, "connect-address")
+	u.ids.connectProtocol = u.tree.Sub(u.ids.dialog, u.tree.Name("connect-protocol"))
+	contacts := u.tree.Feature("contact-details")
+	u.ids.contactDetails = u.tree.ID(contacts, "scroll")
+	u.ids.contactTalk = u.tree.ID(contacts, "primary-action")
+	u.ids.contactMemberScope = u.tree.Sub(contacts, u.tree.Name("members"))
+	u.ids.chatHeaderAvatar = u.tree.ID(u.ids.chat, "peer-avatar")
 	u.ids.connectCancel = u.tree.ID(u.ids.dialog, "connect-cancel")
 	u.ids.connectSubmit = u.tree.ID(u.ids.dialog, "connect-submit")
 
@@ -1043,6 +1063,7 @@ func (u *UI) initIDs() {
 	u.ids.memberProfileDismiss = u.tree.ID(u.ids.dialog, "member-profile-dismiss")
 	u.ids.memberProfileClose = u.tree.ID(u.ids.dialog, "member-profile-close")
 	u.ids.memberProfileTalk = u.tree.ID(u.ids.dialog, "member-profile-message")
+	u.ids.memberProfileScroll = u.tree.ID(u.ids.dialog, "member-profile-scroll")
 	u.ids.memberMuteToggle = u.tree.ID(u.ids.dialog, "member-mute")
 	u.ids.memberPinToggle = u.tree.ID(u.ids.dialog, "member-pin")
 
@@ -1182,6 +1203,7 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 	})
 	if messages.Clicked() {
 		u.setSection(sectionMessages)
+		u.markSelectedConversationRead()
 	}
 	if contacts.Clicked() {
 		u.setSection(sectionContacts)
@@ -1463,7 +1485,7 @@ func (u *UI) selfContactRow(f *flex.Frame) {
 		f.Canvas().Consume()
 	}
 	if row.Clicked() {
-		u.openProfile()
+		u.showContact(self.ID)
 	}
 	f.Row().Height(2)
 }
@@ -1618,10 +1640,7 @@ func (u *UI) contactGroupHeader(f *flex.Frame, group contactGroupView, collapsed
 
 func (u *UI) contactRow(f *flex.Frame, peer domain.Peer) {
 	id := u.peerRowIDs[peer.ID]
-	selected := false
-	if convID, ok := u.directByPeer[peer.ID]; ok && convID == u.selected {
-		selected = true
-	}
+	selected := u.contactPeer == peer.ID
 	background := ui.Color{}
 	if selected {
 		background = u.palette.selected
@@ -1636,8 +1655,8 @@ func (u *UI) contactRow(f *flex.Frame, peer domain.Peer) {
 					f.Text(peer.Name).FontSize(14).Weight(ui.WeightMedium).Ellipsis()
 				})
 				subtitle := peerPresenceLabel(peer)
-				if peer.Transport == "ipmsg" {
-					subtitle += " · " + i18n.T("旧版兼容")
+				if peer.Transport != domain.TransportGoIM {
+					subtitle += " · " + contactClientLabel(peer)
 				}
 				if peer.Signature != "" {
 					subtitle += " · " + peer.Signature
@@ -1653,7 +1672,7 @@ func (u *UI) contactRow(f *flex.Frame, peer domain.Peer) {
 		f.Canvas().Consume()
 	}
 	if row.Clicked() {
-		u.startChat(peer.ID)
+		u.showContact(peer.ID)
 	}
 }
 
@@ -1669,7 +1688,9 @@ func (u *UI) drawGroupChats(f *flex.Frame) {
 		f.Text(intString(len(u.groupChats))).FontSize(11).Muted()
 	})
 	for _, conversation := range u.groupChats {
-		u.conversationRow(f, conversation, 60)
+		if q := strings.TrimSpace(u.sidebarSearch.Text()); q == "" || containsFold(u.conversationTitle(conversation), q) {
+			u.contactGroupRow(f, conversation)
+		}
 	}
 	f.Row().Height(8)
 }
@@ -1854,7 +1875,7 @@ func (u *UI) rebuildPresentation(oldError string) {
 		}
 	}
 	for _, conversation := range u.state.Conversations {
-		if conversation.Kind == "group" && !conversation.Hidden {
+		if conversation.Kind == "group" {
 			group := u.state.Group(conversation.GroupID)
 			if !group.Left && !group.Dissolved {
 				u.groupChats = append(u.groupChats, conversation)
@@ -2060,6 +2081,7 @@ func (u *UI) rebuildSelection() {
 	u.messages = append(u.messages[:0], u.state.ChatMessages(u.selected)...)
 	for _, m := range u.messages {
 		u.ensureID(u.messageIDs, u.ids.chat, "message:", m.ID)
+		u.ensureID(u.messageAvatarIDs, u.ids.chat, "message-avatar:", m.ID)
 	}
 	sort.SliceStable(u.messages, func(i, j int) bool {
 		return u.messages[i].CreatedAt.Before(u.messages[j].CreatedAt)
@@ -2087,6 +2109,7 @@ func (u *UI) reconcileCompose(oldError string) {
 			}
 			u.compose.pending = false
 			u.compose.open = false
+			u.setSection(sectionMessages)
 			for _, conversation := range u.state.Conversations {
 				if conversation.GroupID == group.ID {
 					if u.selected != conversation.ID {
@@ -2169,12 +2192,14 @@ func (u *UI) selectConversation(id string) {
 	}
 	u.closeShellMenu()
 	if id == u.selected {
+		u.pendingPeer, u.pendingGroup = "", ""
 		u.markSelectedConversationRead()
 		return
 	}
 	if !u.guardGroupRenameNavigation(func() { u.selectConversation(id) }) {
 		return
 	}
+	u.pendingPeer, u.pendingGroup = "", ""
 	if c := u.state.Conversation(id); c.Hidden && c.Kind == "group" {
 		u.pendingGroup = id
 		u.submit(domain.Command{Kind: domain.StartChat, ConversationID: id})
@@ -2224,6 +2249,9 @@ func (u *UI) setSection(section string) {
 		u.saveCurrentDraft()
 	}
 	u.section = section
+	if section != sectionMessages {
+		u.pendingPeer, u.pendingGroup = "", ""
+	}
 	if section == sectionSettings {
 		u.panels.refreshNetworks()
 	}
@@ -2240,7 +2268,6 @@ func (u *UI) setSection(section string) {
 	u.memberMenu = ""
 	u.memberProfile = ""
 	u.resetGroupRename()
-	u.markSelectedConversationRead()
 }
 
 func (u *UI) toggleTheme() {
@@ -2257,6 +2284,7 @@ func (u *UI) toggleTheme() {
 func (u *UI) openConnect() {
 	u.closeShellMenu()
 	u.connectOpen = true
+	u.connectRoute, u.connectProtocol = 0, flex.SelectState{}
 	u.connectField.SetText("")
 }
 
@@ -2468,7 +2496,7 @@ func (u *UI) onScroll(event ui.ScrollEvent) ui.EventResult {
 	if u.isPanelSection() {
 		return u.panels.Wheel(event)
 	}
-	if event.X < railWidth+sidebarWidth {
+	if event.X < u.lastChat.X {
 		return u.sidebarView.Wheel(event)
 	}
 	result := u.chatView.Wheel(event)
@@ -2720,6 +2748,7 @@ func (u *UI) ensurePeerID(id string) {
 	u.ensureID(u.groupRemoveIDs, u.ids.dialog, "peer-remove:", id)
 	u.ensureID(u.memberMenuIDs, u.ids.dialog, "member-menu:", id)
 	u.ensureID(u.memberInfoIDs, u.ids.dialog, "member-info:", id)
+	u.ensureID(u.contactMemberIDs, u.ids.contactMemberScope, "contact-member:", id)
 	u.ensureID(u.memberMessageIDs, u.ids.dialog, "member-message:", id)
 	u.ensureID(u.memberRemoveIDs, u.ids.dialog, "member-remove:", id)
 	u.ensureID(u.memberTransferIDs, u.ids.dialog, "member-transfer:", id)

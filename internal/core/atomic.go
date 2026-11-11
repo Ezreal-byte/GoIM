@@ -55,6 +55,7 @@ func (n *Node) durable(mutator func(*persisted) []pending) error {
 	if err != nil {
 		return err
 	}
+	n.kickCompatibility()
 	var flushed = make(map[string]bool)
 	for _, d := range deliveries {
 		if !flushed[d.PeerID] {

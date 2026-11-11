@@ -19,6 +19,7 @@ const (
 	shellMenuSidebar      = "sidebar"
 	shellMenuContactGroup = "contact-group"
 	shellMenuMessage      = "message"
+	shellMenuAvatar       = "avatar"
 )
 
 type shellMenuState struct {
@@ -95,6 +96,8 @@ func (u *UI) drawShellMenu(canvas *ui.Canvas, viewport ui.Rect) {
 		u.drawContactGroupContextMenu(canvas, viewport)
 	case shellMenuMessage:
 		u.drawMessageContextMenu(canvas, viewport)
+	case shellMenuAvatar:
+		u.drawAvatarContextMenu(canvas, viewport)
 	default:
 		u.closeShellMenu()
 	}
@@ -182,12 +185,16 @@ func (u *UI) drawContactContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	switch {
 	case canvas.Clicked(u.ids.shellMenuTalk):
 		u.closeShellMenu()
-		u.startChat(peer.ID)
+		u.startDirectFromMembers(peer.ID)
 	case canvas.Clicked(u.ids.shellMenuOrganize):
 		u.openOrganize(peer.ID)
 	case canvas.Clicked(u.ids.shellMenuProfile):
 		u.closeShellMenu()
-		u.memberProfile = peer.ID
+		if u.section == sectionContacts {
+			u.showContact(peer.ID)
+		} else {
+			u.memberProfile = peer.ID
+		}
 	case canvas.Clicked(u.ids.shellMenuNewGroup):
 		u.closeShellMenu()
 		u.openCompose("create", "")

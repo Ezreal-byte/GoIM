@@ -9,17 +9,17 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/netip"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
 	"goim/internal/domain"
 	ipmsgproto "goim/internal/ipmsg"
+	"goim/internal/neiwangtong"
 )
 
 type Options struct {
@@ -32,39 +32,48 @@ type Options struct {
 	DownloadDir      string
 }
 type Node struct {
-	mu            sync.Mutex
-	groupMu       sync.Mutex
-	flushMu       sync.Mutex
-	data          persisted
-	db            *bolt.DB
-	key           ed25519.PrivateKey
-	tls           *tls.Config
-	dir           string
-	ctx           context.Context
-	cancel        context.CancelFunc
-	listener      net.Listener
-	localIP       string
-	connections   map[string]*peerConn
-	dialing       map[string]bool
-	commands      chan domain.Command
-	updates       chan struct{}
-	wg            sync.WaitGroup
-	workers       sync.WaitGroup
-	closing       bool
-	transfers     map[string]context.CancelFunc
-	discovery     bool
-	webServer     *http.Server
-	webAddress    string
-	webKey        [32]byte
-	webSlots      chan struct{}
-	webLinks      map[string]shareLink
-	webHomeLink   shareLink
-	webUploads    chan struct{}
-	webUploadMu   sync.Mutex
-	shareFeedback domain.ShareFeedback
-	unlockAfter   time.Time
-	lockResult    domain.LockResult
-	legacy        *ipmsgproto.Service
+	mu                sync.Mutex
+	groupMu           sync.Mutex
+	flushMu           sync.Mutex
+	data              persisted
+	db                *bolt.DB
+	key               ed25519.PrivateKey
+	tls               *tls.Config
+	dir               string
+	ctx               context.Context
+	cancel            context.CancelFunc
+	listener          net.Listener
+	localIP           string
+	connections       map[string]*peerConn
+	dialing           map[string]bool
+	commands          chan domain.Command
+	updates           chan struct{}
+	wg                sync.WaitGroup
+	workers           sync.WaitGroup
+	closing           bool
+	transfers         map[string]context.CancelFunc
+	discovery         bool
+	webServer         *http.Server
+	webAddress        string
+	webKey            [32]byte
+	webSlots          chan struct{}
+	webLinks          map[string]shareLink
+	webHomeLink       shareLink
+	webUploads        chan struct{}
+	webUploadMu       sync.Mutex
+	shareFeedback     domain.ShareFeedback
+	unlockAfter       time.Time
+	lockResult        domain.LockResult
+	legacy            *ipmsgproto.Service
+	legacyLive        *atomic.Bool
+	neiwangtong       *neiwangtong.Service
+	neiwangtongLive   *atomic.Bool
+	compatMu          sync.Mutex
+	ipmsgStatus       domain.CompatibilityStatus
+	neiwangtongStatus domain.CompatibilityStatus
+	ipmsgOverride     bool
+	compatScheduled   bool
+	version           string
 }
 
 func New(opts Options) (*Node, error) {
@@ -109,6 +118,13 @@ func New(opts Options) (*Node, error) {
 	} else {
 		n.data.State.Settings.EnsureDefaultShortcuts()
 	}
+	if !n.data.State.Settings.CompatibilityConfigured {
+		n.data.State.Settings.CompatibilityConfigured = true
+		n.data.State.Settings.IPMSG = domain.CompatibilityConfig{Enabled: true, Port: domain.IPMSGPort}
+		n.data.State.Settings.Neiwangtong = domain.CompatibilityConfig{Port: domain.NeiwangtongDiscoveryPort}
+	}
+	n.ipmsgOverride, n.version = opts.DisableIPMSG, opts.Version
+	n.hideUnusedDirectConversations()
 	n.data.State.Settings.HasLockPassword = n.data.LockCredential.set()
 	n.data.State.Locked = n.data.State.Settings.HasLockPassword && (n.data.State.Locked || n.data.State.Settings.LockOnStartup)
 	if opts.Name != "" {
@@ -155,9 +171,7 @@ func New(opts Options) (*Node, error) {
 			n.report(err)
 		}
 	}
-	if !opts.DisableIPMSG {
-		n.startIPMSG(opts.Version)
-	}
+	n.initializeCompatibility()
 	n.wg.Add(3)
 	go n.acceptLoop()
 	go n.commandLoop()
@@ -186,6 +200,12 @@ func (n *Node) snapshot(urls bool) domain.State {
 	s.LockResult = n.lockResult
 	s.LocalIP = n.localIP
 	s.ShareFeedback = n.shareFeedback
+	s.IPMSGStatus = n.ipmsgStatus
+	if s.IPMSGStatus.Pending != nil {
+		pending := *s.IPMSGStatus.Pending
+		s.IPMSGStatus.Pending = &pending
+	}
+	s.NeiwangtongStatus = n.neiwangtongStatus
 	n.attachShareLinks(&s, urls)
 	return s
 }
@@ -224,9 +244,11 @@ func (n *Node) async(fn func()) bool {
 	return true
 }
 func (n *Node) Close() error {
+	n.compatMu.Lock()
 	n.mu.Lock()
 	if n.closing {
 		n.mu.Unlock()
+		n.compatMu.Unlock()
 		return nil
 	}
 	n.closing = true
@@ -240,9 +262,22 @@ func (n *Node) Close() error {
 		cancel()
 	}
 	legacy := n.legacy
+	if n.legacyLive != nil {
+		n.legacyLive.Store(false)
+	}
+	n.legacy = nil
+	nwt := n.neiwangtong
+	if n.neiwangtongLive != nil {
+		n.neiwangtongLive.Store(false)
+	}
+	n.neiwangtong = nil
 	n.mu.Unlock()
+	n.compatMu.Unlock()
 	if legacy != nil {
 		legacy.Close()
+	}
+	if nwt != nil {
+		_ = nwt.Close()
 	}
 	if web != nil {
 		_ = web.Close()
@@ -287,35 +322,12 @@ func (n *Node) acceptLoop() {
 	}
 }
 func (n *Node) Connect(address string) {
-	address = strings.TrimSpace(address)
-	if _, port, err := net.SplitHostPort(address); err == nil {
-		if port == strconv.Itoa(ipmsgproto.DefaultPort) {
-			n.async(func() {
-				if err := n.connectLegacy(address); err != nil {
-					n.report(err)
-				}
-			})
-			return
-		}
-		n.dialTo(address, "", false)
-		return
+	if err := n.connectVia(domain.TransportGoIM, address); err != nil {
+		n.report(err)
 	}
-	legacyAddress := ""
-	if ip, err := netip.ParseAddr(address); err == nil && ip.Unmap().Is4() {
-		n.mu.Lock()
-		legacy := n.legacy
-		n.mu.Unlock()
-		if legacy != nil {
-			legacyAddress = netip.AddrPortFrom(ip.Unmap(), ipmsgproto.DefaultPort).String()
-		}
-	}
-	n.dialToAddress(address, "", false, legacyAddress)
-}
-func (n *Node) dialTo(address, expected string, quiet bool) {
-	n.dialToAddress(address, expected, quiet, "")
 }
 
-func (n *Node) dialToAddress(address, expected string, quiet bool, legacyAddress string) {
+func (n *Node) dialTo(address, expected string, quiet bool) {
 	address = strings.TrimSpace(address)
 	if _, _, e := net.SplitHostPort(address); e != nil {
 		address = net.JoinHostPort(address, "47842")
@@ -335,14 +347,6 @@ func (n *Node) dialToAddress(address, expected string, quiet bool, legacyAddress
 		}
 		raw, err := d.DialContext(n.ctx, "tcp", address)
 		if err != nil {
-			if legacyAddress != "" && n.ctx.Err() == nil {
-				if legacyErr := n.connectLegacy(legacyAddress); legacyErr == nil {
-					return
-				} else {
-					n.report(legacyErr)
-					return
-				}
-			}
 			if !quiet {
 				n.report(fmt.Errorf("连接 %s 失败: %w", address, err))
 			}

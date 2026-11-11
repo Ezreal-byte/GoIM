@@ -128,7 +128,8 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 	if !shared {
 		c := s.Conversation(convID)
 		for _, id := range targets {
-			if s.Peer(id).Transport == legacyIPMSG {
+			p := s.Peer(id)
+			if p.Transport == legacyIPMSG || p.Transport == domain.TransportNeiwangtong {
 				if c.Kind == "group" {
 					return errors.New("内网通兼容联系人仅支持单聊发送")
 				}
@@ -194,8 +195,11 @@ func appendFileOffer(s *domain.State, peer, convID string, f domain.File, tid st
 		tid = newID()
 	}
 	t := domain.Transfer{ID: tid, FileID: f.ID, ConversationID: convID, PeerID: peer, Direction: "send", Status: "offered", Name: f.Name, Size: f.Size, Path: f.SourcePath, UpdatedAt: time.Now(), FromShare: f.Shared}
-	if s.Peer(peer).Transport == legacyIPMSG {
+	p := s.Peer(peer)
+	if p.Transport == legacyIPMSG {
 		t.LegacyTransport = legacyIPMSG
+	} else if p.Transport == domain.TransportNeiwangtong {
+		t.LegacyTransport = domain.TransportNeiwangtong
 	}
 	if i := transferIndex(s, tid); i < 0 {
 		s.Transfers = append(s.Transfers, t)
@@ -320,7 +324,13 @@ func (n *Node) transferContext(id string) (context.Context, func(), bool) {
 	}
 	ctx, cancel := context.WithCancel(n.ctx)
 	n.transfers[id] = cancel
-	return ctx, func() { cancel(); n.mu.Lock(); delete(n.transfers, id); n.mu.Unlock() }, true
+	return ctx, func() {
+		cancel()
+		n.mu.Lock()
+		delete(n.transfers, id)
+		n.mu.Unlock()
+		n.kickCompatibility()
+	}, true
 }
 func watchConnection(ctx context.Context, c net.Conn) func() {
 	done := make(chan struct{})
@@ -374,6 +384,9 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 	}
 	if t.LegacyTransport == legacyIPMSG {
 		return n.downloadLegacy(ctx, t, s.File(t.FileID), destination)
+	}
+	if t.LegacyTransport == domain.TransportNeiwangtong {
+		return n.downloadNeiwangtong(ctx, t, s.File(t.FileID), destination)
 	}
 	f := s.File(t.FileID)
 	if !validFile(f) {

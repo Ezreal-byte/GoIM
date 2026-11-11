@@ -431,7 +431,9 @@ func TestContactOnlineFilterAndSearchUsePeerIdentities(t *testing.T) {
 
 func TestDirectChatHidesGroupMemberControl(t *testing.T) {
 	harness := newShellTestHarness(t, shellTestState(t))
+	harness.clickID(harness.ui.ids.navContacts)
 	harness.clickID(harness.ui.peerRowIDs["peer-a"])
+	harness.clickID(harness.ui.ids.contactTalk)
 	harness.settle()
 	if harness.ui.selected != "conv-alice" {
 		t.Fatalf("selected conversation = %q, want conv-alice", harness.ui.selected)
@@ -899,7 +901,7 @@ func TestDirtyGroupRenameIsScopedAndDiscardedOnNavigation(t *testing.T) {
 	harness.ui.setSection(sectionSettings)
 	harness.ui.invalidator.Invalidate()
 	waitForShellWake(t, harness)
-	if !harness.ui.confirm.open || harness.ui.section != sectionContacts ||
+	if !harness.ui.confirm.open || harness.ui.section != sectionMessages ||
 		harness.ui.selected != "conv-group" || !harness.ui.renameOpen {
 		t.Fatalf("switching to settings lost the dirty-name guard: confirm=%v section=%q selected=%q rename=%v dirty=%v field=%q",
 			harness.ui.confirm.open, harness.ui.section, harness.ui.selected,

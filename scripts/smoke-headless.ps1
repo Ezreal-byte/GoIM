@@ -58,6 +58,7 @@ try {
     $taskAddress=[regex]::Match($taskTexts,'127\.0\.0\.1:\d+').Value
     if(!$taskAddress){throw 'Listening address missing from real headless window'}
     $taskAlice=Start-Peer '我' $taskAddress
+    Send-Command $taskAlice 'click id:goim/navigation/contacts'
     Send-Command $taskAlice 'waitfor "林晓" 10000'
     Send-Command $taskAlice 'tree' | Set-Content -LiteralPath (Join-Path $OutputDir 'initial-tree.txt')
     Send-Command $taskAlice 'expect named'
@@ -65,6 +66,8 @@ try {
     $taskScreenshot=Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-connected.png'
     Send-Command $taskAlice ('shot "'+$taskScreenshot.Replace('\','/')+'"')
     Send-Command $taskAlice 'click "林晓"'
+    Send-Command $taskAlice 'expect text "用户类型"'
+    Send-Command $taskAlice 'click "button:发消息"'
     Send-Command $taskAlice 'waitfor "发送" 10000'
     Send-Command $taskAlice 'click id:goim/chat/editor'
     Send-Command $taskAlice 'type 双端真实消息：你好，局域网！'
@@ -158,6 +161,7 @@ try {
     $taskAliceTexts=Send-Command $taskAlice 'texts'
     $taskAliceAddress=[regex]::Match($taskAliceTexts,'127\.0\.0\.1:\d+').Value
     $taskCharlie=Start-Peer '陈序' $taskAliceAddress
+    Send-Command $taskAlice 'click id:goim/navigation/contacts'
     Send-Command $taskAlice 'waitfor "陈序" 10000'
     Send-Command $taskAlice 'click id:goim/sidebar/create'
     Send-Command $taskAlice 'click "textfield:群名称"'

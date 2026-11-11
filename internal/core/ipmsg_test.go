@@ -21,6 +21,10 @@ func TestLegacyTextAndFileCallbacksCreateDirectConversation(t *testing.T) {
 		Address: "192.0.2.10:2425", Online: true,
 	}
 	node.receiveLegacyPeer(peer)
+	initial := node.Snapshot()
+	if len(initial.Conversations) != 0 {
+		t.Fatal("discovery created a visible conversation")
+	}
 	node.receiveLegacyText(peer.ID, 101, "hello")
 	node.receiveLegacyFiles(peer.ID, 102, "report", []ipmsgproto.Attachment{{
 		ID: 9, Name: "report.txt", Size: 128, Kind: 1, ModTime: time.Now().AddDate(-1, 0, 0).Unix(),
