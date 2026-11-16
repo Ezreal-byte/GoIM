@@ -810,12 +810,12 @@ func TestImageMessageOpensImageViewer(t *testing.T) {
 	harness.settle()
 	if !harness.ui.imageViewerOpen() {
 		t.Fatalf("clicking an image did not open the image viewer (open %v, selected %q, section %q)",
-			harness.ui.chatSurface().viewer.open, harness.ui.selected, harness.ui.section)
+			harness.ui.surface.viewer.open, harness.ui.selected, harness.ui.section)
 	}
 	if !harness.hasText("1 / 1") || !harness.hasText("预览.png") {
 		t.Fatal("image viewer did not show the counter and filename")
 	}
-	if !harness.hasHit(harness.ui.chatSurface().ids.viewerClose) {
+	if !harness.hasHit(harness.ui.surface.ids.viewerClose) {
 		t.Fatal("image viewer did not expose its close control")
 	}
 	requireShellLayout(t, harness.snapshot())
@@ -1400,7 +1400,7 @@ func TestUnreadStaysWhileScrolledAwayOrSearching(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if scroll := harness.ui.chatView.ScrollState(harness.ui.ids.chatMessages); scroll == nil || scroll.AtEnd() {
+		if harness.ui.timeline.atEnd {
 			t.Fatal("the test chat did not scroll away from its live edge")
 		}
 

@@ -61,6 +61,7 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 	}
 	h.panels.Init(&h.tree)
 	h.panels.OnWake(state)
+	h.panels.updateLists(state)
 	h.media = newMediaWorker(func() { h.wake.Invalidate() })
 	h.panels.setMediaSubmit(h.media.submitOne)
 	t.Cleanup(h.media.close)
@@ -75,7 +76,7 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 		OnKey:       h.panels.Key,
 		OnShortcut:  h.panels.Shortcut,
 		OnScroll:    h.panels.Wheel,
-		TextInput:   h.panels.TextInput(),
+		TextInput:   h.panels.TextInput,
 		OnWake:      h.onWake,
 		Invalidator: &h.wake,
 	}, nil)
@@ -115,6 +116,7 @@ func (h *panelTestHarness) onWake() {
 		h.panels.setLocalFileAvailability(batch.files)
 		h.panels.applyMediaActions(batch.actions)
 	}
+	h.panels.updateLists(h.state)
 }
 
 func (h *panelTestHarness) requestMediaAvailability() {
@@ -155,6 +157,9 @@ func (h *panelTestHarness) waitMedia() {
 
 func (h *panelTestHarness) showModule(module string) {
 	h.t.Helper()
+	if h.module != module && module == panelModuleSettings {
+		h.panels.refreshNetwork = true
+	}
 	h.module = module
 	h.wake.Invalidate()
 	if err := h.driver.Pump(); err != nil {
@@ -352,9 +357,7 @@ func TestPanelSettingsLayoutAndCategorySwitch(t *testing.T) {
 	if clipboard := h.driver.Clipboard(); !strings.Contains(clipboard, "GoIM 应用许可证") {
 		t.Fatalf("license copy = %q", clipboard)
 	}
-	if provider := h.panels.TextInput(); provider == nil {
-		t.Fatal("TextInput returned a nil provider")
-	} else if provider(app.TextInputContext{}) != nil {
+	if h.panels.TextInput(app.TextInputContext{}) != nil {
 		t.Fatal("panels unexpectedly supplied native text editing")
 	}
 }
@@ -424,9 +427,8 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 	}
 	h.clearCommands()
 	h.chooseSelect("使用的网络", "自动选择")
-	command = h.requireLastCommand()
-	if command.Kind != domain.SetSetting || command.Setting != "network" || command.Value != "auto" {
-		t.Fatalf("network command = %+v", command)
+	if len(h.commands) != 0 {
+		t.Fatalf("selecting the current network mode submitted %+v", h.commands)
 	}
 }
 
@@ -458,10 +460,10 @@ func TestPanelSettingsRefreshesNetworkAdaptersOnEntryAndRequest(t *testing.T) {
 		t.Fatalf("entering Settings did not refresh adapters: calls=%d", calls)
 	}
 	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsNetwork)))
-	if len(h.panels.networkValues) != 3 ||
-		h.panels.networkValues[1] != "Panel Ethernet" ||
-		h.panels.networkValues[2] != "Panel Wi-Fi" {
-		t.Fatalf("adapter change was not reflected after Settings entry: %+v", h.panels.networkValues)
+	if len(h.panels.networkChoices) != 3 ||
+		h.panels.networkChoices[1].value != "Panel Ethernet" ||
+		h.panels.networkChoices[2].value != "Panel Wi-Fi" {
+		t.Fatalf("adapter change was not reflected after Settings entry: %+v", h.panels.networkChoices)
 	}
 	h.requireLayout()
 
@@ -494,8 +496,8 @@ func TestPanelSettingsDefersNetworkChangeDuringTransfers(t *testing.T) {
 	h.panels.refreshNetworks()
 	h.publish(state)
 	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsNetwork)))
-	if len(h.panels.networkValues) != 3 {
-		t.Fatalf("network choices = %+v", h.panels.networkValues)
+	if len(h.panels.networkChoices) != 3 {
+		t.Fatalf("network choices = %+v", h.panels.networkChoices)
 	}
 
 	choose := func(index int) {
@@ -738,9 +740,12 @@ func TestPanelTransfersSubmitActionsAndOpenCompletedFiles(t *testing.T) {
 		t.Fatalf("cancel command = %+v", command)
 	}
 
-	h.clickLabelRole(h.panels.transferLabels[panelTransferFinished], gfx.RoleTab)
+	h.clickLabelRole(h.panels.transferLabels[panelTransferPending], gfx.RoleTab)
+	if err := h.driver.Key(gfx.KeyRight, 0); err != nil {
+		t.Fatal(err)
+	}
 	if h.panels.transferFilter != panelTransferFinished {
-		t.Fatal("completed transfer filter did not change")
+		t.Fatal("Right arrow did not select the completed transfer tab")
 	}
 	if !h.hasText("report.txt") {
 		t.Fatal("incoming requests were hidden while viewing the history")

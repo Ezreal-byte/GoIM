@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -17,14 +16,14 @@ type shareSendDialogState struct {
 	open     bool
 	folder   bool
 	paths    []string
-	password flex.Field
+	password ui.Field
 }
 
 type sharePasswordDialogState struct {
 	open      bool
 	fileID    string
 	protected bool
-	field     flex.Field
+	field     ui.Field
 }
 
 type shareQRDialogState struct {
@@ -172,7 +171,7 @@ func (p *Panels) closeShareQR() {
 	p.shareQR = shareQRDialogState{}
 }
 
-func (p *Panels) drawShareDialogs(f *flex.Frame, theme ui.Theme, submit func(domain.Command)) {
+func (p *Panels) drawShareDialogs(f ui.C, theme ui.Theme, submit func(domain.Command)) {
 	if p.shareDialog.open {
 		p.drawShareSendDialog(f, theme, submit)
 	}
@@ -184,7 +183,7 @@ func (p *Panels) drawShareDialogs(f *flex.Frame, theme ui.Theme, submit func(dom
 	}
 }
 
-func (p *Panels) drawShareSendDialog(f *flex.Frame, theme ui.Theme, submit func(domain.Command)) {
+func (p *Panels) drawShareSendDialog(f ui.C, theme ui.Theme, submit func(domain.Command)) {
 	count := len(p.shareDialog.paths)
 	title := i18n.T("分享所选文件")
 	description := fmt.Sprintf(i18n.T("将通过 GoIM 共享 %d 个文件；访问者使用链接或二维码下载。"), count)
@@ -192,14 +191,14 @@ func (p *Panels) drawShareSendDialog(f *flex.Frame, theme ui.Theme, submit func(
 		title = i18n.T("分享文件夹")
 		description = i18n.T("访问者可浏览此文件夹的现有内容。新增文件和符号链接不会加入分享。")
 	}
-	dialog := f.Dialog(flex.DialogSpec{
+	dialog := ui.Dialog(f, ui.DialogSpec{
 		Title: title, Description: description, Width: 460,
 		Scope: p.ids.shareDialogScope, DismissID: p.ids.shareDialogDismiss,
 		CloseID: p.ids.shareDialogClose, InitialFocusID: p.ids.shareDialogPassword,
 	})
 	var submitted bool
 	dialog.Body(func() {
-		f.Column().Fill().Gap(8).Children(func() {
+		ui.Column(f).Fill().Gap(8).Children(func() {
 			names := make([]string, 0, min(count, 3))
 			for _, path := range p.shareDialog.paths {
 				if len(names) == 3 {
@@ -210,20 +209,20 @@ func (p *Panels) drawShareSendDialog(f *flex.Frame, theme ui.Theme, submit func(
 			if count > 3 {
 				names = append(names, fmt.Sprintf(i18n.T("等 %d 个文件"), count))
 			}
-			f.Text(strings.Join(names, "、")).FontSize(theme.Metrics.FontSizeS + 1).
+			ui.Text(f, strings.Join(names, "、")).FontSize(theme.Metrics.FontSizeS + 1).
 				Weight(gfx.WeightMedium).Ellipsis()
-			field := f.Field(&p.shareDialog.password, p.ids.shareDialogPassword,
+			field := ui.TextFieldID(f, p.ids.shareDialogPassword, &p.shareDialog.password,
 				i18n.T("访问密码（可选）"), i18n.T("留空表示无需密码")).FillWidth()
 			submitted = field.Submitted()
-			f.Text(i18n.T("不设密码时，持有链接的同网用户可下载。")).Muted().
+			ui.Text(f, i18n.T("不设密码时，持有链接的同网用户可下载。")).Muted().
 				FontSize(theme.Metrics.FontSizeS)
 		})
 	})
 	dialog.Footer(func() {
-		if f.Button(p.ids.shareDialogCancel, i18n.T("取消")).Outline().Clicked() {
+		if namedButton(f, p.ids.shareDialogCancel, i18n.T("取消")).Outline().Clicked() {
 			p.closeShareSendDialog()
 		}
-		if f.Button(p.ids.shareDialogSubmit, i18n.T("创建分享")).Clicked() {
+		if namedButton(f, p.ids.shareDialogSubmit, i18n.T("创建分享")).Clicked() {
 			submitted = true
 		}
 	})
@@ -236,31 +235,31 @@ func (p *Panels) drawShareSendDialog(f *flex.Frame, theme ui.Theme, submit func(
 	}
 }
 
-func (p *Panels) drawSharePasswordDialog(f *flex.Frame, theme ui.Theme, submit func(domain.Command)) {
+func (p *Panels) drawSharePasswordDialog(f ui.C, theme ui.Theme, submit func(domain.Command)) {
 	title := i18n.T("设置访问密码")
 	if p.sharePassword.protected {
 		title = i18n.T("更改访问密码")
 	}
-	dialog := f.Dialog(flex.DialogSpec{
+	dialog := ui.Dialog(f, ui.DialogSpec{
 		Title: title, Description: i18n.T("密码只影响这项分享；留空并保存会清除密码。"), Width: 440,
 		Scope: p.ids.sharePasswordScope, DismissID: p.ids.sharePasswordDismiss,
 		CloseID: p.ids.sharePasswordClose, InitialFocusID: p.ids.sharePasswordField,
 	})
 	var submitted bool
 	dialog.Body(func() {
-		f.Column().Fill().Gap(8).Children(func() {
-			field := f.Field(&p.sharePassword.field, p.ids.sharePasswordField,
+		ui.Column(f).Fill().Gap(8).Children(func() {
+			field := ui.TextFieldID(f, p.ids.sharePasswordField, &p.sharePassword.field,
 				i18n.T("访问密码"), i18n.T("留空清除密码")).FillWidth()
 			submitted = field.Submitted()
-			f.Text(i18n.T("访问者打开分享链接或扫描二维码后需要输入此密码。")).Muted().
+			ui.Text(f, i18n.T("访问者打开分享链接或扫描二维码后需要输入此密码。")).Muted().
 				FontSize(theme.Metrics.FontSizeS)
 		})
 	})
 	dialog.Footer(func() {
-		if f.Button(p.ids.sharePasswordCancel, i18n.T("取消")).Outline().Clicked() {
+		if namedButton(f, p.ids.sharePasswordCancel, i18n.T("取消")).Outline().Clicked() {
 			p.closeSharePassword()
 		}
-		if f.Button(p.ids.sharePasswordSubmit, i18n.T("保存")).Clicked() {
+		if namedButton(f, p.ids.sharePasswordSubmit, i18n.T("保存")).Clicked() {
 			submitted = true
 		}
 	})
@@ -273,46 +272,46 @@ func (p *Panels) drawSharePasswordDialog(f *flex.Frame, theme ui.Theme, submit f
 	}
 }
 
-func (p *Panels) drawShareQRDialog(f *flex.Frame, theme ui.Theme) {
-	dialog := f.Dialog(flex.DialogSpec{
+func (p *Panels) drawShareQRDialog(f ui.C, theme ui.Theme) {
+	dialog := ui.Dialog(f, ui.DialogSpec{
 		Title: i18n.T("分享二维码"), Description: p.shareQR.name, Width: 380,
 		Scope: p.ids.shareQRScope, DismissID: p.ids.shareQRDismiss,
 		CloseID: p.ids.shareQRClose,
 	})
 	dialog.Body(func() {
-		f.Column().Fill().Gap(10).Items(flex.Center).Children(func() {
+		ui.Column(f).Fill().Gap(10).Items(ui.Center).Children(func() {
 			switch {
 			case p.shareQR.err != "":
-				f.Column().FillWidth().PadY(28).Items(flex.Center).Children(func() {
-					f.Paragraph(p.shareQR.err, 3).Muted().TextCenter().
+				ui.Column(f).FillWidth().PadY(28).Items(ui.Center).Children(func() {
+					ui.Paragraph(f, p.shareQR.err, 3).Muted().TextCenter().
 						FontSize(theme.Metrics.FontSizeS + 1).MaxWidth(280)
 				})
 			case p.shareQR.loading:
-				f.Row().Size(224, 224).Radius(10).Background(theme.Muted).
-					Items(flex.Center).Justify(flex.Center).Children(func() {
-					f.Spinner().Size(20, 20)
+				ui.Row(f).Size(224, 224).Radius(10).Background(theme.Muted).
+					Items(ui.Center).Justify(ui.Center).Children(func() {
+					ui.Spinner(f).Size(20, 20)
 				})
 			default:
-				f.Row().Size(224, 224).Radius(10).Background(ui.RGB(255, 255, 255)).
-					Items(flex.Center).Justify(flex.Center).Children(func() {
-					f.Image(p.shareQR.bitmap).Size(208, 208)
+				ui.Row(f).Size(224, 224).Radius(10).Background(ui.RGB(255, 255, 255)).
+					Items(ui.Center).Justify(ui.Center).Children(func() {
+					ui.Image(f, p.shareQR.bitmap).Size(208, 208)
 				})
 			}
 			if p.shareQR.url != "" {
-				f.Text(p.shareQR.url).Muted().FontSize(theme.Metrics.FontSizeS).
+				ui.Text(f, p.shareQR.url).Muted().FontSize(theme.Metrics.FontSizeS).
 					Ellipsis().MaxWidth(300)
 			}
-			f.Text(i18n.T("手机与电脑连接同一局域网后，即可扫码打开。")).Muted().
+			ui.Text(f, i18n.T("手机与电脑连接同一局域网后，即可扫码打开。")).Muted().
 				FontSize(theme.Metrics.FontSizeS).TextCenter()
 		})
 	})
 	dialog.Footer(func() {
 		if p.shareQR.url != "" {
-			if f.Button(p.ids.shareQRCopy, i18n.T("复制链接")).Outline().Clicked() {
+			if namedButton(f, p.ids.shareQRCopy, i18n.T("复制链接")).Outline().Clicked() {
 				p.copyShareLink(f.Canvas(), p.shareQR.url)
 			}
 		}
-		if f.Button(p.ids.shareQRDismissButton, i18n.T("关闭")).Clicked() {
+		if namedButton(f, p.ids.shareQRDismissButton, i18n.T("关闭")).Clicked() {
 			p.closeShareQR()
 		}
 	})

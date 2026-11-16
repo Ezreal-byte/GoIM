@@ -37,7 +37,7 @@ func TestDetachedViewerLoadsFull4KScreenshotAndKeepsChatThumbnailSmall(t *testin
 	h := newShellTestHarness(t, state)
 	h.ui.presentViewer = func() {}
 	h.ui.openImageViewer(file.ID)
-	viewer := &h.ui.chatSurface().viewer
+	viewer := &h.ui.surface.viewer
 	// Full-resolution decode and rotation are much slower under the race detector.
 	const mediaTimeout = 20 * time.Second
 	h.waitForWithin(mediaTimeout, func() bool { return bitmapReady(viewer.original) && bitmapReady(h.ui.fileBitmap(path)) })

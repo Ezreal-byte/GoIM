@@ -31,23 +31,6 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with: {path: GoIM}
-      - name: Read Viva revision
-        id: viva-pin
-        run: |
-          ref="$(tr -d '\r\n' < framework/viva-commit.txt)"
-          [[ "$ref" =~ ^[0-9a-f]{40}$ ]]
-          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
-      - name: Checkout pinned Viva
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          repository: vivaui/viva
-          ref: ${{ steps.viva-pin.outputs.ref }}
-          path: viva
-      - name: Apply reviewed framework patches
-        run: |
-          test "$(git -C ../viva rev-parse HEAD)" = "$(tr -d '\r\n' < framework/viva-commit.txt)"
-          git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
-          git -C ../viva apply ../GoIM/framework/0004-windows-tray-notifications.patch
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.27.3'
@@ -68,7 +51,7 @@ jobs:
           go test ./... -count=1 -timeout=180s
       - name: Windows notification area regression
         if: runner.os == 'Windows'
-        run: go test github.com/vivaui/viva/internal/platform/windows -run '^TestDesktopNotificationReusesStatusItem$' -count=1
+        run: go test github.com/vivaui/viva/internal/platform/windows -run '^Test(NotificationIconCarriesABalloonWithoutShowingATrayEntry|TaskbarCreatedInvalidatesTheNotificationCarrier|NotificationModifyFailureRetriesAdd|NotificationCarrierRecoversAfterAModifyAndAddFailure)$' -count=1
       - name: Core and background media race tests
         if: matrix.os == 'linux' && matrix.arch == 'amd64'
         run: go test -race ./internal/core ./internal/desktop ./internal/ipmsg ./internal/neiwangtong -count=1 -timeout=180s
@@ -79,45 +62,41 @@ jobs:
         env:
           GOIM_QA_SCREENSHOTS: ${{ github.workspace }}/GoIM/artifacts/screenshots
           GOIM_CHAT_QA_SCREENSHOTS: ${{ github.workspace }}/GoIM/artifacts/screenshots/chat
+          GOIM_CHAT_POLISH_QA: ${{ github.workspace }}/GoIM/artifacts/screenshots/chat
           GOIM_SNIP_SHOT_DIR: ${{ github.workspace }}/GoIM/artifacts/screenshots/snip
           GOIM_SHARE_LIST_QA: ${{ github.workspace }}/GoIM/artifacts/screenshots/shares
           GOIM_TRANSFER_QA: ${{ github.workspace }}/GoIM/artifacts/screenshots/transfers
         run: |
-          go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestShareListDesignScreenshots|TestTransferDesignScreenshots|TestChatLayoutScreenshotQA' -count=1 -timeout=180s
+          go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestShareListDesignScreenshots|TestTransferDesignScreenshots|TestChatLayoutScreenshotQA|TestChatPolishQA' -count=1 -timeout=180s
           go test -tags vivahead ./cmd/goim-snip -run '^TestEditorScreenshots$' -count=1 -timeout=60s
       - name: Native content resize
         env:
           VIVA_NATIVE_WINDOW_SIZE_TEST: '1'
         run: |
-          cd ../viva
           case '${{ matrix.os }}' in
-            windows) go test ./app -run '^TestNativeProgrammaticWindowSize$' -count=1 -timeout=45s ;;
-            linux) xvfb-run -a go test ./app -run '^TestNativeProgrammaticWindowSize$' -count=1 -timeout=45s ;;
-            darwin) go test ./app -run '^TestWindowSetSize' -count=1 -timeout=45s ;;
+            windows) go test github.com/vivaui/viva/app -run '^TestNativeProgrammaticWindowSize$' -count=1 -timeout=45s ;;
+            linux) xvfb-run -a go test github.com/vivaui/viva/app -run '^TestNativeProgrammaticWindowSize$' -count=1 -timeout=45s ;;
+            darwin) go test github.com/vivaui/viva/app -run '^TestWindowSetSize' -count=1 -timeout=45s ;;
           esac
       - name: Native global shortcut lifecycle
         env:
           VIVA_NATIVE_GLOBAL_SHORTCUT_TEST: '1'
         run: |
-          cd ../viva
           case '${{ matrix.os }}' in
-            windows) go test ./internal/platform/windows -run '^TestNative.*GlobalShortcut' -count=1 -timeout=30s -v ;;
-            linux) xvfb-run -a go test ./internal/platform/linux -run '^TestNativeX11GlobalShortcut$' -count=1 -timeout=30s -v ;;
-            darwin) go test ./internal/platform/darwin -run '^TestNativeCarbonGlobalShortcut$' -count=1 -timeout=30s -v ;;
+            windows) go test github.com/vivaui/viva/internal/platform/windows -run '^TestNative.*GlobalShortcut' -count=1 -timeout=30s -v ;;
+            linux) xvfb-run -a go test github.com/vivaui/viva/internal/platform/linux -run '^TestNativeX11GlobalShortcut$' -count=1 -timeout=30s -v ;;
+            darwin) go test github.com/vivaui/viva/internal/platform/darwin -run '^TestNativeCarbonGlobalShortcut$' -count=1 -timeout=30s -v ;;
           esac
       - name: Native Direct2D point ABI and rendering benchmark
         if: matrix.os == 'windows'
         run: |
           mkdir -p artifacts
-          cd ../viva
-          go test ./internal/platform/windows -run '^TestDirectTextLayoutOriginByValue$' -count=1
-          go test ./internal/platform/windows -run '^$' -bench '^BenchmarkRasterizeOnly$' -benchtime=100ms -benchmem -count=3 > ../GoIM/artifacts/framework-render-benchmark.txt
+          go test github.com/vivaui/viva/internal/platform/windows -run '^TestDirectTextLayoutOriginByValue$' -count=1
+          go test github.com/vivaui/viva/internal/platform/windows -run '^$' -bench '^BenchmarkRasterizeOnly$' -benchtime=100ms -benchmem -count=3 > artifacts/framework-render-benchmark.txt
       - name: Windows three-process smoke
         if: matrix.os == 'windows'
         shell: pwsh
-        run: |
-          ./scripts/build.ps1 -Headless
-          ./scripts/smoke-headless.ps1
+        run: ./scripts/smoke-headless.ps1
       - name: Native release package
         env:
           PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}

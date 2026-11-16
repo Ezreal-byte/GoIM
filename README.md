@@ -71,11 +71,11 @@ Native chat uses TCP 47842 and IPv4 multicast at `239.192.77.77:47841` for disco
 | Neiwangtong (内网通) 3.4.3055 | Initial Windows/VMware tests verified discovery, text and individual files in both directions. Regression tests cover the TCP request format and chat attachment cards. | Images can travel as ordinary attachments. Proprietary inline media, screenshots, stickers, native share browsing and group chats are outside the adapter. |
 | FeiQ (飞秋) | Automated coverage for the extended header, Chinese encoding, discovery, and the standard IPMSG file path. | The FeiQ desktop client and version-specific extensions still need hands-on verification. |
 
-GoIM peers use the native TLS protocol. Compatibility adapters can be enabled individually under **Settings → Network** for **Neiwangtong** (UDP 9011 discovery, ENet 9012 control, and TCP 9013 avatar/file streaming) and **IP Messenger / FeiQ** (port 2425). Fresh installs leave compatibility off by default to maintain a clean local environment.
+GoIM peers use the native TLS protocol. New profiles enable **Neiwangtong** (UDP 9011 discovery, ENet 9012 control, and TCP 9013 avatar/file streaming) and **IP Messenger / FeiQ** (port 2425). Manage the adapters independently under **Settings → Network**, or start GoIM with `--no-compatibility` for a GoIM-only run.
 
 ## Build from source
 
-Use the Go version pinned by CI (currently 1.27.3). Set up the pinned Viva checkout next to GoIM and apply the patches in the [framework instructions](framework/README.md).
+Use the Go version pinned by CI (currently 1.27.3). Go downloads the exact Viva revision from [`go.mod`](go.mod). When working on Viva itself, you can make a local Go workspace that includes both repositories.
 
 ```sh
 go test ./... -count=1
@@ -83,7 +83,9 @@ go vet ./...
 go run ./cmd/goim
 ```
 
-On Windows, `pwsh -File scripts/build.ps1` builds the desktop app and the screenshot companion. Regenerate the demo gallery with `pwsh -File scripts/promo-headless.ps1`. See [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/build.yml) for platform packaging and validation.
+On Windows, `pwsh -File scripts/start-temp-dev.ps1` builds and starts a client with its own profile and download directory. Add `-Loopback` to disable LAN discovery and legacy adapters, or run `scripts/start-dual.ps1` for two clients connected over loopback.
+
+`pwsh -File scripts/smoke-headless.ps1` builds a fresh headless client and runs a three-process test of messaging, file transfer, and browser sharing. Use `scripts/build.ps1` to build the desktop app and screenshot companion without starting them, or `scripts/promo-headless.ps1` to regenerate the demo gallery. See [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/build.yml) for platform packaging and validation.
 
 ## License
 

@@ -4,7 +4,7 @@ GoIM application source is MIT licensed. Releases include the full applicable li
 
 | Material | Version / source | License text |
 | --- | --- | --- |
-| Viva | See framework/viva-commit.txt and the numbered patches | licenses/Viva-Apache-2.0.txt, Viva-NOTICE.txt, Viva-third-party.md |
+| Viva | See go.mod | licenses/Viva-Apache-2.0.txt, Viva-NOTICE.txt, Viva-third-party.md |
 | bbolt | 1.5.0 | licenses/bbolt-MIT.txt |
 | purego | 0.11.1 | licenses/purego-Apache-2.0.txt |
 | x/sys | 0.45.0 | licenses/x-sys-BSD.txt |

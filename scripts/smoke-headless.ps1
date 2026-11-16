@@ -1,22 +1,36 @@
+#Requires -Version 7.2
 param([string]$OutputDir = 'artifacts/headless', [switch]$BrowserScreenshots, [switch]$AvatarSample)
 $ErrorActionPreference='Stop'
 $taskProjectRoot=Split-Path -Parent $PSScriptRoot
-Push-Location $taskProjectRoot
+if (![IO.Path]::IsPathRooted($OutputDir)) { $OutputDir=Join-Path $taskProjectRoot $OutputDir }
+$OutputDir=[IO.Path]::GetFullPath($OutputDir)
+$taskTempRoot=[IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+$taskRunDir=Join-Path $taskTempRoot ('goim-smoke-'+[guid]::NewGuid().ToString('N'))
+$taskBinaryDir=Join-Path $taskRunDir 'bin'
 $taskProcesses=[System.Collections.Generic.List[System.Diagnostics.Process]]::new()
+$taskStderr=@{}
+
 function Read-Reply($TaskProcess) {
     $taskLines=[System.Collections.Generic.List[string]]::new()
+    $taskDeadline=[Diagnostics.Stopwatch]::StartNew()
     while ($true) {
-        $taskLine=$TaskProcess.StandardOutput.ReadLineAsync().WaitAsync([TimeSpan]::FromSeconds(20)).GetAwaiter().GetResult()
-        if ($null -eq $taskLine) { throw "Headless process exited: $($TaskProcess.StandardError.ReadToEnd())" }
+        $remaining=[TimeSpan]::FromSeconds(25)-$taskDeadline.Elapsed
+        if ($remaining -le [TimeSpan]::Zero) { throw 'Timed out waiting for Viva reply' }
+        $taskLine=$TaskProcess.StandardOutput.ReadLineAsync().WaitAsync($remaining).GetAwaiter().GetResult()
+        if ($null -eq $taskLine) { throw 'Headless process closed its output' }
         $taskLines.Add($taskLine)
         if ($taskLine -match '^error(?: |$)') { throw ($taskLines -join "`n") }
         if ($taskLine -match '^ok(?: |$)') { return ($taskLines -join "`n") }
     }
 }
 function Send-Command($TaskProcess,[string]$TaskCommand) {
-    $TaskProcess.StandardInput.WriteLine($TaskCommand)
-    $TaskProcess.StandardInput.Flush()
-    return Read-Reply $TaskProcess
+    try {
+        $TaskProcess.StandardInput.WriteLine($TaskCommand)
+        $TaskProcess.StandardInput.Flush()
+        return Read-Reply $TaskProcess
+    } catch {
+        throw "Headless peer $($TaskProcess.Id), command '$TaskCommand': $($_.Exception.Message)"
+    }
 }
 function Enter-PasswordKeys($TaskProcess) {
     foreach ($letter in 'goim-smoke-only'.ToCharArray()) {
@@ -25,34 +39,34 @@ function Enter-PasswordKeys($TaskProcess) {
     }
 }
 function Wait-Control($TaskProcess,[string]$TaskLabel) {
-    $taskDeadline=[DateTime]::UtcNow.AddSeconds(15)
-    do {
-        $null=Send-Command $TaskProcess 'wait 100'
-        $taskTree=Send-Command $TaskProcess 'tree'
-        if($taskTree -match ('(?m)^role=button[^\r\n]* label="'+[regex]::Escape($TaskLabel)+'"')){return}
-        Start-Sleep -Milliseconds 100
-    } while([DateTime]::UtcNow -lt $taskDeadline)
-    throw "Button '$TaskLabel' did not appear after the asynchronous state change"
+    $null=Send-Command $TaskProcess ('expect exists "button:'+$TaskLabel+'" within 15000')
+}
+function Save-Screenshot($TaskProcess,[string]$FileName) {
+    $path=(Join-Path $OutputDir $FileName).Replace('\','/')
+    $null=Send-Command $TaskProcess ('shot "'+$path+'"')
 }
 function Start-Peer([string]$TaskName,[string]$TaskConnect='') {
     $taskInfo=[System.Diagnostics.ProcessStartInfo]::new()
-    $taskInfo.FileName=Join-Path $taskProjectRoot 'build/goim-headless.exe'
+    $taskInfo.FileName=Join-Path $taskBinaryDir 'goim-headless.exe'
     $taskInfo.WorkingDirectory=$taskProjectRoot
     $taskInfo.UseShellExecute=$false;$taskInfo.CreateNoWindow=$true
     $taskInfo.RedirectStandardInput=$true;$taskInfo.RedirectStandardOutput=$true;$taskInfo.RedirectStandardError=$true
     $taskInfo.StandardOutputEncoding=[System.Text.Encoding]::UTF8;$taskInfo.StandardInputEncoding=[System.Text.UTF8Encoding]::new($false)
+    $taskInfo.StandardErrorEncoding=[System.Text.Encoding]::UTF8
     $taskInfo.Environment['VIVA_HEADLESS']='1';$taskInfo.Environment['VIVA_HEADLESS_SCALE']='1'
     foreach($taskArgument in @('--data-dir',(Join-Path $script:taskRunDir $TaskName),'--download-dir',(Join-Path $script:taskRunDir ($TaskName+'-downloads')),'--listen','127.0.0.1:0','--name',$TaskName,'--no-discovery','--no-compatibility')){$taskInfo.ArgumentList.Add($taskArgument)}
     if($TaskConnect){$taskInfo.ArgumentList.Add('--connect');$taskInfo.ArgumentList.Add($TaskConnect)}
     $taskProcess=[System.Diagnostics.Process]::Start($taskInfo)
     $script:taskProcesses.Add($taskProcess)
+    $script:taskStderr[$taskProcess.Id]=$taskProcess.StandardError.ReadToEndAsync()
     $null=Read-Reply $taskProcess
     return $taskProcess
 }
+Push-Location $taskProjectRoot
 try {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
-    $taskRunDir=Join-Path ([System.IO.Path]::GetTempPath()) ('goim-smoke-'+[guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $taskRunDir -Force | Out-Null
+    & (Join-Path $PSScriptRoot 'build.ps1') -Headless -OutputDir $taskBinaryDir
     $taskBob=Start-Peer '林晓'
     $taskTexts=Send-Command $taskBob 'texts'
     $taskAddress=[regex]::Match($taskTexts,'127\.0\.0\.1:\d+').Value
@@ -63,8 +77,15 @@ try {
     Send-Command $taskAlice 'tree' | Set-Content -LiteralPath (Join-Path $OutputDir 'initial-tree.txt')
     Send-Command $taskAlice 'expect named'
     Send-Command $taskAlice 'expect layout clean'
-    $taskScreenshot=Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-connected.png'
-    Send-Command $taskAlice ('shot "'+$taskScreenshot.Replace('\','/')+'"')
+    Save-Screenshot $taskAlice 'real-connected.png'
+    Send-Command $taskAlice 'click id:goim/sidebar/connect'
+    Send-Command $taskAlice 'click "combobox:连接方式"'
+    Send-Command $taskAlice 'expect exists "option:GoIM"'
+    Send-Command $taskAlice 'key esc'
+    Send-Command $taskAlice 'expect absent "option:GoIM"'
+    Send-Command $taskAlice 'expect exists "textfield:设备地址"'
+    Send-Command $taskAlice 'key esc'
+    Send-Command $taskAlice 'expect absent "textfield:设备地址"'
     Send-Command $taskAlice 'click "林晓"'
     Send-Command $taskAlice 'expect text "用户类型"'
     Send-Command $taskAlice 'click "button:发消息"'
@@ -87,7 +108,7 @@ try {
     Send-Command $taskBob 'click id:goim/navigation/transfers'
     Send-Command $taskBob 'waitfor "待接收 1" 10000'
     Send-Command $taskBob 'expect layout clean'
-    Send-Command $taskBob ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-transfer-incoming.png').Replace('\','/')+'"')
+    Save-Screenshot $taskBob 'real-transfer-incoming.png'
     Send-Command $taskBob 'click "button:接收"'
     Send-Command $taskBob 'waitfor "已结束 1" 10000'
     Send-Command $taskBob 'click "tab:已结束 1"'
@@ -119,7 +140,7 @@ try {
     $taskReceivedImage=$taskImages[0].FullName
     if((Get-FileHash -LiteralPath $taskReceivedImage).Hash -ne (Get-FileHash -LiteralPath $taskPicturePath).Hash){throw 'Received picture SHA256 differs'}
     Send-Command $taskBob 'expect layout clean'
-    Send-Command $taskBob ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-picture-emoji.png').Replace('\','/')+'"')
+    Save-Screenshot $taskBob 'real-picture-emoji.png'
     Send-Command $taskBob 'click "查看图片 真实图片.png"'
     $taskViewerDeadline=[DateTime]::UtcNow.AddSeconds(8)
     do {
@@ -139,13 +160,13 @@ try {
     Send-Command $taskBob 'click "逆时针旋转图片"'
     Send-Command $taskBob 'click "顺时针旋转图片"'
     Send-Command $taskBob 'expect layout clean'
-    Send-Command $taskBob ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'image-viewer-window.png').Replace('\','/')+'"')
+    Save-Screenshot $taskBob 'image-viewer-window.png'
     Send-Command $taskBob 'window 1'
     Send-Command $taskBob 'click "切换到暗色外观"'
     Wait-Control $taskBob '切换到明亮外观'
     Send-Command $taskBob ('window '+$taskViewer.Groups[1].Value)
     Send-Command $taskBob 'expect layout clean'
-    Send-Command $taskBob ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'image-viewer-window-dark.png').Replace('\','/')+'"')
+    Save-Screenshot $taskBob 'image-viewer-window-dark.png'
     $taskSavedImage=Join-Path $taskRunDir 'saved-original.png'
     Send-Command $taskBob ('savefile "'+$taskSavedImage.Replace('\','/')+'"')
     Send-Command $taskBob 'click "保存原图"'
@@ -160,6 +181,7 @@ try {
     Send-Command $taskBob 'window 1'
     $taskAliceTexts=Send-Command $taskAlice 'texts'
     $taskAliceAddress=[regex]::Match($taskAliceTexts,'127\.0\.0\.1:\d+').Value
+    if (!$taskAliceAddress) { throw 'Group host listening address missing from headless window' }
     $taskCharlie=Start-Peer '陈序' $taskAliceAddress
     Send-Command $taskAlice 'click id:goim/navigation/contacts'
     Send-Command $taskAlice 'waitfor "陈序" 10000'
@@ -176,21 +198,21 @@ try {
     Send-Command $taskAlice 'type 三个独立进程通过真实群聊通信。'
     Send-Command $taskAlice 'key enter'
     foreach($taskGuest in @($taskBob,$taskCharlie)){Wait-Control $taskGuest '三端验证群';Send-Command $taskGuest 'click "三端验证群"';Send-Command $taskGuest 'waitfor "三个独立进程通过真实群聊通信。" 10000'}
-    Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-group-chat.png').Replace('\','/')+'"')
+    Save-Screenshot $taskAlice 'real-group-chat.png'
     Send-Command $taskAlice 'click "设置"'
     Send-Command $taskAlice 'expect text "常规"'
     Send-Command $taskAlice 'expect layout clean'
-    Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-settings.png').Replace('\','/')+'"')
+    Save-Screenshot $taskAlice 'real-settings.png'
     Send-Command $taskAlice 'click "English"'
     Send-Command $taskAlice 'waitfor "Language" 10000'
     Send-Command $taskAlice 'expect text "Change the GoIM interface language immediately"'
     Send-Command $taskAlice 'expect layout clean'
-    Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'settings-english.png').Replace('\','/')+'"')
+    Save-Screenshot $taskAlice 'settings-english.png'
     Send-Command $taskAlice 'click "简体中文"'
     Send-Command $taskAlice 'waitfor "界面语言" 10000'
     Send-Command $taskAlice 'click "快捷键"'
     Send-Command $taskAlice 'expect layout clean'
-    Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-shortcuts.png').Replace('\','/')+'"')
+    Save-Screenshot $taskAlice 'real-shortcuts.png'
     Send-Command $taskAlice 'click "锁定应用"'
     Send-Command $taskAlice 'expect text "设置锁定密码"'
     Send-Command $taskAlice 'click "textfield:新密码"'
@@ -200,7 +222,7 @@ try {
     Send-Command $taskAlice 'click "设置并锁定"'
     Send-Command $taskAlice 'waitfor "GoIM 已锁定" 10000'
     Send-Command $taskAlice 'expect layout clean'
-    Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-locked.png').Replace('\','/')+'"')
+    Save-Screenshot $taskAlice 'real-locked.png'
     Enter-PasswordKeys $taskAlice
     Send-Command $taskAlice 'key enter'
     Send-Command $taskAlice 'waitfor "快捷键" 10000'
@@ -229,18 +251,18 @@ try {
     if((Get-FileHash -LiteralPath $taskHTTPDownload).Hash -ne (Get-FileHash -LiteralPath $taskSamplePath).Hash){throw 'Browser download SHA256 differs'}
     Send-Command $taskAlice 'wait 300'
     Send-Command $taskAlice 'expect layout clean'
-    Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-share-list.png').Replace('\','/')+'"')
+    Save-Screenshot $taskAlice 'real-share-list.png'
     Send-Command $taskAlice 'rightclick "共享文件 真实文件.txt"'
     Send-Command $taskAlice 'click "查看二维码"'
     Send-Command $taskAlice 'waitfor "分享二维码" 10000'
     Send-Command $taskAlice 'wait 300'
-    Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-share-qr.png').Replace('\','/')+'"')
+    Save-Screenshot $taskAlice 'real-share-qr.png'
     if($BrowserScreenshots){
         $taskChrome=(Get-Process chrome -ErrorAction SilentlyContinue | Where-Object Path | Select-Object -First 1 -ExpandProperty Path)
         if(!$taskChrome){$taskChrome=Join-Path $env:ProgramFiles 'Google/Chrome/Application/chrome.exe'}
         if(!(Test-Path -LiteralPath $taskChrome)){throw 'Browser screenshot requires installed Chrome'}
         $taskBrowserProfile=Join-Path $taskRunDir 'chrome-screenshot'
-        node scripts/share-browser-qa.mjs $taskChrome $taskBrowserProfile $taskURL (Join-Path $taskProjectRoot $OutputDir)
+        node scripts/share-browser-qa.mjs $taskChrome $taskBrowserProfile $taskURL $OutputDir
         if($LASTEXITCODE -ne 0){throw 'Responsive browser screenshot check failed'}
     }
     Send-Command $taskAlice 'key esc'
@@ -276,14 +298,22 @@ try {
     $taskDeviceHome=Invoke-WebRequest -UseBasicParsing -Uri $taskDeviceURL -TimeoutSec 8
     if($taskDeviceHome.Content -notmatch '交付资料' -or $taskDeviceHome.Content -notmatch '真实文件.txt' -or $taskDeviceHome.Content -notmatch '需密码'){throw 'Device page did not list both active shares'}
     $taskUploadExpectedHash=(Get-FileHash -LiteralPath $taskSamplePath).Hash
-    $taskDeviceUpload=Invoke-WebRequest -UseBasicParsing -Uri ($taskDeviceURL+'/upload') -Method Post -Form @{file=(Get-Item -LiteralPath $taskSamplePath)} -TimeoutSec 8
+    $taskUploadBody=[Net.Http.MultipartFormDataContent]::new()
+    $taskUploadSource=[IO.File]::OpenRead($taskSamplePath)
+    try {
+        $taskUploadBody.Add([Net.Http.StreamContent]::new($taskUploadSource), 'file', [IO.Path]::GetFileName($taskSamplePath))
+        $taskDeviceUpload=Invoke-WebRequest -UseBasicParsing -Uri ($taskDeviceURL+'/upload') -Method Post -Body $taskUploadBody -TimeoutSec 8
+    } finally {
+        $taskUploadBody.Dispose()
+        $taskUploadSource.Dispose()
+    }
     if($taskDeviceUpload.Content -notmatch '上传完成'){throw 'Browser upload was not confirmed'}
     $taskInboxFile=Join-Path (Join-Path $taskRunDir '我-downloads/网页接收') '真实文件.txt'
     if((Get-FileHash -LiteralPath $taskInboxFile).Hash -ne $taskUploadExpectedHash){throw 'Browser upload SHA256 differs'}
     Send-Command $taskAlice 'waitfor "网页已接收文件" 10000'
     Send-Command $taskAlice 'wait 300'
     Send-Command $taskAlice 'expect layout clean'
-    Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'device-share-toolbar.png').Replace('\','/')+'"')
+    Save-Screenshot $taskAlice 'device-share-toolbar.png'
     Send-Command $taskAlice 'click "设备分享主页"'
     Send-Command $taskAlice 'click "关闭主页"'
     Send-Command $taskAlice 'waitfor "设备主页已关闭" 10000'
@@ -324,7 +354,7 @@ try {
         Start-Sleep -Milliseconds 850
         $taskAlice.Refresh()
         $taskAvatarCPU=($taskAlice.TotalProcessorTime-$taskIdleCPU).TotalMilliseconds
-        Send-Command $taskAlice ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) 'real-avatar-preview.png').Replace('\','/')+'"')
+        Save-Screenshot $taskAlice 'real-avatar-preview.png'
         Send-Command $taskAlice 'click "保存"'
         Send-Command $taskAlice 'settle 500'
         $taskCanonical=Get-ChildItem -LiteralPath (Join-Path (Join-Path $taskRunDir '我') 'avatars') -Filter '*.png'
@@ -333,9 +363,45 @@ try {
     }
     'PASS: three independent processes, real TLS text, emoji, inline images, independent viewer and original save, live language switch, group delivery, SHA256, lock/unlock, browser project shares, device catalog and upload.'
 } catch {
-    foreach($taskProcess in $taskProcesses){if(!$taskProcess.HasExited){try{Send-Command $taskProcess 'tree' | Set-Content -LiteralPath (Join-Path $OutputDir ("failure-"+$taskProcess.Id+'.txt'));$null=Send-Command $taskProcess ('shot "'+(Join-Path (Join-Path $taskProjectRoot $OutputDir) ("failure-"+$taskProcess.Id+'.png')).Replace('\','/')+'"')}catch{}}}
+    foreach ($taskProcess in $taskProcesses) {
+        if (!$taskProcess.HasExited) {
+            try {
+                Send-Command $taskProcess 'tree' | Set-Content -LiteralPath (Join-Path $OutputDir "failure-$($taskProcess.Id).txt")
+                Save-Screenshot $taskProcess "failure-$($taskProcess.Id).png"
+            } catch {
+                Write-Warning "Could not capture diagnostics for headless peer $($taskProcess.Id)"
+            }
+        }
+    }
     throw
 } finally {
-    foreach($taskProcess in $taskProcesses){if(!$taskProcess.HasExited){try{$null=Send-Command $taskProcess 'quit'}catch{};if(!$taskProcess.WaitForExit(3000)){$taskProcess.Kill($true)}};$taskProcess.Dispose()}
+    foreach ($taskProcess in $taskProcesses) {
+        try {
+            if (!$taskProcess.HasExited) {
+                $taskProcess.StandardInput.Close()
+                if (!$taskProcess.WaitForExit(3000)) {
+                    $taskProcess.Kill($true)
+                    $null=$taskProcess.WaitForExit(3000)
+                }
+            }
+            $stderr=$taskStderr[$taskProcess.Id]
+            if ($stderr.IsCompletedSuccessfully -and $stderr.Result) {
+                Set-Content -LiteralPath (Join-Path $OutputDir "peer-$($taskProcess.Id).log") -Value $stderr.Result
+            }
+        } finally {
+            $taskProcess.Dispose()
+        }
+    }
+    if (Test-Path -LiteralPath $taskRunDir) {
+        $resolved=(Resolve-Path -LiteralPath $taskRunDir).Path
+        if ((Split-Path -Parent $resolved) -eq [IO.Path]::TrimEndingDirectorySeparator($taskTempRoot) -and
+            (Split-Path -Leaf $resolved) -match '^goim-smoke-[a-f0-9]{32}$') {
+            try {
+                Remove-Item -LiteralPath $resolved -Recurse -Force
+            } catch {
+                Write-Warning "Could not remove isolated smoke files at ${resolved}: $($_.Exception.Message)"
+            }
+        }
+    }
     Pop-Location
 }

@@ -15,8 +15,7 @@ func aboutTestBuildInfo() panelBuildInfo {
 	return panelBuildInfo{
 		version:     "1.2.3",
 		goVersion:   "go1.27.3",
-		vivaVersion: "b357903a11e0e5c58c056805617001e73b44b2c9+patch",
-		vivaDirty:   true,
+		vivaVersion: "v0.6.5-0.20261115140306-89ce846fe65c",
 		platform:    "Windows · x86-64",
 		source:      "github-actions",
 		revision:    "fedcba9876543210fedcba9876543210fedcba98",
@@ -61,7 +60,7 @@ func TestAboutCopyContainsOnlyBuildFacts(t *testing.T) {
 		"源码提交: fedcba9876543210fedcba9876543210fedcba98",
 		"提交日期: 2026-11-07",
 		"Go go1.27.3",
-		"Viva b357903a11e0+patch · 有本地修改",
+		"Viva v0.6.5-0.20261115140306-89ce846fe65c",
 		"构建时间: 2026-11-10 04:34 UTC",
 		"CI 链接: https://github.com/Ezreal-byte/GoIM/actions/runs/987654321",
 	} {

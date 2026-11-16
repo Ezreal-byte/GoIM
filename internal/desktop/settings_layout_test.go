@@ -2,7 +2,6 @@ package desktop
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/vivaui/viva/app"
@@ -103,21 +102,6 @@ func TestSettingsLayoutStacksRowsWhenNarrow(t *testing.T) {
 	h.requireLayout()
 }
 
-func TestConnectionChoicesDefaultToAuto(t *testing.T) {
-	labels := connectionLabels()
-	if len(labels) != 4 || labels[0] != i18n.T("自动") ||
-		labels[1] != "GoIM" || labels[2] != i18n.T("内网通原生") || labels[3] != i18n.T("飞鸽／飞秋兼容") {
-		t.Fatalf("connection choices = %q", labels)
-	}
-	if got := connectionTransport(0); got != domain.TransportAuto {
-		t.Fatalf("default transport = %q, want %q", got, domain.TransportAuto)
-	}
-	state := panelTestDefaultState(t)
-	if hint := connectionHint(state, 0); !strings.Contains(hint, "192.168.1.12") || !strings.Contains(hint, ":47842") {
-		t.Fatalf("automatic hint = %q", hint)
-	}
-}
-
 func TestSettingsConnectionFormSubmitsAutomaticTransport(t *testing.T) {
 	state := panelTestDefaultState(t)
 	h := panelTestNewHarnessBounds(t, panelModuleSettings, state, ui.Rect{
@@ -135,6 +119,31 @@ func TestSettingsConnectionFormSubmitsAutomaticTransport(t *testing.T) {
 	command := h.requireLastCommand()
 	if command.Kind != domain.Connect || command.Address != "192.168.1.44" || command.Transport != domain.TransportAuto {
 		t.Fatalf("automatic connection command = %+v", command)
+	}
+}
+
+func TestManualConnectionSelectorKeepsTheDialogOpenOnEscape(t *testing.T) {
+	h := newShellTestHarness(t, shellMinimalState(t))
+	h.clickID(h.ui.ids.sidebarConnect)
+	h.clickLabel("连接方式")
+	if _, ok := h.findHitLabel("飞鸽／飞秋兼容"); !ok {
+		t.Fatal("the available transports did not open")
+	}
+	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := h.findHitLabel("飞鸽／飞秋兼容"); ok || !h.hasHit(h.ui.ids.connectField) {
+		t.Fatal("Escape should dismiss the list and leave the address field in the dialog")
+	}
+	h.clickLabel("连接方式")
+	h.clickLabel("GoIM")
+	h.typeInto(h.ui.ids.connectField, "192.168.1.44")
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	if command := h.lastCommand(); command.Kind != domain.Connect ||
+		command.Address != "192.168.1.44" || command.Transport != domain.TransportGoIM {
+		t.Fatalf("manual connection command = %+v", command)
 	}
 }
 

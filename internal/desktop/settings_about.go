@@ -6,7 +6,6 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/buildinfo"
 	"goim/internal/domain"
@@ -17,7 +16,6 @@ type panelBuildInfo struct {
 	version     string
 	goVersion   string
 	vivaVersion string
-	vivaDirty   bool
 	platform    string
 	source      string
 	revision    string
@@ -63,7 +61,6 @@ func panelReadBuildInfo() panelBuildInfo {
 		version:     facts.Version,
 		goVersion:   facts.GoVersion,
 		vivaVersion: facts.VivaVersion,
-		vivaDirty:   facts.VivaDirty,
 		platform:    facts.Platform,
 		source:      facts.Source,
 		revision:    facts.Revision,
@@ -75,28 +72,28 @@ func panelReadBuildInfo() panelBuildInfo {
 	}
 }
 
-func (p *Panels) drawSettingsAbout(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	if p.aboutLicense {
 		p.drawLicense(f, theme)
 		return
 	}
 	version := panelDisplayVersion(state.Version, p.build.version)
-	f.Row().FillWidth().PadY(12).Gap(16).Items(flex.Center).Children(func() {
-		f.Stack().Size(64, 64).Radius(16).Clip().Children(func() {
-			f.Image(titleMark).Fill()
+	ui.Row(f).FillWidth().PadY(12).Gap(16).Items(ui.Center).Children(func() {
+		ui.Stack(f).Size(64, 64).Radius(16).Clip().Children(func() {
+			ui.Image(f, titleMark).Fill()
 		})
-		f.Column().Grow(1).Gap(4).Children(func() {
-			f.Text("GoIM").FontSize(23).Weight(gfx.WeightSemibold)
-			f.Paragraph(i18n.T("局域网内的原生即时通讯与文件传输工具。"), 2).Muted().
+		ui.Column(f).Grow(1).Gap(4).Children(func() {
+			ui.Text(f, "GoIM").FontSize(23).Weight(gfx.WeightSemibold)
+			ui.Paragraph(f, i18n.T("局域网内的原生即时通讯与文件传输工具。"), 2).Muted().
 				FontSize(theme.Metrics.FontSizeS + 1)
-			f.Text(version).Mono().FontSize(theme.Metrics.FontSizeS).Muted()
+			ui.Text(f, version).Mono().FontSize(theme.Metrics.FontSizeS).Muted()
 		})
 	})
-	f.Row().FillWidth().PadSides(0, 0, 8, 0).Gap(10).Items(flex.Center).Children(func() {
-		if f.Button(p.ids.aboutCopyVersion, i18n.T("复制版本信息")).Small().Outline().Clicked() {
+	ui.Row(f).FillWidth().PadSides(0, 0, 8, 0).Gap(10).Items(ui.Center).Children(func() {
+		if namedButton(f, p.ids.aboutCopyVersion, i18n.T("复制版本信息")).Small().Outline().Clicked() {
 			panelCopy(f.Canvas(), p, panelVersionReport(state, p.build))
 		}
-		if f.Button(p.ids.aboutLicense, i18n.T("开源许可")).Small().Outline().Clicked() {
+		if namedButton(f, p.ids.aboutLicense, i18n.T("开源许可")).Small().Outline().Clicked() {
 			p.aboutLicense = true
 			p.localError = ""
 			p.localNotice = ""
@@ -137,22 +134,22 @@ func (p *Panels) drawSettingsAbout(f *flex.Frame, theme ui.Theme, state domain.S
 		p.aboutLinkGrid(f, theme, items)
 	})
 
-	f.Paragraph(i18n.T("复制的内容只包含版本与构建信息，不包含聊天内容、联系人、文件路径或本机地址。"), 3).
+	ui.Paragraph(f, i18n.T("复制的内容只包含版本与构建信息，不包含聊天内容、联系人、文件路径或本机地址。"), 3).
 		Muted().FontSize(theme.Metrics.FontSizeS)
 }
 
-func (p *Panels) aboutFactGrid(f *flex.Frame, theme ui.Theme, facts []aboutFact, copyAll func()) {
+func (p *Panels) aboutFactGrid(f ui.C, theme ui.Theme, facts []aboutFact, copyAll func()) {
 	columns := f.Bounds().Width >= aboutTwoColumnMin
-	f.Column().FillWidth().Gap(10).Children(func() {
+	ui.Column(f).FillWidth().Gap(10).Children(func() {
 		for index := 0; index < len(facts); index += 2 {
 			left, right := index, index+1
 			if columns {
-				f.Row().FillWidth().Gap(10).Children(func() {
-					f.Column().Grow(1).Basis(0).Children(func() {
+				ui.Row(f).FillWidth().Gap(10).Children(func() {
+					ui.Column(f).Grow(1).Basis(0).Children(func() {
 						p.aboutFactCard(f, theme, p.ids.aboutCards.At(left), facts[left], copyAll)
 					})
 					if right < len(facts) {
-						f.Column().Grow(1).Basis(0).Children(func() {
+						ui.Column(f).Grow(1).Basis(0).Children(func() {
 							p.aboutFactCard(f, theme, p.ids.aboutCards.At(right), facts[right], copyAll)
 						})
 					}
@@ -167,20 +164,20 @@ func (p *Panels) aboutFactGrid(f *flex.Frame, theme ui.Theme, facts []aboutFact,
 	})
 }
 
-func (p *Panels) aboutFactCard(f *flex.Frame, theme ui.Theme, id gfx.ID, fact aboutFact, copyAll func()) {
+func (p *Panels) aboutFactCard(f ui.C, theme ui.Theme, id gfx.ID, fact aboutFact, copyAll func()) {
 	role, hint := gfx.RoleButton, i18n.T("复制构建信息")
 	if fact.url != "" {
 		role, hint = gfx.RoleLink, i18n.T("在浏览器中打开")
 	}
-	card := f.Column().FillWidth().MinHeight(74).PadSides(12, 12, 12, 12).Gap(4).
+	card := ui.Column(f).FillWidth().MinHeight(74).PadSides(12, 12, 12, 12).Gap(4).
 		Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl).
-		Hover(flex.Look{}.Background(theme.Hover)).
+		Hover(ui.Look{}.Background(theme.Hover)).
 		HitWith(id, fact.label+"："+fact.value, gfx.HitOptions{
 			Role: role, Cursor: gfx.PointerCursorHand, Hint: hint,
 		})
 	card.Children(func() {
-		f.Text(fact.label).Muted().FontSize(theme.Metrics.FontSizeS)
-		f.Paragraph(fact.value, 2).FontSize(theme.Metrics.FontSizeS + 2).Weight(gfx.WeightMedium)
+		ui.Text(f, fact.label).Muted().FontSize(theme.Metrics.FontSizeS)
+		ui.Paragraph(f, fact.value, 2).FontSize(theme.Metrics.FontSizeS + 2).Weight(gfx.WeightMedium)
 	})
 	if f.Canvas().FocusVisible() == id {
 		card.Stroke(1.5, theme.Ring)
@@ -201,18 +198,18 @@ type aboutLinkItem struct {
 	url  string
 }
 
-func (p *Panels) aboutLinkGrid(f *flex.Frame, theme ui.Theme, items []aboutLinkItem) {
+func (p *Panels) aboutLinkGrid(f ui.C, theme ui.Theme, items []aboutLinkItem) {
 	columns := f.Bounds().Width >= aboutTwoColumnMin
-	f.Column().FillWidth().Gap(10).Children(func() {
+	ui.Column(f).FillWidth().Gap(10).Children(func() {
 		for index := 0; index < len(items); index += 2 {
 			left, right := index, index+1
 			if columns {
-				f.Row().FillWidth().Gap(10).Children(func() {
-					f.Column().Grow(1).Basis(0).Children(func() {
+				ui.Row(f).FillWidth().Gap(10).Children(func() {
+					ui.Column(f).Grow(1).Basis(0).Children(func() {
 						p.aboutLinkCard(f, theme, items[left])
 					})
 					if right < len(items) {
-						f.Column().Grow(1).Basis(0).Children(func() {
+						ui.Column(f).Grow(1).Basis(0).Children(func() {
 							p.aboutLinkCard(f, theme, items[right])
 						})
 					}
@@ -227,13 +224,13 @@ func (p *Panels) aboutLinkGrid(f *flex.Frame, theme ui.Theme, items []aboutLinkI
 	})
 }
 
-func (p *Panels) aboutLinkCard(f *flex.Frame, theme ui.Theme, item aboutLinkItem) {
+func (p *Panels) aboutLinkCard(f ui.C, theme ui.Theme, item aboutLinkItem) {
 	id := p.ids.aboutCards.ID(p.tree.Name(item.id))
 	available := item.url != ""
-	card := f.Row().FillWidth().MinHeight(62).PadSides(12, 12, 12, 12).Gap(10).Items(flex.Center).
+	card := ui.Row(f).FillWidth().MinHeight(62).PadSides(12, 12, 12, 12).Gap(10).Items(ui.Center).
 		Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl)
 	if available {
-		card = card.Hover(flex.Look{}.Background(theme.Hover)).
+		card = card.Hover(ui.Look{}.Background(theme.Hover)).
 			HitWith(id, item.name+"："+item.desc, gfx.HitOptions{
 				Role: gfx.RoleLink, Cursor: gfx.PointerCursorHand, Hint: i18n.T("在浏览器中打开"),
 			})
@@ -243,12 +240,12 @@ func (p *Panels) aboutLinkCard(f *flex.Frame, theme ui.Theme, item aboutLinkItem
 		})
 	}
 	card.Children(func() {
-		f.Column().Grow(1).Gap(2).Children(func() {
-			f.Text(item.name).FontSize(theme.Metrics.FontSizeS + 2).Weight(gfx.WeightMedium)
-			f.Text(item.desc).Muted().FontSize(theme.Metrics.FontSizeS).Ellipsis()
+		ui.Column(f).Grow(1).Gap(2).Children(func() {
+			ui.Text(f, item.name).FontSize(theme.Metrics.FontSizeS + 2).Weight(gfx.WeightMedium)
+			ui.Text(f, item.desc).Muted().FontSize(theme.Metrics.FontSizeS).Ellipsis()
 		})
 		if available {
-			f.Icon(ExternalLink).Size(15, 15).Color(theme.MutedForeground)
+			ui.Icon(f, ExternalLink).Size(15, 15).Color(theme.MutedForeground)
 		}
 	})
 	if f.Canvas().FocusVisible() == id {
@@ -328,14 +325,10 @@ func panelRevision(build panelBuildInfo) string {
 }
 
 func panelViva(build panelBuildInfo) string {
-	viva := panelShortFramework(build.vivaVersion)
-	if viva == "" {
-		return i18n.T("未提供")
+	if build.vivaVersion == "local" {
+		return i18n.T("本地替换")
 	}
-	if build.vivaDirty {
-		viva += i18n.T(" · 有本地修改")
-	}
-	return viva
+	return panelValue(build.vivaVersion)
 }
 
 func panelCIValue(build panelBuildInfo) string {
@@ -358,23 +351,6 @@ func panelShortRevision(value string) string {
 	return value
 }
 
-func panelShortFramework(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if value == "local" {
-		return i18n.T("本地替换")
-	}
-	if plus := strings.IndexByte(value, '+'); plus > 12 {
-		return value[:12] + value[plus:]
-	}
-	if len(value) > 12 && !strings.ContainsAny(value, " .") {
-		return value[:12]
-	}
-	return value
-}
-
 func panelValue(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -383,18 +359,18 @@ func panelValue(value string) string {
 	return value
 }
 
-func (p *Panels) drawLicense(f *flex.Frame, theme ui.Theme) {
-	f.Row().FillWidth().Gap(8).PadY(8).Items(flex.Center).Children(func() {
-		if f.Button(p.ids.aboutBack, i18n.T("返回关于")).Small().Ghost().Clicked() {
+func (p *Panels) drawLicense(f ui.C, theme ui.Theme) {
+	ui.Row(f).FillWidth().Gap(8).PadY(8).Items(ui.Center).Children(func() {
+		if namedButton(f, p.ids.aboutBack, i18n.T("返回关于")).Small().Ghost().Clicked() {
 			p.aboutLicense = false
 		}
-		f.Spacer()
-		if f.Button(p.ids.aboutCopyLicense, i18n.T("复制许可摘要")).Small().Outline().Clicked() {
+		ui.Spacer(f)
+		if namedButton(f, p.ids.aboutCopyLicense, i18n.T("复制许可摘要")).Small().Outline().Clicked() {
 			panelCopy(f.Canvas(), p, panelLicenseText)
 		}
 	})
-	f.Divider().FillWidth()
+	ui.Divider(f).FillWidth()
 	for _, paragraph := range strings.Split(panelLicenseText, "\n\n") {
-		f.Paragraph(paragraph, 40).FontSize(theme.Metrics.FontSizeS + 1).PadY(10)
+		ui.Paragraph(f, paragraph, 40).FontSize(theme.Metrics.FontSizeS + 1).PadY(10)
 	}
 }

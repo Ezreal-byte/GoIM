@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"crypto/sha256"
+	binaryinfo "debug/buildinfo"
 	"debug/elf"
 	"debug/macho"
 	"debug/pe"
@@ -23,6 +24,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"goim/internal/buildinfo"
 
 	"github.com/vivaui/viva/tools/appbundle"
 	"github.com/vivaui/viva/tools/winpkg"
@@ -48,7 +51,6 @@ func main() {
 func build() error {
 	version := flag.String("version", "0.1.0", "release version")
 	commit := flag.String("commit", "", "source commit (defaults to git HEAD or working-tree)")
-	framework := flag.String("framework", "", "override Viva source (defaults to the project pin)")
 	source := flag.String("source", "", "build source: local or github-actions (defaults from CI)")
 	buildTime := flag.String("build-time", "", "UTC build time in RFC3339 (defaults to now)")
 	ciURL := flag.String("ci-url", "", "CI run URL (defaults from GitHub Actions)")
@@ -58,17 +60,6 @@ func build() error {
 	platformVersion, _, _ := strings.Cut(*version, "-")
 	if *stamp != "" {
 		return stampWindowsExecutable(*stamp, platformVersion)
-	}
-	if *framework == "" {
-		raw, err := os.ReadFile("framework/viva-commit.txt")
-		if err != nil {
-			return fmt.Errorf("read Viva pin: %w", err)
-		}
-		pin := strings.TrimSpace(string(raw))
-		if id, err := hex.DecodeString(pin); err != nil || len(id) != 20 {
-			return fmt.Errorf("invalid Viva pin")
-		}
-		*framework = pin + "+patch"
 	}
 	sourceCommit := strings.TrimSpace(*commit)
 	if sourceCommit == "" {
@@ -96,10 +87,7 @@ func build() error {
 	if facts.source != "local" && facts.source != "github-actions" {
 		return fmt.Errorf("invalid build source")
 	}
-	if !validFrameworkValue(*framework) {
-		return fmt.Errorf("invalid framework revision")
-	}
-	for _, value := range []string{*framework, facts.source, facts.buildTime, facts.commitTime, facts.ciRef, facts.ciRunID, facts.ciURL} {
+	for _, value := range []string{facts.source, facts.buildTime, facts.commitTime, facts.ciRef, facts.ciRunID, facts.ciURL} {
 		if !validLinkerValue(value) {
 			return fmt.Errorf("invalid build metadata")
 		}
@@ -113,12 +101,20 @@ func build() error {
 	if runtime.GOOS == "windows" {
 		executable += ".exe"
 	}
-	ld := packageLinkerFlags(*version, sourceCommit, *framework, facts, runtime.GOOS == "windows")
+	ld := packageLinkerFlags(*version, sourceCommit, facts, runtime.GOOS == "windows")
 	if err := run("go", "build", "-trimpath", "-ldflags", ld, "-o", executable, "./cmd/goim"); err != nil {
 		return err
 	}
 	if err := verifyArchitecture(executable); err != nil {
 		return err
+	}
+	linked, err := binaryinfo.ReadFile(executable)
+	if err != nil {
+		return fmt.Errorf("read GoIM build info: %w", err)
+	}
+	vivaVersion := buildinfo.Read(linked, buildinfo.Injection{}).VivaVersion
+	if vivaVersion == "" {
+		return fmt.Errorf("GoIM build info does not identify its Viva dependency")
 	}
 	companion := filepath.Join(staging, "goim-snip")
 	companionFlags := "-s -w -buildid="
@@ -191,7 +187,7 @@ func build() error {
 	}
 	info := map[string]string{
 		"version": *version, "commit": sourceCommit, "commit_time": facts.commitTime,
-		"viva": *framework, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH,
+		"viva": vivaVersion, "go": linked.GoVersion, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"source": facts.source, "source_ref": facts.ciRef, "run_id": facts.ciRunID,
 		"build_time": facts.buildTime, "ci_url": facts.ciURL,
 		"desktop_validation": "Windows loopback and offscreen tests; native shortcut lifecycle tests; physical multi-device desktop validation pending",
@@ -257,15 +253,12 @@ func packageBuildFactsFromEnvironment(getenv func(string) string, now time.Time)
 	return facts
 }
 
-func packageLinkerFlags(version, commit, framework string, facts packageBuildFacts, windowsGUI bool) string {
+func packageLinkerFlags(version, commit string, facts packageBuildFacts, windowsGUI bool) string {
 	parts := []string{
 		"-s", "-w", "-buildid=",
-		"-X", "main.version=" + version,
-		"-X", "main.commit=" + commit,
 		"-X", "goim/internal/buildinfo.Version=" + version,
 		"-X", "goim/internal/buildinfo.Commit=" + commit,
 		"-X", "goim/internal/buildinfo.CommitTime=" + facts.commitTime,
-		"-X", "goim/internal/buildinfo.Framework=" + framework,
 		"-X", "goim/internal/buildinfo.Source=" + facts.source,
 		"-X", "goim/internal/buildinfo.BuildTime=" + facts.buildTime,
 		"-X", "goim/internal/buildinfo.CIRef=" + facts.ciRef,
@@ -280,10 +273,6 @@ func packageLinkerFlags(version, commit, framework string, facts packageBuildFac
 
 func validLinkerValue(value string) bool {
 	return !strings.ContainsAny(value, " \t\r\n\"'\\")
-}
-
-func validFrameworkValue(value string) bool {
-	return value != "" && validLinkerValue(value) && !strings.ContainsAny(value, "/")
 }
 
 func firstValue(values ...string) string {

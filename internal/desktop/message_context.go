@@ -9,7 +9,6 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/domain"
 	"goim/internal/i18n"
@@ -26,16 +25,16 @@ func (u *UI) messageContextPointer(c *gfx.Canvas, id gfx.ID, m domain.Message) {
 	}
 }
 
-func (u *UI) drawRecalledMessage(f *flex.Frame, c domain.Conversation, m domain.Message) {
+func (u *UI) drawRecalledMessage(f ui.C, c domain.Conversation, m domain.Message) {
 	id := u.messageIDs[m.ID]
 	label := i18n.T("你撤回了一条消息")
 	if m.SenderID != u.state.Self.ID {
 		label = u.messageSenderName(c, m) + i18n.T(" 撤回了一条消息")
 	}
-	f.Row().FillWidth().Justify(flex.Center).Children(func() {
-		f.Row().PadSides(6, 10, 6, 10).Radius(7).Background(u.palette.mutedAvatar).
+	ui.Row(f).FillWidth().Justify(ui.Center).Children(func() {
+		ui.Row(f).PadSides(6, 10, 6, 10).Radius(7).Background(u.palette.mutedAvatar).
 			HitWith(id, label, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).Children(func() {
-			f.Text(label).FontSize(11).Muted()
+			ui.Text(f, label).FontSize(11).Muted()
 		})
 	})
 	u.messageContextPointer(f.Canvas(), id, m)

@@ -11,7 +11,7 @@ func (u *UI) queueViewerOriginal() {
 	if u.presentViewer == nil || u.media == nil {
 		return
 	}
-	state := &u.chatSurface().viewer
+	state := &u.surface.viewer
 	if !state.open {
 		return
 	}
@@ -35,7 +35,7 @@ func (u *UI) applyViewerOriginal(result mediaImageResult) {
 	if result.generation == 0 {
 		return
 	}
-	state := &u.chatSurface().viewer
+	state := &u.surface.viewer
 	if !state.open || result.generation != state.originalGen || result.path != state.originalPath || !result.decoded {
 		return
 	}

@@ -8,7 +8,6 @@ import (
 
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -34,7 +33,7 @@ type shellMenuState struct {
 type organizeState struct {
 	open    bool
 	peerID  string
-	field   flex.Field
+	field   ui.Field
 	errText string
 	mode    domain.CommandKind
 	group   string
@@ -390,18 +389,18 @@ func (u *UI) drawOrganizeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 	}
 	layout := dialog.Begin(title, i18n.T("分组只用于本机整理，不会同步给对方。"))
 	var submitted bool
-	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
-		f.Column().Fill().Gap(10).Children(func() {
+	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
+		ui.Column(f).Fill().Gap(10).Children(func() {
 			if mode == "" {
-				f.Row().Items(flex.Center).Gap(9).Children(func() {
+				ui.Row(f).Items(ui.Center).Gap(9).Children(func() {
 					u.avatarStatus(f, peer.Name, peer.Avatar, 28, peer.Online)
-					f.Column().Grow(1).Gap(2).Children(func() {
-						f.Text(peer.Name).FontSize(12.5).Weight(gfx.WeightMedium).Ellipsis()
+					ui.Column(f).Grow(1).Gap(2).Children(func() {
+						ui.Text(f, peer.Name).FontSize(12.5).Weight(gfx.WeightMedium).Ellipsis()
 						current := strings.TrimSpace(peer.ContactGroup)
 						if current == "" {
 							current = "未分组"
 						}
-						f.Text(i18n.T("当前：") + current).FontSize(10.5).Muted().Ellipsis()
+						ui.Text(f, i18n.T("当前：")+current).FontSize(10.5).Muted().Ellipsis()
 					})
 				})
 			}
@@ -409,12 +408,12 @@ func (u *UI) drawOrganizeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			if mode == "" {
 				placeholder = i18n.T("留空表示未分组")
 			}
-			field := f.Field(&u.organize.field, u.ids.organizeField, i18n.T("分组名称"), placeholder).Height(38).FillWidth()
+			field := ui.TextFieldID(f, u.ids.organizeField, &u.organize.field, i18n.T("分组名称"), placeholder).Height(38).FillWidth()
 			submitted = field.Submitted()
 			if u.organize.errText != "" {
-				f.Text(u.organize.errText).FontSize(10.5).Color(u.palette.danger)
+				ui.Text(f, u.organize.errText).FontSize(10.5).Color(u.palette.danger)
 			} else if mode == "" {
-				f.Text(i18n.T("输入现有分组名称可直接归档，也可新建分组。")).FontSize(10.5).Muted()
+				ui.Text(f, i18n.T("输入现有分组名称可直接归档，也可新建分组。")).FontSize(10.5).Muted()
 			}
 		})
 	})

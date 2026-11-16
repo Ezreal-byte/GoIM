@@ -15,7 +15,7 @@ import (
 
 func (r *desktopRuntime) syncViewer() {
 	u := r.ui
-	if u.lockVisible() && u.chatSurface().viewer.open {
+	if u.lockVisible() && u.surface.viewer.open {
 		u.closeImageViewer()
 		return
 	}
@@ -27,8 +27,8 @@ func (r *desktopRuntime) syncViewer() {
 	}
 	r.viewerPending = false
 	if r.viewerWindow != nil {
-		u.chatSurface().viewer.pinned = r.viewerWindow.AlwaysOnTop()
-		u.chatSurface().viewer.fullscreen = r.viewerWindow.Fullscreen()
+		u.surface.viewer.pinned = r.viewerWindow.AlwaysOnTop()
+		u.surface.viewer.fullscreen = r.viewerWindow.Fullscreen()
 		r.viewerWindow.Show()
 		r.viewerWake.Invalidate()
 		return
@@ -103,7 +103,7 @@ func (r *desktopRuntime) saveViewerOriginal() {
 	r.viewerSaving = true
 	defer func() { r.viewerSaving = false }()
 	filename := filepath.Base(path)
-	file := r.ui.state.File(r.ui.chatSurface().viewer.fileID)
+	file := r.ui.state.File(r.ui.surface.viewer.fileID)
 	// Use the original filename even when the received file was renamed locally.
 	if file.Name != "" && r.ui.fileLocalPath[file.ID] == path {
 		filename = filepath.Base(file.Name)

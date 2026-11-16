@@ -3,7 +3,6 @@ package buildinfo
 import (
 	"runtime"
 	"runtime/debug"
-	"strings"
 	"testing"
 )
 
@@ -39,16 +38,14 @@ func TestReadUsesInjectedReleaseFacts(t *testing.T) {
 		},
 	}
 	info := Read(build, Injection{
-		Version:        "1.2.3",
-		Commit:         "fedcba9876543210fedcba9876543210fedcba98",
-		CommitTime:     "2026-11-10T09:00:00Z",
-		Framework:      "b357903a11e0e5c58c056805617001e73b44b2c9+patch",
-		FrameworkDirty: "true",
-		Source:         SourceGitHubActions,
-		BuildTime:      "2026-11-10T12:34:56Z",
-		CIRef:          "refs/tags/v1.2.3",
-		CIRunID:        "12345",
-		CIURL:          "https://github.com/Ezreal-byte/GoIM/actions/runs/12345",
+		Version:    "1.2.3",
+		Commit:     "fedcba9876543210fedcba9876543210fedcba98",
+		CommitTime: "2026-11-10T09:00:00Z",
+		Source:     SourceGitHubActions,
+		BuildTime:  "2026-11-10T12:34:56Z",
+		CIRef:      "refs/tags/v1.2.3",
+		CIRunID:    "12345",
+		CIURL:      "https://github.com/Ezreal-byte/GoIM/actions/runs/12345",
 	})
 
 	if info.Version != "1.2.3" || info.Revision != "fedcba9876543210fedcba9876543210fedcba98" {
@@ -60,21 +57,23 @@ func TestReadUsesInjectedReleaseFacts(t *testing.T) {
 	if info.BuildTime != "2026-11-10 12:34 UTC" {
 		t.Fatalf("build time = %q", info.BuildTime)
 	}
-	if !info.VivaDirty || !strings.Contains(info.VivaVersion, "+patch") {
-		t.Fatalf("framework = %q dirty=%v", info.VivaVersion, info.VivaDirty)
-	}
 	if info.CIRef != "refs/tags/v1.2.3" || info.CIRunID != "12345" ||
 		info.CIURL != "https://github.com/Ezreal-byte/GoIM/actions/runs/12345" {
 		t.Fatalf("CI facts = %+v", info)
 	}
 }
 
-func TestReadFallsBackToTheFrameworkModule(t *testing.T) {
+func TestReadReportsTheLinkedFramework(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		module debug.Module
 		want   string
 	}{
+		{
+			name:   "pinned module",
+			module: debug.Module{Path: "github.com/vivaui/viva", Version: "v0.6.5-0.20261115140306-89ce846fe65c"},
+			want:   "v0.6.5-0.20261115140306-89ce846fe65c",
+		},
 		{
 			name:   "replacement without a version",
 			module: debug.Module{Path: "github.com/vivaui/viva", Version: "v0.0.0", Replace: &debug.Module{Path: "../viva"}},
@@ -89,7 +88,7 @@ func TestReadFallsBackToTheFrameworkModule(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			info := Read(&debug.BuildInfo{Deps: []*debug.Module{&test.module}}, Injection{})
 			if info.VivaVersion != test.want {
-				t.Fatalf("Viva fallback = %q, want %q", info.VivaVersion, test.want)
+				t.Fatalf("Viva version = %q, want %q", info.VivaVersion, test.want)
 			}
 		})
 	}

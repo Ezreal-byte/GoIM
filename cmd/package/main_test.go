@@ -59,15 +59,12 @@ func TestPackageLinkerFlagsCarryBuildInfo(t *testing.T) {
 	got := packageLinkerFlags(
 		"1.2.3",
 		"0123456789abcdef0123456789abcdef01234567",
-		"b357903a11e0e5c58c056805617001e73b44b2c9+patch",
 		facts,
 		true,
 	)
 	for _, want := range []string{
-		"main.version=1.2.3",
-		"main.commit=0123456789abcdef0123456789abcdef01234567",
+		"goim/internal/buildinfo.Commit=0123456789abcdef0123456789abcdef01234567",
 		"goim/internal/buildinfo.Version=1.2.3",
-		"goim/internal/buildinfo.Framework=b357903a11e0e5c58c056805617001e73b44b2c9+patch",
 		"goim/internal/buildinfo.Source=github-actions",
 		"goim/internal/buildinfo.BuildTime=2026-11-10T04:34:56Z",
 		"goim/internal/buildinfo.CIRef=refs/tags/v1.2.3",
@@ -99,11 +96,5 @@ func TestLinkerValuesRejectWhitespaceAndQuotes(t *testing.T) {
 		if validLinkerValue(value) {
 			t.Errorf("validLinkerValue(%q) = true", value)
 		}
-	}
-	if validFrameworkValue("../viva") || validFrameworkValue(`C:\viva`) {
-		t.Error("framework revisions accepted a local path")
-	}
-	if !validFrameworkValue("b357903a11e0e5c58c056805617001e73b44b2c9+patch") {
-		t.Error("framework pin and patch was rejected")
 	}
 }

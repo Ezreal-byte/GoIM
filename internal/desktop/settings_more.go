@@ -8,22 +8,18 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
 
 type panelSettingsExtra struct {
-	scroll                                                                                                gfx.Scope
-	background, clearBackground, backgroundShade, notificationPrivacy, offline, discovery, acceptImages   gfx.ID
+	background, clearBackground, notificationPrivacy, offline, discovery, acceptImages                    gfx.ID
 	profile, connect, connectAddress, lockStartup, passwordOld, passwordNew, passwordRepeat, passwordSave gfx.ID
-	shade                                                                                                 flex.SliderState
+	shade                                                                                                 ui.SliderState
 	shadeDirty                                                                                            bool
-	connectProtocol                                                                                       gfx.Scope
-	connectRoute                                                                                          int
-	connectSelect                                                                                         flex.SelectState
+	connectRoute                                                                                          connectionRoute
 	compat                                                                                                [2]compatibilityEditor
-	address, old, password, repeat                                                                        flex.Field
+	address, old, password, repeat                                                                        ui.Field
 	passwordError                                                                                         string
 	openProfile                                                                                           func()
 }
@@ -40,10 +36,8 @@ var panelSettingsBellIcon = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound
 }}
 
 func (s *panelSettingsExtra) init(tree *gfx.Tree, scope gfx.Scope) {
-	s.scroll = tree.Sub(scope, tree.Name("category-scroll"))
 	s.background = tree.ID(scope, "background-choose")
 	s.clearBackground = tree.ID(scope, "background-clear")
-	s.backgroundShade = tree.ID(scope, "background-shade")
 	s.notificationPrivacy = tree.ID(scope, "notification-private")
 	s.offline = tree.ID(scope, "offline-contacts")
 	s.discovery = tree.ID(scope, "auto-discovery")
@@ -51,7 +45,6 @@ func (s *panelSettingsExtra) init(tree *gfx.Tree, scope gfx.Scope) {
 	s.profile = tree.ID(scope, "open-profile")
 	s.connect = tree.ID(scope, "manual-connect")
 	s.connectAddress = tree.ID(scope, "manual-address")
-	s.connectProtocol = tree.Sub(scope, tree.Name("manual-protocol"))
 	s.compat[0].init(tree, tree.Sub(scope, tree.Name("neiwangtong")))
 	s.compat[1].init(tree, tree.Sub(scope, tree.Name("ipmsg")))
 	s.lockStartup = tree.ID(scope, "lock-startup")
@@ -63,7 +56,7 @@ func (s *panelSettingsExtra) init(tree *gfx.Tree, scope gfx.Scope) {
 }
 
 func (s *panelSettingsExtra) resetSecrets() {
-	s.old, s.password, s.repeat = flex.Field{Secure: true}, flex.Field{Secure: true}, flex.Field{Secure: true}
+	s.old, s.password, s.repeat = ui.Field{Secure: true}, ui.Field{Secure: true}, ui.Field{Secure: true}
 	s.passwordError = ""
 }
 
@@ -71,17 +64,13 @@ func (s *panelSettingsExtra) isPasswordField(id gfx.ID) bool {
 	return !id.IsZero() && (id == s.passwordOld || id == s.passwordNew || id == s.passwordRepeat)
 }
 
-func (s *panelSettingsExtra) textInput(context app.TextInputContext) *app.TextInput {
-	return flex.Fields(&s.address, &s.old, &s.password, &s.repeat, &s.compat[0].field, &s.compat[1].field)(context)
-}
-
-func (p *Panels) drawBackgroundSettings(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+func (p *Panels) drawBackgroundSettings(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	s := &p.settingsExtra
 	settings := state.Settings
 	p.settingsRow(f, theme, i18n.T("自定义背景"), i18n.T("用于聊天区域，图片仅保存在本机"), func() {
 		p.settingsControl(f, 240, func() {
-			f.Row().Gap(8).Items(flex.Center).Children(func() {
-				if f.Button(s.background, i18n.T("选择图片…")).Small().Outline().Clicked() {
+			ui.Row(f).Gap(8).Items(ui.Center).Children(func() {
+				if namedButton(f, s.background, i18n.T("选择图片…")).Small().Outline().Clicked() {
 					paths, err := app.OpenFiles(app.OpenFileOptions{Title: i18n.T("选择聊天背景"), Filters: []app.FileFilter{
 						{Name: i18n.T("图片"), Pattern: "*.png;*.jpg;*.jpeg;*.gif"},
 					}})
@@ -91,7 +80,7 @@ func (p *Panels) drawBackgroundSettings(f *flex.Frame, theme ui.Theme, state dom
 						p.localError = i18n.T("无法选择背景：") + err.Error()
 					}
 				}
-				if settings.Background != "" && f.Button(s.clearBackground, i18n.T("恢复默认")).Small().Ghost().Clicked() {
+				if settings.Background != "" && namedButton(f, s.clearBackground, i18n.T("恢复默认")).Small().Ghost().Clicked() {
 					submit(domain.Command{Kind: domain.SetSetting, Setting: "background", Value: ""})
 				}
 			})
@@ -102,8 +91,8 @@ func (p *Panels) drawBackgroundSettings(f *flex.Frame, theme ui.Theme, state dom
 			if !s.shade.Dragging() && !s.shadeDirty && (p.pending == nil || p.pending.setting != "background_shade") {
 				s.shade.Value = float32(settings.BackgroundShade)
 			}
-			f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
-				slider := f.Slider(s.backgroundShade, &s.shade).Step(5).Grow(1).
+			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+				slider := ui.Slider(f, &s.shade).Step(5).Grow(1).
 					Label(i18n.T("背景深浅")).Disabled(settings.Background == "")
 				if slider.Changed() {
 					s.shadeDirty = true
@@ -112,43 +101,47 @@ func (p *Panels) drawBackgroundSettings(f *flex.Frame, theme ui.Theme, state dom
 					p.submitString(submit, state, "background_shade", strconv.Itoa(int(s.shade.Value)))
 					s.shadeDirty = false
 				}
-				f.Text(strconv.Itoa(int(s.shade.Value)) + "%").FontSize(12).Muted().Width(40)
+				ui.Text(f, strconv.Itoa(int(s.shade.Value))+"%").FontSize(12).Muted().Width(40)
 			})
 		})
 	})
 }
 
-func (p *Panels) drawSettingsProfile(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+func (p *Panels) drawSettingsProfile(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	s := &p.settingsExtra
 	panelSection(f, i18n.T("个人资料"), "", func() {
 		p.settingsRow(f, theme, state.Self.Name, i18n.T("本机昵称和头像"), func() {
-			if f.Button(s.profile, i18n.T("编辑资料…")).Small().Outline().Clicked() && s.openProfile != nil {
+			if namedButton(f, s.profile, i18n.T("编辑资料…")).Small().Outline().Clicked() && s.openProfile != nil {
 				s.openProfile()
 			}
 		})
 		p.settingsRow(f, theme, i18n.T("隐藏离线联系人"), i18n.T("联系人列表仅显示自己和在线联系人"), func() {
 			p.settingsControl(f, 80, func() {
-				if f.Switch(s.offline, state.Settings.HideOfflineContacts).Label(i18n.T("隐藏离线联系人")).Clicked() {
-					p.submitBool(submit, state, "hide_offline_contacts", !state.Settings.HideOfflineContacts)
+				hidden := ui.State[bool](f, "hide-offline")
+				*hidden = state.Settings.HideOfflineContacts
+				if ui.Switch(f, hidden, "").Hit(s.offline, i18n.T("隐藏离线联系人")).Changed() {
+					p.submitBool(submit, state, "hide_offline_contacts", *hidden)
 				}
 			})
 		})
 	})
 }
 
-func (p *Panels) drawDiscoverySettings(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+func (p *Panels) drawDiscoverySettings(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	s := &p.settingsExtra
 	p.settingsRow(f, theme, i18n.T("自动发现联系人"), i18n.T("搜索同一局域网内运行 GoIM 的设备"), func() {
 		p.settingsControl(f, 80, func() {
-			if f.Switch(s.discovery, !state.Settings.DisableAutoDiscovery).Label(i18n.T("自动发现联系人")).Clicked() {
-				p.submitBool(submit, state, "disable_auto_discovery", !state.Settings.DisableAutoDiscovery)
+			discovery := ui.State[bool](f, "auto-discovery")
+			*discovery = !state.Settings.DisableAutoDiscovery
+			if ui.Switch(f, discovery, "").Hit(s.discovery, i18n.T("自动发现联系人")).Changed() {
+				p.submitBool(submit, state, "disable_auto_discovery", !*discovery)
 			}
 		})
 	})
 	p.settingsRow(f, theme, i18n.T("手动连接"), i18n.T("先选择连接方式，再输入对方设备地址。"), func() {
 		p.settingsControl(f, 300, func() {
 			address, transport, submitted := panelConnectionForm(f, state, panelConnectionFields{
-				protocol: s.connectProtocol, selectState: &s.connectSelect, route: &s.connectRoute,
+				route:   &s.connectRoute,
 				address: &s.address, addressID: s.connectAddress, connectID: s.connect,
 			})
 			if !submitted {
@@ -164,32 +157,34 @@ func (p *Panels) drawDiscoverySettings(f *flex.Frame, theme ui.Theme, state doma
 	})
 }
 
-func (p *Panels) drawSettingsSecurity(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+func (p *Panels) drawSettingsSecurity(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	s := &p.settingsExtra
 	settings := state.Settings
 	panelSection(f, i18n.T("应用锁定"), i18n.T("锁定后需要输入密码才能查看会话。消息与文件仍在后台接收。"), func() {
 		p.settingsRow(f, theme, i18n.T("启动时锁定"), i18n.T("下次启动 GoIM 时先验证密码"), func() {
 			p.settingsControl(f, 80, func() {
-				if f.Switch(s.lockStartup, settings.LockOnStartup).Label(i18n.T("启动时锁定")).Disabled(!settings.HasLockPassword).Clicked() {
-					p.submitBool(submit, state, "lock_on_startup", !settings.LockOnStartup)
+				enabled := ui.State[bool](f, "lock-on-startup")
+				*enabled = settings.LockOnStartup
+				if ui.Switch(f, enabled, "").Hit(s.lockStartup, i18n.T("启动时锁定")).Disabled(!settings.HasLockPassword).Changed() {
+					p.submitBool(submit, state, "lock_on_startup", *enabled)
 				}
 			})
 		})
-		f.Row().FillWidth().Justify(flex.End).Children(func() {
+		ui.Row(f).FillWidth().Justify(ui.End).Children(func() {
 			p.settingsControl(f, 360, func() {
-				f.Column().FillWidth().Gap(8).PadY(10).Children(func() {
+				ui.Column(f).FillWidth().Gap(8).PadY(10).Children(func() {
 					if settings.HasLockPassword {
-						f.Text(i18n.T("当前密码")).FontSize(13)
-						f.Field(&s.old, s.passwordOld, i18n.T("当前密码"), i18n.T("输入当前密码")).FillWidth()
+						ui.Text(f, i18n.T("当前密码")).FontSize(13)
+						ui.TextFieldID(f, s.passwordOld, &s.old, i18n.T("当前密码"), i18n.T("输入当前密码")).FillWidth()
 					}
-					f.Text(i18n.T("新密码")).FontSize(13)
-					f.Field(&s.password, s.passwordNew, i18n.T("新密码"), i18n.T("至少 6 个字符")).FillWidth()
-					f.Text(i18n.T("确认新密码")).FontSize(13)
-					last := f.Field(&s.repeat, s.passwordRepeat, i18n.T("确认新密码"), i18n.T("再输入一次新密码")).FillWidth()
+					ui.Text(f, i18n.T("新密码")).FontSize(13)
+					ui.TextFieldID(f, s.passwordNew, &s.password, i18n.T("新密码"), i18n.T("至少 6 个字符")).FillWidth()
+					ui.Text(f, i18n.T("确认新密码")).FontSize(13)
+					last := ui.TextFieldID(f, s.passwordRepeat, &s.repeat, i18n.T("确认新密码"), i18n.T("再输入一次新密码")).FillWidth()
 					if s.passwordError != "" {
-						f.Paragraph(s.passwordError, 2).Color(theme.Danger).FontSize(12)
+						ui.Paragraph(f, s.passwordError, 2).Color(theme.Danger).FontSize(12)
 					}
-					if f.Button(s.passwordSave, i18n.T("保存密码")).Small().Clicked() || last.Submitted() {
+					if namedButton(f, s.passwordSave, i18n.T("保存密码")).Small().Clicked() || last.Submitted() {
 						password := s.password.Text()
 						if err := validatePasswordPair(password, s.repeat.Text()); err != "" {
 							s.passwordError = err
@@ -204,13 +199,14 @@ func (p *Panels) drawSettingsSecurity(f *flex.Frame, theme ui.Theme, state domai
 	})
 }
 
-func (p *Panels) drawAutoAcceptImages(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+func (p *Panels) drawAutoAcceptImages(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	settings := state.Settings
 	p.settingsRow(f, theme, i18n.T("自动接收聊天图片"), i18n.T("接收后可直接在聊天中预览"), func() {
 		p.settingsControl(f, 80, func() {
-			if f.Switch(p.settingsExtra.acceptImages, settings.AutoAcceptImages || settings.AutoAccept).
-				Label(i18n.T("自动接收聊天图片")).Disabled(settings.AutoAccept).Clicked() {
-				p.submitBool(submit, state, "auto_accept_images", !settings.AutoAcceptImages)
+			enabled := ui.State[bool](f, "accept-images")
+			*enabled = settings.AutoAcceptImages || settings.AutoAccept
+			if ui.Switch(f, enabled, "").Hit(p.settingsExtra.acceptImages, i18n.T("自动接收聊天图片")).Disabled(settings.AutoAccept).Changed() {
+				p.submitBool(submit, state, "auto_accept_images", *enabled)
 			}
 		})
 	})

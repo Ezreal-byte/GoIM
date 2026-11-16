@@ -60,7 +60,7 @@ func TestImageViewerNavigatesWithKeyboardAndButtons(t *testing.T) {
 
 	harness.clickID(harness.ui.fileButtonIDs["file-image-1"])
 	harness.settle()
-	surface := harness.ui.chatSurface()
+	surface := harness.ui.surface
 	if !harness.ui.imageViewerOpen() || surface.viewer.fileID != "file-image-1" {
 		t.Fatal("first image did not open in the viewer")
 	}
@@ -159,7 +159,7 @@ func TestImageViewerZoomFitActualRotateAndWheel(t *testing.T) {
 	harness.waitFor(func() bool { return bitmapReady(harness.ui.fileBitmap(path)) })
 	harness.clickID(harness.ui.fileButtonIDs["file-image-zoom"])
 	harness.settle()
-	surface := harness.ui.chatSurface()
+	surface := harness.ui.surface
 	stateViewer := &surface.viewer
 	if !stateViewer.fit || stateViewer.fitScale <= 0 {
 		t.Fatal("viewer did not start fitted to the stage")
@@ -248,7 +248,7 @@ func TestImageViewerPanClampsAndDoubleClickTogglesFit(t *testing.T) {
 	harness.waitFor(func() bool { return bitmapReady(harness.ui.fileBitmap(path)) })
 	harness.clickID(harness.ui.fileButtonIDs["file-image-pan"])
 	harness.settle()
-	surface := harness.ui.chatSurface()
+	surface := harness.ui.surface
 	stateViewer := &surface.viewer
 	for range 10 {
 		if err := harness.driver.KeyDown(gfx.KeyUnknown, "+"); err != nil {

@@ -42,7 +42,7 @@ func (u *UI) imageViewerConfig() app.Config {
 			u.drawImageViewer(c, ui.Rect{Width: size.Width, Height: size.Height}, true)
 		},
 		OnKey: u.imageViewerKey, OnScroll: u.imageViewerWheel,
-		OnFullscreen: func(active bool) { u.chatSurface().viewer.fullscreen = active },
+		OnFullscreen: func(active bool) { u.surface.viewer.fullscreen = active },
 	}
 }
 

@@ -20,7 +20,7 @@ func viewerTitlebarDriver(tb testing.TB) (*UI, *app.Driver, *app.Invalidator) {
 		Settings: domain.DefaultSettings(dir), Files: []domain.File{file},
 	}))
 	tb.Cleanup(u.Close)
-	u.chatSurface().viewer = imageViewerState{open: true, fileID: file.ID, conversationID: file.ConversationID, fit: true, zoom: 1}
+	u.surface.viewer = imageViewerState{open: true, fileID: file.ID, conversationID: file.ConversationID, fit: true, zoom: 1}
 	u.imageCache[path] = gfx.Bitmap{ID: 1, Version: 1, Width: 1, Height: 1, Stride: 4, Pix: []byte{120, 120, 120, 255}}
 	config := u.imageViewerConfig()
 	config.Width = config.MinWidth
@@ -36,7 +36,7 @@ func viewerTitlebarDriver(tb testing.TB) (*UI, *app.Driver, *app.Invalidator) {
 
 func TestDetachedViewerTitlebarSeparatesWindowDragFromControls(t *testing.T) {
 	u, d, _ := viewerTitlebarDriver(t)
-	ids := u.chatSurface().ids
+	ids := u.surface.ids
 	var drag ui.Rect
 	for _, hit := range d.Snapshot().Hits {
 		if hit.MovesWindow {

@@ -6,7 +6,7 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/text"
-	"goim/internal/flex"
+	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
 )
@@ -15,14 +15,14 @@ type chatFindState struct {
 	open           bool
 	conversationID string
 	editor         *text.Editor
-	field          flex.Field
+	field          ui.Field
 	input          app.TextInput
 	query          string
 	matches        []domain.Message
 	matchCount     int
 	savedOffset    float32
+	savedAtEnd     bool
 	restorePending bool
-	restoreApply   bool
 	focus          bool
 }
 
@@ -53,18 +53,14 @@ func (u *UI) openChatSearch() {
 		u.focusSearch = false
 		return
 	}
-	offset := float32(0)
-	if state := u.chatView.ScrollState(u.ids.chatMessages); state != nil {
-		offset = state.Offset
-	}
 	u.chatFind.open = true
 	u.chatFind.conversationID = u.selected
 	u.chatFind.query = ""
 	u.chatFind.matches = u.chatFind.matches[:0]
 	u.chatFind.matchCount = len(u.messages)
-	u.chatFind.savedOffset = offset
+	u.chatFind.savedOffset = u.timeline.offset
+	u.chatFind.savedAtEnd = u.timeline.conversation != u.selected || u.timeline.atEnd
 	u.chatFind.restorePending = false
-	u.chatFind.restoreApply = false
 	u.chatFind.focus = true
 	replaceChatSearchText(editor, "")
 	u.focusSearch = false
@@ -75,7 +71,6 @@ func (u *UI) closeChatSearch() {
 		return
 	}
 	u.chatFind.restorePending = u.chatFind.conversationID == u.selected
-	u.chatFind.restoreApply = false
 	u.chatFind.open = false
 	u.chatFind.focus = false
 	u.chatFind.query = ""
@@ -94,7 +89,6 @@ func (u *UI) resetChatSearch() {
 	u.chatFind.matchCount = 0
 	u.chatFind.savedOffset = 0
 	u.chatFind.restorePending = false
-	u.chatFind.restoreApply = false
 	u.chatFind.focus = false
 	if u.chatFind.editor != nil {
 		replaceChatSearchText(u.chatFind.editor, "")
@@ -167,16 +161,16 @@ func (u *UI) onChatSearchTextEvent(event app.TextEvent) (app.TextState, error) {
 	return state, nil
 }
 
-func (u *UI) drawChatSearchBar(f *flex.Frame) {
+func (u *UI) drawChatSearchBar(f ui.C) {
 	if !u.chatFind.open {
 		return
 	}
-	f.Row().FillWidth().Height(52).PadSides(12, 36, 10, 36).
-		Background(u.palette.header).Items(flex.Center).Gap(10).Children(func() {
-		f.Icon(u.iconSearch).Size(16, 16).Color(u.palette.secondaryText)
-		f.Field(&u.chatFind.field, u.ids.chatSearchField,
+	ui.Row(f).FillWidth().Height(52).PadSides(12, 36, 10, 36).
+		Background(u.palette.header).Items(ui.Center).Gap(10).Children(func() {
+		ui.Icon(f, u.iconSearch).Size(16, 16).Color(u.palette.secondaryText)
+		ui.TextFieldID(f, u.ids.chatSearchField, &u.chatFind.field,
 			i18n.T("搜索当前会话"), i18n.T("搜索消息文字或文件名")).Height(34).Grow(1)
-		f.Text(intString(u.chatFind.matchCount) + i18n.T(" 条匹配")).FontSize(11).Muted()
+		ui.Text(f, intString(u.chatFind.matchCount)+i18n.T(" 条匹配")).FontSize(11).Muted()
 		close := u.iconButton(f, u.ids.chatSearchClose, u.iconX, i18n.T("关闭会话内搜索"), 28)
 		if close.Clicked() {
 			u.closeChatSearch()

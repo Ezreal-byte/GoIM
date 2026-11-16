@@ -13,7 +13,6 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -21,7 +20,7 @@ import (
 func (u *UI) drawChat(canvas *gfx.Canvas, bounds ui.Rect) {
 	conversation := u.state.Conversation(u.selected)
 	chatBounds := bounds
-	surface := u.chatSurface()
+	surface := u.surface
 	surface.filesPane = ui.Rect{}
 	if u.drawer == "files" && conversation.ID == "" {
 		u.closeDrawer()
@@ -48,6 +47,14 @@ func (u *UI) drawChat(canvas *gfx.Canvas, bounds ui.Rect) {
 	// dialogs; the shell paints drawChatImageViewer after drawOverlays.
 }
 
+// chatTimeline records the last layout for unread handling and search. Viva
+// owns the live scroll state and can reuse it when a scroll area disappears.
+type chatTimeline struct {
+	conversation string
+	offset       float32
+	atEnd        bool
+}
+
 func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation domain.Conversation) {
 	canvas.Fill(bounds, u.palette.chat)
 	if u.drawChatBackground(canvas, bounds) {
@@ -58,8 +65,9 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 		canvas.Fill(bounds, u.chatBackgroundTint())
 	}
 	if conversation.ID == "" {
-		u.chatView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
-			f.Column().Fill().Children(func() {
+		u.timeline = chatTimeline{}
+		u.chatPage.Draw(canvas, bounds, func(f ui.C) {
+			ui.Column(f).Fill().Children(func() {
 				if u.state.Error != "" {
 					u.drawChatNotice(f)
 				}
@@ -68,28 +76,29 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 		})
 		return
 	}
-	surface := u.chatSurface()
-	u.chatView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
-		f.Column().Fill().Children(func() {
+	surface := u.surface
+	var timeline ui.Box
+	u.chatPage.Draw(canvas, bounds, func(f ui.C) {
+		ui.Column(f).Fill().Children(func() {
 			u.drawChatHeader(f, conversation)
 			searchDeclared := false
 			if u.chatFind.open {
 				searchDeclared = true
-				f.Divider()
+				ui.Divider(f)
 				u.drawChatSearchBar(f)
 			}
-			f.Divider()
+			ui.Divider(f)
 			// The header can open or close search during this declaration, so
 			// size the history pane after it to observe the current state.
 			u.prepareChatHistory(bounds.Height, conversation, searchDeclared)
-			f.Column().Height(surface.history.Pos).Children(func() {
+			ui.Column(f).Height(surface.history.Pos).Children(func() {
 				u.drawChatNotice(f)
-				u.drawChatTimeline(f, conversation)
+				timeline = u.drawChatTimeline(f, conversation)
 			})
-			f.Splitter(surface.ids.historySplitter, &surface.history).
+			ui.Splitter(f, &surface.history).
 				Mins(chatHistoryMinHeight, u.chatComposerMinimum(conversation)).
 				Label(i18n.T("调整聊天记录和输入框高度"))
-			f.Row().Grow(1).Basis(0).Children(func() {
+			ui.Row(f).Grow(1).Basis(0).Children(func() {
 				if reason := u.chatReadOnlyReason(conversation); reason != "" {
 					u.drawChatReadOnly(f, reason)
 				} else {
@@ -98,6 +107,18 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 			})
 		})
 	})
+	u.timeline = chatTimeline{conversation: conversation.ID, atEnd: true}
+	if timeline.Valid() {
+		scroll := timeline.ScrollState()
+		if u.chatFind.restorePending && !u.chatFind.savedAtEnd {
+			// The full history has been measured again. Resume following from
+			// the restored position, so it stays put if it is above the end.
+			scroll.Follow(true)
+			scroll.ScrollTo(scroll.Offset)
+		}
+		u.timeline.offset, u.timeline.atEnd = scroll.Offset, scroll.AtEnd()
+	}
+	u.chatFind.restorePending = false
 	if u.dragging {
 		overlay := ui.Rect{
 			X: bounds.X + 18, Y: bounds.Y + 98,
@@ -110,31 +131,31 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 	}
 }
 
-func (u *UI) drawChatEmpty(f *flex.Frame) {
-	f.Column().Fill().Items(flex.Center).Justify(flex.Center).Pad(42).Gap(12).Children(func() {
-		f.Row().Size(62, 62).Radius(18).Background(u.palette.mutedAvatar).Items(flex.Center).
-			Justify(flex.Center).Children(func() {
-			f.Icon(u.iconMessage).Size(28, 28).Color(u.palette.secondaryText)
+func (u *UI) drawChatEmpty(f ui.C) {
+	ui.Column(f).Fill().Items(ui.Center).Justify(ui.Center).Pad(42).Gap(12).Children(func() {
+		ui.Row(f).Size(62, 62).Radius(18).Background(u.palette.mutedAvatar).Items(ui.Center).
+			Justify(ui.Center).Children(func() {
+			ui.Icon(f, u.iconMessage).Size(28, 28).Color(u.palette.secondaryText)
 		})
-		f.Text(i18n.T("选择一段会话开始聊天")).FontSize(16).Weight(gfx.WeightMedium)
-		f.Paragraph("消息只在局域网内直连。联系人上线后会自动出现，也可以手动输入地址连接。", 3).
+		ui.Text(f, i18n.T("选择一段会话开始聊天")).FontSize(16).Weight(gfx.WeightMedium)
+		ui.Paragraph(f, "消息只在局域网内直连。联系人上线后会自动出现，也可以手动输入地址连接。", 3).
 			MaxWidth(430).FontSize(13).Muted().TextCenter().LineHeight(20)
-		f.Row().Gap(10).Justify(flex.Center).Children(func() {
-			connect := f.Button(u.ids.chatEmptyConnect, i18n.T("手动连接")).Outline()
+		ui.Row(f).Gap(10).Justify(ui.Center).Children(func() {
+			connect := namedButton(f, u.ids.chatEmptyConnect, i18n.T("手动连接")).Outline()
 			if connect.Clicked() {
 				u.openConnect()
 			}
-			compose := f.Button(u.ids.chatEmptyCompose, i18n.T("创建群聊"))
+			compose := namedButton(f, u.ids.chatEmptyCompose, i18n.T("创建群聊"))
 			if compose.Clicked() {
 				u.openCompose("create", "")
 			}
 		})
-		f.Row().Height(10)
+		ui.Row(f).Height(10)
 		u.connectionPill(f)
 	})
 }
 
-func (u *UI) drawChatHeader(f *flex.Frame, conversation domain.Conversation) {
+func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 	title := u.conversationTitle(conversation)
 	avatarName := title
 	online := false
@@ -167,9 +188,9 @@ func (u *UI) drawChatHeader(f *flex.Frame, conversation domain.Conversation) {
 		}
 	}
 
-	var searchButton, fileButton, memberButton, moreButton flex.Box
+	var searchButton, fileButton, memberButton, moreButton ui.Box
 	memberShown := false
-	f.Row().Height(chatHeaderExtent).FillWidth().PadSides(7, 22, 7, 24).Items(flex.Center).Gap(12).Children(func() {
+	ui.Row(f).Height(chatHeaderExtent).FillWidth().PadSides(7, 22, 7, 24).Items(ui.Center).Gap(12).Children(func() {
 		avatar := ""
 		if conversation.Kind == "direct" {
 			peer := u.state.Peer(conversation.PeerID)
@@ -183,15 +204,15 @@ func (u *UI) drawChatHeader(f *flex.Frame, conversation domain.Conversation) {
 		} else {
 			u.avatarWithPresence(f, avatarName, avatar, 42, online, false, u.palette.chat)
 		}
-		f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
-			f.Text(title).FontSize(17).Weight(gfx.WeightSemibold).Ellipsis()
-			f.Row().Items(flex.Center).Gap(7).Children(func() {
+		ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
+			ui.Text(f, title).FontSize(17).Weight(gfx.WeightSemibold).Ellipsis()
+			ui.Row(f).Items(ui.Center).Gap(7).Children(func() {
 				dot := u.palette.secondaryText
 				if online {
 					dot = u.palette.success
 				}
-				f.Stack().Size(7, 7).Radius(4).Background(dot)
-				f.Text(subtitle).FontSize(12).Muted().Ellipsis()
+				ui.Stack(f).Size(7, 7).Radius(4).Background(dot)
+				ui.Text(f, subtitle).FontSize(12).Muted().Ellipsis()
 			})
 		})
 		searchButton = u.sizedIconButton(f, u.ids.chatHeaderSearch, u.iconSearch, i18n.T("搜索当前会话"), 38, 23)
@@ -224,7 +245,7 @@ func (u *UI) drawChatHeader(f *flex.Frame, conversation domain.Conversation) {
 	}
 }
 
-func (u *UI) drawChatNotice(f *flex.Frame) {
+func (u *UI) drawChatNotice(f ui.C) {
 	notice := u.localNotice
 	if notice == "" {
 		notice = u.state.Notice
@@ -236,20 +257,20 @@ func (u *UI) drawChatNotice(f *flex.Frame) {
 		if notice == "" {
 			return
 		}
-		f.Row().FillWidth().PadSides(8, 28, 8, 28).Height(34).Children(func() {
-			f.Row().Fill().PadX(12).Radius(8).Background(u.palette.fileCard).Items(flex.Center).Gap(8).
+		ui.Row(f).FillWidth().PadSides(8, 28, 8, 28).Height(34).Children(func() {
+			ui.Row(f).Fill().PadX(12).Radius(8).Background(u.palette.fileCard).Items(ui.Center).Gap(8).
 				Children(func() {
-					f.Icon(u.iconCircleCheck).Size(15, 15).Color(u.palette.success)
-					f.Text(notice).FontSize(12).Color(u.palette.secondaryText).Ellipsis()
+					ui.Icon(f, u.iconCircleCheck).Size(15, 15).Color(u.palette.success)
+					ui.Text(f, notice).FontSize(12).Color(u.palette.secondaryText).Ellipsis()
 				})
 		})
 		return
 	}
-	f.Row().FillWidth().PadSides(8, 28, 8, 28).Height(38).Children(func() {
-		f.Row().Fill().PadSides(8, 10, 8, 12).Radius(8).
-			Background(ui.RGBA(220, 48, 54, 0.08)).Items(flex.Center).Gap(8).Children(func() {
-			f.Icon(u.iconAlert).Size(16, 16).Color(u.palette.danger)
-			f.Text(i18n.T(u.state.Error)).FontSize(12).Color(u.palette.danger).Grow(1).Ellipsis()
+	ui.Row(f).FillWidth().PadSides(8, 28, 8, 28).Height(38).Children(func() {
+		ui.Row(f).Fill().PadSides(8, 10, 8, 12).Radius(8).
+			Background(ui.RGBA(220, 48, 54, 0.08)).Items(ui.Center).Gap(8).Children(func() {
+			ui.Icon(f, u.iconAlert).Size(16, 16).Color(u.palette.danger)
+			ui.Text(f, i18n.T(u.state.Error)).FontSize(12).Color(u.palette.danger).Grow(1).Ellipsis()
 			dismiss := u.iconButton(f, u.ids.chatNoticeDismiss, u.iconX, i18n.T("关闭错误提示"), 24)
 			if dismiss.Clicked() {
 				u.submit(domain.Command{Kind: domain.ClearError})
@@ -258,55 +279,44 @@ func (u *UI) drawChatNotice(f *flex.Frame) {
 	})
 }
 
-func (u *UI) drawChatTimeline(f *flex.Frame, conversation domain.Conversation) {
+func (u *UI) drawChatTimeline(f ui.C, conversation domain.Conversation) ui.Box {
 	messages := u.visibleChatMessages()
-	restoreFrame := u.chatFind.restorePending
-	applyRestore := u.chatFind.restoreApply
-	u.chatFind.restorePending = false
-	u.chatFind.restoreApply = false
 	if len(messages) == 0 {
-		f.Column().Grow(1).Items(flex.Center).Justify(flex.Center).Gap(10).Children(func() {
-			f.Row().Size(50, 50).Radius(15).Background(u.palette.mutedAvatar).Items(flex.Center).
-				Justify(flex.Center).Children(func() {
+		ui.Column(f).Grow(1).Items(ui.Center).Justify(ui.Center).Gap(10).Children(func() {
+			ui.Row(f).Size(50, 50).Radius(15).Background(u.palette.mutedAvatar).Items(ui.Center).
+				Justify(ui.Center).Children(func() {
 				icon := u.iconMessageSquare
 				if u.chatFind.open && u.chatFind.query != "" {
 					icon = u.iconSearch
 				}
-				f.Icon(icon).Size(23, 23).Color(u.palette.secondaryText)
+				ui.Icon(f, icon).Size(23, 23).Color(u.palette.secondaryText)
 			})
 			if u.chatFind.open && u.chatFind.query != "" {
-				f.Text(i18n.T("没有匹配的消息")).FontSize(16).Weight(gfx.WeightMedium)
-				f.Text(i18n.T("换一个关键词，搜索消息文字或文件名。")).FontSize(12).Muted().TextCenter()
+				ui.Text(f, i18n.T("没有匹配的消息")).FontSize(16).Weight(gfx.WeightMedium)
+				ui.Text(f, i18n.T("换一个关键词，搜索消息文字或文件名。")).FontSize(12).Muted().TextCenter()
 			} else {
-				f.Text(i18n.T("还没有消息")).FontSize(16).Weight(gfx.WeightMedium)
+				ui.Text(f, i18n.T("还没有消息")).FontSize(16).Weight(gfx.WeightMedium)
 				hint := i18n.T("发送一条消息开始聊天。")
 				if conversation.Kind == "group" {
 					hint = i18n.T("发送第一条群消息，邀请会在成员确认后生效。")
 				}
-				f.Text(hint).FontSize(12).Muted().TextCenter()
+				ui.Text(f, hint).FontSize(12).Muted().TextCenter()
 			}
 		})
-		return
+		return ui.Box{}
 	}
 
-	area := f.ScrollArea(u.ids.chatMessages).Grow(1)
-	switch {
-	case restoreFrame:
-		area = area.Follow(false)
-		if state := u.chatView.ScrollState(u.ids.chatMessages); state != nil {
-			state.ScrollTo(u.chatFind.savedOffset)
-		}
-	case applyRestore:
-		area = area.Follow(true)
-		if state := u.chatView.ScrollState(u.ids.chatMessages); state != nil {
-			state.ScrollTo(u.chatFind.savedOffset)
-		}
-	default:
-		area = area.Follow(true)
+	restoreOffset := u.chatFind.restorePending && !u.chatFind.savedAtEnd
+	area := ui.Scroll(f.Part("message-history")).Grow(1).Follow(!restoreOffset)
+	scroll := area.ScrollState()
+	if restoreOffset {
+		scroll.ScrollTo(u.chatFind.savedOffset)
+	} else if u.chatFind.restorePending {
+		scroll.ScrollToEnd()
 	}
 	area.PadSides(0, 0, 18, 0)
 	area.Children(func() {
-		f.Column().FillWidth().PadSides(22, 36, 18, 36).Gap(17).Children(func() {
+		ui.Column(f).FillWidth().PadSides(22, 36, 18, 36).Gap(17).Children(func() {
 			lastDay := ""
 			for _, message := range messages {
 				day := message.CreatedAt.Local().Format("2006-01-02")
@@ -321,37 +331,34 @@ func (u *UI) drawChatTimeline(f *flex.Frame, conversation domain.Conversation) {
 				}
 				u.drawMessage(f, conversation, message)
 			}
-			f.Row().Height(2)
+			ui.Row(f).Height(2)
 		})
 	})
 	if u.chatScrollToEnd {
-		u.chatView.ScrollState(u.ids.chatMessages).ScrollToEnd()
+		scroll.ScrollToEnd()
 		u.chatScrollToEnd = false
 	}
-	if restoreFrame {
-		u.chatFind.restoreApply = true
-		u.invalidator.Invalidate()
-	}
+	return area
 }
 
-func (u *UI) drawDateSeparator(f *flex.Frame, at time.Time) {
-	f.Row().FillWidth().Height(32).Items(flex.Center).Gap(12).Children(func() {
-		f.Row().Grow(1).Height(1).Background(u.palette.border)
-		f.Text(friendlyDay(at)).FontSize(11).Muted()
-		f.Row().Grow(1).Height(1).Background(u.palette.border)
+func (u *UI) drawDateSeparator(f ui.C, at time.Time) {
+	ui.Row(f).FillWidth().Height(32).Items(ui.Center).Gap(12).Children(func() {
+		ui.Row(f).Grow(1).Height(1).Background(u.palette.border)
+		ui.Text(f, friendlyDay(at)).FontSize(11).Muted()
+		ui.Row(f).Grow(1).Height(1).Background(u.palette.border)
 	})
 }
 
-func (u *UI) drawMessage(f *flex.Frame, conversation domain.Conversation, message domain.Message) {
+func (u *UI) drawMessage(f ui.C, conversation domain.Conversation, message domain.Message) {
 	if message.Recalled {
 		u.drawRecalledMessage(f, conversation, message)
 		return
 	}
 	if message.Kind == "system" {
-		f.Row().FillWidth().Justify(flex.Center).Children(func() {
-			f.Column().MaxWidthPercent(80).PadSides(7, 12, 7, 12).Radius(8).
+		ui.Row(f).FillWidth().Justify(ui.Center).Children(func() {
+			ui.Column(f).MaxWidthPercent(80).PadSides(7, 12, 7, 12).Radius(8).
 				Background(u.palette.mutedAvatar).Children(func() {
-				f.Text(message.Text).FontSize(11).Muted().TextCenter().MaxLines(3)
+				ui.Text(f, message.Text).FontSize(11).Muted().TextCenter().MaxLines(3)
 			})
 		})
 		return
@@ -372,24 +379,24 @@ func (u *UI) drawMessage(f *flex.Frame, conversation domain.Conversation, messag
 	}
 }
 
-func (u *UI) drawTextMessage(f *flex.Frame, conversation domain.Conversation, message domain.Message, own bool, maxWidth float32) {
+func (u *UI) drawTextMessage(f ui.C, conversation domain.Conversation, message domain.Message, own bool, maxWidth float32) {
 	if own {
-		f.Row().FillWidth().Justify(flex.End).Items(flex.End).Gap(9).Children(func() {
+		ui.Row(f).FillWidth().Justify(ui.End).Items(ui.End).Gap(9).Children(func() {
 			u.messageTime(f, message, true)
 			u.messageBubble(f, conversation, message, true, maxWidth)
 			u.ownMessageAvatar(f)
 		})
 		return
 	}
-	f.Row().FillWidth().Justify(flex.Start).Items(flex.End).Gap(10).Children(func() {
+	ui.Row(f).FillWidth().Justify(ui.Start).Items(ui.End).Gap(10).Children(func() {
 		peer := u.state.Peer(message.SenderID)
 		name := u.messageSenderName(conversation, message)
 		u.chatPeerAvatar(f, u.messageAvatarIDs[message.ID], peer.ID, name, peer.Avatar, 34)
-		f.Column().Gap(4).Items(flex.Start).Children(func() {
+		ui.Column(f).Gap(4).Items(ui.Start).Children(func() {
 			if conversation.Kind == "group" {
-				f.Text(name).FontSize(11.5).Muted().Ellipsis()
+				ui.Text(f, name).FontSize(11.5).Muted().Ellipsis()
 			}
-			f.Row().Items(flex.End).Gap(9).Children(func() {
+			ui.Row(f).Items(ui.End).Gap(9).Children(func() {
 				u.messageBubble(f, conversation, message, false, maxWidth)
 				u.messageTime(f, message, false)
 			})
@@ -397,26 +404,26 @@ func (u *UI) drawTextMessage(f *flex.Frame, conversation domain.Conversation, me
 	})
 }
 
-func (u *UI) messageBubble(f *flex.Frame, conversation domain.Conversation, message domain.Message, own bool, maxWidth float32) flex.Box {
+func (u *UI) messageBubble(f ui.C, conversation domain.Conversation, message domain.Message, own bool, maxWidth float32) ui.Box {
 	background := u.palette.incoming
 	if own {
 		background = u.palette.own
 	}
-	bubble := f.Column().MaxWidth(maxWidth).PadSides(10, 13, 9, 13).Radius(11).
+	bubble := ui.Column(f).MaxWidth(maxWidth).PadSides(10, 13, 9, 13).Radius(11).
 		HitWith(u.messageIDs[message.ID], i18n.T("聊天消息"), gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
 		Background(background).Border(1, u.palette.bubbleBorder).Gap(3).Children(func() {
 		if message.Text != "" {
-			f.Paragraph(message.Text, 60).FontSize(14).LineHeight(21)
+			ui.Paragraph(f, message.Text, 60).FontSize(14).LineHeight(21)
 		}
 		if message.Kind == "text" && message.Text == "" {
-			f.Text(i18n.T("（空消息）")).FontSize(13).Muted()
+			ui.Text(f, i18n.T("（空消息）")).FontSize(13).Muted()
 		}
 	})
 	u.messageContextPointer(f.Canvas(), u.messageIDs[message.ID], message)
 	return bubble
 }
 
-func (u *UI) messageTime(f *flex.Frame, message domain.Message, own bool) {
+func (u *UI) messageTime(f ui.C, message domain.Message, own bool) {
 	status := ""
 	if own {
 		// Keep actionable pending/error states; ordinary sends need no receipt text.
@@ -436,17 +443,17 @@ func (u *UI) messageTime(f *flex.Frame, message domain.Message, own bool) {
 	if label == "" {
 		return
 	}
-	f.Column().PadX(1).Children(func() {
-		f.Text(label).FontSize(10.5).Muted()
+	ui.Column(f).PadX(1).Children(func() {
+		ui.Text(f, label).FontSize(10.5).Muted()
 	})
 }
 
-func (u *UI) ownMessageAvatar(f *flex.Frame) {
+func (u *UI) ownMessageAvatar(f ui.C) {
 	self := u.state.Self
 	u.avatarWithPresence(f, self.Name, self.Avatar, 34, false, false, ui.Color{})
 }
 
-func (u *UI) drawImageMessage(f *flex.Frame, conversation domain.Conversation, message domain.Message, own bool, maxWidth float32) {
+func (u *UI) drawImageMessage(f ui.C, conversation domain.Conversation, message domain.Message, own bool, maxWidth float32) {
 	file := u.state.File(message.FileID)
 	path := u.fileLocalPath[file.ID]
 	bitmap := u.fileBitmap(path)
@@ -455,40 +462,40 @@ func (u *UI) drawImageMessage(f *flex.Frame, conversation domain.Conversation, m
 		return
 	}
 	width, height := chatImageThumbnail(bitmap, maxWidth)
-	justify := flex.Start
-	align := flex.Start
+	justify := ui.Start
+	align := ui.Start
 	if own {
-		justify, align = flex.End, flex.End
+		justify, align = ui.End, ui.End
 	}
-	f.Row().FillWidth().Justify(justify).Items(flex.Start).Gap(10).Children(func() {
+	ui.Row(f).FillWidth().Justify(justify).Items(ui.Start).Gap(10).Children(func() {
 		if !own {
 			peer := u.state.Peer(message.SenderID)
 			u.chatPeerAvatar(f, u.messageAvatarIDs[message.ID], peer.ID, u.messageSenderName(conversation, message), peer.Avatar, 34)
 		}
-		f.Column().Gap(4).Items(align).Children(func() {
+		ui.Column(f).Gap(4).Items(align).Children(func() {
 			if !own && conversation.Kind == "group" {
-				f.Text(u.messageSenderName(conversation, message)).FontSize(11.5).Muted().Ellipsis()
+				ui.Text(f, u.messageSenderName(conversation, message)).FontSize(11.5).Muted().Ellipsis()
 			}
-			picture := f.Stack().Width(width).Height(height).Radius(11).Clip().
+			picture := ui.Stack(f).Width(width).Height(height).Radius(11).Clip().
 				Background(u.palette.mutedAvatar)
 			if file.ID != "" {
 				picture = picture.HitWith(u.fileButtonIDs[file.ID], i18n.T("查看图片 ")+displayFileName(file, message),
 					gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("打开图片查看器")})
 			}
 			picture.Children(func() {
-				f.Image(bitmap).Fill()
+				ui.Image(f, bitmap).Fill()
 			})
 			u.messageContextPointer(f.Canvas(), u.fileButtonIDs[file.ID], message)
 			if picture.Clicked() {
 				u.openImageViewer(file.ID)
 			}
 			if message.Text != "" && message.Text != file.Name {
-				f.Column().MaxWidth(width).PadSides(8, 12, 7, 12).Radius(9).
+				ui.Column(f).MaxWidth(width).PadSides(8, 12, 7, 12).Radius(9).
 					Background(u.palette.incoming).Children(func() {
-					f.Paragraph(message.Text, 4).FontSize(13).LineHeight(19)
+					ui.Paragraph(f, message.Text, 4).FontSize(13).LineHeight(19)
 				})
 			}
-			f.Row().Items(flex.Center).Gap(6).Children(func() {
+			ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
 				u.messageTime(f, message, own)
 			})
 		})
@@ -511,39 +518,39 @@ func chatImageThumbnail(bitmap gfx.Bitmap, maxWidth float32) (float32, float32) 
 	return max(1, float32(bitmap.Width)*scale), max(1, float32(bitmap.Height)*scale)
 }
 
-func (u *UI) drawFileMessage(f *flex.Frame, conversation domain.Conversation, message domain.Message, own bool, maxWidth float32) {
+func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message domain.Message, own bool, maxWidth float32) {
 	file := u.state.File(message.FileID)
-	justify := flex.Start
+	justify := ui.Start
 	if own {
-		justify = flex.End
+		justify = ui.End
 	}
-	f.Row().FillWidth().Justify(justify).Items(flex.Start).Gap(10).Children(func() {
+	ui.Row(f).FillWidth().Justify(justify).Items(ui.Start).Gap(10).Children(func() {
 		if !own {
 			peer := u.state.Peer(message.SenderID)
 			u.chatPeerAvatar(f, u.messageAvatarIDs[message.ID], peer.ID, u.messageSenderName(conversation, message), peer.Avatar, 34)
 		}
-		f.Column().Gap(4).Children(func() {
+		ui.Column(f).Gap(4).Children(func() {
 			if !own && conversation.Kind == "group" {
-				f.Text(u.messageSenderName(conversation, message)).FontSize(11.5).Muted().Ellipsis()
+				ui.Text(f, u.messageSenderName(conversation, message)).FontSize(11.5).Muted().Ellipsis()
 			}
 			cardWidth := min(float32(480), max(maxWidth, float32(310)))
-			card := f.Column().Width(cardWidth).Pad(14).Radius(11).
+			card := ui.Column(f).Width(cardWidth).Pad(14).Radius(11).
 				Background(u.palette.fileCard).Border(1, u.palette.fileBorder).Gap(10).
 				HitWith(u.fileButtonIDs[file.ID], i18n.T("查看 ")+displayFileName(file, message)+i18n.T(" 详情"),
 					gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("查看文件详情")}).
 				Children(func() {
-					f.Row().Items(flex.Center).Gap(11).Children(func() {
-						f.Row().Size(40, 40).Radius(9).Items(flex.Center).Justify(flex.Center).
+					ui.Row(f).Items(ui.Center).Gap(11).Children(func() {
+						ui.Row(f).Size(40, 40).Radius(9).Items(ui.Center).Justify(ui.Center).
 							Background(fileIconTint(file)).Children(func() {
-							f.Icon(u.fileIcon(file)).Size(21, 21).Color(fileIconColor(file))
+							ui.Icon(f, u.fileIcon(file)).Size(21, 21).Color(fileIconColor(file))
 						})
-						f.Column().Grow(1).Gap(3).Children(func() {
-							f.Text(displayFileName(file, message)).FontSize(14).
+						ui.Column(f).Grow(1).Gap(3).Children(func() {
+							ui.Text(f, displayFileName(file, message)).FontSize(14).
 								Weight(gfx.WeightSemibold).Ellipsis()
-							f.Text(fileMeta(file, message)).FontSize(11).Muted().Ellipsis()
+							ui.Text(f, fileMeta(file, message)).FontSize(11).Muted().Ellipsis()
 						})
 					})
-					f.Text(u.transferSummary(file)).FontSize(11.5).Muted().Ellipsis()
+					ui.Text(f, u.transferSummary(file)).FontSize(11.5).Muted().Ellipsis()
 					activeShown := false
 					for _, transfer := range u.transfersFor[file.ID] {
 						if !transferNeedsAttention(transfer) {
@@ -551,19 +558,19 @@ func (u *UI) drawFileMessage(f *flex.Frame, conversation domain.Conversation, me
 						}
 						activeShown = true
 						fraction := transferFraction(transfer)
-						f.Progress(fraction).Height(6)
-						f.Row().Items(flex.Center).Children(func() {
-							f.Text(u.transferProgressLabel(transfer)).FontSize(10.5).Muted().Ellipsis()
-							f.Spacer()
-							f.Text(i18n.T("查看详情")).FontSize(11).Weight(gfx.WeightMedium).
+						ui.Progress(f, fraction).Height(6)
+						ui.Row(f).Items(ui.Center).Children(func() {
+							ui.Text(f, u.transferProgressLabel(transfer)).FontSize(10.5).Muted().Ellipsis()
+							ui.Spacer(f)
+							ui.Text(f, i18n.T("查看详情")).FontSize(11).Weight(gfx.WeightMedium).
 								Color(u.palette.selectedText)
 						})
 					}
 					if !activeShown {
-						f.Row().Items(flex.Center).Children(func() {
-							f.Text(fileAvailability(u, file)).FontSize(10.5).Muted().Ellipsis()
-							f.Spacer()
-							f.Text(i18n.T("查看详情")).FontSize(11).Weight(gfx.WeightMedium).
+						ui.Row(f).Items(ui.Center).Children(func() {
+							ui.Text(f, fileAvailability(u, file)).FontSize(10.5).Muted().Ellipsis()
+							ui.Spacer(f)
+							ui.Text(f, i18n.T("查看详情")).FontSize(11).Weight(gfx.WeightMedium).
 								Color(u.palette.selectedText)
 						})
 					}
@@ -572,7 +579,7 @@ func (u *UI) drawFileMessage(f *flex.Frame, conversation domain.Conversation, me
 			if card.Clicked() {
 				u.openFileDetail(file.ID, "chat")
 			}
-			f.Row().Items(flex.Center).Gap(6).Children(func() {
+			ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
 				u.messageTime(f, message, own)
 			})
 		})
@@ -582,22 +589,22 @@ func (u *UI) drawFileMessage(f *flex.Frame, conversation domain.Conversation, me
 	})
 }
 
-func (u *UI) drawComposer(f *flex.Frame, conversation domain.Conversation) {
+func (u *UI) drawComposer(f ui.C, conversation domain.Conversation) {
 	hasText := u.chatEditor != nil && strings.TrimSpace(u.chatEditor.String()) != ""
-	composer := f.Column().FillWidth().FillHeight().PadSides(2, 9, 8, 9).
+	composer := ui.Column(f).FillWidth().FillHeight().PadSides(2, 9, 8, 9).
 		Background(u.palette.header).Children(func() {
 		border := u.theme.Border
 		if u.fieldFocused(&u.chatEditorField) {
 			border = u.palette.selectedText
 		}
-		f.Column().Fill().Radius(11).Border(1, border).Background(u.palette.header).
+		ui.Column(f).Fill().Radius(11).Border(1, border).Background(u.palette.header).
 			PadSides(1, 5, 4, 5).Children(func() {
-			editor := f.TextAreaBase(&u.chatEditorField,
+			editor := ui.TextArea(f, &u.chatEditorField,
 				i18n.T("消息输入框"), i18n.T("输入消息…")).
 				FillWidth().Grow(1).Basis(0).MinHeight(40)
 			u.mentionEditor = editor
 
-			f.Row().Height(34).Items(flex.Center).Gap(3).Children(func() {
+			ui.Row(f).Height(34).Items(ui.Center).Gap(3).Children(func() {
 				emoji := u.iconButton(f, u.ids.chatEmoji, u.iconSmile, i18n.T("插入表情"), 30)
 				u.emojiButton = emoji
 				imageButton := u.iconButton(f, u.ids.chatImage, u.iconImage, i18n.T("发送图片"), 30)
@@ -618,8 +625,8 @@ func (u *UI) drawComposer(f *flex.Frame, conversation domain.Conversation) {
 				if snip.Clicked() && u.requestScreenshot != nil {
 					u.requestScreenshot()
 				}
-				f.Spacer()
-				send := f.Button(u.ids.chatSend, i18n.T("发送")).Width(88).Height(30).Disabled(!hasText)
+				ui.Spacer(f)
+				send := namedButton(f, u.ids.chatSend, i18n.T("发送")).Width(88).Height(30).Disabled(!hasText)
 				if send.Clicked() && hasText {
 					u.sendChatText()
 				}
@@ -629,22 +636,22 @@ func (u *UI) drawComposer(f *flex.Frame, conversation domain.Conversation) {
 	u.composerBox = composer
 }
 
-func (u *UI) drawChatReadOnly(f *flex.Frame, reason string) {
+func (u *UI) drawChatReadOnly(f ui.C, reason string) {
 	title := i18n.T("该群聊已关闭")
 	if strings.HasPrefix(reason, "等待成员") {
 		title = i18n.T("正在等待成员加入")
 	}
-	f.Column().FillWidth().FillHeight().PadSides(8, 28, 8, 28).
-		Background(u.palette.header).Justify(flex.Center).Children(func() {
-		f.Row().Fill().PadSides(10, 14, 10, 14).Radius(10).Background(u.palette.incoming).
-			Items(flex.Center).Gap(10).Children(func() {
-			f.Row().Size(30, 30).Radius(8).Items(flex.Center).Justify(flex.Center).
+	ui.Column(f).FillWidth().FillHeight().PadSides(8, 28, 8, 28).
+		Background(u.palette.header).Justify(ui.Center).Children(func() {
+		ui.Row(f).Fill().PadSides(10, 14, 10, 14).Radius(10).Background(u.palette.incoming).
+			Items(ui.Center).Gap(10).Children(func() {
+			ui.Row(f).Size(30, 30).Radius(8).Items(ui.Center).Justify(ui.Center).
 				Background(u.palette.mutedAvatar).Children(func() {
-				f.Icon(u.iconLock).Size(15, 15).Color(u.palette.secondaryText)
+				ui.Icon(f, u.iconLock).Size(15, 15).Color(u.palette.secondaryText)
 			})
-			f.Column().Grow(1).Gap(2).Children(func() {
-				f.Text(title).FontSize(12.5).Weight(gfx.WeightMedium)
-				f.Text(reason).FontSize(10.5).Muted().Ellipsis()
+			ui.Column(f).Grow(1).Gap(2).Children(func() {
+				ui.Text(f, title).FontSize(12.5).Weight(gfx.WeightMedium)
+				ui.Text(f, reason).FontSize(10.5).Muted().Ellipsis()
 			})
 		})
 	})
@@ -849,17 +856,17 @@ func (u *UI) groupCounts(group domain.Group) (total, online int) {
 	return total, online
 }
 
-func (u *UI) connectionPill(f *flex.Frame) {
-	f.Row().PadSides(6, 12, 6, 12).Radius(12).Background(u.palette.mutedAvatar).
-		Items(flex.Center).Gap(6).Children(func() {
+func (u *UI) connectionPill(f ui.C) {
+	ui.Row(f).PadSides(6, 12, 6, 12).Radius(12).Background(u.palette.mutedAvatar).
+		Items(ui.Center).Gap(6).Children(func() {
 		color := u.palette.danger
 		label := i18n.T("等待局域网")
 		if u.state.ListenAddress != "" {
 			color = u.palette.success
 			label = u.state.ListenAddress
 		}
-		f.Stack().Size(6, 6).Radius(3).Background(color)
-		f.Text(label).FontSize(10.5).Color(u.palette.secondaryText).Ellipsis()
+		ui.Stack(f).Size(6, 6).Radius(3).Background(color)
+		ui.Text(f, label).FontSize(10.5).Color(u.palette.secondaryText).Ellipsis()
 	})
 }
 

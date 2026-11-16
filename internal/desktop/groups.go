@@ -12,7 +12,6 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -49,18 +48,18 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.memberMenu = ""
 	}
 
-	var menuAnchor flex.Box
-	u.drawerView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
-		f.Column().Fill().Gap(11).Children(func() {
-			f.Row().Items(flex.Center).Gap(12).Children(func() {
+	var menuAnchor ui.Box
+	u.drawerPage.Draw(canvas, layout.Body, func(f ui.C) {
+		ui.Column(f).Fill().Gap(11).Children(func() {
+			ui.Row(f).Items(ui.Center).Gap(12).Children(func() {
 				u.initialsAvatarStatus(f, group.Name, 46, true)
-				f.Column().Grow(1).Gap(3).Children(func() {
-					f.Text(group.Name).FontSize(17).Weight(gfx.WeightSemibold).Ellipsis()
+				ui.Column(f).Grow(1).Gap(3).Children(func() {
+					ui.Text(f, group.Name).FontSize(17).Weight(gfx.WeightSemibold).Ellipsis()
 					note := i18n.T("群主可修改群名")
 					if !owner {
 						note = i18n.T("群成员可查看成员信息")
 					}
-					f.Text(note).FontSize(11).Muted()
+					ui.Text(f, note).FontSize(11).Muted()
 				})
 				if owner && !u.renameOpen {
 					edit := u.iconButton(f, u.ids.memberStartRename, u.iconPencil, i18n.T("修改群名"), 30)
@@ -73,31 +72,31 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 				}
 			})
 			if owner && u.renameOpen {
-				f.Row().Height(38).Items(flex.Center).Gap(8).Children(func() {
-					field := f.Field(&u.renameField, u.ids.memberRename, i18n.T("群名称"), i18n.T("群名称")).Height(36).Grow(1)
-					if f.Button(u.ids.memberCancelRename, i18n.T("取消")).XSmall().Outline().Clicked() {
+				ui.Row(f).Height(38).Items(ui.Center).Gap(8).Children(func() {
+					field := ui.TextFieldID(f, u.ids.memberRename, &u.renameField, i18n.T("群名称"), i18n.T("群名称")).Height(36).Grow(1)
+					if namedButton(f, u.ids.memberCancelRename, i18n.T("取消")).XSmall().Outline().Clicked() {
 						u.resetGroupRename()
 					}
-					if f.Button(u.ids.memberSaveRename, i18n.T("保存")).XSmall().Clicked() ||
+					if namedButton(f, u.ids.memberSaveRename, i18n.T("保存")).XSmall().Clicked() ||
 						field.Submitted() {
 						u.saveGroupName(group)
 					}
 				})
 			}
-			f.Row().Height(26).Items(flex.Center).Children(func() {
+			ui.Row(f).Height(26).Items(ui.Center).Children(func() {
 				total, _ := u.groupCounts(group)
-				f.Text(i18n.T("成员 (") + intString(total) + ")").FontSize(14).
+				ui.Text(f, i18n.T("成员 (")+intString(total)+")").FontSize(14).
 					Weight(gfx.WeightSemibold)
-				f.Spacer()
+				ui.Spacer(f)
 				if owner {
-					invite := f.Button(u.ids.memberInvite, i18n.T("邀请成员")).XSmall().Outline()
+					invite := namedButton(f, u.ids.memberInvite, i18n.T("邀请成员")).XSmall().Outline()
 					if invite.Clicked() {
 						u.openCompose("invite", group.ID)
 					}
 				}
 			})
-			f.Field(&u.memberSearch, u.ids.memberSearch, i18n.T("搜索群成员"), i18n.T("搜索群成员")).Height(36)
-			f.ScrollArea(u.ids.memberListScroll).Grow(1).Gap(3).Children(func() {
+			ui.TextFieldID(f, u.ids.memberSearch, &u.memberSearch, i18n.T("搜索群成员"), i18n.T("搜索群成员")).Height(36)
+			ui.Scroll(f.Part("members")).Grow(1).Gap(3).Children(func() {
 				query := strings.TrimSpace(u.memberSearch.Text())
 				members := orderedMembers(u, group)
 				shown := 0
@@ -110,13 +109,13 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 						continue
 					}
 					shown++
-					row := f.Row().FillWidth().Height(58).PadSides(7, 8, 7, 8).Radius(9).
+					row := ui.Row(f).FillWidth().Height(58).PadSides(7, 8, 7, 8).Radius(9).
 						Gap(10).Background(func() ui.Color {
 						if peer.ID == u.memberMenu {
 							return u.palette.selected
 						}
 						return ui.Color{}
-					}()).Hover(flex.Look{}.Background(u.palette.hover))
+					}()).Hover(ui.Look{}.Background(u.palette.hover))
 					if peer.ID != u.state.Self.ID {
 						row = row.HitWith(u.memberMenuIDs[peer.ID], peer.Name,
 							gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("成员操作")})
@@ -126,13 +125,13 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 					}
 					row.Children(func() {
 						u.avatarStatus(f, name, peer.Avatar, 36, peerOnline(u, peer.ID))
-						f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
-							f.Row().Items(flex.Center).Gap(6).Children(func() {
-								f.Text(name).FontSize(13.5).Weight(gfx.WeightMedium).Ellipsis()
+						ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
+							ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
+								ui.Text(f, name).FontSize(13.5).Weight(gfx.WeightMedium).Ellipsis()
 								if peer.ID == group.OwnerID {
-									f.Row().PadSides(2, 7, 2, 7).Radius(8).
+									ui.Row(f).PadSides(2, 7, 2, 7).Radius(8).
 										Background(u.palette.mutedAvatar).Children(func() {
-										f.Text(i18n.T("群主")).FontSize(9.5).Muted()
+										ui.Text(f, i18n.T("群主")).FontSize(9.5).Muted()
 									})
 								}
 							})
@@ -140,10 +139,10 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 							if peerOnline(u, peer.ID) {
 								status = i18n.T("在线")
 							}
-							f.Text(status).FontSize(10.5).Muted()
+							ui.Text(f, status).FontSize(10.5).Muted()
 						})
 						if peer.ID != u.state.Self.ID {
-							f.Icon(u.iconMore).Size(17, 17).Color(u.palette.secondaryText)
+							ui.Icon(f, u.iconMore).Size(17, 17).Color(u.palette.secondaryText)
 						}
 					})
 					if row.Clicked() {
@@ -156,17 +155,21 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 				}
 				u.drawGroupInvitations(f, group, owner)
 			})
-			f.Divider()
+			ui.Divider(f)
 			u.drawGroupNicknameEditor(f, group)
-			f.Row().Height(36).Items(flex.Center).Children(func() {
-				f.Text(i18n.T("消息免打扰")).FontSize(13).Grow(1)
-				if f.Switch(u.ids.memberMuteToggle, conversation.Muted).Label(i18n.T("消息免打扰")).Clicked() {
+			ui.Row(f).Height(36).Items(ui.Center).Children(func() {
+				ui.Text(f, i18n.T("消息免打扰")).FontSize(13).Grow(1)
+				muted := ui.State[bool](f, "muted")
+				*muted = conversation.Muted
+				if ui.Switch(f, muted, "").Hit(u.ids.memberMuteToggle, i18n.T("消息免打扰")).Changed() {
 					u.submit(domain.Command{Kind: domain.ToggleMute, ConversationID: conversation.ID})
 				}
 			})
-			f.Row().Height(36).Items(flex.Center).Children(func() {
-				f.Text(i18n.T("置顶聊天")).FontSize(13).Grow(1)
-				if f.Switch(u.ids.memberPinToggle, conversation.Pinned).Label(i18n.T("置顶聊天")).Clicked() {
+			ui.Row(f).Height(36).Items(ui.Center).Children(func() {
+				ui.Text(f, i18n.T("置顶聊天")).FontSize(13).Grow(1)
+				pinned := ui.State[bool](f, "pinned")
+				*pinned = conversation.Pinned
+				if ui.Switch(f, pinned, "").Hit(u.ids.memberPinToggle, i18n.T("置顶聊天")).Changed() {
 					u.submit(domain.Command{Kind: domain.TogglePin, ConversationID: conversation.ID})
 				}
 			})
@@ -289,8 +292,8 @@ func (u *UI) drawMemberProfile(canvas *gfx.Canvas, viewport ui.Rect) {
 		title = i18n.T("成员资料")
 	}
 	layout := dialog.Begin(title, "")
-	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
-		f.ScrollArea(u.ids.memberProfileScroll).Fill().Gap(8).Children(func() {
+	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
+		ui.Scroll(f.Part("member-profile")).Fill().Gap(8).Children(func() {
 			u.drawContactProfile(f, peer, group, 52)
 		})
 	})
@@ -594,7 +597,7 @@ func (u *UI) drawChatFilesPane(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.activeFileID = ""
 		u.fileReturn = ""
 	}
-	surface := u.chatSurface()
+	surface := u.surface
 	surface.filesPane = viewport
 	detail := u.activeFileID != ""
 	title := i18n.T("聊天文件")
@@ -607,21 +610,21 @@ func (u *UI) drawChatFilesPane(canvas *gfx.Canvas, viewport ui.Rect) {
 	canvas.PushFocusScope(u.ids.fileScope)
 	defer canvas.PopFocusScope()
 	closeClicked := false
-	u.drawerView.Draw(canvas, u.theme, viewport, func(f *flex.Frame) {
-		f.Column().Fill().Children(func() {
-			f.Row().Height(64).FillWidth().PadSides(18, 16, 0, 14).
-				Items(flex.Center).Gap(8).Children(func() {
-				f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
-					f.Text(title).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis()
-					f.Text(subtitle).FontSize(11).Muted().Ellipsis()
+	u.drawerPage.Draw(canvas, viewport, func(f ui.C) {
+		ui.Column(f).Fill().Children(func() {
+			ui.Row(f).Height(64).FillWidth().PadSides(18, 16, 0, 14).
+				Items(ui.Center).Gap(8).Children(func() {
+				ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
+					ui.Text(f, title).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis()
+					ui.Text(f, subtitle).FontSize(11).Muted().Ellipsis()
 				})
 				closeButton := u.iconButton(f, u.ids.fileClose, u.iconX, i18n.T("关闭聊天文件"), 30)
 				if closeButton.Clicked() {
 					closeClicked = true
 				}
 			})
-			f.Divider()
-			f.Column().Grow(1).PadSides(14, 16, 12, 16).Children(func() {
+			ui.Divider(f)
+			ui.Column(f).Grow(1).PadSides(14, 16, 12, 16).Children(func() {
 				if detail {
 					u.drawFileDetail(f, u.state.File(u.activeFileID))
 				} else {
@@ -636,9 +639,9 @@ func (u *UI) drawChatFilesPane(canvas *gfx.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) drawFileList(f *flex.Frame) {
-	f.Column().Fill().Gap(10).Children(func() {
-		f.Row().Height(32).Gap(7).Children(func() {
+func (u *UI) drawFileList(f ui.C) {
+	ui.Column(f).Fill().Gap(10).Children(func() {
+		ui.Row(f).Height(32).Gap(7).Children(func() {
 			labels := []struct {
 				id    gfx.ID
 				label string
@@ -654,8 +657,8 @@ func (u *UI) drawFileList(f *flex.Frame) {
 				if active {
 					background = u.palette.selected
 				}
-				filter := f.Row().Height(30).PadX(12).Radius(8).Items(flex.Center).
-					Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
+				filter := ui.Row(f).Height(30).PadX(12).Radius(8).Items(ui.Center).
+					Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 					HitWith(item.id, i18n.T("筛选")+item.label,
 						gfx.HitOptions{Role: gfx.RoleButton, Selected: active}).
 					Children(func() {
@@ -663,17 +666,17 @@ func (u *UI) drawFileList(f *flex.Frame) {
 						if active {
 							foreground = u.palette.selectedText
 						}
-						f.Text(item.label).FontSize(11.5).Weight(gfx.WeightMedium).Color(foreground)
+						ui.Text(f, item.label).FontSize(11.5).Weight(gfx.WeightMedium).Color(foreground)
 					})
 				if filter.Clicked() {
 					u.fileFilter = item.value
 				}
 			}
-			f.Spacer()
-			f.Icon(u.iconSearch).Size(14, 14).Color(u.palette.secondaryText)
+			ui.Spacer(f)
+			ui.Icon(f, u.iconSearch).Size(14, 14).Color(u.palette.secondaryText)
 		})
-		f.Field(&u.fileSearch, u.ids.fileSearch, i18n.T("搜索聊天文件"), i18n.T("按文件名搜索")).Height(36)
-		f.ScrollArea(u.ids.fileListScroll).Grow(1).Gap(4).Children(func() {
+		ui.TextFieldID(f, u.ids.fileSearch, &u.fileSearch, i18n.T("搜索聊天文件"), i18n.T("按文件名搜索")).Height(36)
+		ui.Scroll(f.Part("conversation-files")).Grow(1).Gap(4).Children(func() {
 			query := strings.TrimSpace(u.fileSearch.Text())
 			shown := 0
 			for _, file := range u.files {
@@ -681,27 +684,27 @@ func (u *UI) drawFileList(f *flex.Frame) {
 					continue
 				}
 				shown++
-				row := f.Row().FillWidth().MinHeight(64).Pad(10).Radius(9).Gap(10).
-					Hover(flex.Look{}.Background(u.palette.hover)).
+				row := ui.Row(f).FillWidth().MinHeight(64).Pad(10).Radius(9).Gap(10).
+					Hover(ui.Look{}.Background(u.palette.hover)).
 					HitWith(u.fileRowIDs[file.ID], file.Name,
 						gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("文件详情")}).
 					Children(func() {
-						f.Row().Size(36, 36).Radius(9).Items(flex.Center).Justify(flex.Center).
+						ui.Row(f).Size(36, 36).Radius(9).Items(ui.Center).Justify(ui.Center).
 							Background(fileIconTint(file)).Children(func() {
-							f.Icon(u.fileIcon(file)).Size(19, 19).Color(fileIconColor(file))
+							ui.Icon(f, u.fileIcon(file)).Size(19, 19).Color(fileIconColor(file))
 						})
-						f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
-							f.Text(file.Name).FontSize(13).Weight(gfx.WeightMedium).Ellipsis()
+						ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
+							ui.Text(f, file.Name).FontSize(13).Weight(gfx.WeightMedium).Ellipsis()
 							sender := i18n.T("我")
 							if file.SenderID != "" && file.SenderID != u.state.Self.ID {
 								sender = u.state.Peer(file.SenderID).Name
 							}
-							f.Text(sender + " · " + shortFileDate(file.CreatedAt) + " · " + formatBytes(file.Size)).
+							ui.Text(f, sender+" · "+shortFileDate(file.CreatedAt)+" · "+formatBytes(file.Size)).
 								FontSize(10.5).Muted().Ellipsis()
-							f.Text(fileAvailability(u, file)).FontSize(10.5).
+							ui.Text(f, fileAvailability(u, file)).FontSize(10.5).
 								Color(u.availabilityColor(file)).Ellipsis()
 						})
-						f.Icon(u.iconChevronRight).Size(15, 15).Color(u.palette.secondaryText)
+						ui.Icon(f, u.iconChevronRight).Size(15, 15).Color(u.palette.secondaryText)
 					})
 				if row.Clicked() {
 					u.openFileDetail(file.ID, "list")
@@ -713,43 +716,43 @@ func (u *UI) drawFileList(f *flex.Frame) {
 				u.emptyListMessage(f, i18n.T("没有匹配的文件"), i18n.T("换一个文件名试试。"))
 			}
 		})
-		f.Row().Height(34).Items(flex.Center).Gap(7).Children(func() {
+		ui.Row(f).Height(34).Items(ui.Center).Gap(7).Children(func() {
 			refresh := u.iconButton(f, u.ids.fileRefresh, u.iconRefresh, i18n.T("刷新文件状态"), 28)
 			if refresh.Clicked() {
 				u.submit(domain.Command{Kind: domain.RefreshShares})
 			}
-			f.Text(i18n.T("文件来源为发送方或本机已接收副本")).FontSize(10).Muted().Ellipsis()
+			ui.Text(f, i18n.T("文件来源为发送方或本机已接收副本")).FontSize(10).Muted().Ellipsis()
 		})
 	})
 }
 
-func (u *UI) drawFileDetail(f *flex.Frame, file domain.File) {
-	f.Column().Fill().Gap(12).Children(func() {
+func (u *UI) drawFileDetail(f ui.C, file domain.File) {
+	ui.Column(f).Fill().Gap(12).Children(func() {
 		if u.fileReturn == "list" {
-			if f.Button(u.ids.fileBack, i18n.T("返回文件列表")).XSmall().Outline().Clicked() {
+			if namedButton(f, u.ids.fileBack, i18n.T("返回文件列表")).XSmall().Outline().Clicked() {
 				u.activeFileID = ""
 				u.fileReturn = ""
 			}
 		}
-		f.Row().Items(flex.Center).Gap(13).Children(func() {
-			f.Row().Size(52, 52).Radius(12).Items(flex.Center).Justify(flex.Center).
+		ui.Row(f).Items(ui.Center).Gap(13).Children(func() {
+			ui.Row(f).Size(52, 52).Radius(12).Items(ui.Center).Justify(ui.Center).
 				Background(fileIconTint(file)).Children(func() {
-				f.Icon(u.fileIcon(file)).Size(25, 25).Color(fileIconColor(file))
+				ui.Icon(f, u.fileIcon(file)).Size(25, 25).Color(fileIconColor(file))
 			})
-			f.Column().Grow(1).Gap(4).Children(func() {
-				f.Text(file.Name).FontSize(17).Weight(gfx.WeightSemibold).MaxLines(2)
-				f.Text(formatBytes(file.Size) + fileTypeSuffix(file)).FontSize(11).Muted()
+			ui.Column(f).Grow(1).Gap(4).Children(func() {
+				ui.Text(f, file.Name).FontSize(17).Weight(gfx.WeightSemibold).MaxLines(2)
+				ui.Text(f, formatBytes(file.Size)+fileTypeSuffix(file)).FontSize(11).Muted()
 			})
 		})
 		if fileIsImage(file) {
 			if bitmap := u.fileBitmap(u.fileLocalPath[file.ID]); bitmap.Width > 0 && bitmap.Height > 0 {
-				f.Stack().FillWidth().Height(190).Radius(10).Clip().
+				ui.Stack(f).FillWidth().Height(190).Radius(10).Clip().
 					Background(u.palette.mutedAvatar).Children(func() {
-					f.Image(bitmap).Fill()
+					ui.Image(f, bitmap).Fill()
 				})
 			}
 		}
-		f.Divider()
+		ui.Divider(f)
 		u.fileInfoRow(f, i18n.T("发送者"), senderName(u.state, file))
 		u.fileInfoRow(f, i18n.T("发送时间"), longDate(file.CreatedAt))
 		u.fileInfoRow(f, i18n.T("所在群聊"), u.conversationTitle(u.state.Conversation(file.ConversationID)))
@@ -757,60 +760,60 @@ func (u *UI) drawFileDetail(f *flex.Frame, file domain.File) {
 		if path := u.fileLocalPath[file.ID]; path != "" {
 			u.fileInfoRow(f, i18n.T("本地路径"), path)
 		}
-		f.Divider()
-		f.Text(i18n.T("传输状态")).FontSize(13).Weight(gfx.WeightSemibold)
-		f.ScrollArea(u.ids.fileDetailScroll).MaxHeight(190).Grow(1).Gap(4).Children(func() {
+		ui.Divider(f)
+		ui.Text(f, i18n.T("传输状态")).FontSize(13).Weight(gfx.WeightSemibold)
+		ui.Scroll(f.Part("file-details")).MaxHeight(190).Grow(1).Gap(4).Children(func() {
 			transfers := u.transfersFor[file.ID]
 			if len(transfers) == 0 {
-				f.Row().PadSides(10, 8, 10, 8).Children(func() {
-					f.Text(fileAvailability(u, file)).FontSize(11.5).Muted()
+				ui.Row(f).PadSides(10, 8, 10, 8).Children(func() {
+					ui.Text(f, fileAvailability(u, file)).FontSize(11.5).Muted()
 				})
 			}
 			for _, entry := range transfers {
 				u.drawTransferRow(f, entry)
 			}
 		})
-		f.Spacer()
+		ui.Spacer(f)
 		u.drawFileActions(f, file)
 	})
 }
 
-func (u *UI) drawTransferRow(f *flex.Frame, transfer domain.Transfer) {
+func (u *UI) drawTransferRow(f ui.C, transfer domain.Transfer) {
 	peer := u.state.Peer(transfer.PeerID)
-	f.Column().FillWidth().MinHeight(54).Pad(9).Radius(8).
+	ui.Column(f).FillWidth().MinHeight(54).Pad(9).Radius(8).
 		Background(u.palette.incoming).Gap(7).Children(func() {
-		f.Row().FillWidth().Items(flex.Center).Gap(9).Children(func() {
+		ui.Row(f).FillWidth().Items(ui.Center).Gap(9).Children(func() {
 			u.avatarStatus(f, peer.Name, peer.Avatar, 28, peerOnline(u, peer.ID))
-			f.Column().Grow(1).Gap(3).Children(func() {
-				f.Text(transferPeerLabel(u, transfer)).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
-				f.Text(transferStatusText(transfer)).FontSize(10.5).Muted().Ellipsis()
+			ui.Column(f).Grow(1).Gap(3).Children(func() {
+				ui.Text(f, transferPeerLabel(u, transfer)).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
+				ui.Text(f, transferStatusText(transfer)).FontSize(10.5).Muted().Ellipsis()
 			})
 			if transferNeedsAttention(transfer) {
-				f.Progress(transferFraction(transfer)).Width(78).Height(5)
+				ui.Progress(f, transferFraction(transfer)).Width(78).Height(5)
 			}
 			u.drawTransferRowActions(f, transfer)
 		})
 	})
 }
 
-func (u *UI) drawTransferRowActions(f *flex.Frame, transfer domain.Transfer) {
+func (u *UI) drawTransferRowActions(f ui.C, transfer domain.Transfer) {
 	switch {
 	case transfer.Direction == "receive" && (transfer.Status == "offered" || transfer.Status == "waiting"):
-		if f.Button(u.fileAcceptIDs[transfer.ID], i18n.T("接收文件")).XSmall().Clicked() {
+		if namedButton(f, u.fileAcceptIDs[transfer.ID], i18n.T("接收文件")).XSmall().Clicked() {
 			u.submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID})
 		}
-		if f.Button(u.fileSaveIDs[transfer.ID], i18n.T("另存为…")).XSmall().Outline().Clicked() {
+		if namedButton(f, u.fileSaveIDs[transfer.ID], i18n.T("另存为…")).XSmall().Outline().Clicked() {
 			u.chooseTransferDestination(transfer)
 		}
-		if f.Button(u.fileRejectIDs[transfer.ID], i18n.T("拒绝")).XSmall().Outline().Clicked() {
+		if namedButton(f, u.fileRejectIDs[transfer.ID], i18n.T("拒绝")).XSmall().Outline().Clicked() {
 			u.submit(domain.Command{Kind: domain.RejectTransfer, TransferID: transfer.ID})
 		}
 	case transfer.Direction == "receive" && transferNeedsAttention(transfer):
-		if f.Button(u.fileCancelIDs[transfer.ID], i18n.T("取消接收")).XSmall().Outline().Clicked() {
+		if namedButton(f, u.fileCancelIDs[transfer.ID], i18n.T("取消接收")).XSmall().Outline().Clicked() {
 			u.submit(domain.Command{Kind: domain.CancelTransfer, TransferID: transfer.ID})
 		}
 	case transfer.Direction != "receive" && transferNeedsAttention(transfer):
-		if f.Button(u.fileCancelIDs[transfer.ID], i18n.T("取消发送")).XSmall().Outline().Clicked() {
+		if namedButton(f, u.fileCancelIDs[transfer.ID], i18n.T("取消发送")).XSmall().Outline().Clicked() {
 			u.submit(domain.Command{Kind: domain.CancelTransfer, TransferID: transfer.ID})
 		}
 	case transfer.Status == "failed" || transfer.Status == "cancelled" || transfer.Status == "rejected":
@@ -818,27 +821,27 @@ func (u *UI) drawTransferRowActions(f *flex.Frame, transfer domain.Transfer) {
 		if transfer.Direction == "receive" {
 			label = i18n.T("重试接收")
 		}
-		if f.Button(u.fileRetryIDs[transfer.ID], label).XSmall().Clicked() {
+		if namedButton(f, u.fileRetryIDs[transfer.ID], label).XSmall().Clicked() {
 			u.submit(domain.Command{Kind: domain.RetryTransfer, TransferID: transfer.ID})
 		}
 	}
 }
 
-func (u *UI) drawFileActions(f *flex.Frame, file domain.File) {
+func (u *UI) drawFileActions(f ui.C, file domain.File) {
 	localPath := u.fileLocalPath[file.ID]
 	localAvailable := u.fileAvailable[file.ID]
-	f.Row().Height(36).Gap(8).Items(flex.Center).Children(func() {
+	ui.Row(f).Height(36).Gap(8).Items(ui.Center).Children(func() {
 		if localPath != "" && localAvailable {
-			if f.Button(u.ids.fileOpen, i18n.T("打开文件")).Small().Clicked() {
+			if namedButton(f, u.ids.fileOpen, i18n.T("打开文件")).Small().Clicked() {
 				_ = app.OpenPath(localPath)
 			}
-			if f.Button(u.ids.fileReveal, i18n.T("打开文件夹")).Small().Outline().Clicked() {
+			if namedButton(f, u.ids.fileReveal, i18n.T("打开文件夹")).Small().Outline().Clicked() {
 				_ = app.RevealPath(localPath)
 			}
 		}
 		if cancellable := u.fileCancelCount(file.ID); cancellable > 1 {
 			label := i18n.T("取消全部（") + intString(cancellable) + "）…"
-			if f.Button(u.ids.fileBatchCancel, label).Small().Outline().Clicked() {
+			if namedButton(f, u.ids.fileBatchCancel, label).Small().Outline().Clicked() {
 				u.requestBatchCancel(file)
 			}
 		}
@@ -905,10 +908,10 @@ func (u *UI) chooseTransferDestination(transfer domain.Transfer) {
 	u.submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID, Paths: []string{path}})
 }
 
-func (u *UI) fileInfoRow(f *flex.Frame, label, value string) {
-	f.Row().MinHeight(30).Items(flex.Center).Gap(12).Children(func() {
-		f.Text(label).Width(82).FontSize(11.5).Muted()
-		f.Text(value).FontSize(11.5).Grow(1).Ellipsis()
+func (u *UI) fileInfoRow(f ui.C, label, value string) {
+	ui.Row(f).MinHeight(30).Items(ui.Center).Gap(12).Children(func() {
+		ui.Text(f, label).Width(82).FontSize(11.5).Muted()
+		ui.Text(f, value).FontSize(11.5).Grow(1).Ellipsis()
 	})
 }
 
@@ -1095,21 +1098,19 @@ func (u *UI) drawConnectDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 		ButtonSize: components.ButtonSizeSmall,
 	})
 	layout := dialog.Begin(i18n.T("手动连接"), i18n.T("输入对方设备地址。连接成功后，对端联系人会出现在列表中。"))
-	var connect flex.Box
+	var connect ui.Box
 	var submitted bool
-	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
-		f.Column().Fill().Gap(8).Children(func() {
-			if index, picked := f.Select(u.ids.connectProtocol, &u.connectProtocol, connectionLabels(), u.connectRoute).FillWidth().Height(38).Label(i18n.T("连接方式")).Picked(); picked {
-				u.connectRoute = index
-			}
-			f.Text(i18n.T("设备地址")).FontSize(12).Weight(gfx.WeightMedium)
-			connect = f.Field(&u.connectField, u.ids.connectField, i18n.T("设备地址"),
+	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
+		ui.Column(f).Fill().Gap(8).Children(func() {
+			connectionSelector(f, &u.connectRoute).FillWidth().Height(38)
+			ui.Text(f, i18n.T("设备地址")).FontSize(12).Weight(gfx.WeightMedium)
+			connect = ui.TextFieldID(f, u.ids.connectField, &u.connectField, i18n.T("设备地址"),
 				connectionHint(u.state, u.connectRoute)).Height(38)
 			if !connectionAvailable(u.state, u.connectRoute) {
-				f.Paragraph(connectionProblem(u.state, u.connectRoute), 2).FontSize(11).Muted()
+				ui.Paragraph(f, connectionProblem(u.state, u.connectRoute), 2).FontSize(11).Muted()
 			}
 			if u.state.Error != "" {
-				f.Text(u.state.Error).FontSize(11).Color(u.palette.danger).MaxLines(2)
+				ui.Text(f, u.state.Error).FontSize(11).Color(u.palette.danger).MaxLines(2)
 			}
 		})
 	})
@@ -1130,7 +1131,7 @@ func (u *UI) drawConnectDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 		if address == "" {
 			return
 		}
-		u.submit(domain.Command{Kind: domain.Connect, Address: address, Transport: connectionTransport(u.connectRoute)})
+		u.submit(domain.Command{Kind: domain.Connect, Address: address, Transport: u.connectRoute.transport()})
 		u.connectOpen = false
 	}
 }
@@ -1159,7 +1160,7 @@ func (u *UI) drawComposeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 		ButtonSize: components.ButtonSizeSmall,
 	})
 	layout := dialog.Begin(title, description)
-	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
+	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
 		u.drawComposeBody(f, create, group)
 	})
 	selected := u.selectedPeersForCompose()
@@ -1199,51 +1200,51 @@ func (u *UI) drawComposeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) drawComposeBody(f *flex.Frame, create bool, group domain.Group) {
-	f.Column().Fill().Gap(10).Children(func() {
+func (u *UI) drawComposeBody(f ui.C, create bool, group domain.Group) {
+	ui.Column(f).Fill().Gap(10).Children(func() {
 		if create {
-			f.Row().Height(36).Items(flex.Center).Gap(12).Children(func() {
-				f.Text(i18n.T("群名称（可选）")).Width(96).FontSize(12).Weight(gfx.WeightMedium)
-				f.Field(&u.compose.name, u.ids.composeName, i18n.T("群名称"), i18n.T("留空将按成员昵称生成")).
+			ui.Row(f).Height(36).Items(ui.Center).Gap(12).Children(func() {
+				ui.Text(f, i18n.T("群名称（可选）")).Width(96).FontSize(12).Weight(gfx.WeightMedium)
+				ui.TextFieldID(f, u.ids.composeName, &u.compose.name, i18n.T("群名称"), i18n.T("留空将按成员昵称生成")).
 					Height(36).Grow(1)
 			})
 		}
-		f.Field(&u.compose.search, u.ids.composeSearch, i18n.T("搜索联系人"), i18n.T("搜索昵称或分组")).
+		ui.TextFieldID(f, u.ids.composeSearch, &u.compose.search, i18n.T("搜索联系人"), i18n.T("搜索昵称或分组")).
 			Height(36)
-		f.Divider()
-		f.Row().Grow(1).Gap(18).Children(func() {
-			f.Column().Grow(1).Gap(6).Children(func() {
-				f.Text(i18n.T("可邀请联系人")).FontSize(12).Weight(gfx.WeightSemibold)
-				f.ScrollArea(u.ids.composeScroll).Grow(1).Gap(2).Children(func() {
+		ui.Divider(f)
+		ui.Row(f).Grow(1).Gap(18).Children(func() {
+			ui.Column(f).Grow(1).Gap(6).Children(func() {
+				ui.Text(f, i18n.T("可邀请联系人")).FontSize(12).Weight(gfx.WeightSemibold)
+				ui.Scroll(f.Part("candidate-members")).Grow(1).Gap(2).Children(func() {
 					u.drawComposeCandidates(f, create, group)
 				})
 			})
-			f.Row().Width(1).Background(u.palette.border)
-			f.Column().Width(236).Gap(7).Children(func() {
+			ui.Row(f).Width(1).Background(u.palette.border)
+			ui.Column(f).Width(236).Gap(7).Children(func() {
 				selected := u.selectedPeersForCompose()
-				f.Row().Height(24).Items(flex.Center).Children(func() {
-					f.Text(i18n.T("已选择 ") + intString(len(selected)) + i18n.T(" 人")).FontSize(12).
+				ui.Row(f).Height(24).Items(ui.Center).Children(func() {
+					ui.Text(f, i18n.T("已选择 ")+intString(len(selected))+i18n.T(" 人")).FontSize(12).
 						Weight(gfx.WeightSemibold)
-					f.Spacer()
+					ui.Spacer(f)
 				})
-				f.ScrollArea(u.ids.composePicked).Grow(1).Gap(4).Children(func() {
+				ui.Scroll(f.Part("selected-members")).Grow(1).Gap(4).Children(func() {
 					if len(selected) == 0 {
-						f.Column().PadSides(10, 12, 8, 12).Gap(5).Children(func() {
-							f.Text(i18n.T("尚未选择联系人")).FontSize(12).Weight(gfx.WeightMedium)
-							f.Text(i18n.T("勾选左侧在线联系人。")).FontSize(10.5).Muted()
+						ui.Column(f).PadSides(10, 12, 8, 12).Gap(5).Children(func() {
+							ui.Text(f, i18n.T("尚未选择联系人")).FontSize(12).Weight(gfx.WeightMedium)
+							ui.Text(f, i18n.T("勾选左侧在线联系人。")).FontSize(10.5).Muted()
 						})
 					}
 					for _, id := range selected {
 						peer := u.state.Peer(id)
-						f.Row().Height(38).Items(flex.Center).Gap(8).Children(func() {
+						ui.Row(f).Height(38).Items(ui.Center).Gap(8).Children(func() {
 							u.avatarStatus(f, peer.Name, peer.Avatar, 26, true)
-							f.Text(peer.Name).FontSize(12).Grow(1).Ellipsis()
-							remove := f.Row().Size(24, 24).Radius(6).Items(flex.Center).
-								Justify(flex.Center).Hover(flex.Look{}.Background(u.palette.hover)).
+							ui.Text(f, peer.Name).FontSize(12).Grow(1).Ellipsis()
+							remove := ui.Row(f).Size(24, 24).Radius(6).Items(ui.Center).
+								Justify(ui.Center).Hover(ui.Look{}.Background(u.palette.hover)).
 								HitWith(u.groupRemoveIDs[peer.ID], i18n.T("移除 ")+peer.Name,
 									gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("移除")}).
 								Children(func() {
-									f.Icon(u.iconX).Size(14, 14).Color(u.palette.secondaryText)
+									ui.Icon(f, u.iconX).Size(14, 14).Color(u.palette.secondaryText)
 								})
 							if remove.Clicked() {
 								delete(u.compose.selected, peer.ID)
@@ -1251,25 +1252,25 @@ func (u *UI) drawComposeBody(f *flex.Frame, create bool, group domain.Group) {
 						})
 					}
 				})
-				f.Text(i18n.T("你将自动加入群聊。")).FontSize(10.5).Muted()
+				ui.Text(f, i18n.T("你将自动加入群聊。")).FontSize(10.5).Muted()
 				if u.compose.pending {
-					f.Row().Height(26).Items(flex.Center).Gap(8).Children(func() {
-						f.Spinner()
-						f.Text(i18n.T("正在提交…")).FontSize(11).Muted()
+					ui.Row(f).Height(26).Items(ui.Center).Gap(8).Children(func() {
+						ui.Spinner(f)
+						ui.Text(f, i18n.T("正在提交…")).FontSize(11).Muted()
 					})
 				}
 				if u.compose.err != "" {
-					f.Text(u.compose.err).FontSize(10.5).Color(u.palette.danger).MaxLines(3)
+					ui.Text(f, u.compose.err).FontSize(10.5).Color(u.palette.danger).MaxLines(3)
 				}
 			})
 		})
-		f.Row().Height(20).Items(flex.Center).Children(func() {
-			f.Text(i18n.T("邀请尚待确认时仍可进入群聊。")).FontSize(10.5).Muted().Ellipsis()
+		ui.Row(f).Height(20).Items(ui.Center).Children(func() {
+			ui.Text(f, i18n.T("邀请尚待确认时仍可进入群聊。")).FontSize(10.5).Muted().Ellipsis()
 		})
 	})
 }
 
-func (u *UI) drawComposeCandidates(f *flex.Frame, create bool, group domain.Group) {
+func (u *UI) drawComposeCandidates(f ui.C, create bool, group domain.Group) {
 	query := strings.TrimSpace(u.compose.search.Text())
 	shown := 0
 	for _, contactGroup := range u.contacts {
@@ -1292,8 +1293,8 @@ func (u *UI) drawComposeCandidates(f *flex.Frame, create bool, group domain.Grou
 		shown += len(peers)
 		collapsed := u.collapsed[contactGroup.Name] && query == ""
 		headerID := u.composeGroupHeadIDs[contactGroup.Name]
-		header := f.Row().Height(28).Items(flex.Center).Gap(6).Radius(6).
-			Hover(flex.Look{}.Background(u.palette.hover)).
+		header := ui.Row(f).Height(28).Items(ui.Center).Gap(6).Radius(6).
+			Hover(ui.Look{}.Background(u.palette.hover)).
 			HitWith(headerID, contactGroup.Name,
 				gfx.HitOptions{Role: gfx.RoleButton, Expanded: !collapsed}).
 			Children(func() {
@@ -1301,10 +1302,10 @@ func (u *UI) drawComposeCandidates(f *flex.Frame, create bool, group domain.Grou
 				if collapsed {
 					icon = u.iconChevronRight
 				}
-				f.Icon(icon).Size(14, 14).Color(u.palette.secondaryText)
-				f.Text(contactGroup.Name).FontSize(12).Weight(gfx.WeightSemibold).Ellipsis()
-				f.Spacer()
-				f.Text(intString(len(peers))).FontSize(10.5).Muted()
+				ui.Icon(f, icon).Size(14, 14).Color(u.palette.secondaryText)
+				ui.Text(f, contactGroup.Name).FontSize(12).Weight(gfx.WeightSemibold).Ellipsis()
+				ui.Spacer(f)
+				ui.Text(f, intString(len(peers))).FontSize(10.5).Muted()
 			})
 		if header.Clicked() {
 			u.collapsed[contactGroup.Name] = !collapsed
@@ -1315,35 +1316,37 @@ func (u *UI) drawComposeCandidates(f *flex.Frame, create bool, group domain.Grou
 		for _, peer := range peers {
 			selected := u.compose.selected[peer.ID]
 			available := peer.Online
-			row := f.Row().FillWidth().Height(46).PadSides(5, 8, 5, 8).Radius(7).Gap(8).
+			row := ui.Row(f.Key(peer.ID)).FillWidth().Height(46).PadSides(5, 8, 5, 8).Radius(7).Gap(8).
 				Background(func() ui.Color {
 					if selected {
 						return u.palette.selected
 					}
 					return ui.Color{}
-				}()).Hover(flex.Look{}.Background(u.palette.hover))
+				}()).Hover(ui.Look{}.Background(u.palette.hover))
 			if available {
 				row = row.HitWith(u.groupSelectRows[peer.ID], peer.Name,
 					gfx.HitOptions{Role: gfx.RoleButton, Selected: selected})
 			}
-			var checkbox flex.Box
+			var picked bool
 			row.Children(func() {
 				u.avatarStatus(f, peer.Name, peer.Avatar, 30, peer.Online)
-				f.Column().Grow(1).Gap(2).Justify(flex.Center).Children(func() {
-					f.Text(peer.Name).FontSize(12.5).Weight(gfx.WeightMedium).Ellipsis()
+				ui.Column(f).Grow(1).Gap(2).Justify(ui.Center).Children(func() {
+					ui.Text(f, peer.Name).FontSize(12.5).Weight(gfx.WeightMedium).Ellipsis()
 					status := i18n.T("在线")
 					if !peer.Online {
 						status = i18n.T("离线 · 上线后可邀请")
 					} else if selected {
 						status = i18n.T("已选择")
 					}
-					f.Text(status).FontSize(10.5).Muted().Ellipsis()
+					ui.Text(f, status).FontSize(10.5).Muted().Ellipsis()
 				})
-				checkbox = f.Checkbox(u.groupSelectIDs[peer.ID], selected).
-					Disabled(!available).Label(i18n.T("选择 ") + peer.Name)
+				checked := ui.State[bool](f, "selected")
+				*checked = selected
+				picked = ui.Checkbox(f, checked, "").Hit(u.groupSelectIDs[peer.ID], i18n.T("选择 ")+peer.Name).
+					Disabled(!available).Changed()
 			})
-			if available && (row.Clicked() || checkbox.Clicked()) {
-				u.compose.selected[peer.ID] = !u.compose.selected[peer.ID]
+			if available && (row.Clicked() || picked) {
+				u.compose.selected[peer.ID] = !selected
 			}
 		}
 	}
@@ -1360,8 +1363,8 @@ func (u *UI) drawConfirmation(canvas *gfx.Canvas, viewport ui.Rect) {
 		ButtonSize: components.ButtonSizeSmall,
 	})
 	layout := dialog.Begin(u.confirm.title, u.confirm.body)
-	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
-		f.Row().Fill()
+	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
+		ui.Row(f).Fill()
 	})
 	dialog.Actions(layout,
 		components.ButtonAction{ID: u.ids.confirmCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},

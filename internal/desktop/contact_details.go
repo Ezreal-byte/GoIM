@@ -6,7 +6,6 @@ import (
 
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/domain"
 	"goim/internal/i18n"
@@ -35,14 +34,19 @@ func contactConnectionLabel(peer domain.Peer) string {
 
 func (u *UI) showContact(id string) {
 	u.contactPeer, u.contactGroup = id, ""
-	u.contactLinkSelected = ""
-	u.contactLinkState.Open = false
+	u.contactLink = contactLinkOption{}
 	u.refreshContactLinkChoices()
 }
 
+type contactLinkOption struct {
+	id    string
+	label string
+}
+
 func (u *UI) refreshContactLinkChoices() {
-	u.contactLinkIDs = u.contactLinkIDs[:0]
-	u.contactLinkLabels = u.contactLinkLabels[:0]
+	u.contactLinks = u.contactLinks[:0]
+	selected := u.contactLink.id
+	u.contactLink = contactLinkOption{}
 	peer := u.state.Peer(u.contactPeer)
 	if peer.ID == "" || !peer.Online || peer.ClientType != domain.ClientNeiwangtong ||
 		peer.CompatibilityAliasOf != "" {
@@ -56,40 +60,40 @@ func (u *UI) refreshContactLinkChoices() {
 	for _, other := range u.state.Peers {
 		if other.Online && other.CompatibilityAliasOf == "" && other.ClientType == domain.ClientNeiwangtong &&
 			other.Transport != peer.Transport && (other.Transport == domain.TransportIPMSG || other.Transport == domain.TransportNeiwangtong) {
-			u.contactLinkIDs = append(u.contactLinkIDs, other.ID)
-			u.contactLinkLabels = append(u.contactLinkLabels, other.Name+" · "+other.Address)
+			link := contactLinkOption{id: other.ID, label: other.Name + " · " + other.Address}
+			u.contactLinks = append(u.contactLinks, link)
+			if selected == other.ID {
+				u.contactLink = link
+			}
 		}
 	}
 }
 
-func (u *UI) drawCompatibilityContactActions(f *flex.Frame, peer domain.Peer) {
+func (u *UI) drawCompatibilityContactActions(f ui.C, peer domain.Peer) {
 	if peer.ClientType != domain.ClientNeiwangtong {
 		return
 	}
 	if peer.Transport == domain.TransportNeiwangtong && peer.Online {
-		if f.Button(u.ids.contactRefreshAvatar, i18n.T("刷新头像")).Outline().Clicked() {
+		if namedButton(f, u.ids.contactRefreshAvatar, i18n.T("刷新头像")).Outline().Clicked() {
 			u.submit(domain.Command{Kind: domain.RefreshPeerAvatar, PeerID: peer.ID})
 		}
 	}
-	if len(u.contactLinkIDs) == 0 {
+	if len(u.contactLinks) == 0 {
 		return
 	}
-	f.Column().FillWidth().Gap(6).Children(func() {
-		f.Text(i18n.T("关联兼容连接")).Weight(gfx.WeightMedium)
-		f.Paragraph(i18n.T("请选择同一台内网通设备。关联后优先使用原生连接，现有聊天记录会保留。"), 3).Muted()
-		selected := slices.Index(u.contactLinkIDs, u.contactLinkSelected)
-		if index, ok := f.Select(u.ids.contactLinkChoice, &u.contactLinkState, u.contactLinkLabels, selected).
-			FillWidth().Height(38).Label(i18n.T("关联兼容连接")).Placeholder(i18n.T("选择同一设备的连接")).Picked(); ok {
-			u.contactLinkSelected = u.contactLinkIDs[index]
-		}
-		if f.Button(u.ids.contactLink, i18n.T("确认关联")).Outline().Disabled(selected < 0).Clicked() {
-			u.submit(domain.Command{Kind: domain.LinkCompatibility, PeerID: peer.ID, RelatedPeerID: u.contactLinkSelected})
-			u.contactLinkSelected = ""
+	ui.Column(f).FillWidth().Gap(6).Children(func() {
+		ui.Text(f, i18n.T("关联兼容连接")).Weight(gfx.WeightMedium)
+		ui.Paragraph(f, i18n.T("请选择同一台内网通设备。关联后优先使用原生连接，现有聊天记录会保留。"), 3).Muted()
+		ui.Select(f.Key(peer.ID), &u.contactLink, u.contactLinks, func(link contactLinkOption) string { return link.label }).
+			FillWidth().Height(38).Label(i18n.T("关联兼容连接")).Placeholder(i18n.T("选择同一设备的连接"))
+		if namedButton(f, u.ids.contactLink, i18n.T("确认关联")).Outline().Disabled(u.contactLink.id == "").Clicked() {
+			u.submit(domain.Command{Kind: domain.LinkCompatibility, PeerID: peer.ID, RelatedPeerID: u.contactLink.id})
+			u.contactLink = contactLinkOption{}
 		}
 	})
 }
 
-func (u *UI) contactGroupRow(f *flex.Frame, c domain.Conversation) {
+func (u *UI) contactGroupRow(f ui.C, c domain.Conversation) {
 	group := u.state.Group(c.GroupID)
 	if group.ID == "" {
 		return
@@ -99,14 +103,14 @@ func (u *UI) contactGroupRow(f *flex.Frame, c domain.Conversation) {
 	if selected {
 		background = u.palette.selected
 	}
-	row := f.Row().FillWidth().Height(57).PadX(9).Radius(9).Gap(10).Items(flex.Center).
-		Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
+	row := ui.Row(f).FillWidth().Height(57).PadX(9).Radius(9).Gap(10).Items(ui.Center).
+		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(u.convRowIDs[c.ID], group.Name, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
 			u.initialsAvatar(f, group.Name, 38)
-			f.Column().Grow(1).Gap(3).Children(func() {
-				f.Text(group.Name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
-				f.Text(intString(len(group.Members)) + " " + i18n.T("位成员")).FontSize(11).Muted()
+			ui.Column(f).Grow(1).Gap(3).Children(func() {
+				ui.Text(f, group.Name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
+				ui.Text(f, intString(len(group.Members))+" "+i18n.T("位成员")).FontSize(11).Muted()
 			})
 		})
 	if row.Clicked() {
@@ -118,10 +122,10 @@ func (u *UI) drawContactDetails(canvas *gfx.Canvas, bounds ui.Rect) {
 	canvas.Fill(bounds, u.palette.chat)
 	peer := u.state.Peer(u.contactPeer)
 	group := u.state.Group(u.contactGroup)
-	u.chatView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
-		f.ScrollArea(u.ids.contactDetails).Fill().Children(func() {
-			f.Row().FillWidth().Justify(flex.Center).PadSides(32, 22, 28, 22).Children(func() {
-				f.Column().FillWidth().MaxWidth(540).Gap(14).Children(func() {
+	u.chatPage.Draw(canvas, bounds, func(f ui.C) {
+		ui.Scroll(f.Part("contact-details")).Fill().Children(func() {
+			ui.Row(f).FillWidth().Justify(ui.Center).PadSides(32, 22, 28, 22).Children(func() {
+				ui.Column(f).FillWidth().MaxWidth(540).Gap(14).Children(func() {
 					switch {
 					case peer.ID != "":
 						u.drawContactProfile(f, peer, domain.Group{}, 68)
@@ -141,8 +145,8 @@ func (u *UI) drawContactDetails(canvas *gfx.Canvas, bounds ui.Rect) {
 					case group.ID != "" && !group.Left && !group.Dissolved:
 						u.drawContactGroupProfile(f, group)
 					default:
-						f.Text(i18n.T("选择联系人或群聊")).FontSize(21).Weight(gfx.WeightSemibold)
-						f.Paragraph(i18n.T("在左侧选择一项查看资料，或从消息页继续聊天。"), 3).Muted()
+						ui.Text(f, i18n.T("选择联系人或群聊")).FontSize(21).Weight(gfx.WeightSemibold)
+						ui.Paragraph(f, i18n.T("在左侧选择一项查看资料，或从消息页继续聊天。"), 3).Muted()
 					}
 				})
 			})
@@ -150,37 +154,37 @@ func (u *UI) drawContactDetails(canvas *gfx.Canvas, bounds ui.Rect) {
 	})
 }
 
-func (u *UI) contactPrimaryAction(f *flex.Frame, icon gfx.Icon, label string) flex.Box {
-	var action flex.Box
+func (u *UI) contactPrimaryAction(f ui.C, icon gfx.Icon, label string) ui.Box {
+	var action ui.Box
 	green := ui.RGBA(7, 193, 96, 1)
 	greenHover := ui.RGBA(6, 173, 86, 1)
 	white := ui.RGBA(255, 255, 255, 1)
-	f.Row().FillWidth().PadY(20).Justify(flex.Center).Children(func() {
-		action = f.Row().Width(168).Height(40).Radius(6).Gap(8).Items(flex.Center).Justify(flex.Center).
-			Background(green).Hover(flex.Look{}.Background(greenHover)).
+	ui.Row(f).FillWidth().PadY(20).Justify(ui.Center).Children(func() {
+		action = ui.Row(f).Width(168).Height(40).Radius(6).Gap(8).Items(ui.Center).Justify(ui.Center).
+			Background(green).Hover(ui.Look{}.Background(greenHover)).
 			HitWith(u.ids.contactTalk, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: label}).
 			Children(func() {
-				f.Icon(icon).Size(22, 22).Color(white)
-				f.Text(label).FontSize(14).Weight(gfx.WeightMedium).Color(white)
+				ui.Icon(f, icon).Size(22, 22).Color(white)
+				ui.Text(f, label).FontSize(14).Weight(gfx.WeightMedium).Color(white)
 			})
 	})
 	return action
 }
 
-func (u *UI) drawContactProfile(f *flex.Frame, peer domain.Peer, group domain.Group, avatarSize float32) {
+func (u *UI) drawContactProfile(f ui.C, peer domain.Peer, group domain.Group, avatarSize float32) {
 	name := peer.Name
 	inGroup := group.ID != "" && slices.Contains(group.Members, peer.ID)
 	if inGroup {
 		name = u.groupMemberName(group.ID, peer.ID)
 	}
-	f.Row().FillWidth().Items(flex.Center).Gap(14).Children(func() {
+	ui.Row(f).FillWidth().Items(ui.Center).Gap(14).Children(func() {
 		u.avatarStatus(f, name, peer.Avatar, avatarSize, peer.VisibleOnline())
-		f.Column().Grow(1).Gap(4).Children(func() {
-			f.Text(name).FontSize(20).Weight(gfx.WeightSemibold).Ellipsis()
-			f.Text(peerPresenceLabel(peer)).Muted()
+		ui.Column(f).Grow(1).Gap(4).Children(func() {
+			ui.Text(f, name).FontSize(20).Weight(gfx.WeightSemibold).Ellipsis()
+			ui.Text(f, peerPresenceLabel(peer)).Muted()
 		})
 	})
-	f.Divider()
+	ui.Divider(f)
 	u.fileInfoRow(f, i18n.T("用户类型"), contactClientLabel(peer))
 	u.fileInfoRow(f, i18n.T("连接方式"), contactConnectionLabel(peer))
 	if inGroup {
@@ -206,18 +210,18 @@ func (u *UI) drawContactProfile(f *flex.Frame, peer domain.Peer, group domain.Gr
 		add(profileDetailLabels[i], value)
 	}
 	add("版本", peer.Version)
-	f.Divider()
+	ui.Divider(f)
 }
 
-func (u *UI) drawContactGroupProfile(f *flex.Frame, group domain.Group) {
-	f.Row().Items(flex.Center).Gap(14).Children(func() {
+func (u *UI) drawContactGroupProfile(f ui.C, group domain.Group) {
+	ui.Row(f).Items(ui.Center).Gap(14).Children(func() {
 		u.initialsAvatar(f, group.Name, 68)
-		f.Column().Grow(1).Gap(4).Children(func() {
-			f.Text(group.Name).FontSize(20).Weight(gfx.WeightSemibold).Ellipsis()
-			f.Text(i18n.T("群聊资料")).Muted()
+		ui.Column(f).Grow(1).Gap(4).Children(func() {
+			ui.Text(f, group.Name).FontSize(20).Weight(gfx.WeightSemibold).Ellipsis()
+			ui.Text(f, i18n.T("群聊资料")).Muted()
 		})
 	})
-	f.Divider()
+	ui.Divider(f)
 	u.fileInfoRow(f, i18n.T("群主"), u.groupMemberName(group.ID, group.OwnerID))
 	role := i18n.T("群成员")
 	if group.OwnerID == u.state.Self.ID {
@@ -233,17 +237,17 @@ func (u *UI) drawContactGroupProfile(f *flex.Frame, group domain.Group) {
 			}
 		}
 	}
-	f.Divider()
-	f.Text(i18n.T("群成员") + " · " + intString(len(group.Members))).Weight(gfx.WeightSemibold)
+	ui.Divider(f)
+	ui.Text(f, i18n.T("群成员")+" · "+intString(len(group.Members))).Weight(gfx.WeightSemibold)
 	for _, id := range group.Members {
 		peer := u.state.Peer(id)
 		name := u.groupMemberName(group.ID, id)
-		row := f.Row().FillWidth().Height(42).PadX(6).Radius(7).Items(flex.Center).Gap(9).
-			Hover(flex.Look{}.Background(u.palette.hover)).
+		row := ui.Row(f).FillWidth().Height(42).PadX(6).Radius(7).Items(ui.Center).Gap(9).
+			Hover(ui.Look{}.Background(u.palette.hover)).
 			HitWith(u.contactMemberIDs[id], name, gfx.HitOptions{Role: gfx.RoleButton}).
 			Children(func() {
 				u.avatarStatus(f, name, peer.Avatar, 30, peer.VisibleOnline())
-				f.Text(name).Ellipsis()
+				ui.Text(f, name).Ellipsis()
 			})
 		if row.Clicked() && peer.ID != "" {
 			u.memberProfile = id
@@ -251,12 +255,12 @@ func (u *UI) drawContactGroupProfile(f *flex.Frame, group domain.Group) {
 	}
 }
 
-func (u *UI) chatPeerAvatar(f *flex.Frame, hit gfx.ID, peerID, name, path string, size float32) {
+func (u *UI) chatPeerAvatar(f ui.C, hit gfx.ID, peerID, name, path string, size float32) {
 	if peerID == "" {
 		u.avatarWithPresence(f, name, path, size, false, false, u.palette.chat)
 		return
 	}
-	f.Stack().Size(size, size).
+	ui.Stack(f).Size(size, size).
 		HitWith(hit, i18n.T("查看资料")+" · "+name, gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true}).
 		Children(func() { u.avatarWithPresence(f, name, path, size, false, false, u.palette.chat) })
 	if event, ok := f.Canvas().PointerOn(hit); ok && event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {

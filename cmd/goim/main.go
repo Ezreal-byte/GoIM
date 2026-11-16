@@ -6,14 +6,18 @@ import (
 	"log"
 	"strings"
 
+	"goim/internal/buildinfo"
 	"goim/internal/core"
 	"goim/internal/desktop"
 )
 
-var version = "0.1.0-dev"
-var commit = "working-tree"
-
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	data := flag.String("data-dir", "", "独立数据目录（默认系统用户配置目录下 GoIM）")
 	listen := flag.String("listen", "0.0.0.0:47842", "TCP 监听地址；独立实例可使用 127.0.0.1:0")
 	name := flag.String("name", "", "首次或本次使用的昵称")
@@ -24,18 +28,24 @@ func main() {
 	showVersion := flag.Bool("version", false, "显示版本")
 	downloadDir := flag.String("download-dir", "", "显式覆盖文件保存目录，适用于独立测试实例")
 	flag.Parse()
+	build := buildinfo.Current()
+	revision := build.Revision
+	if revision == "" {
+		revision = "working-tree"
+	}
+	version := fmt.Sprintf("%s (%s)", build.Version, revision)
 	if *showVersion {
-		fmt.Printf("GoIM %s (%s)\n", version, commit)
-		return
+		fmt.Println("GoIM " + version)
+		return nil
 	}
 	n, err := core.New(core.Options{
 		DataDir: *data, Listen: *listen, Name: *name,
 		DisableDiscovery: *noDiscovery, DisableIPMSG: *noIPMSG,
 		DisableCompatibility: *noCompatibility,
-		Version:              version + " (" + commit + ")", DownloadDir: *downloadDir,
+		Version:              version, DownloadDir: *downloadDir,
 	})
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer n.Close()
 	for _, address := range strings.Split(*peers, ",") {
@@ -43,7 +53,5 @@ func main() {
 			n.Connect(address)
 		}
 	}
-	if err = desktop.Run(n); err != nil {
-		log.Print(err)
-	}
+	return desktop.Run(n)
 }

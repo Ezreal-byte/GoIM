@@ -2,7 +2,7 @@
 name = "GoIM"
 id = "dev.goim.desktop"
 package = "./cmd/goim"
-icon = "internal/desktop/assets/icon.png"
+icon = "internal/brand/assets/goim-1024.png"
 
 [mac]
 min_system = "13.0"

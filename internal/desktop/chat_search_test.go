@@ -120,7 +120,7 @@ func TestChatSearchFiltersMessageTextAndFileNamesAndRestoresScroll(t *testing.T)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	savedScroll := harness.ui.chatView.ScrollState(harness.ui.ids.chatMessages).Offset
+	savedScroll := harness.ui.timeline.offset
 	if savedScroll <= 0 {
 		t.Fatal("the chat did not scroll away from its end before searching")
 	}
@@ -168,14 +168,19 @@ func TestChatSearchFiltersMessageTextAndFileNamesAndRestoresScroll(t *testing.T)
 	if !harness.hasText("较早的普通消息 01") || !harness.hasText("设计素材.zip") {
 		t.Fatal("closing search did not restore all conversation messages")
 	}
-	restoredScroll := harness.ui.chatView.ScrollState(harness.ui.ids.chatMessages).Offset
+	restoredScroll := harness.ui.timeline.offset
 	if difference := restoredScroll - savedScroll; difference < -1 || difference > 1 {
 		t.Fatalf("restored chat scroll = %v, want %v", restoredScroll, savedScroll)
 	}
-	waitForShellWake(t, harness)
-	restoredScroll = harness.ui.chatView.ScrollState(harness.ui.ids.chatMessages).Offset
+	state.Messages = append(state.Messages, domain.Message{
+		ID: "after-search", ConversationID: "conv-group",
+		SenderID: "peer-a", Kind: "text", Text: "搜索结束后的消息", CreatedAt: now.Add(time.Minute),
+	})
+	state.Revision++
+	harness.publish(state)
+	restoredScroll = harness.ui.timeline.offset
 	if difference := restoredScroll - savedScroll; difference < -1 || difference > 1 {
-		t.Fatalf("chat scroll after restoring follow mode = %v, want %v", restoredScroll, savedScroll)
+		t.Fatalf("new messages moved the restored scroll to %v, want %v", restoredScroll, savedScroll)
 	}
 	requireShellLayout(t, harness.snapshot())
 }

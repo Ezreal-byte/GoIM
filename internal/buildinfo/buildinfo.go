@@ -21,16 +21,14 @@ const (
 // The build scripts fill these strings with -ldflags -X. They stay plain
 // strings so packaging needs no generated source or runtime process.
 var (
-	Version        = "0.1.0-dev"
-	Commit         = ""
-	CommitTime     = ""
-	Framework      = ""
-	FrameworkDirty = ""
-	Source         = SourceLocal
-	BuildTime      = ""
-	CIRef          = ""
-	CIRunID        = ""
-	CIURL          = ""
+	Version    = "0.1.0-dev"
+	Commit     = ""
+	CommitTime = ""
+	Source     = SourceLocal
+	BuildTime  = ""
+	CIRef      = ""
+	CIRunID    = ""
+	CIURL      = ""
 )
 
 // Info is the complete, read-only description of this executable.
@@ -42,7 +40,6 @@ type Info struct {
 	CommitTime  string
 	GoVersion   string
 	VivaVersion string
-	VivaDirty   bool
 	BuildTime   string
 	CIRef       string
 	CIRunID     string
@@ -51,31 +48,27 @@ type Info struct {
 
 // Injection is the set of facts supplied by a build script.
 type Injection struct {
-	Version        string
-	Commit         string
-	CommitTime     string
-	Framework      string
-	FrameworkDirty string
-	Source         string
-	BuildTime      string
-	CIRef          string
-	CIRunID        string
-	CIURL          string
+	Version    string
+	Commit     string
+	CommitTime string
+	Source     string
+	BuildTime  string
+	CIRef      string
+	CIRunID    string
+	CIURL      string
 }
 
 var current = sync.OnceValue(func() Info {
 	build, _ := debug.ReadBuildInfo()
 	return Read(build, Injection{
-		Version:        Version,
-		Commit:         Commit,
-		CommitTime:     CommitTime,
-		Framework:      Framework,
-		FrameworkDirty: FrameworkDirty,
-		Source:         Source,
-		BuildTime:      BuildTime,
-		CIRef:          CIRef,
-		CIRunID:        CIRunID,
-		CIURL:          CIURL,
+		Version:    Version,
+		Commit:     Commit,
+		CommitTime: CommitTime,
+		Source:     Source,
+		BuildTime:  BuildTime,
+		CIRef:      CIRef,
+		CIRunID:    CIRunID,
+		CIURL:      CIURL,
 	})
 })
 
@@ -96,6 +89,7 @@ func Read(build *debug.BuildInfo, injected Injection) Info {
 		CIURL:     safeURL(injected.CIURL),
 	}
 	var revision, revisionTime, framework string
+	var modified bool
 	if build != nil {
 		if build.GoVersion != "" {
 			info.GoVersion = build.GoVersion
@@ -106,6 +100,8 @@ func Read(build *debug.BuildInfo, injected Injection) Info {
 				revision = clean(setting.Value)
 			case "vcs.time":
 				revisionTime = clean(setting.Value)
+			case "vcs.modified":
+				modified = setting.Value == "true"
 			}
 		}
 		for _, dependency := range build.Deps {
@@ -127,12 +123,11 @@ func Read(build *debug.BuildInfo, injected Injection) Info {
 	}
 	if commit := clean(injected.Commit); commit != "" {
 		revision = commit
+	} else if revision != "" && modified {
+		revision += "-dirty"
 	}
 	if stamp := clean(injected.CommitTime); stamp != "" {
 		revisionTime = stamp
-	}
-	if pin := clean(injected.Framework); pin != "" {
-		framework = pin
 	}
 	if info.Version == "" {
 		info.Version = "0.1.0-dev"
@@ -143,7 +138,6 @@ func Read(build *debug.BuildInfo, injected Injection) Info {
 	info.Revision = revision
 	info.CommitTime = date(revisionTime)
 	info.VivaVersion = framework
-	info.VivaDirty = strings.EqualFold(clean(injected.FrameworkDirty), "true")
 	info.BuildTime = timestamp(injected.BuildTime)
 	return info
 }

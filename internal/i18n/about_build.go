@@ -25,7 +25,6 @@ func init() {
 		"提交日期":         "Commit date",
 		"CI 链接":        "CI link",
 		"本地构建":         "Local build",
-		" · 有本地修改":     " · locally modified",
 		"打开 CI 运行":     "Open CI run",
 	} {
 		if _, exists := en[label]; !exists {

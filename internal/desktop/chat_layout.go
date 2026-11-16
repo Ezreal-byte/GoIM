@@ -3,11 +3,8 @@ package desktop
 import (
 	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
-	"sync"
-	"weak"
 
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -29,9 +26,6 @@ const (
 )
 
 type chatSurfaceIDs struct {
-	sidebarSplitter gfx.ID
-	historySplitter gfx.ID
-
 	viewerScope                             gfx.ID
 	viewerStage                             gfx.ID
 	viewerClose                             gfx.ID
@@ -48,9 +42,9 @@ type chatSurfaceIDs struct {
 
 type chatSurface struct {
 	ids       chatSurfaceIDs
-	workspace flex.View
-	sidebar   flex.SplitterState
-	history   flex.SplitterState
+	workspace *ui.Page
+	sidebar   ui.SplitterState
+	history   ui.SplitterState
 
 	historyReady   bool
 	searchOpen     bool
@@ -70,53 +64,16 @@ type chatSurface struct {
 	filesWindowExpanded      bool
 }
 
-type chatSurfaceEntry struct {
-	owner   weak.Pointer[UI]
-	surface *chatSurface
-}
-
 type windowGeometry interface {
 	Frame() (ui.Rect, bool)
 	SetSize(width, height int) error
 }
 
-var chatSurfaceStore struct {
-	sync.Mutex
-	entries []chatSurfaceEntry
-}
-
-// chatSurface keeps resize and viewer state outside the app-owned UI struct.
-// Once the shell owns these fields, this registry can be replaced by one field.
-func (u *UI) chatSurface() *chatSurface {
-	chatSurfaceStore.Lock()
-	defer chatSurfaceStore.Unlock()
-	entries := chatSurfaceStore.entries[:0]
-	var surface *chatSurface
-	for _, entry := range chatSurfaceStore.entries {
-		owner := entry.owner.Value()
-		if owner == nil {
-			continue
-		}
-		entries = append(entries, entry)
-		if owner == u {
-			surface = entry.surface
-		}
-	}
-	if surface == nil {
-		surface = u.newChatSurface()
-		entries = append(entries, chatSurfaceEntry{owner: weak.Make(u), surface: surface})
-	}
-	chatSurfaceStore.entries = entries
-	return surface
-}
-
-func (u *UI) newChatSurface() *chatSurface {
+func (u *UI) newChatSurface(workspace *ui.Page) *chatSurface {
 	return &chatSurface{
-		workspace: flex.NewView("workspace"),
-		sidebar:   flex.SplitterState{Pos: sidebarWidth},
+		workspace: workspace,
+		sidebar:   ui.SplitterState{Pos: sidebarWidth},
 		ids: chatSurfaceIDs{
-			sidebarSplitter:  u.tree.ID(u.ids.side, "workspace-divider"),
-			historySplitter:  u.tree.ID(u.ids.chat, "history-composer-divider"),
 			viewerScope:      u.tree.ID(u.ids.dialog, "image-viewer-scope"),
 			viewerStage:      u.tree.ID(u.ids.dialog, "image-viewer-stage"),
 			viewerClose:      u.tree.ID(u.ids.dialog, "image-viewer-close"),
@@ -145,7 +102,7 @@ func (u *UI) drawMainBody(canvas *gfx.Canvas, body ui.Rect) {
 	}
 	u.drawRail(canvas, rail)
 	if u.isPanelSection() {
-		if u.presentViewer == nil && u.chatSurface().viewer.open {
+		if u.presentViewer == nil && u.surface.viewer.open {
 			u.closeImageViewer()
 		}
 		main := ui.Rect{
@@ -159,20 +116,20 @@ func (u *UI) drawMainBody(canvas *gfx.Canvas, body ui.Rect) {
 }
 
 func (u *UI) drawChatWorkspace(canvas *gfx.Canvas, body ui.Rect) {
-	surface := u.chatSurface()
+	surface := u.surface
 	surface.clampSidebar()
 	workspace := ui.Rect{
 		X: min(railWidth, body.Width), Y: body.Y,
 		Width: max(body.Width-railWidth, 0), Height: body.Height,
 	}
-	var sidebar, chat flex.Box
-	surface.workspace.Draw(canvas, u.theme, workspace, func(f *flex.Frame) {
-		f.Row().Fill().Children(func() {
-			sidebar = f.Row().Width(surface.sidebar.Pos)
-			f.Splitter(surface.ids.sidebarSplitter, &surface.sidebar).
+	var sidebar, chat ui.Box
+	surface.workspace.Draw(canvas, workspace, func(f ui.C) {
+		ui.Row(f).Fill().Children(func() {
+			sidebar = ui.Row(f).Width(surface.sidebar.Pos)
+			ui.Splitter(f, &surface.sidebar).
 				Mins(chatSidebarMinWidth, chatWorkspaceMinWidth).
 				Label(i18n.T("调整联系人和聊天区域宽度"))
-			chat = f.Row().Grow(1)
+			chat = ui.Row(f).Grow(1)
 		})
 	})
 
@@ -203,7 +160,7 @@ func (s *chatSurface) clampSidebar() {
 }
 
 func (u *UI) chatSidebarBoundary() float32 {
-	width := u.chatSurface().sidebarWidth
+	width := u.surface.sidebarWidth
 	if width <= 0 {
 		width = sidebarWidth
 	}
@@ -211,7 +168,7 @@ func (u *UI) chatSidebarBoundary() float32 {
 }
 
 func (u *UI) prepareChatHistory(chatHeight float32, conversation domain.Conversation, searchDeclared bool) {
-	surface := u.chatSurface()
+	surface := u.surface
 	if surface.historyReady {
 		u.clampChatHistory(chatHeight, conversation, searchDeclared)
 		return
@@ -231,7 +188,7 @@ func (u *UI) prepareChatHistory(chatHeight float32, conversation domain.Conversa
 // conversation search bar appears. The size the user dragged to comes back
 // when search closes, unless they moved the splitter while it was open.
 func (u *UI) clampChatHistory(chatHeight float32, conversation domain.Conversation, searchDeclared bool) {
-	surface := u.chatSurface()
+	surface := u.surface
 	open := u.chatFind.open
 	if open != surface.searchOpen {
 		if open {
@@ -291,7 +248,7 @@ func (u *UI) chatOverlayKey(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		u.closeDrawer()
 		return gfx.EventResult{Handled: true, Repaint: true}, true
 	}
-	surface := u.chatSurface()
+	surface := u.surface
 	if result := surface.sidebar.Key(event); result.Handled {
 		return result, true
 	}
@@ -322,18 +279,14 @@ func (u *UI) chatOverlayWheel(event gfx.ScrollEvent) (gfx.EventResult, bool) {
 		return gfx.EventResult{}, false
 	}
 	if u.drawer == "files" {
-		surface := u.chatSurface()
+		surface := u.surface
 		if pointInside(event.X, event.Y, surface.filesPane) {
-			return u.drawerView.Wheel(event), true
+			return u.drawerPage.Wheel(event), true
 		}
 		if event.X < u.chatSidebarBoundary() {
-			return u.sidebarView.Wheel(event), true
+			return u.sidebarPage.Wheel(event), true
 		}
-		result := u.chatView.Wheel(event)
-		if result.Handled {
-			u.markSelectedConversationRead()
-		}
-		return result, true
+		return u.chatPage.Wheel(event), true
 	}
 	return gfx.EventResult{}, false
 }
@@ -341,7 +294,7 @@ func (u *UI) chatOverlayWheel(event gfx.ScrollEvent) (gfx.EventResult, bool) {
 // setWindowMaximized records the state of the shell's frame. A normal window is
 // expanded by the files-pane width; maximized windows keep their frame.
 func (u *UI) setWindowMaximized(maximized bool) {
-	surface := u.chatSurface()
+	surface := u.surface
 	surface.maximized = maximized
 	if !maximized {
 		u.syncFilesWindow()
@@ -351,7 +304,7 @@ func (u *UI) setWindowMaximized(maximized bool) {
 }
 
 func (u *UI) setWindowFullscreen(fullscreen bool) {
-	surface := u.chatSurface()
+	surface := u.surface
 	surface.fullscreen = fullscreen
 	if fullscreen {
 		surface.filesWindowExpanded = false
@@ -368,7 +321,7 @@ func (u *UI) attachNativeWindow(window windowGeometry) {
 // pane, then restores the exact content size when the pane closes. Maximized and
 // fullscreen windows keep their frame and let the pane compress the chat side.
 func (u *UI) syncFilesWindow() {
-	surface := u.chatSurface()
+	surface := u.surface
 	open := u.drawer == "files" && u.state.Conversation(u.selected).ID != ""
 	if !open {
 		if surface.filesWindowRestoreValid && !surface.maximized && !surface.fullscreen && u.nativeWindow != nil {

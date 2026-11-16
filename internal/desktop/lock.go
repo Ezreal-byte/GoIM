@@ -6,9 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -16,7 +14,7 @@ import (
 type lockUIState struct {
 	scope                            gfx.Scope
 	focus, confirmID, submit, cancel gfx.ID
-	field, confirmation              flex.Field
+	field, confirmation              ui.Field
 	setup, pending, focused          bool
 	request                          uint64
 	err                              string
@@ -27,11 +25,12 @@ func (u *UI) requestLock() {
 		return
 	}
 	u.saveCurrentDraft()
+	u.closeChatPickers()
 	u.panels.settingsExtra.resetSecrets()
 	u.panels.closeShareInteractions()
 	s := &u.lockUI
 	s.setup, s.pending, s.focused, s.err = !u.state.Settings.HasLockPassword, u.state.Settings.HasLockPassword, false, ""
-	s.field, s.confirmation = flex.Field{Secure: true}, flex.Field{Secure: true}
+	s.field, s.confirmation = ui.Field{Secure: true}, ui.Field{Secure: true}
 	if u.state.Settings.HasLockPassword {
 		s.request++
 		u.submit(domain.Command{Kind: domain.LockApp, Request: s.request})
@@ -73,33 +72,33 @@ func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {
 	}
 	panel := ui.Rect{X: bounds.X + (bounds.Width-width)/2, Y: bounds.Y + (bounds.Height-height)/2, Width: width, Height: height}
 	s.field.Secure, s.confirmation.Secure = true, true
-	var logo flex.Box
-	u.dialogView.Draw(canvas, u.theme, panel, func(f *flex.Frame) {
-		f.Column().Fill().Pad(30).Gap(12).Radius(20).Border(1, u.theme.Border).Background(u.theme.Background).Children(func() {
+	var logo ui.Box
+	u.dialogPage.Draw(canvas, panel, func(f ui.C) {
+		ui.Column(f).Fill().Pad(30).Gap(12).Radius(20).Border(1, u.theme.Border).Background(u.theme.Background).Children(func() {
 			title, description, action, label := i18n.T("GoIM 已锁定"), i18n.T("输入密码以恢复你的会话。"), i18n.T("解锁"), i18n.T("锁定密码")
 			if s.setup {
 				title, description, action, label = i18n.T("设置锁定密码"), i18n.T("密码至少 6 个字符。可在设置 → 安全中更改。"), i18n.T("设置并锁定"), i18n.T("新密码")
 			}
-			logo = f.Slot().Size(44, 44)
-			f.Text(title).FontSize(26).Weight(gfx.WeightSemibold)
-			f.Paragraph(description, 2).Muted().FontSize(13)
-			field := f.Field(&s.field, s.focus, label, label).Height(52).FillWidth().Disabled(s.pending)
+			logo = ui.Slot(f).Size(44, 44)
+			ui.Text(f, title).FontSize(26).Weight(gfx.WeightSemibold)
+			ui.Paragraph(f, description, 2).Muted().FontSize(13)
+			field := ui.TextFieldID(f, s.focus, &s.field, label, label).Height(52).FillWidth().Disabled(s.pending)
 			submitted := field.Submitted()
 			if s.setup {
-				submitted = f.Field(&s.confirmation, s.confirmID, i18n.T("确认新密码"), i18n.T("再输入一次新密码")).
+				submitted = ui.TextFieldID(f, s.confirmID, &s.confirmation, i18n.T("确认新密码"), i18n.T("再输入一次新密码")).
 					Height(52).FillWidth().Disabled(s.pending).Submitted() || submitted
 			}
 			if s.err != "" {
-				f.Paragraph(s.err, 2).FontSize(12).Color(u.theme.Danger)
+				ui.Paragraph(f, s.err, 2).FontSize(12).Color(u.theme.Danger)
 			}
-			f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
-				if s.setup && f.Button(s.cancel, i18n.T("取消")).Height(48).Outline().Disabled(s.pending).Clicked() {
+			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+				if s.setup && namedButton(f, s.cancel, i18n.T("取消")).Height(48).Outline().Disabled(s.pending).Clicked() {
 					u.cancelLockSetup()
 				}
 				if s.pending {
 					action = i18n.T("正在验证…")
 				}
-				if f.Button(s.submit, action).Grow(1).Height(48).Disabled(s.pending).Clicked() || submitted && !s.pending {
+				if namedButton(f, s.submit, action).Grow(1).Height(48).Disabled(s.pending).Clicked() || submitted && !s.pending {
 					u.submitLock()
 				}
 			})
@@ -154,11 +153,7 @@ func (u *UI) cancelLockSetup() {
 		return
 	}
 	u.lockUI.setup, u.lockUI.focused, u.lockUI.err = false, false, ""
-	u.lockUI.field, u.lockUI.confirmation = flex.Field{}, flex.Field{}
-}
-
-func (u *UI) lockTextInput(context app.TextInputContext) *app.TextInput {
-	return flex.Fields(&u.lockUI.field, &u.lockUI.confirmation)(context)
+	u.lockUI.field, u.lockUI.confirmation = ui.Field{}, ui.Field{}
 }
 
 func (u *UI) lockKey(event gfx.KeyEvent) gfx.EventResult {

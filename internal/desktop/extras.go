@@ -13,7 +13,6 @@ import (
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -126,41 +125,41 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 	})
 	layout := dialog.Begin(i18n.T("个人资料"), i18n.T("已填写的资料对已连接的 GoIM 和内网通联系人可见。"))
 	var chooseClicked, submitted bool
-	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
-		f.Column().Fill().Gap(8).Children(func() {
-			f.Row().Items(flex.Center).Gap(14).Children(func() {
+	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
+		ui.Column(f).Fill().Gap(8).Children(func() {
+			ui.Row(f).Items(ui.Center).Gap(14).Children(func() {
 				avatarName := strings.TrimSpace(u.profile.nickname.Text())
 				if avatarName == "" {
 					avatarName = u.state.Self.Name
 				}
 				u.avatarStatus(f, avatarName, u.profile.avatar, 64, true)
-				f.Column().Grow(1).Gap(6).Children(func() {
-					f.Text(i18n.T("头像")).FontSize(12).Weight(gfx.WeightMedium)
-					f.Row().Gap(6).Children(func() {
-						chooseClicked = f.Button(u.ids.profileChooseImage, i18n.T("选择图片")).XSmall().Outline().Clicked()
-						if u.profile.avatar != "" && f.Button(u.ids.profileRemoveImage, i18n.T("移除头像")).XSmall().Ghost().Clicked() {
+				ui.Column(f).Grow(1).Gap(6).Children(func() {
+					ui.Text(f, i18n.T("头像")).FontSize(12).Weight(gfx.WeightMedium)
+					ui.Row(f).Gap(6).Children(func() {
+						chooseClicked = namedButton(f, u.ids.profileChooseImage, i18n.T("选择图片")).XSmall().Outline().Clicked()
+						if u.profile.avatar != "" && namedButton(f, u.ids.profileRemoveImage, i18n.T("移除头像")).XSmall().Ghost().Clicked() {
 							u.profile.avatar = ""
 							u.profile.err = ""
 						}
 					})
-					f.Text(i18n.T("支持 PNG、JPEG 和 GIF。")).FontSize(10.5).Muted()
+					ui.Text(f, i18n.T("支持 PNG、JPEG 和 GIF。")).FontSize(10.5).Muted()
 				})
 			})
-			f.Row().FillWidth().Gap(16).Children(func() {
+			ui.Row(f).FillWidth().Gap(16).Children(func() {
 				profileFormColumn(f, i18n.T("昵称"), func() {
-					submitted = f.Field(&u.profile.nickname, u.ids.profileField, i18n.T("昵称"), i18n.T("输入昵称")).
+					submitted = ui.TextFieldID(f, u.ids.profileField, &u.profile.nickname, i18n.T("昵称"), i18n.T("输入昵称")).
 						Height(38).FillWidth().Submitted()
 				})
 				profileFormColumn(f, i18n.T("个性签名"), func() {
-					submitted = f.Field(&u.profile.signature, u.ids.profileSignature, i18n.T("个性签名"), i18n.T("写一句介绍，最多 80 字")).
+					submitted = ui.TextFieldID(f, u.ids.profileSignature, &u.profile.signature, i18n.T("个性签名"), i18n.T("写一句介绍，最多 80 字")).
 						Height(38).FillWidth().Submitted() || submitted
 				})
 			})
-			f.Row().Items(flex.Center).Gap(8).Children(func() {
-				f.Text(i18n.T("状态")).FontSize(12).Weight(gfx.WeightMedium)
-				f.Text(i18n.T(profilePresenceName(u.profile.presence))).FontSize(11).Muted()
+			ui.Row(f).Items(ui.Center).Gap(8).Children(func() {
+				ui.Text(f, i18n.T("状态")).FontSize(12).Weight(gfx.WeightMedium)
+				ui.Text(f, i18n.T(profilePresenceName(u.profile.presence))).FontSize(11).Muted()
 			})
-			f.Row().FillWidth().Gap(8).Children(func() {
+			ui.Row(f).FillWidth().Gap(8).Children(func() {
 				for index, presence := range profilePresences {
 					active := presence.value == u.profile.presence
 					tint := presence.color
@@ -168,8 +167,8 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 						tint = tint.Mix(ui.RGB(255, 255, 255), 0.32)
 					}
 					label := i18n.T(presence.label)
-					button := f.Row().Size(42, 36).Radius(8).Items(flex.Center).Justify(flex.Center).
-						Hover(flex.Look{}.Background(u.palette.hover)).
+					button := ui.Row(f).Size(42, 36).Radius(8).Items(ui.Center).Justify(ui.Center).
+						Hover(ui.Look{}.Background(u.palette.hover)).
 						HitWith(u.ids.profilePresence.At(index), label, gfx.HitOptions{Role: gfx.RoleButton, Selected: active, Hint: label})
 					if active {
 						button.Background(u.palette.selected).Stroke(1, u.palette.selectedText)
@@ -177,21 +176,21 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 					if f.Canvas().FocusVisible() == u.ids.profilePresence.At(index) {
 						button.Stroke(1.5, u.theme.Ring)
 					}
-					button.Children(func() { f.Icon(presence.icon).Size(19, 19).Color(tint) })
+					button.Children(func() { ui.Icon(f, presence.icon).Size(19, 19).Color(tint) })
 					if button.Clicked() {
 						u.profile.presence = presence.value
 					}
 				}
 			})
 			u.drawProfileDetails(f)
-			f.Row().FillWidth().Gap(16).Children(func() {
-				f.Text(i18n.T("版本") + "  " + defaultIfEmpty(u.state.Self.Version, "—")).FontSize(11).Muted().Grow(1).Ellipsis()
-				f.Text("IP  " + defaultIfEmpty(u.state.LocalIP, "—")).FontSize(11).Muted().Grow(1).Ellipsis()
+			ui.Row(f).FillWidth().Gap(16).Children(func() {
+				ui.Text(f, i18n.T("版本")+"  "+defaultIfEmpty(u.state.Self.Version, "—")).FontSize(11).Muted().Grow(1).Ellipsis()
+				ui.Text(f, "IP  "+defaultIfEmpty(u.state.LocalIP, "—")).FontSize(11).Muted().Grow(1).Ellipsis()
 			})
 			if u.profile.err != "" {
-				f.Text(u.profile.err).FontSize(11).Color(u.palette.danger).MaxLines(2)
+				ui.Text(f, u.profile.err).FontSize(11).Color(u.palette.danger).MaxLines(2)
 			} else {
-				f.Text(i18n.T("隐身时不广播上线，已连接的会话仍可收发。")).FontSize(10.5).Muted()
+				ui.Text(f, i18n.T("隐身时不广播上线，已连接的会话仍可收发。")).FontSize(10.5).Muted()
 			}
 		})
 	})
@@ -220,26 +219,26 @@ func profileDetailValues(details domain.ProfileDetails) [5]string {
 	return [5]string{details.Company, details.Department, details.Phone, details.Mobile, details.Email}
 }
 
-func profileFormColumn(f *flex.Frame, label string, control func()) {
-	f.Column().Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
-		f.Text(label).FontSize(12).Weight(gfx.WeightMedium)
+func profileFormColumn(f ui.C, label string, control func()) {
+	ui.Column(f).Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
+		ui.Text(f, label).FontSize(12).Weight(gfx.WeightMedium)
 		control()
 	})
 }
 
-func (u *UI) drawProfileDetails(f *flex.Frame) {
+func (u *UI) drawProfileDetails(f ui.C) {
 	field := func(i int) {
 		label := i18n.T(profileDetailLabels[i])
 		profileFormColumn(f, label, func() {
-			f.Field(&u.profile.details[i], u.ids.profileDetails[i], label, i18n.T("选填")).Height(34).FillWidth()
+			ui.TextFieldID(f, u.ids.profileDetails[i], &u.profile.details[i], label, i18n.T("选填")).Height(34).FillWidth()
 		})
 	}
-	f.Divider()
-	f.Row().FillWidth().Gap(16).Children(func() {
+	ui.Divider(f)
+	ui.Row(f).FillWidth().Gap(16).Children(func() {
 		profileFormColumn(f, i18n.T("性别"), func() {
-			f.Row().Height(34).Gap(5).Items(flex.Center).Children(func() {
+			ui.Row(f).Height(34).Gap(5).Items(ui.Center).Children(func() {
 				for i, label := range profileGenderLabels {
-					button := f.Button(u.ids.profileGender.At(i), i18n.T(label)).XSmall()
+					button := namedButton(f, u.ids.profileGender.At(i), i18n.T(label)).XSmall()
 					if i != u.profile.gender {
 						button.Outline()
 					}
@@ -251,8 +250,8 @@ func (u *UI) drawProfileDetails(f *flex.Frame) {
 		})
 		field(0)
 	})
-	f.Row().FillWidth().Gap(16).Children(func() { field(1); field(2) })
-	f.Row().FillWidth().Gap(16).Children(func() { field(3); field(4) })
+	ui.Row(f).FillWidth().Gap(16).Children(func() { field(1); field(2) })
+	ui.Row(f).FillWidth().Gap(16).Children(func() { field(3); field(4) })
 }
 
 var profilePresences = [...]struct {
@@ -300,7 +299,6 @@ func peerPresenceLabel(peer domain.Peer) string {
 
 func (u *UI) closeChatPickers() {
 	u.emojiOpen = false
-	u.emojiScrollDrag = false
 	u.closeMention()
 }
 
@@ -426,6 +424,10 @@ func (u *UI) drawMentionPicker(canvas *gfx.Canvas, viewport ui.Rect) {
 	if !u.mention.open {
 		return
 	}
+	if !u.composerBox.Valid() || !u.mentionEditor.Valid() {
+		u.closeMention()
+		return
+	}
 	conversation := u.state.Conversation(u.selected)
 	anchor := u.composerBox.Rect()
 	if anchor.Width <= 0 {
@@ -445,8 +447,8 @@ func (u *UI) drawMentionPicker(canvas *gfx.Canvas, viewport ui.Rect) {
 		SideOffset: 8, ContentSize: ui.Size{Width: 390}, BodyHeight: bodyHeight,
 	})
 	layout := popover.Begin(i18n.T("提及成员"), i18n.T("↑↓ 选择 · Enter 插入 · Esc 关闭"))
-	u.mentionView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
-		f.Column().Fill().Gap(2).Children(func() {
+	u.mentionPage.Draw(canvas, layout.Body, func(f ui.C) {
+		ui.Column(f).Fill().Gap(2).Children(func() {
 			if len(u.mention.candidates) == 0 {
 				u.emptyListMessage(f, i18n.T("没有匹配的成员"), i18n.T("换一个群昵称或昵称试试。"))
 				return
@@ -456,14 +458,14 @@ func (u *UI) drawMentionPicker(canvas *gfx.Canvas, viewport ui.Rect) {
 				if index == u.mention.selected {
 					background = u.palette.selected
 				}
-				row := f.Row().FillWidth().Height(36).PadSides(7, 8, 7, 8).Radius(7).
-					Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
+				row := ui.Row(f).FillWidth().Height(36).PadSides(7, 8, 7, 8).Radius(7).
+					Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 					HitWith(u.mentionCandidateIDs[candidate.peerID], i18n.T("提及 ")+candidate.name,
 						gfx.HitOptions{Role: gfx.RoleButton, Selected: index == u.mention.selected}).
 					Children(func() {
 						u.avatarStatus(f, candidate.name, candidate.avatar, 26, candidate.online)
-						f.Text(candidate.name).FontSize(12.5).Weight(gfx.WeightMedium).Grow(1).Ellipsis()
-						f.Text("@" + candidate.name).FontSize(10.5).Muted().Ellipsis()
+						ui.Text(f, candidate.name).FontSize(12.5).Weight(gfx.WeightMedium).Grow(1).Ellipsis()
+						ui.Text(f, "@"+candidate.name).FontSize(10.5).Muted().Ellipsis()
 					})
 				if row.Clicked() {
 					u.mention.selected = index
@@ -478,29 +480,29 @@ func (u *UI) drawMentionPicker(canvas *gfx.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) avatarStatus(f *flex.Frame, name, path string, size float32, online bool) {
+func (u *UI) avatarStatus(f ui.C, name, path string, size float32, online bool) {
 	u.avatarStatusOn(f, name, path, size, online, u.palette.chat)
 }
 
-func (u *UI) avatarStatusOn(f *flex.Frame, name, path string, size float32, online bool, ring ui.Color) {
+func (u *UI) avatarStatusOn(f ui.C, name, path string, size float32, online bool, ring ui.Color) {
 	u.avatarWithPresence(f, name, path, size, online, true, ring)
 }
 
-func (u *UI) avatarWithPresence(f *flex.Frame, name, path string, size float32, online, presence bool, ring ui.Color) {
+func (u *UI) avatarWithPresence(f ui.C, name, path string, size float32, online, presence bool, ring ui.Color) {
 	if name == "" {
 		name = "?"
 	}
-	f.Stack().Size(size, size).Children(func() {
-		avatar := f.Stack().Size(size, size).Radius(size / 2).Clip().
+	ui.Stack(f).Size(size, size).Children(func() {
+		avatar := ui.Stack(f).Size(size, size).Radius(size / 2).Clip().
 			Background(u.palette.mutedAvatar)
 		avatar.Children(func() {
 			bitmap := u.avatarBitmap(path)
 			if bitmapReady(bitmap) {
-				f.Image(bitmap).Fill()
+				ui.Image(f, bitmap).Fill()
 				return
 			}
-			f.Row().Fill().Items(flex.Center).Justify(flex.Center).Children(func() {
-				f.Text(initialOf(name)).FontSize(max(11, size*0.36)).Weight(gfx.WeightSemibold).
+			ui.Row(f).Fill().Items(ui.Center).Justify(ui.Center).Children(func() {
+				ui.Text(f, initialOf(name)).FontSize(max(11, size*0.36)).Weight(gfx.WeightSemibold).
 					Color(u.palette.avatarText).TextCenter()
 			})
 		})
@@ -512,7 +514,7 @@ func (u *UI) avatarWithPresence(f *flex.Frame, name, path string, size float32, 
 		if online {
 			color = u.palette.success
 		}
-		f.Stack().Size(dot, dot).Absolute().Right(0).Bottom(0).Radius(dot/2).
+		ui.Stack(f).Size(dot, dot).Absolute().Right(0).Bottom(0).Radius(dot/2).
 			Background(color).Border(2, ring)
 	})
 }
@@ -556,7 +558,7 @@ func (u *UI) saveGroupNickname(group domain.Group) {
 	u.nicknameErr = ""
 }
 
-func (u *UI) drawGroupNicknameEditor(f *flex.Frame, group domain.Group) {
+func (u *UI) drawGroupNicknameEditor(f ui.C, group domain.Group) {
 	if u.nicknameGroup != "" && u.nicknameGroup != group.ID {
 		u.nicknameOpen = false
 		u.nicknameErr = ""
@@ -567,10 +569,10 @@ func (u *UI) drawGroupNicknameEditor(f *flex.Frame, group domain.Group) {
 		display = i18n.T("使用本名")
 	}
 	if !u.nicknameOpen {
-		f.Row().Height(40).Items(flex.Center).Gap(10).Children(func() {
-			f.Column().Grow(1).Gap(2).Children(func() {
-				f.Text(i18n.T("我在群里的昵称")).FontSize(13)
-				f.Text(display).FontSize(10.5).Muted().Ellipsis()
+		ui.Row(f).Height(40).Items(ui.Center).Gap(10).Children(func() {
+			ui.Column(f).Grow(1).Gap(2).Children(func() {
+				ui.Text(f, i18n.T("我在群里的昵称")).FontSize(13)
+				ui.Text(f, display).FontSize(10.5).Muted().Ellipsis()
 			})
 			edit := u.iconButton(f, u.ids.memberStartNickname, u.iconPencil, i18n.T("修改我的群昵称"), 28)
 			if edit.Clicked() {
@@ -579,20 +581,20 @@ func (u *UI) drawGroupNicknameEditor(f *flex.Frame, group domain.Group) {
 		})
 		return
 	}
-	f.Column().FillWidth().Gap(5).Children(func() {
-		f.Row().Height(36).Items(flex.Center).Gap(8).Children(func() {
-			field := f.Field(&u.nicknameField, u.ids.memberNickname, i18n.T("我在群里的昵称"),
+	ui.Column(f).FillWidth().Gap(5).Children(func() {
+		ui.Row(f).Height(36).Items(ui.Center).Gap(8).Children(func() {
+			field := ui.TextFieldID(f, u.ids.memberNickname, &u.nicknameField, i18n.T("我在群里的昵称"),
 				i18n.T("留空使用本名")).Height(36).Grow(1)
-			if f.Button(u.ids.memberCancelNickname, i18n.T("取消")).XSmall().Outline().Clicked() {
+			if namedButton(f, u.ids.memberCancelNickname, i18n.T("取消")).XSmall().Outline().Clicked() {
 				u.nicknameOpen = false
 				u.nicknameErr = ""
 			}
-			if f.Button(u.ids.memberSaveNickname, i18n.T("保存")).XSmall().Clicked() || field.Submitted() {
+			if namedButton(f, u.ids.memberSaveNickname, i18n.T("保存")).XSmall().Clicked() || field.Submitted() {
 				u.saveGroupNickname(group)
 			}
 		})
 		if u.nicknameErr != "" {
-			f.Text(u.nicknameErr).FontSize(10.5).Color(u.palette.danger)
+			ui.Text(f, u.nicknameErr).FontSize(10.5).Color(u.palette.danger)
 		}
 	})
 }
@@ -628,7 +630,7 @@ func (u *UI) inviteAgain(group domain.Group, peer domain.Peer) {
 	u.submit(domain.Command{Kind: domain.InviteMembers, GroupID: group.ID, IDs: []string{peer.ID}})
 }
 
-func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool) {
+func (u *UI) drawGroupInvitations(f ui.C, group domain.Group, owner bool) {
 	u.drawOutgoingOwnershipInvites(f, group, owner)
 
 	pending := 0
@@ -650,8 +652,8 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 		}
 	}
 	if pending > 0 {
-		f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-			f.Text(i18n.T("待确认邀请")).FontSize(12).Weight(gfx.WeightSemibold)
+		ui.Row(f).Height(30).Items(ui.Center).Gap(8).Children(func() {
+			ui.Text(f, i18n.T("待确认邀请")).FontSize(12).Weight(gfx.WeightSemibold)
 			u.badgeText(f, intString(pending), false)
 		})
 		for _, peerID := range group.Pending {
@@ -690,8 +692,8 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 		}
 	}
 	if failed > 0 {
-		f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-			f.Text(i18n.T("发送失败的邀请")).FontSize(12).Weight(gfx.WeightSemibold)
+		ui.Row(f).Height(30).Items(ui.Center).Gap(8).Children(func() {
+			ui.Text(f, i18n.T("发送失败的邀请")).FontSize(12).Weight(gfx.WeightSemibold)
 			u.badgeText(f, intString(failed), false)
 		})
 		for _, peerID := range group.Pending {
@@ -720,8 +722,8 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 		}
 	}
 	if rejected > 0 {
-		f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-			f.Text(i18n.T("已拒绝邀请")).FontSize(12).Weight(gfx.WeightSemibold)
+		ui.Row(f).Height(30).Items(ui.Center).Gap(8).Children(func() {
+			ui.Text(f, i18n.T("已拒绝邀请")).FontSize(12).Weight(gfx.WeightSemibold)
 			u.badgeText(f, intString(rejected), false)
 		})
 		for _, invitation := range u.outgoingInvites {
@@ -733,7 +735,7 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 	}
 }
 
-func (u *UI) drawOutgoingOwnershipInvites(f *flex.Frame, group domain.Group, owner bool) {
+func (u *UI) drawOutgoingOwnershipInvites(f ui.C, group domain.Group, owner bool) {
 	if !owner {
 		return
 	}
@@ -746,8 +748,8 @@ func (u *UI) drawOutgoingOwnershipInvites(f *flex.Frame, group domain.Group, own
 	if count == 0 {
 		return
 	}
-	f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-		f.Text(i18n.T("群主转让")).FontSize(12).Weight(gfx.WeightSemibold)
+	ui.Row(f).Height(30).Items(ui.Center).Gap(8).Children(func() {
+		ui.Text(f, i18n.T("群主转让")).FontSize(12).Weight(gfx.WeightSemibold)
 		u.badgeText(f, intString(count), false)
 	})
 	for _, invitation := range u.ownershipInvites {
@@ -768,31 +770,31 @@ func (u *UI) drawOutgoingOwnershipInvites(f *flex.Frame, group domain.Group, own
 		case "expired":
 			status = i18n.T("群主转让邀请已过期")
 		}
-		f.Row().FillWidth().MinHeight(42).PadX(8).Items(flex.Center).Gap(9).Children(func() {
+		ui.Row(f).FillWidth().MinHeight(42).PadX(8).Items(ui.Center).Gap(9).Children(func() {
 			u.avatarStatus(f, peer.Name, peer.Avatar, 26, peerOnline(u, peer.ID))
-			f.Column().Grow(1).Gap(2).Children(func() {
-				f.Text(i18n.T("群主转让给 ") + peer.Name).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
-				f.Text(status).FontSize(10.5).Muted().Ellipsis()
+			ui.Column(f).Grow(1).Gap(2).Children(func() {
+				ui.Text(f, i18n.T("群主转让给 ")+peer.Name).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
+				ui.Text(f, status).FontSize(10.5).Muted().Ellipsis()
 			})
 		})
 	}
 }
 
-func (u *UI) drawOutgoingInviteRow(f *flex.Frame, group domain.Group, peerID string,
+func (u *UI) drawOutgoingInviteRow(f ui.C, group domain.Group, peerID string,
 	invitation domain.Invitation, status string, owner bool, action string) {
 	peer := u.state.Peer(peerID)
 	key := groupInviteKey(group.ID, peerID)
-	f.Row().Height(42).PadX(8).Items(flex.Center).Gap(9).Children(func() {
+	ui.Row(f).Height(42).PadX(8).Items(ui.Center).Gap(9).Children(func() {
 		u.avatarStatus(f, peer.Name, peer.Avatar, 26, peerOnline(u, peer.ID))
-		f.Column().Grow(1).Gap(2).Children(func() {
-			f.Text(peer.Name).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
-			f.Text(status).FontSize(10.5).Muted().Ellipsis()
+		ui.Column(f).Grow(1).Gap(2).Children(func() {
+			ui.Text(f, peer.Name).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
+			ui.Text(f, status).FontSize(10.5).Muted().Ellipsis()
 		})
 		if !owner {
 			return
 		}
 		if action == "withdraw" {
-			withdraw := f.Button(u.inviteWithdrawIDs[key], i18n.T("撤回")).XSmall().Outline()
+			withdraw := namedButton(f, u.inviteWithdrawIDs[key], i18n.T("撤回")).XSmall().Outline()
 			if withdraw.Clicked() {
 				u.inviteWithdraw(group, peer, invitation)
 			}
@@ -808,7 +810,7 @@ func (u *UI) drawOutgoingInviteRow(f *flex.Frame, group domain.Group, peerID str
 		if !peer.Online {
 			label += i18n.T("（离线）")
 		}
-		again := f.Button(u.inviteReinviteIDs[key], label).XSmall().Outline().
+		again := namedButton(f, u.inviteReinviteIDs[key], label).XSmall().Outline().
 			Disabled(!peer.Online)
 		if again.Clicked() && peer.Online {
 			u.inviteAgain(group, peer)

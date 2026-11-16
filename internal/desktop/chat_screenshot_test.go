@@ -64,7 +64,7 @@ func TestChatLayoutScreenshotQA(t *testing.T) {
 		}
 
 		shot("chat-layout-" + suffix + ".png")
-		historyPos := shell.chatSurface().history.Pos
+		historyPos := shell.surface.history.Pos
 		history, ok := findSessionHitLabel(session.Snapshot().Hits, "调整聊天记录和输入框高度")
 		if !ok {
 			t.Fatal("history splitter is missing")
@@ -90,7 +90,7 @@ func TestChatLayoutScreenshotQA(t *testing.T) {
 		if err := session.Press(historyX, historyY); err != nil {
 			t.Fatal(err)
 		}
-		restoreY := historyY + historyPos - shell.chatSurface().history.Pos
+		restoreY := historyY + historyPos - shell.surface.history.Pos
 		if err := session.Move(historyX, restoreY); err != nil {
 			t.Fatal(err)
 		}
@@ -122,9 +122,9 @@ func TestChatLayoutScreenshotQA(t *testing.T) {
 		click(shell.ids.fileClose)
 		click(shell.fileButtonIDs["file-image-viewer"])
 		shot("chat-image-viewer-" + suffix + ".png")
-		click(shell.chatSurface().ids.viewerNext)
+		click(shell.surface.ids.viewerNext)
 		shot("chat-image-viewer-next-" + suffix + ".png")
-		click(shell.chatSurface().ids.viewerActual)
+		click(shell.surface.ids.viewerActual)
 		shot("chat-image-viewer-actual-" + suffix + ".png")
 		shell.Close()
 	}

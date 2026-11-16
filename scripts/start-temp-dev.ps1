@@ -1,175 +1,139 @@
 param(
     [string]$Name = 'Temp Dev Client',
-    [string]$Listen = '0.0.0.0:0',
+    [string]$Listen,
+    [switch]$Loopback,
+    [switch]$Pair,
     [switch]$NoBuild,
     [switch]$StopExistingGoIM
 )
 
 $ErrorActionPreference = 'Stop'
-$taskProject = Split-Path -Parent $PSScriptRoot
-$taskExecutable = Join-Path $taskProject 'build/GoIM.exe'
-
-function Test-UdpBind {
-    param([int]$Port)
-    $taskSocket = [System.Net.Sockets.UdpClient]::new()
-    try {
-        $taskSocket.Client.Bind([System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, $Port))
-        return $true
-    } catch {
-        return $false
-    } finally {
-        $taskSocket.Dispose()
-    }
+$project = Split-Path -Parent $PSScriptRoot
+$runtime = Join-Path $project '.runtime/temp-dev'
+if ($Pair) { $Loopback = $true }
+if (!$Listen) {
+    $Listen = if ($Loopback) { '127.0.0.1:0' } else { '0.0.0.0:0' }
+}
+if ($Loopback -and $Listen -notmatch '^127\.0\.0\.1:\d+$') {
+    throw '-Loopback requires a 127.0.0.1 listen address.'
 }
 
-function Test-TcpBind {
-    param([int]$Port)
-    $taskListener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $Port)
-    try {
-        $taskListener.Start()
-        return $true
-    } catch {
-        return $false
-    } finally {
-        try { $taskListener.Stop() } catch {}
-    }
-}
-
-function Get-PortOwner {
-    param([int]$Port)
-    $taskIds = @()
-    $taskIds += Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
-        Select-Object -ExpandProperty OwningProcess
-    $taskIds += Get-NetUDPEndpoint -LocalPort $Port -ErrorAction SilentlyContinue |
-        Select-Object -ExpandProperty OwningProcess
-    $taskIds |
-        Where-Object { $_ -gt 0 } |
-        Sort-Object -Unique |
-        ForEach-Object {
-            $taskProcess = Get-Process -Id $_ -ErrorAction SilentlyContinue
-            if ($taskProcess) { "$($taskProcess.ProcessName) (PID $($taskProcess.Id))" }
+function Assert-LanPortsAvailable {
+    $ports = @(
+        @{ Port = 47841; Protocol = 'Udp'; Service = 'GoIM discovery' },
+        @{ Port = 9011; Protocol = 'Udp'; Service = 'Neiwangtong discovery' },
+        @{ Port = 9012; Protocol = 'Udp'; Service = 'Neiwangtong control' },
+        @{ Port = 9013; Protocol = 'Tcp'; Service = 'Neiwangtong transfer' },
+        @{ Port = 2425; Protocol = 'Udp'; Service = 'IP Messenger' },
+        @{ Port = 2425; Protocol = 'Tcp'; Service = 'IP Messenger' }
+    )
+    $conflicts = foreach ($entry in $ports) {
+        $protocol = [Net.Sockets.ProtocolType]$entry.Protocol
+        $kind = if ($protocol -eq 'Udp') { 'Dgram' } else { 'Stream' }
+        $socket = [Net.Sockets.Socket]::new('InterNetwork', $kind, $protocol)
+        try {
+            $socket.ExclusiveAddressUse = $true
+            $socket.Bind([Net.IPEndPoint]::new([Net.IPAddress]::Any, $entry.Port))
+        } catch [Net.Sockets.SocketException] {
+            "$($entry.Service) $protocol/$($entry.Port)"
+        } finally {
+            $socket.Dispose()
         }
+    }
+    if ($conflicts) {
+        throw "LAN ports are in use: $($conflicts -join ', '). Close the owner or start with -Loopback."
+    }
 }
 
-if (!$NoBuild) {
-    & (Join-Path $PSScriptRoot 'build.ps1')
-    if ($LASTEXITCODE -ne 0) { throw 'GoIM build failed' }
-}
-if (!(Test-Path -LiteralPath $taskExecutable)) {
-    throw "Missing $taskExecutable. Run scripts/build.ps1 first or omit -NoBuild."
-}
-
-$taskPortRequirements = @(
-    @{ Port = 9011; Protocol = 'UDP'; Label = 'Neiwangtong discovery' },
-    @{ Port = 9012; Protocol = 'UDP'; Label = 'Neiwangtong control' },
-    @{ Port = 9013; Protocol = 'TCP'; Label = 'Neiwangtong transfer' },
-    @{ Port = 2425; Protocol = 'UDP'; Label = 'IPMSG compatibility' },
-    @{ Port = 2425; Protocol = 'TCP'; Label = 'IPMSG compatibility' },
-    @{ Port = 47841; Protocol = 'UDP'; Label = 'GoIM discovery' }
-)
-$taskConflicts = @()
-foreach ($taskRequirement in $taskPortRequirements) {
-    $taskAvailable = if ($taskRequirement.Protocol -eq 'UDP') {
-        Test-UdpBind -Port $taskRequirement.Port
-    } else {
-        Test-TcpBind -Port $taskRequirement.Port
-    }
-    if (!$taskAvailable) {
-        $taskOwner = Get-PortOwner -Port $taskRequirement.Port
-        if (!$taskOwner) { $taskOwner = 'unknown process' }
-        $taskConflicts += "$($taskRequirement.Label) $($taskRequirement.Protocol) $($taskRequirement.Port): $taskOwner"
-    }
+function Quote-WindowsArgument([string]$Value) {
+    # Backslashes before a quote (including the closing quote) must be doubled.
+    $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
+    return '"' + [regex]::Replace($escaped, '(\\+)$', '$1$1') + '"'
 }
 
 if ($StopExistingGoIM) {
-    Get-Process -Name 'GoIM', 'goim' -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -like (Join-Path $taskProject 'build/*') } |
-        ForEach-Object {
-            Stop-Process -Id $_.Id
-            Write-Host "Stopped old GoIM process $($_.Id)" -ForegroundColor Yellow
+    $buildPattern = Join-Path $project 'build/*'
+    $runtimePattern = Join-Path $runtime '*/bin/GoIM.exe'
+    Get-Process -Name GoIM -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -like $buildPattern -or $_.Path -like $runtimePattern } |
+        Stop-Process
+}
+if (!$Loopback) { Assert-LanPortsAvailable }
+
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$run = Join-Path $runtime "$stamp-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+$bin = if ($NoBuild) { Join-Path $project 'build' } else { Join-Path $run 'bin' }
+if (!$NoBuild) {
+    & (Join-Path $PSScriptRoot 'build.ps1') -OutputDir $bin
+}
+$exe = Join-Path $bin 'GoIM.exe'
+if (!(Test-Path -LiteralPath $exe -PathType Leaf) -or
+    !(Test-Path -LiteralPath (Join-Path $bin 'goim-snip.exe') -PathType Leaf)) {
+    throw "GoIM and the screenshot tool are required in $bin. Run scripts/build.ps1 or omit -NoBuild."
+}
+
+$started = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
+function Start-Client([string]$Folder, [string]$ClientName, [string]$Address, [string]$Connect = '') {
+    $client = Join-Path $run $Folder
+    $data = Join-Path $client 'data'
+    $downloads = Join-Path $client 'downloads'
+    $stderr = Join-Path $client 'stderr.log'
+    New-Item -ItemType Directory -Path $data, $downloads -Force | Out-Null
+    $arguments = @('--data-dir', $data, '--download-dir', $downloads, '--listen', $Address, '--name', $ClientName)
+    if ($Loopback) { $arguments += @('--no-discovery', '--no-compatibility') }
+    if ($Connect) { $arguments += @('--connect', $Connect) }
+    $commandLine = ($arguments | ForEach-Object { Quote-WindowsArgument $_ }) -join ' '
+    $process = Start-Process -FilePath $exe -WorkingDirectory $project -ArgumentList $commandLine -PassThru -RedirectStandardError $stderr
+    $started.Add($process)
+    $deadline = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $process.Refresh()
+        if ($process.HasExited) {
+            throw "GoIM exited with code $($process.ExitCode). Details: $stderr"
         }
-    Start-Sleep -Milliseconds 400
-    $taskConflicts = @()
-    foreach ($taskRequirement in $taskPortRequirements) {
-        $taskAvailable = if ($taskRequirement.Protocol -eq 'UDP') {
-            Test-UdpBind -Port $taskRequirement.Port
-        } else {
-            Test-TcpBind -Port $taskRequirement.Port
-        }
-        if (!$taskAvailable) {
-            $taskOwner = Get-PortOwner -Port $taskRequirement.Port
-            if (!$taskOwner) { $taskOwner = 'unknown process' }
-            $taskConflicts += "$($taskRequirement.Label) $($taskRequirement.Protocol) $($taskRequirement.Port): $taskOwner"
-        }
+        if ($process.MainWindowHandle -ne [IntPtr]::Zero) { break }
+        Start-Sleep -Milliseconds 100
+    } while ($deadline.Elapsed.TotalSeconds -lt 15)
+    if ($process.MainWindowHandle -eq [IntPtr]::Zero) {
+        throw "GoIM did not open its window. Details: $stderr"
     }
+
+    $bindHost, $bindPort = $Address -split ':(?=\d+$)', 2
+    $bindHost = $bindHost.Trim([char[]]'[]')
+    $listener = Get-NetTCPConnection -State Listen -OwningProcess $process.Id -ErrorAction SilentlyContinue |
+        Where-Object {
+            ($_.LocalAddress -eq $bindHost -or ($bindHost -eq '0.0.0.0' -and $_.LocalAddress -eq '::')) -and
+            ($_.LocalPort -eq $bindPort -or ($bindPort -eq '0' -and $_.LocalPort -notin 2425, 9013))
+        } | Select-Object -First 1
+    $endpoint = if ($listener) { "${bindHost}:$($listener.LocalPort)" } else { $Address }
+    @(
+        "PID=$($process.Id)"
+        "Name=$ClientName"
+        "Listen=$endpoint"
+        "DataDir=$data"
+        "DownloadDir=$downloads"
+        "Executable=$exe"
+    ) | Set-Content -LiteralPath (Join-Path $client 'launch.txt') -Encoding UTF8
+    Write-Host "GoIM started: $ClientName (PID $($process.Id), $endpoint)"
+    Write-Host "Data: $data"
+    return $endpoint
 }
 
-if ($taskConflicts.Count -gt 0) {
-    throw @"
-Compatibility ports are in use; the temporary client was not started:
-$($taskConflicts -join "`n")
-
-Only one program can own 9011/2425 on this PC. Exit the local Neiwangtong client or old GoIM.
-To stop only GoIM processes from this project's build directory and retry:
-  powershell -ExecutionPolicy Bypass -File scripts/start-temp-dev.ps1 -StopExistingGoIM
-"@
-}
-
-$taskStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$taskRunID = "$taskStamp-$([guid]::NewGuid().ToString('N').Substring(0,8))"
-$taskRunRoot = Join-Path $taskProject ".runtime/temp-dev/$taskRunID"
-$taskDataDir = Join-Path $taskRunRoot 'data'
-$taskDownloadDir = Join-Path $taskRunRoot 'downloads'
-New-Item -ItemType Directory -Path $taskDataDir, $taskDownloadDir -Force | Out-Null
-
-$taskStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
-$taskStartInfo.FileName = $taskExecutable
-$taskStartInfo.WorkingDirectory = $taskProject
-$taskStartInfo.UseShellExecute = $false
-$taskArguments = @(
-    '--data-dir', $taskDataDir,
-    '--download-dir', $taskDownloadDir,
-    '--listen', $Listen,
-    '--name', $Name
-)
-if ($null -ne $taskStartInfo.ArgumentList) {
-    foreach ($taskArgument in $taskArguments) {
-        $taskStartInfo.ArgumentList.Add([string]$taskArgument)
-    }
-} else {
-    # Windows PowerShell 5.1 uses Arguments instead of ArgumentList.
-    $taskStartInfo.Arguments = ($taskArguments | ForEach-Object {
-        $taskValue = [string]$_
-        if ($taskValue -match '[\s"]') {
-            '"' + $taskValue.Replace('"', '\"') + '"'
-        } else {
-            $taskValue
+try {
+    if ($Pair) {
+        $first = Start-Client 'client-a' 'Loopback A' $Listen
+        if ($first -notmatch '^127\.0\.0\.1:[1-9]\d*$') {
+            throw 'The first client did not report a loopback listening port.'
         }
-    }) -join ' '
+        $null = Start-Client 'client-b' 'Loopback B' '127.0.0.1:0' $first
+    } else {
+        $null = Start-Client 'client' $Name $Listen
+    }
+} catch {
+    foreach ($process in $started) {
+        if (!$process.HasExited) { Stop-Process -Id $process.Id -ErrorAction SilentlyContinue }
+    }
+    throw
+} finally {
+    foreach ($process in $started) { $process.Dispose() }
 }
-$taskProcess = [System.Diagnostics.Process]::Start($taskStartInfo)
-Start-Sleep -Milliseconds 900
-$taskProcess.Refresh()
-if ($taskProcess.HasExited) {
-    throw "Temporary client exited immediately with code $($taskProcess.ExitCode). Data: $taskDataDir"
-}
-
-$taskInfo = @(
-    "PID=$($taskProcess.Id)"
-    "Name=$Name"
-    "Listen=$Listen"
-    "DataDir=$taskDataDir"
-    "DownloadDir=$taskDownloadDir"
-    "NeiwangtongDiscovery=UDP 9011"
-    "NeiwangtongControl=UDP 9012"
-    "NeiwangtongTransfer=TCP 9013"
-    "IPMSG=UDP/TCP 2425"
-) -join "`r`n"
-Set-Content -LiteralPath (Join-Path $taskRunRoot 'launch.txt') -Value $taskInfo -Encoding UTF8
-
-Write-Host 'GoIM temporary development client started' -ForegroundColor Green
-Write-Host "PID:          $($taskProcess.Id)"
-Write-Host "Data:         $taskDataDir"
-Write-Host "Downloads:    $taskDownloadDir"
-Write-Host 'Protocols:    Neiwangtong 9011/9012/9013 + IPMSG 2425'
-Write-Host 'Tip:          Run Neiwangtong on another PC and allow bidirectional UDP/TCP in VMware.'

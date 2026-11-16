@@ -134,7 +134,7 @@ func (harness *shellTestHarness) dragLabel(label string, dx, dy float32) {
 
 func TestChatSidebarSplitterDragsAndMovesWithKeyboard(t *testing.T) {
 	harness := newChatSurfaceHarness(t, shellTestState(t), 1440, 960)
-	surface := harness.ui.chatSurface()
+	surface := harness.ui.surface
 	hit, ok := harness.findHitLabel("调整联系人和聊天区域宽度")
 	if !ok {
 		t.Fatal("sidebar splitter is missing")
@@ -237,7 +237,7 @@ func TestFilesPaneSizeFailureLeavesTheWindowAlone(t *testing.T) {
 	window := &testWindowGeometry{frame: ui.Rect{Width: 1440, Height: 960}, err: errors.New("resize failed")}
 	harness.ui.attachNativeWindow(window)
 	harness.ui.toggleFilesPane()
-	surface := harness.ui.chatSurface()
+	surface := harness.ui.surface
 	if len(window.sizes) != 1 || surface.filesWindowRestoreValid || surface.filesWindowExpanded {
 		t.Fatalf("failed resize left state: sizes=%v valid=%t expanded=%t",
 			window.sizes, surface.filesWindowRestoreValid, surface.filesWindowExpanded)
@@ -246,7 +246,7 @@ func TestFilesPaneSizeFailureLeavesTheWindowAlone(t *testing.T) {
 
 func TestChatHistorySplitterKeepsBothPanesUsable(t *testing.T) {
 	harness := newChatSurfaceHarness(t, shellTestState(t), 1440, 960)
-	surface := harness.ui.chatSurface()
+	surface := harness.ui.surface
 	if _, ok := harness.findHitLabel("调整聊天记录和输入框高度"); !ok {
 		t.Fatal("history/composer splitter is missing")
 	}
@@ -316,7 +316,7 @@ func TestChatFilesPaneDocksClosesAndCompressesChat(t *testing.T) {
 	if harness.ui.drawer != "files" {
 		t.Fatalf("files drawer = %q, want docked files pane", harness.ui.drawer)
 	}
-	surface := harness.ui.chatSurface()
+	surface := harness.ui.surface
 	pane := surface.filesPane
 	if pane.Width < chatFilesMinWidth || pane.Width > chatFilesMaxWidth {
 		t.Fatalf("docked pane width %.1f is outside %.0f..%.0f", pane.Width, chatFilesMinWidth, chatFilesMaxWidth)
@@ -362,14 +362,14 @@ func TestChatFilesPaneDocksClosesAndCompressesChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	harness.settle()
-	if harness.ui.drawer != "" || harness.ui.chatSurface().filesPane.Width != 0 {
+	if harness.ui.drawer != "" || harness.ui.surface.filesPane.Width != 0 {
 		t.Fatal("Escape did not close the docked pane and restore the chat column")
 	}
 	harness.clickID(harness.ui.ids.chatHeaderFile)
 	harness.settle()
 	harness.clickID(harness.ui.ids.fileClose)
 	harness.settle()
-	if harness.ui.drawer != "" || harness.ui.chatSurface().filesPane.Width != 0 {
+	if harness.ui.drawer != "" || harness.ui.surface.filesPane.Width != 0 {
 		t.Fatal("the files pane close button did not restore the chat column")
 	}
 	requireShellLayout(t, harness.snapshot())
@@ -380,12 +380,12 @@ func TestChatFilesPaneCompressesWhenMaximizedAtMinimumSize(t *testing.T) {
 	if err := harness.driver.SetMaximized(true); err != nil {
 		t.Fatal(err)
 	}
-	if !harness.ui.chatSurface().maximized {
+	if !harness.ui.surface.maximized {
 		t.Fatal("maximize state was not reported to the chat surface")
 	}
 	harness.clickID(harness.ui.ids.chatHeaderFile)
 	harness.settle()
-	pane := harness.ui.chatSurface().filesPane
+	pane := harness.ui.surface.filesPane
 	if pane.Width < chatFilesMinWidth || pane.Width > chatFilesMaxWidth {
 		t.Fatalf("maximized pane width %.1f is outside %.0f..%.0f", pane.Width, chatFilesMinWidth, chatFilesMaxWidth)
 	}
@@ -405,7 +405,7 @@ func TestChatLayoutDarkThemeKeepsPaneAndSplitterHits(t *testing.T) {
 	harness := newChatSurfaceHarness(t, state, 1440, 960)
 	harness.clickID(harness.ui.ids.chatHeaderFile)
 	harness.settle()
-	surface := harness.ui.chatSurface()
+	surface := harness.ui.surface
 	if surface.filesPane.Width <= 0 {
 		t.Fatal("dark theme did not dock the files pane")
 	}

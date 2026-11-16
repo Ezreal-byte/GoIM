@@ -71,11 +71,11 @@ Windows 的 Setup 和 MSI 使用同一套安装内容，任选一种。压缩包
 | 内网通 3.4.3055 | Windows 与 VMware 客户端之间初步验证了发现、双向文字和普通单文件传输。修复版通过了 TCP 拉取报文和 GoIM 聊天文件卡片回归。 | 图片可按普通附件发送。内网通的内嵌图片、截图、表情、原生文件共享及群聊未实现互通。 |
 | 飞秋 | 自动化测试覆盖扩展报头、中文编码、发现和标准 IPMSG 文件路径。 | 真实飞秋客户端及其不同版本仍待验证，私有扩展未纳入兼容范围。 |
 
-GoIM 之间使用原生 TLS。连接兼容设备前，可在「设置 → 网络」分别开启「内网通互通」与「飞鸽／飞秋互通」，并在手动连接中显式选择对应协议。内网通互通支持原生 UDP 9011 发现、ENet 9012 控制及 TCP 9013 头像与文件流传输；飞鸽／飞秋互通使用默认 `2425` 端口。两套互通独立运行，互不干扰，新安装默认关闭互通以保持纯净。
+GoIM 之间使用原生 TLS。新配置默认启用「内网通互通」（UDP 9011 发现、ENet 9012 控制和 TCP 9013 头像及文件传输）与「飞鸽／飞秋互通」（端口 `2425`）。可在「设置 → 网络」分别管理两套互通，也可用 `--no-compatibility` 启动仅使用 GoIM 协议的实例。
 
 ## 从源码构建
 
-使用 CI 固定的 Go 工具链（当前为 1.27.3）。在 GoIM 的同级目录准备固定版本的 Viva，并应用项目补丁。完整命令见 [Viva 构建说明](framework/README.md)。
+使用 CI 固定的 Go 工具链（当前为 1.27.3）。Go 会按 [`go.mod`](go.mod) 下载固定版本的 Viva。如果需要同时修改 Viva，可在本地创建包含两个仓库的 Go 工作区。
 
 ```sh
 go test ./... -count=1
@@ -83,7 +83,9 @@ go vet ./...
 go run ./cmd/goim
 ```
 
-Windows 可运行 `pwsh -File scripts/build.ps1` 生成桌面程序和截图工具。可用 `pwsh -File scripts/promo-headless.ps1` 重新生成演示截图。发布构建及各平台校验见 [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/build.yml)。
+Windows 上，运行 `pwsh -File scripts/start-temp-dev.ps1` 可构建并启动使用独立配置和下载目录的开发客户端。加上 `-Loopback` 可关闭局域网发现和旧协议互通；运行 `scripts/start-dual.ps1` 可启动通过本机回环连接的两个客户端。
+
+`pwsh -File scripts/smoke-headless.ps1` 会重新构建无头客户端，使用三个独立进程验证消息、文件传输和网页分享。`scripts/build.ps1` 只构建桌面程序和截图工具，`scripts/promo-headless.ps1` 可重新生成演示截图。发布构建及各平台校验见 [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/build.yml)。
 
 ## 许可证
 

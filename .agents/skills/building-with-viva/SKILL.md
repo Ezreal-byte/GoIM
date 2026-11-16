@@ -1,6 +1,6 @@
 ---
 name: building-with-viva
-description: Write, change or debug a desktop application built on the Viva framework (github.com/vivaui/viva), or check its UI without opening a window. Use when the code imports github.com/vivaui/viva/app, ui, flex or components, or when asked to add a window, control, layout, input handling or a headless test to a Viva app.
+description: Write, change or debug a desktop application built on the Viva framework (github.com/vivaui/viva), or check its UI without opening a window. Use when the code imports github.com/vivaui/viva/app, gfx, ui or components, or when asked to add a window, control, layout, input handling or a headless test to a Viva app.
 ---
 
 # Building with Viva
@@ -21,7 +21,7 @@ If you are in a checkout of Viva itself, its `AGENTS.md` is the authority and ov
 - No reflection, `map[string]any` or dynamic property bags in layout, input, scene or render paths.
 - No goroutines, timers or polling loops that run while the app is idle. Animation is a scheduled, temporary reason to draw, never a heartbeat. An idle window draws nothing.
 - Declaring components and layout must not allocate per paint. State that is expensive to compute (shaped text, line breaks) is cached by whoever owns it and invalidated explicitly.
-- Never number hit targets by hand. Identities are names in a `ui.Tree`.
+- Never number hit targets by hand. Use a Viva page's keys and parts or a named identity in a `gfx.Tree`.
 - Do not add a dependency to the code that ships in the app without measuring its stripped binary size, startup and idle memory.
 - Do not claim "zero allocation", "fast" or "light" without a reproducible measurement.
 
@@ -29,9 +29,9 @@ If you are in a checkout of Viva itself, its `AGENTS.md` is the authority and ov
 
 The painting function is the UI. It runs again on every redraw, declares what is on screen with value types, and keeps no layout cache. The smallest complete program is [`hello/main.go`](https://github.com/vivaui/viva/blob/main/examples/guides/hello/main.go); the others in [`examples/guides`](https://github.com/vivaui/viva/tree/main/examples/guides) show one concept each (layout, input, text field, overlays, windows, theming, drawing, background).
 
-- Declare identities once: `tree = ui.Tree{}`, a `tree.Feature("name")` per area, `tree.ID(feature, "control")` per control. Keep them stable between frames; focus, hover and press are tracked by ID, and `Canvas.Focused`, `Canvas.FocusVisible` and `Canvas.Hovered` report them back.
-- Handle a click where the control is declared: `f.Button(id, label).Clicked()` is true for the one paint that delivers the click, and only then may state change.
-- Lay out with `flex` inside `flex.View.Draw`. Components are source-distributed, typed Go, one file per component; read the file rather than looking for a hidden style engine.
+- Declare layout and controls as functions of `ui.C`: `ui.Row(c)`, `ui.Button(c, label)`, and `ui.Select(c, &choice, options, labelFor)`. Handle actions with `.Clicked()` or read the bound value when `.Changed()` is true.
+- Use `c.Key` for rows that move and `c.Part` for named controls. When an identity is shared with an explicit focus request or a canvas component, give the window and pages one `gfx.Tree` and name that control with `tree.ID`.
+- Keep each `ui.Page` with its window or region. `Page.Config` handles input for a whole window; a shell drawing regions with `Page.Draw` forwards text, key, wheel and pointer events to the active page. A `ui.Box` and its scroll state are valid for their current paint; keep values you need after it, such as the last offset.
 - Prefer a few intention-revealing parameters. When same-typed positional arguments pile up, use a small struct or chainable options.
 
 ## 4. Verify without opening a window
@@ -39,7 +39,7 @@ The painting function is the UI. It runs again on every redraw, declares what is
 Do not open a real window unless the user agrees; it interrupts them and depends on which display it lands on. Use these in order of cost.
 
 1. **`app.Driver`** in a Go test: runs your real painter, router and focus rules from explicit calls (`Click`, `Key`, `Type`, `Scroll`, `Advance`) and returns a `Snapshot` of labels, hit regions and focus. See [`hello/main_test.go`](https://github.com/vivaui/viva/blob/main/examples/guides/hello/main_test.go). Test behavior a user depends on, not pixel offsets or exact primitive counts.
-2. **Headless build and line protocol**: import `github.com/vivaui/viva/headless/auto` from a file guarded by `//go:build vivahead`, so release builds never contain it. Build with `-tags vivahead` and start the program with `VIVA_HEADLESS=1` and a throwaway `HOME`: `RunCanvas` then reads one command per line from stdin instead of opening a window (`click "Label"`, `type`, `key`, `waitfor`, `shot`, `texts`, `layout` ...). Each reply ends in one `ok` or `error` line. The complete command list is the comment above `Serve` in [`headless/control.go`](https://github.com/vivaui/viva/blob/main/headless/control.go); do not copy it elsewhere, it would go stale.
+2. **Headless build and line protocol**: import `github.com/vivaui/viva/headless/auto` from a file guarded by `//go:build vivahead`, so release builds never contain it. Build with `-tags vivahead` and start with `VIVA_HEADLESS=1`. Give each test process its own `--data-dir`, loopback listener and download directory. The app reads one command per line from stdin; replies end in `ok` or `error`. Use `scripts/smoke-headless.ps1` for the real three-process test. Read the command list above `Serve` in [`headless/control.go`](https://github.com/vivaui/viva/blob/main/headless/control.go).
 3. **`layout`** lists text that is clipped, spills out of its control or lies over other text. It is faster to read than a screenshot; use `shot` when the look itself matters.
    **`tree`** lists every control with its role, identity, accessible name, value and state (focused, disabled, checked, covered ...); read it first to learn what the frame can do. A control with no name is reached by identity or role: `click id:home/auto`, `click checkbox:`, `click "button:Save"`. **`expect`** turns a look into a check that fails with what the frame has instead: `expect text "Connected" within 5000`, `expect state id:home/auto checked`, `expect layout clean`, `expect named`. Prefer a script that ends in `expect` lines to one you read by eye, and put `expect` lines in the Go test for anything a user depends on (`Session.Expect` takes the same words). When a step fails: not found, run `tree`; text cut off, `layout`; focus wrong, `focus`; a press does nothing, look for `covered` in `tree`.
 4. **Real windows** on each target platform for anything the above cannot see: IME, focus loss, window-manager close, physical keyboard, high-DPI. Say plainly what you did not test.

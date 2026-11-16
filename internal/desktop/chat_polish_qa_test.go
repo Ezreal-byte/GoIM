@@ -75,15 +75,36 @@ func TestChatPolishQA(t *testing.T) {
 		t.Fatal(err)
 	}
 	shot("emoji-picker")
-	before := u.emojiView.ScrollState(u.ids.emojiScroll).Offset
+	firstVisibleEmoji := func() int {
+		hits := session.Snapshot().Hits
+		for index, emoji := range emojiChoices {
+			if hit, ok := findSessionHit(hits, u.emojiIDs[emoji.Name]); ok &&
+				hit.Bounds.Height > 20 && hit.Bounds.Y >= u.emojiPanel.Y+12 {
+				return index
+			}
+		}
+		t.Fatal("no emoji is visible")
+		return 0
+	}
+	before := firstVisibleEmoji()
+	if err := session.Move(u.emojiPanel.X+24, u.emojiPanel.Y+76); err != nil {
+		t.Fatal(err)
+	}
 	if err := session.Scroll(gfx.ScrollEvent{X: u.emojiPanel.X + 24, Y: u.emojiPanel.Y + 76, DeltaY: 230}); err != nil {
 		t.Fatal(err)
 	}
-	if after := u.emojiView.ScrollState(u.ids.emojiScroll).Offset; after == before {
+	scrolled := firstVisibleEmoji()
+	if scrolled <= before {
 		t.Fatal("scroll did not move the emoji grid")
 	}
-	scrolled := u.emojiView.ScrollState(u.ids.emojiScroll).Offset
-	scrollX, scrollY := point(u.ids.emojiScrollbar)
+	var scrollbar gfx.ID
+	for _, hit := range session.Snapshot().Hits {
+		if hit.Role == gfx.RoleSeparator && hit.Label == "Vertical scrollbar" {
+			scrollbar = hit.ID
+			break
+		}
+	}
+	scrollX, scrollY := point(scrollbar)
 	if err := session.Press(scrollX, scrollY); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +114,7 @@ func TestChatPolishQA(t *testing.T) {
 	if err := session.Release(scrollX, scrollY-120); err != nil {
 		t.Fatal(err)
 	}
-	if got := u.emojiView.ScrollState(u.ids.emojiScroll).Offset; got >= scrolled {
+	if got := firstVisibleEmoji(); got >= scrolled {
 		t.Fatalf("drag did not move the emoji grid up: %v -> %v", scrolled, got)
 	}
 	if err := session.Keys("esc"); err != nil {

@@ -48,7 +48,7 @@ type imageViewerState struct {
 }
 
 func (u *UI) imageViewerOpen() bool {
-	return u.presentViewer == nil && u.chatSurface().viewer.open && !u.lockVisible() && !u.isPanelSection()
+	return u.presentViewer == nil && u.surface.viewer.open && !u.lockVisible() && !u.isPanelSection()
 }
 
 func (u *UI) openImageViewer(fileID string) {
@@ -58,7 +58,7 @@ func (u *UI) openImageViewer(fileID string) {
 	u.closeChatPickers()
 	u.moreOpen = false
 	u.memberMenu = ""
-	surface := u.chatSurface()
+	surface := u.surface
 	surface.viewer = imageViewerState{
 		open:           true,
 		fileID:         fileID,
@@ -77,7 +77,7 @@ func (u *UI) openImageViewer(fileID string) {
 }
 
 func (u *UI) closeImageViewer() {
-	surface := u.chatSurface()
+	surface := u.surface
 	surface.viewer.open = false
 	surface.viewer.drag = false
 	surface.viewer.cached = gfx.Bitmap{}
@@ -125,7 +125,7 @@ func viewerFileIndex(files []domain.File, id string) int {
 }
 
 func (u *UI) navigateImageViewer(offset int) {
-	state := &u.chatSurface().viewer
+	state := &u.surface.viewer
 	if !state.open {
 		return
 	}
@@ -143,7 +143,7 @@ func (u *UI) navigateImageViewer(offset int) {
 }
 
 func (u *UI) selectImageViewerFile(fileID string) {
-	state := &u.chatSurface().viewer
+	state := &u.surface.viewer
 	state.fileID = fileID
 	state.fit = true
 	state.zoom = 1
@@ -162,14 +162,14 @@ func (u *UI) selectImageViewerFile(fileID string) {
 }
 
 func (u *UI) fitImageViewer() {
-	state := &u.chatSurface().viewer
+	state := &u.surface.viewer
 	state.fit = true
 	state.panX = 0
 	state.panY = 0
 }
 
 func (u *UI) showImageViewerActualSize() {
-	state := &u.chatSurface().viewer
+	state := &u.surface.viewer
 	state.fit = false
 	state.zoom = 1
 	state.panX = 0
@@ -177,7 +177,7 @@ func (u *UI) showImageViewerActualSize() {
 }
 
 func (u *UI) zoomImageViewer(factor float32) {
-	state := &u.chatSurface().viewer
+	state := &u.surface.viewer
 	current := state.zoom
 	if state.fit && state.fitScale > 0 {
 		current = state.fitScale
@@ -194,7 +194,7 @@ func (u *UI) zoomImageViewer(factor float32) {
 }
 
 func (u *UI) rotateImageViewer(direction int) {
-	state := &u.chatSurface().viewer
+	state := &u.surface.viewer
 	state.rotation = (state.rotation + direction + 4) % 4
 	state.cached = gfx.Bitmap{}
 	state.panX = 0
@@ -208,14 +208,14 @@ func (u *UI) rotateImageViewer(direction int) {
 }
 
 func (u *UI) imageViewerKey(event gfx.KeyEvent) gfx.EventResult {
-	state := &u.chatSurface().viewer
+	state := &u.surface.viewer
 	if !state.open || event.Release {
 		return gfx.EventResult{}
 	}
 	if state.menuOpen {
 		if event.Key == gfx.KeyEscape {
 			state.menuOpen = false
-			return gfx.EventResult{Handled: true, Repaint: true, Focus: u.chatSurface().ids.viewerMenu.trigger}
+			return gfx.EventResult{Handled: true, Repaint: true, Focus: u.surface.ids.viewerMenu.trigger}
 		}
 		return gfx.EventResult{}
 	}
@@ -283,7 +283,7 @@ func (u *UI) imageViewerKey(event gfx.KeyEvent) gfx.EventResult {
 }
 
 func (u *UI) imageViewerWheel(event gfx.ScrollEvent) gfx.EventResult {
-	if !u.chatSurface().viewer.open || event.DeltaY == 0 {
+	if !u.surface.viewer.open || event.DeltaY == 0 {
 		return gfx.EventResult{Handled: true}
 	}
 	factor := float32(math.Exp(-float64(event.DeltaY) / 240))
@@ -298,7 +298,7 @@ func (u *UI) drawChatImageViewer(canvas *gfx.Canvas) {
 }
 
 func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool) {
-	state := &u.chatSurface().viewer
+	state := &u.surface.viewer
 	if !state.open {
 		return
 	}
@@ -315,7 +315,7 @@ func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool
 	if viewport.Width <= 0 || viewport.Height <= 0 {
 		return
 	}
-	ids := u.chatSurface().ids
+	ids := u.surface.ids
 	canvas.PushLayer(80)
 	defer canvas.PopLayer()
 	theme := ui.DarkTheme()

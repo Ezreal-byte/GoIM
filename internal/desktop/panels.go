@@ -15,7 +15,6 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/ui"
-	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -42,33 +41,32 @@ const (
 	panelSettingsCount
 )
 
+type transferFilter uint8
+
 const (
-	panelTransferPending = iota
+	panelTransferPending transferFilter = iota
 	panelTransferFinished
 )
 
+type shareFilter uint8
+
 const (
-	panelSharesMine = iota
+	panelSharesMine shareFilter = iota
 	panelSharesRemote
-	panelSharesAll
 )
+
+var transferFilters = [...]transferFilter{panelTransferPending, panelTransferFinished}
+var shareFilters = [...]shareFilter{panelSharesMine, panelSharesRemote}
 
 var (
 	panelSettingsLabels = [...]string{"常规", "快捷键", "关于", "个人资料", "通知", "网络", "文件传输", "安全"}
 	panelSettingsOrder  = [...]panelSettingsTab{panelSettingsProfile, panelSettingsGeneral, panelSettingsNotifications,
 		panelSettingsNetwork, panelSettingsTransfers, panelSettingsShortcuts, panelSettingsSecurity, panelSettingsAbout}
-	panelDuplicateLabels = []string{"自动重命名", "每次询问"}
-	panelDuplicateValues = []string{"rename", "ask"}
 )
 
 type panelIDs struct {
 	settingsFeature    gfx.Scope
 	settingsCategories gfx.Scope
-	themeChoice        gfx.Scope
-	languageChoice     gfx.Scope
-	duplicateChoice    gfx.Scope
-	networkChoice      gfx.Scope
-	sendKeyChoice      gfx.Scope
 
 	settingsNotification gfx.ID
 	settingsSound        gfx.ID
@@ -82,10 +80,6 @@ type panelIDs struct {
 
 	networkDefer  gfx.ID
 	networkCancel gfx.ID
-
-	settingsGeneralScroll   gfx.ID
-	settingsShortcutsScroll gfx.ID
-	settingsAboutScroll     gfx.ID
 
 	shortcutRecord        gfx.Scope
 	shortcutSave          gfx.Scope
@@ -109,9 +103,6 @@ type panelIDs struct {
 	aboutCards       gfx.Scope
 
 	transferActions     gfx.Scope
-	transferFilters     gfx.Scope
-	transferScroll      gfx.ID
-	transferIncoming    gfx.ID
 	transferDirectory   gfx.ID
 	transferMenuScope   gfx.ID
 	transferMenuDismiss gfx.ID
@@ -120,8 +111,6 @@ type panelIDs struct {
 	transfersClearError gfx.ID
 
 	sharesFeature                        gfx.Scope
-	sharesScroll                         gfx.ID
-	sharesFilters                        gfx.Scope
 	sharesRefresh                        gfx.ID
 	sharesAdd                            gfx.ID
 	sharePickFiles, sharePickFolder      gfx.ID
@@ -172,6 +161,8 @@ type panelNetworkOption struct {
 	value string
 	label string
 }
+
+func (option panelNetworkOption) title() string { return option.label }
 
 type panelNetworkChange struct {
 	value  string
@@ -239,38 +230,35 @@ type panelPendingSetting struct {
 }
 
 // Panels owns the settings, transfers, and file-sharing surfaces. Init must be
-// called with the application's tree before Draw; Draw can also initialize from
-// the canvas tree for standalone tests.
+// called with the application's tree before Draw.
 type Panels struct {
-	tree        *gfx.Tree
-	initialized bool
-	view        flex.View
-	ids         panelIDs
+	tree  *gfx.Tree
+	page  *ui.Page
+	theme ui.Theme
+	ids   panelIDs
 
 	module string
 
-	settingsTab     panelSettingsTab
-	settingsScroll  [panelSettingsCount]float32
-	settingsExtra   panelSettingsExtra
-	settingsWidth   float32
-	settingsNarrow  bool
-	scrollTab       panelSettingsTab
-	scrollTabSet    bool
-	aboutLicense    bool
-	resetShortcuts  bool
-	shortcutEdit    int
-	shortcutKeys    string
-	shortcutError   string
-	duplicateSelect flex.SelectState
-	networkSelect   flex.SelectState
+	settingsTab    panelSettingsTab
+	settingsScroll [panelSettingsCount]float32
+	settingsExtra  panelSettingsExtra
+	settingsWidth  float32
+	settingsNarrow bool
+	scrollTab      panelSettingsTab
+	scrollTabSet   bool
+	aboutLicense   bool
+	resetShortcuts bool
+	shortcutEdit   int
+	shortcutKeys   string
+	shortcutError  string
 
-	transferFilter     int
+	transferFilter     transferFilter
 	transferMenu       string
-	transferAnchor     flex.Box
+	transferAnchor     ui.Box
 	transferMenuEntry  *panelTransferEntry
 	transferPickerOpen bool
-	shareFilter        int
-	shareAnchor        flex.Box
+	shareFilter        shareFilter
+	shareAnchor        ui.Box
 	shareSelected      string
 	sharePickerOpen    bool
 	shareToast         shareToastState
@@ -278,9 +266,9 @@ type Panels struct {
 
 	networks         []panelNetworkOption
 	networkChoices   []panelNetworkOption
-	networkLabels    []string
-	networkValues    []string
 	networkFor       string
+	networkLanguage  string
+	refreshNetwork   bool
 	networkReadError string
 	listNetworks     func() ([]net.Interface, error)
 	networkChange    panelNetworkChange
@@ -299,7 +287,7 @@ type Panels struct {
 	sharesAll             []panelShareEntry
 	sharesMine            []panelShareEntry
 	sharesRemote          []panelShareEntry
-	shareLabels           []string
+	shareLabels           [2]string
 
 	shareQRWorker shareQRWorker
 	shareMenu     shareMenuState
@@ -308,8 +296,9 @@ type Panels struct {
 	shareQR       shareQRDialogState
 	shareQRCache  map[shareQRKey]shareQRResult
 
-	cacheReady    bool
-	cacheRevision uint64
+	listRevision uint64
+	listLanguage string
+	listDirty    bool
 
 	pending     *panelPendingSetting
 	saveFailed  bool
@@ -322,12 +311,11 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	if tree == nil {
 		return
 	}
-	if p.initialized && p.tree == tree {
+	if p.tree == tree {
 		return
 	}
 	p.tree = tree
-	p.view = flex.NewView("panels")
-	p.initialized = true
+	p.page = ui.NewPage(ui.PageConfig{Root: "panels", Tree: tree, Theme: &p.theme})
 	p.shortcutEdit = -1
 	p.localActions = make(map[uint64]panelLocalAction)
 	p.shareQRCache = make(map[shareQRKey]shareQRResult)
@@ -336,11 +324,6 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.settingsFeature = settings
 	p.ids.settingsCategories = tree.Sub(settings, tree.Name("categories"))
 	p.settingsExtra.init(tree, settings)
-	p.ids.themeChoice = tree.Sub(settings, tree.Name("theme-choice"))
-	p.ids.languageChoice = tree.Sub(settings, tree.Name("language-choice"))
-	p.ids.duplicateChoice = tree.Sub(settings, tree.Name("duplicate-choice"))
-	p.ids.networkChoice = tree.Sub(settings, tree.Name("network-choice"))
-	p.ids.sendKeyChoice = tree.Sub(settings, tree.Name("send-key-choice"))
 
 	p.ids.settingsNotification = tree.ID(settings, "desktop-notifications")
 	p.ids.settingsSound = tree.ID(settings, "sound")
@@ -353,10 +336,6 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.settingsClearError = tree.ID(settings, "clear-error")
 	p.ids.networkDefer = tree.ID(settings, "network-defer")
 	p.ids.networkCancel = tree.ID(settings, "network-cancel")
-
-	p.ids.settingsGeneralScroll = tree.ID(settings, "general-scroll")
-	p.ids.settingsShortcutsScroll = tree.ID(settings, "shortcuts-scroll")
-	p.ids.settingsAboutScroll = tree.ID(settings, "about-scroll")
 
 	p.ids.shortcutRecord = tree.Sub(settings, tree.Name("shortcut-record"))
 	p.ids.shortcutSave = tree.Sub(settings, tree.Name("shortcut-save"))
@@ -384,10 +363,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 
 	transfers := tree.Feature("transfers-panel")
 	p.ids.transferActions = tree.Sub(transfers, tree.Name("task"))
-	p.ids.transferScroll = tree.ID(transfers, "scroll")
-	p.ids.transferIncoming = tree.ID(transfers, "incoming-scroll")
 	p.ids.transferDirectory = tree.ID(transfers, "receive-directory")
-	p.ids.transferFilters = tree.Sub(transfers, tree.Name("filters"))
 	p.ids.transferMenuScope = tree.ID(transfers, "action-menu")
 	p.ids.transferMenuDismiss = tree.ID(transfers, "action-menu-dismiss")
 	p.ids.transferMenuCopy = tree.ID(transfers, "copy-file-name")
@@ -396,8 +372,6 @@ func (p *Panels) Init(tree *gfx.Tree) {
 
 	shares := tree.Feature("shares-panel")
 	p.ids.sharesFeature = shares
-	p.ids.sharesScroll = tree.ID(shares, "scroll")
-	p.ids.sharesFilters = tree.Sub(shares, tree.Name("filters"))
 	p.ids.sharesRefresh = tree.ID(shares, "refresh")
 	p.ids.sharesAdd = tree.ID(shares, "add")
 	p.ids.sharePickFiles = tree.ID(shares, "pick-files")
@@ -457,13 +431,9 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 	if canvas == nil || bounds.Width <= 0 || bounds.Height <= 0 {
 		return
 	}
-	if !p.initialized || p.tree == nil {
-		p.Init(canvas.Tree())
-	}
 	previousModule := p.module
 	if previousModule != "" && previousModule != module {
-		p.duplicateSelect.Open = false
-		p.networkSelect.Open = false
+		p.scrollTabSet = false
 		p.cancelShortcutEdit()
 		p.resetShortcuts = false
 		p.aboutLicense = false
@@ -476,25 +446,21 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 		p.settingsExtra.resetSecrets()
 	}
 	p.module = module
-	if module == panelModuleSettings && previousModule != "" && previousModule != module {
-		p.refreshNetworks()
-	}
-	p.shareAnchor = flex.Box{}
-	p.transferAnchor = flex.Box{}
+	p.shareAnchor = ui.Box{}
+	p.transferAnchor = ui.Box{}
 	p.transferMenuEntry = nil
-	p.observePending(state)
-	p.prepare(state)
 
 	canvas.Clip(bounds)
 	canvas.Fill(bounds, theme.Background)
-	panelTheme := theme
+	p.theme = theme
 	if module == panelModuleSettings {
-		panelTheme = theme.WithControlHeight(panelSettingsControlH)
+		p.theme = theme.WithControlHeight(panelSettingsControlH)
 	}
-	p.view.Draw(canvas, panelTheme, bounds, func(f *flex.Frame) {
+	var settingsScroll ui.Box
+	p.page.Draw(canvas, bounds, func(f ui.C) {
 		switch module {
 		case panelModuleSettings:
-			p.drawSettings(f, theme, state, submit)
+			settingsScroll = p.drawSettings(f, theme, state, submit)
 		case panelModuleTransfers:
 			p.drawTransfers(f, theme, bounds, state, submit)
 		case panelModuleShares:
@@ -507,14 +473,20 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 	} else if module == panelModuleTransfers {
 		p.drawTransferMenu(canvas, theme, bounds, submit)
 	}
-	p.captureScroll()
+	if settingsScroll.Valid() {
+		p.settingsScroll[p.settingsTab] = settingsScroll.ScrollState().Offset
+	}
 	canvas.Unclip()
 }
 
 // OnWake resolves local paths from the detached snapshot. Filesystem probes
 // run on the shared media worker; Draw only reads the cached result.
 func (p *Panels) OnWake(state domain.State) {
+	if p.refreshNetwork || p.module == panelModuleSettings && p.networkLanguage != i18n.Language() {
+		p.refreshNetworks()
+	}
 	p.applyShareBrowserEvents()
+	p.observePending(state)
 	previous := p.localFiles
 	paths := localFilePaths(state)
 	p.localFiles = make(map[string]panelLocalFile, len(paths))
@@ -526,7 +498,6 @@ func (p *Panels) OnWake(state domain.State) {
 		}
 		p.localFiles[fileID] = entry
 	}
-	p.cacheReady = false
 }
 
 func (p *Panels) setMediaSubmit(submit func(mediaJob)) {
@@ -554,7 +525,7 @@ func (p *Panels) setLocalFileAvailability(entries []mediaFileResult) {
 		entry.available = result.available
 		entry.known = true
 		p.localFiles[result.fileID] = entry
-		p.cacheReady = false
+		p.listDirty = true
 	}
 }
 
@@ -596,18 +567,9 @@ func (p *Panels) reportLocalActionError(message string) {
 }
 
 // TextInput returns a function instead of nil so the shell can combine every
-// panel field provider safely. The file page owns the only panel text fields:
-// the share password and the optional password chosen while sharing.
-func (p *Panels) TextInput() app.TextInputProvider {
-	return func(context app.TextInputContext) *app.TextInput {
-		if p.module == panelModuleSettings {
-			return p.settingsExtra.textInput(context)
-		}
-		if !p.shareDialog.open && !p.sharePassword.open {
-			return nil
-		}
-		return flex.Fields(&p.shareDialog.password, &p.sharePassword.field)(context)
-	}
+// panel field provider safely.
+func (p *Panels) TextInput(context app.TextInputContext) *app.TextInput {
+	return p.page.TextInput(context)
 }
 
 // Key handles keys the shell routes while a panel is visible. Call it from
@@ -617,35 +579,7 @@ func (p *Panels) Key(event gfx.KeyEvent) gfx.EventResult {
 	if event.Release {
 		return gfx.EventResult{}
 	}
-	if p.module == panelModuleTransfers && p.transferMenu == "" &&
-		(event.Target == p.ids.transferFilters.At(panelTransferPending) || event.Target == p.ids.transferFilters.At(panelTransferFinished)) {
-		options := [...]components.TabOption{
-			{ID: p.ids.transferFilters.At(panelTransferPending)},
-			{ID: p.ids.transferFilters.At(panelTransferFinished)},
-		}
-		if next, ok := components.TabsKeyDown(event.Target, options[:], components.TabsHorizontal, components.DirectionLTR, event.Key); ok {
-			return gfx.EventResult{Handled: true, Repaint: true, Focus: next, FocusVisible: true}
-		}
-	}
 	if p.module == panelModuleSettings {
-		if p.settingsTab == panelSettingsGeneral {
-			if result := p.settingsExtra.shade.Key(event); result.Handled {
-				return result
-			}
-		}
-		if p.settingsTab == panelSettingsNetwork || p.settingsTab == panelSettingsTransfers {
-			if event.Key == gfx.KeyEscape && (p.duplicateSelect.Open || p.networkSelect.Open) {
-				p.duplicateSelect.Open = false
-				p.networkSelect.Open = false
-				return gfx.EventResult{Handled: true, Repaint: true}
-			}
-			if result := p.duplicateSelect.Key(event); result.Handled {
-				return result
-			}
-			if result := p.networkSelect.Key(event); result.Handled {
-				return result
-			}
-		}
 		if p.shortcutEdit >= 0 {
 			if event.Key == gfx.KeyEscape {
 				p.cancelShortcutEdit()
@@ -680,7 +614,7 @@ func (p *Panels) Key(event gfx.KeyEvent) gfx.EventResult {
 			}
 		}
 	}
-	return gfx.EventResult{}
+	return p.page.Key(event)
 }
 
 // Shortcut is for Config.OnShortcut; its events carry Ctrl/Alt/Meta chords.
@@ -695,15 +629,7 @@ func (p *Panels) Wheel(event gfx.ScrollEvent) gfx.EventResult {
 		p.transferMenu = ""
 		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	if p.module == panelModuleSettings && (p.settingsTab == panelSettingsNetwork || p.settingsTab == panelSettingsTransfers) {
-		if p.duplicateSelect.Open {
-			return p.duplicateSelect.Wheel(event)
-		}
-		if p.networkSelect.Open {
-			return p.networkSelect.Wheel(event)
-		}
-	}
-	return p.view.Wheel(event)
+	return p.page.Wheel(event)
 }
 
 func (p *Panels) observePending(state domain.State) {
@@ -751,41 +677,15 @@ func (p *Panels) submitResetShortcuts(submit func(domain.Command), state domain.
 	p.saveFailed = false
 }
 
-func (p *Panels) prepare(state domain.State) {
-	if p.cacheReady && p.cacheRevision == state.Revision {
+// updateLists runs after the snapshot and any media results have been applied.
+func (p *Panels) updateLists(state domain.State) {
+	language := i18n.Language()
+	if !p.listDirty && p.listRevision == state.Revision && p.listLanguage == language {
 		return
 	}
 	p.rebuildTransfers(state)
 	p.rebuildShares(state)
-	p.cacheRevision = state.Revision
-	p.cacheReady = true
-}
-
-func (p *Panels) captureScroll() {
-	if p.module != panelModuleSettings {
-		return
-	}
-	id := p.settingsScrollID(p.settingsTab)
-	if id.IsZero() {
-		return
-	}
-	state := p.view.ScrollState(id)
-	if state.Viewport > 0 {
-		p.settingsScroll[p.settingsTab] = state.Offset
-	}
-}
-
-func (p *Panels) settingsScrollID(tab panelSettingsTab) gfx.ID {
-	switch tab {
-	case panelSettingsGeneral:
-		return p.ids.settingsGeneralScroll
-	case panelSettingsShortcuts:
-		return p.ids.settingsShortcutsScroll
-	case panelSettingsAbout:
-		return p.ids.settingsAboutScroll
-	default:
-		return p.settingsExtra.scroll.At(int(tab))
-	}
+	p.listRevision, p.listLanguage, p.listDirty = state.Revision, language, false
 }
 
 func (p *Panels) rebuildTransfers(state domain.State) {
@@ -1044,11 +944,10 @@ func (p *Panels) rebuildShares(state domain.State) {
 	panelSortShares(p.sharesAll)
 	panelSortShares(p.sharesMine)
 	panelSortShares(p.sharesRemote)
-	p.shareLabels = []string{
+	p.shareLabels = [2]string{
 		fmt.Sprintf(i18n.T("我的分享 %d"), len(p.sharesMine)),
 		fmt.Sprintf(i18n.T("成员共享 %d"), len(p.sharesRemote)),
 	}
-
 }
 
 func panelSortShares(entries []panelShareEntry) {
@@ -1058,15 +957,16 @@ func panelSortShares(entries []panelShareEntry) {
 }
 
 func (p *Panels) refreshNetworks() {
+	p.refreshNetwork = false
 	p.networks = p.networks[:0]
 	p.networkChoices = p.networkChoices[:0]
-	p.networkLabels = p.networkLabels[:0]
-	p.networkValues = p.networkValues[:0]
 	p.networkReadError = ""
-	interfaces, err := net.Interfaces()
-	if p.listNetworks != nil {
-		interfaces, err = p.listNetworks()
+	p.networkLanguage = i18n.Language()
+	list := p.listNetworks
+	if list == nil {
+		list = net.Interfaces
 	}
+	interfaces, err := list()
 	if err != nil {
 		p.networkReadError = err.Error()
 		p.networkFor = ""
@@ -1122,45 +1022,35 @@ func (p *Panels) chooseNetwork(submit func(domain.Command), state domain.State, 
 	active := panelActiveTransferCount(state)
 	if active > 0 {
 		p.networkChange = panelNetworkChange{value: value, label: label, active: active}
-		p.networkSelect.Open = false
 		return
 	}
 	p.networkChange = panelNetworkChange{}
 	p.submitString(submit, state, "network", value)
 }
 
-func (p *Panels) networkChoicesFor(current string) ([]string, []string, int) {
-	normalized := current
-	if normalized == "" || normalized == "auto" {
-		normalized = ""
+func (p *Panels) networkChoicesFor(current string) ([]panelNetworkOption, panelNetworkOption) {
+	if current == "" {
+		current = "auto"
 	}
-	if p.networkFor != normalized || len(p.networkChoices) == 0 {
+	if p.networkFor != current || len(p.networkChoices) == 0 {
 		p.networkChoices = p.networkChoices[:0]
 		p.networkChoices = append(p.networkChoices, panelNetworkOption{value: "auto", label: i18n.T("自动选择")})
 		p.networkChoices = append(p.networkChoices, p.networks...)
-		if normalized != "" && !slices.ContainsFunc(p.networkChoices, func(option panelNetworkOption) bool {
-			return option.value == normalized
+		if !slices.ContainsFunc(p.networkChoices, func(option panelNetworkOption) bool {
+			return option.value == current
 		}) {
 			p.networkChoices = append(p.networkChoices, panelNetworkOption{
-				value: normalized, label: i18n.T("当前配置 · ") + normalized,
+				value: current, label: i18n.T("当前配置 · ") + current,
 			})
 		}
-		p.networkLabels = p.networkLabels[:0]
-		p.networkValues = p.networkValues[:0]
-		for _, option := range p.networkChoices {
-			p.networkLabels = append(p.networkLabels, option.label)
-			p.networkValues = append(p.networkValues, option.value)
-		}
-		p.networkFor = normalized
+		p.networkFor = current
 	}
-	selected := 0
-	for index, value := range p.networkValues {
-		if value == current || current == "" && value == "auto" || current == "auto" && value == "auto" {
-			selected = index
-			break
+	for _, option := range p.networkChoices {
+		if option.value == current {
+			return p.networkChoices, option
 		}
 	}
-	return p.networkLabels, p.networkValues, selected
+	return p.networkChoices, p.networkChoices[0]
 }
 
 func (p *Panels) cancelShortcutEdit() {
@@ -1443,12 +1333,12 @@ func panelStatusColor(theme ui.Theme, status string) ui.Color {
 	}
 }
 
-func panelPageHeader(f *flex.Frame, theme ui.Theme, title, description string, trailing func()) {
-	f.Row().FillWidth().Items(flex.Center).Gap(20).Children(func() {
-		f.Column().Grow(1).Gap(3).Children(func() {
-			f.Text(title).FontSize(25).Weight(gfx.WeightSemibold)
+func panelPageHeader(f ui.C, theme ui.Theme, title, description string, trailing func()) {
+	ui.Row(f).FillWidth().Items(ui.Center).Gap(20).Children(func() {
+		ui.Column(f).Grow(1).Gap(3).Children(func() {
+			ui.Text(f, title).FontSize(25).Weight(gfx.WeightSemibold)
 			if description != "" {
-				f.Paragraph(description, 2).Muted().FontSize(theme.Metrics.FontSizeS + 1)
+				ui.Paragraph(f, description, 2).Muted().FontSize(theme.Metrics.FontSizeS + 1)
 			}
 		})
 		if trailing != nil {
@@ -1457,46 +1347,46 @@ func panelPageHeader(f *flex.Frame, theme ui.Theme, title, description string, t
 	})
 }
 
-func panelSection(f *flex.Frame, title, description string, body func()) {
-	f.Column().FillWidth().Gap(2).PadSides(0, 0, 2, 0).Children(func() {
-		f.Row().FillWidth().PadY(8).Children(func() {
-			f.Text(title).FontSize(16).Weight(gfx.WeightSemibold)
+func panelSection(f ui.C, title, description string, body func()) {
+	ui.Column(f).FillWidth().Gap(2).PadSides(0, 0, 2, 0).Children(func() {
+		ui.Row(f).FillWidth().PadY(8).Children(func() {
+			ui.Text(f, title).FontSize(16).Weight(gfx.WeightSemibold)
 		})
 		if description != "" {
-			f.Paragraph(description, 2).Muted().FontSize(12)
+			ui.Paragraph(f, description, 2).Muted().FontSize(12)
 		}
 		body()
 	})
 }
 
-func panelSettingRow(f *flex.Frame, theme ui.Theme, title, description string, control func()) {
-	f.Row().FillWidth().Gap(24).PadY(13).Items(flex.Center).Children(func() {
-		f.Column().Grow(1).Gap(3).Children(func() {
-			f.Text(title).FontSize(theme.Metrics.FontSizeM + 1).Weight(gfx.WeightMedium)
+func panelSettingRow(f ui.C, theme ui.Theme, title, description string, control func()) {
+	ui.Row(f).FillWidth().Gap(24).PadY(13).Items(ui.Center).Children(func() {
+		ui.Column(f).Grow(1).Gap(3).Children(func() {
+			ui.Text(f, title).FontSize(theme.Metrics.FontSizeM + 1).Weight(gfx.WeightMedium)
 			if description != "" {
-				f.Paragraph(description, 3).Muted().FontSize(theme.Metrics.FontSizeS)
+				ui.Paragraph(f, description, 3).Muted().FontSize(theme.Metrics.FontSizeS)
 			}
 		})
 		if control != nil {
 			control()
 		}
 	})
-	f.Divider().FillWidth()
+	ui.Divider(f).FillWidth()
 }
 
-func panelControlColumn(f *flex.Frame, width float32, body func()) {
-	f.Column().Width(width).Shrink(0).Items(flex.End).Justify(flex.Center).Children(body)
+func panelControlColumn(f ui.C, width float32, body func()) {
+	ui.Column(f).Width(width).Shrink(0).Items(ui.End).Justify(ui.Center).Children(body)
 }
 
-func panelPill(f *flex.Frame, theme ui.Theme, text string, tone ui.Color) {
+func panelPill(f ui.C, theme ui.Theme, text string, tone ui.Color) {
 	background := panelTint(tone, 0.10, theme.Background)
-	f.Row().PadSides(4, 9, 4, 9).Radius(gfx.RadiusFull).Background(background).
+	ui.Row(f).PadSides(4, 9, 4, 9).Radius(gfx.RadiusFull).Background(background).
 		Border(1, panelTint(tone, 0.22, theme.Background)).Children(func() {
-		f.Text(text).FontSize(theme.Metrics.FontSizeS).Weight(gfx.WeightMedium).Color(tone)
+		ui.Text(f, text).FontSize(theme.Metrics.FontSizeS).Weight(gfx.WeightMedium).Color(tone)
 	})
 }
 
-func panelBanner(f *flex.Frame, theme ui.Theme, text string, danger bool, dismiss func()) {
+func panelBanner(f ui.C, theme ui.Theme, text string, danger bool, dismiss func()) {
 	if text == "" {
 		return
 	}
@@ -1504,29 +1394,29 @@ func panelBanner(f *flex.Frame, theme ui.Theme, text string, danger bool, dismis
 	if danger {
 		tone = theme.Danger
 	}
-	f.Row().FillWidth().PadSides(9, 12, 9, 12).Gap(12).Items(flex.Center).
+	ui.Row(f).FillWidth().PadSides(9, 12, 9, 12).Gap(12).Items(ui.Center).
 		Background(panelTint(tone, 0.08, theme.Background)).
 		Border(1, panelTint(tone, 0.24, theme.Background)).Radius(8).Children(func() {
-		f.Paragraph(text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1).Color(tone)
+		ui.Paragraph(f, text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1).Color(tone)
 		if dismiss != nil {
-			if f.Button(gfx.ID{}, i18n.T("关闭")).Small().Ghost().Clicked() {
+			if namedButton(f, gfx.ID{}, i18n.T("关闭")).Small().Ghost().Clicked() {
 				dismiss()
 			}
 		}
 	})
 }
 
-func panelScrollFooter(f *flex.Frame, theme ui.Theme, left, right string) {
-	f.Divider().FillWidth()
-	f.Row().FillWidth().PadY(10).Items(flex.Center).Children(func() {
-		f.Text(left).Muted().FontSize(theme.Metrics.FontSizeS).Grow(1)
+func panelScrollFooter(f ui.C, theme ui.Theme, left, right string) {
+	ui.Divider(f).FillWidth()
+	ui.Row(f).FillWidth().PadY(10).Items(ui.Center).Children(func() {
+		ui.Text(f, left).Muted().FontSize(theme.Metrics.FontSizeS).Grow(1)
 		if right != "" {
-			f.Text(right).Muted().FontSize(theme.Metrics.FontSizeS)
+			ui.Text(f, right).Muted().FontSize(theme.Metrics.FontSizeS)
 		}
 	})
 }
 
-func (p *Panels) panelFeedback(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command), dismissLocal, clearError gfx.ID) {
+func (p *Panels) panelFeedback(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command), dismissLocal, clearError gfx.ID) {
 	if p.localError != "" {
 		id := dismissLocal
 		if id.IsZero() {
@@ -1549,39 +1439,39 @@ func (p *Panels) panelFeedback(f *flex.Frame, theme ui.Theme, state domain.State
 	}
 }
 
-func panelBannerWithAction(f *flex.Frame, theme ui.Theme, text string, danger bool, id gfx.ID, dismiss func()) {
+func panelBannerWithAction(f ui.C, theme ui.Theme, text string, danger bool, id gfx.ID, dismiss func()) {
 	tone := theme.Primary
 	if danger {
 		tone = theme.Danger
 	}
-	f.Row().FillWidth().PadSides(9, 12, 9, 12).Gap(12).Items(flex.Center).
+	ui.Row(f).FillWidth().PadSides(9, 12, 9, 12).Gap(12).Items(ui.Center).
 		Background(panelTint(tone, 0.08, theme.Background)).
 		Border(1, panelTint(tone, 0.24, theme.Background)).Radius(8).Children(func() {
-		f.Paragraph(text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1).Color(tone)
+		ui.Paragraph(f, text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1).Color(tone)
 		if dismiss != nil {
-			if f.Button(id, i18n.T("关闭")).Small().Ghost().Clicked() {
+			if namedButton(f, id, i18n.T("关闭")).Small().Ghost().Clicked() {
 				dismiss()
 			}
 		}
 	})
 }
 
-func panelEmpty(f *flex.Frame, theme ui.Theme, title, description string) {
-	f.Column().FillWidth().PadY(64).Gap(6).Items(flex.Center).Children(func() {
-		f.Text(title).FontSize(16).Weight(gfx.WeightMedium)
-		f.Paragraph(description, 2).Muted().FontSize(theme.Metrics.FontSizeS + 1).MaxWidth(420).TextCenter()
+func panelEmpty(f ui.C, theme ui.Theme, title, description string) {
+	ui.Column(f).FillWidth().PadY(64).Gap(6).Items(ui.Center).Children(func() {
+		ui.Text(f, title).FontSize(16).Weight(gfx.WeightMedium)
+		ui.Paragraph(f, description, 2).Muted().FontSize(theme.Metrics.FontSizeS + 1).MaxWidth(420).TextCenter()
 	})
 }
 
-func panelSectionGap(f *flex.Frame) {
-	f.Spacer().Height(18)
+func panelSectionGap(f ui.C) {
+	ui.Spacer(f).Height(18)
 }
 
-func panelPathText(f *flex.Frame, theme ui.Theme, path string) {
-	f.Row().FillWidth().Height(theme.Metrics.ControlHeight).PadX(10).
+func panelPathText(f ui.C, theme ui.Theme, path string) {
+	ui.Row(f).FillWidth().Height(theme.Metrics.ControlHeight).PadX(10).
 		Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl).
-		Clip().Items(flex.Center).Children(func() {
-		f.Text(path).FontSize(theme.Metrics.FontSizeS + 1).Ellipsis().Grow(1)
+		Clip().Items(ui.Center).Children(func() {
+		ui.Text(f, path).FontSize(theme.Metrics.FontSizeS + 1).Ellipsis().Grow(1)
 	})
 }
 
