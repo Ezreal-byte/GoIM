@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"runtime"
 
 	"github.com/vivaui/viva/app"
@@ -14,7 +15,7 @@ var (
 	lockMark  = logoBitmap("goim-96")
 )
 
-func logoBitmap(name string) ui.Bitmap {
+func logoBitmap(name string) gfx.Bitmap {
 	picture := brand.Image(name)
 	size := picture.Bounds().Dx()
 	pixels := make([]byte, size*size*4)
@@ -25,10 +26,10 @@ func logoBitmap(name string) ui.Bitmap {
 		pixels[i+2] = byte((uint16(picture.Pix[i])*a + 127) / 255)
 		pixels[i+3] = byte(a)
 	}
-	return ui.Bitmap{Pix: pixels, Width: size, Height: size, Stride: size * 4, ID: 0x474F494D00000000 | uint64(size), Version: 1}
+	return gfx.Bitmap{Pix: pixels, Width: size, Height: size, Stride: size * 4, ID: 0x474F494D00000000 | uint64(size), Version: 1}
 }
 
-func paintGoIMMark(canvas *ui.Canvas, bounds ui.Rect, mark ui.Bitmap) {
+func paintGoIMMark(canvas *gfx.Canvas, bounds ui.Rect, mark gfx.Bitmap) {
 	edge := min(bounds.Width, bounds.Height)
 	if edge > 0 {
 		canvas.DrawBitmap(mark, ui.Rect{

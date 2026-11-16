@@ -8,15 +8,15 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/capture"
 	"goim/internal/i18n"
 )
 
 type selectionOverlay struct {
 	editor         *editor
-	desktop        ui.Bitmap
-	origin         *ui.Point
+	desktop        gfx.Bitmap
+	origin         *gfx.Point
 	width, height  int
 	selected       bool
 	selection      image.Rectangle
@@ -46,7 +46,7 @@ type selectionUndo struct {
 func newSelectionOverlay(e *editor, source sourceData) *selectionOverlay {
 	o := &selectionOverlay{editor: e, desktop: e.preview, width: e.windowWidth, height: e.windowHeight}
 	if len(source.displays) != 0 {
-		var origin ui.Point
+		var origin gfx.Point
 		o.width, o.height, origin = overlayPlacement(source.displays[0])
 		o.origin = &origin
 	}
@@ -74,37 +74,37 @@ func (o *selectionOverlay) config(invalidator *app.Invalidator) app.Config {
 	}
 }
 
-func (o *selectionOverlay) scene(size ui.Size) (ui.Rect, image.Rectangle, float64) {
-	return ui.Rect{Width: size.Width, Height: size.Height}, o.editor.document.SourceBounds(),
+func (o *selectionOverlay) scene(size gfx.Size) (gfx.Rect, image.Rectangle, float64) {
+	return gfx.Rect{Width: size.Width, Height: size.Height}, o.editor.document.SourceBounds(),
 		float64(size.Width) / float64(max(o.desktop.Width, 1))
 }
 
-func (o *selectionOverlay) pointer(event ui.PointerEvent) ui.EventResult {
+func (o *selectionOverlay) pointer(event gfx.PointerEvent) gfx.EventResult {
 	if o.editor.done {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	bounds, source, scale := o.scene(event.Viewport)
 	if imageRectEmpty(bounds) {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	p := viewToSource(event.X, event.Y, source, bounds)
 	pixel := image.Pt(min(int(p.X), source.Max.X-1), min(int(p.Y), source.Max.Y-1))
-	handled := ui.EventResult{Handled: true, Repaint: true}
+	handled := gfx.EventResult{Handled: true, Repaint: true}
 	switch event.Kind {
-	case ui.PointerExit:
+	case gfx.PointerExit:
 		if !o.selected && !o.drag.active && !o.hover.Empty() {
 			o.hover = image.Rectangle{}
-			return ui.EventResult{Repaint: true}
+			return gfx.EventResult{Repaint: true}
 		}
-	case ui.PointerDown:
+	case gfx.PointerDown:
 		edges := resizeEdges(event.Target)
 		isScene := event.Target == canvasID || event.Target == moveSelectionID || edges != 0
-		if event.Button == ui.PointerButtonSecondary && isScene {
+		if event.Button == gfx.PointerButtonSecondary && isScene {
 			o.editor.cancel()
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		}
-		if event.Button != ui.PointerButtonPrimary || !isScene {
-			return ui.EventResult{}
+		if event.Button != gfx.PointerButtonPrimary || !isScene {
+			return gfx.EventResult{}
 		}
 		if edges != 0 || event.Target == moveSelectionID {
 			o.drag = selectionDrag{active: true, edges: edges, move: edges == 0, start: p, end: p, original: o.selection}
@@ -128,11 +128,11 @@ func (o *selectionOverlay) pointer(event ui.PointerEvent) ui.EventResult {
 			o.drag = selectionDrag{active: true, start: p, end: p}
 		}
 		return handled
-	case ui.PointerMove, ui.PointerUp:
+	case gfx.PointerMove, gfx.PointerUp:
 		if o.drag.active {
 			o.drag.end = p
 			o.drag.moved = o.drag.moved || math.Hypot(p.X-o.drag.start.X, p.Y-o.drag.start.Y)*scale >= 3
-			if event.Kind == ui.PointerUp {
+			if event.Kind == gfx.PointerUp {
 				drag := o.drag
 				o.drag = selectionDrag{}
 				switch {
@@ -140,7 +140,7 @@ func (o *selectionOverlay) pointer(event ui.PointerEvent) ui.EventResult {
 					o.selectRegion(drag.rect(source))
 				case drag.move && event.ClickCount == 2:
 					o.editor.export()
-					return ui.EventResult{Handled: true}
+					return gfx.EventResult{Handled: true}
 				case drag.original.Empty():
 					o.selectRegion(o.targetAt(pixel))
 				}
@@ -151,11 +151,11 @@ func (o *selectionOverlay) pointer(event ui.PointerEvent) ui.EventResult {
 			g.end = clampCapturePoint(p, o.selection)
 			if g.shape == capture.Freehand {
 				last := g.points[len(g.points)-1]
-				if math.Hypot(g.end.X-last.X, g.end.Y-last.Y)*scale >= 1.3 || event.Kind == ui.PointerUp {
+				if math.Hypot(g.end.X-last.X, g.end.Y-last.Y)*scale >= 1.3 || event.Kind == gfx.PointerUp {
 					g.points = append(g.points, g.end)
 				}
 			}
-			if event.Kind == ui.PointerUp {
+			if event.Kind == gfx.PointerUp {
 				if o.editor.document.Add(o.activeShape(scale)) == nil {
 					o.history = append(o.history, selectionUndo{selected: true, documentChanged: true})
 					o.shapes = o.editor.document.Shapes()
@@ -164,18 +164,18 @@ func (o *selectionOverlay) pointer(event ui.PointerEvent) ui.EventResult {
 			}
 			return handled
 		}
-		if !o.selected && event.Kind == ui.PointerMove {
+		if !o.selected && event.Kind == gfx.PointerMove {
 			next := image.Rectangle{}
 			if event.Target == canvasID {
 				next = o.targetAt(pixel)
 			}
 			if next != o.hover {
 				o.hover = next
-				return ui.EventResult{Repaint: true}
+				return gfx.EventResult{Repaint: true}
 			}
 		}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
 func (o *selectionOverlay) targetAt(pixel image.Point) image.Rectangle {
@@ -238,47 +238,47 @@ func (o *selectionOverlay) activeShape(scale float64) capture.Shape {
 		Color: capture.DefaultShapeColor, Width: annotationWidth(scale)}
 }
 
-func (o *selectionOverlay) key(event ui.KeyEvent) ui.EventResult {
+func (o *selectionOverlay) key(event gfx.KeyEvent) gfx.EventResult {
 	if event.Release || event.Repeat {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	switch event.Key {
-	case ui.KeyEscape:
+	case gfx.KeyEscape:
 		o.editor.cancel()
-		return ui.EventResult{Handled: true}
-	case ui.KeyEnter:
+		return gfx.EventResult{Handled: true}
+	case gfx.KeyEnter:
 		if event.Target != canvasID && o.activate(event.Target) {
-			return ui.EventResult{Handled: true, Repaint: !o.editor.done}
+			return gfx.EventResult{Handled: true, Repaint: !o.editor.done}
 		}
 		if !o.selected && !o.hover.Empty() {
 			o.selectRegion(o.hover)
 		}
 		if o.selected {
 			o.editor.export()
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		}
-	case ui.KeySpace:
+	case gfx.KeySpace:
 		if o.activate(event.Target) {
-			return ui.EventResult{Handled: true, Repaint: !o.editor.done}
+			return gfx.EventResult{Handled: true, Repaint: !o.editor.done}
 		}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
-func (o *selectionOverlay) shortcut(event ui.KeyEvent) ui.EventResult {
-	if event.Release || event.Modifiers&(ui.ModifierControl|ui.ModifierMeta) == 0 {
-		return ui.EventResult{}
+func (o *selectionOverlay) shortcut(event gfx.KeyEvent) gfx.EventResult {
+	if event.Release || event.Modifiers&(gfx.ModifierControl|gfx.ModifierMeta) == 0 {
+		return gfx.EventResult{}
 	}
 	switch strings.ToLower(event.Text) {
 	case "a":
-		return ui.EventResult{Handled: true, Repaint: o.activate(screenSelectionID)}
+		return gfx.EventResult{Handled: true, Repaint: o.activate(screenSelectionID)}
 	case "z":
-		return ui.EventResult{Handled: true, Repaint: o.activate(undoID)}
+		return gfx.EventResult{Handled: true, Repaint: o.activate(undoID)}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
-func (o *selectionOverlay) activate(id ui.ID) bool {
+func (o *selectionOverlay) activate(id gfx.ID) bool {
 	if o.editor.done {
 		return false
 	}
@@ -325,14 +325,14 @@ func (o *selectionOverlay) activate(id ui.ID) bool {
 	return true
 }
 
-func (o *selectionOverlay) paint(c *ui.Canvas, size ui.Size) {
+func (o *selectionOverlay) paint(c *gfx.Canvas, size gfx.Size) {
 	bounds, source, scale := o.scene(size)
 	c.DrawBitmap(o.desktop, bounds)
 	// Bitmap batches render above flat geometry on the same layer.
 	c.PushLayer(1)
 	defer c.PopLayer()
-	cursor := ui.PointerCursorCrosshair
-	c.HitWithOptions(canvasID, bounds, i18n.T("截图区域"), ui.HitOptions{Role: ui.RoleGroup, Cursor: cursor, SkipFocus: true})
+	cursor := gfx.PointerCursorCrosshair
+	c.HitWithOptions(canvasID, bounds, i18n.T("截图区域"), gfx.HitOptions{Role: gfx.RoleGroup, Cursor: cursor, SkipFocus: true})
 	selection := o.selection
 	if !o.selected {
 		selection = o.hover
@@ -344,17 +344,17 @@ func (o *selectionOverlay) paint(c *ui.Canvas, size ui.Size) {
 			selection = o.hover
 		}
 	}
-	dim := ui.RGBA(10, 14, 23, 0.53)
+	dim := gfx.RGBA(10, 14, 23, 0.53)
 	if selection.Empty() {
 		c.Fill(bounds, dim)
 		o.paintStartHint(c, bounds)
-		o.tooltip.Paint(c, ui.DarkTheme(), bounds, components.TooltipOptions{Layer: 3}, 0)
+		o.tooltip.Paint(c, gfx.DarkTheme(), bounds, components.TooltipOptions{Layer: 3}, 0)
 		return
 	}
 	a := sourceToView(capture.Point{X: float64(selection.Min.X), Y: float64(selection.Min.Y)}, source, bounds)
 	b := sourceToView(capture.Point{X: float64(selection.Max.X), Y: float64(selection.Max.Y)}, source, bounds)
 	rect := normalizedPointRect(a, b)
-	for _, outside := range [...]ui.Rect{
+	for _, outside := range [...]gfx.Rect{
 		{Width: bounds.Width, Height: rect.Y},
 		{Y: rect.Bottom(), Width: bounds.Width, Height: bounds.Bottom() - rect.Bottom()},
 		{Y: rect.Y, Width: rect.X, Height: rect.Height},
@@ -372,16 +372,16 @@ func (o *selectionOverlay) paint(c *ui.Canvas, size ui.Size) {
 		drawShape(c, o.activeShape(scale), source, bounds, scale)
 	}
 	c.Unclip()
-	accent := ui.RGB(67, 180, 255)
+	accent := gfx.RGB(67, 180, 255)
 	c.RoundedOutline(rect, 0, 2, accent)
 	labelWidth := min(float32(116), max(bounds.Width-8, 1))
-	label := ui.Rect{X: min(max(rect.X+10, 4), max(bounds.Right()-labelWidth-4, 4)), Y: max(rect.Y-26, 3), Width: labelWidth, Height: 22}
-	c.Rounded(label, 4, ui.RGB(25, 30, 40))
+	label := gfx.Rect{X: min(max(rect.X+10, 4), max(bounds.Right()-labelWidth-4, 4)), Y: max(rect.Y-26, 3), Width: labelWidth, Height: 22}
+	c.Rounded(label, 4, gfx.RGB(25, 30, 40))
 	if selection != o.dimensionRect {
 		o.dimensionRect = selection
 		o.dimensionLabel = fmt.Sprintf("%d × %d", selection.Dx(), selection.Dy())
 	}
-	c.LabelCenter(o.dimensionLabel, label, ui.TextStyle{Size: 11, Color: ui.RGB(248, 250, 252)})
+	c.LabelCenter(o.dimensionLabel, label, gfx.TextStyle{Size: 11, Color: gfx.RGB(248, 250, 252)})
 	if o.selected && (!o.drag.active || !o.drag.original.Empty()) {
 		o.paintSelectionHandles(c, bounds, rect, accent)
 	}
@@ -390,7 +390,7 @@ func (o *selectionOverlay) paint(c *ui.Canvas, size ui.Size) {
 	} else if !o.selected && !o.drag.active {
 		o.paintStartHint(c, bounds)
 	}
-	o.tooltip.Paint(c, ui.DarkTheme(), bounds, components.TooltipOptions{Layer: 3}, 0)
+	o.tooltip.Paint(c, gfx.DarkTheme(), bounds, components.TooltipOptions{Layer: 3}, 0)
 }
 
 func desktopRectToPixels(rect, desktop, pixels image.Rectangle) image.Rectangle {

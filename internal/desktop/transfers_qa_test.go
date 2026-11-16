@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"fmt"
+	"github.com/vivaui/viva/gfx"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/vivaui/viva/app"
 	vivaheadless "github.com/vivaui/viva/headless"
-	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
 )
@@ -57,7 +57,7 @@ func TestTransferDesignScreenshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer session.Close()
-	click := func(id ui.ID) {
+	click := func(id gfx.ID) {
 		t.Helper()
 		for _, hit := range session.Snapshot().Hits {
 			if hit.ID == id {
@@ -68,6 +68,18 @@ func TestTransferDesignScreenshots(t *testing.T) {
 			}
 		}
 		t.Fatalf("missing control %v", id)
+	}
+	clickTab := func(label string) {
+		t.Helper()
+		for _, hit := range session.Snapshot().Hits {
+			if hit.Label == label && hit.Role == gfx.RoleTab {
+				if err := session.Click(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+		}
+		t.Fatalf("missing tab %q", label)
 	}
 	shot := func(name string) {
 		t.Helper()
@@ -84,7 +96,7 @@ func TestTransferDesignScreenshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	heading := func(title string) ui.Text {
+	heading := func(title string) gfx.Text {
 		t.Helper()
 		for _, item := range session.Snapshot().Texts {
 			if item.Value == title && item.Style.Size > 20 {
@@ -92,7 +104,7 @@ func TestTransferDesignScreenshots(t *testing.T) {
 			}
 		}
 		t.Fatalf("missing page title %q", title)
-		return ui.Text{}
+		return gfx.Text{}
 	}
 	click(shell.ids.navShares)
 	shareHeading := heading("文件共享")
@@ -108,9 +120,9 @@ func TestTransferDesignScreenshots(t *testing.T) {
 	if err := session.Keys("esc"); err != nil {
 		t.Fatal(err)
 	}
-	click(shell.panels.ids.transferFilters.At(panelTransferFinished))
+	clickTab(shell.panels.transferLabels[panelTransferFinished])
 	shot("transfers-history")
-	click(shell.panels.ids.transferFilters.At(panelTransferPending))
+	clickTab(shell.panels.transferLabels[panelTransferPending])
 	if err := session.Resize(800, 560); err != nil {
 		t.Fatal(err)
 	}

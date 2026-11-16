@@ -3,32 +3,34 @@
 
 package desktop
 
-import "github.com/vivaui/viva/ui"
+import (
+	"github.com/vivaui/viva/gfx"
+)
 
 // folder-output is a compiled vector icon.
-var FolderOutput = ui.Icon{
+var FolderOutput = gfx.Icon{
 	ViewBox: 24.0,
 	Stroke:  2.0,
-	Cap:     ui.CapRound,
-	Join:    ui.JoinRound,
-	Commands: []ui.PathCommand{
-		ui.MoveTo(2.0, 7.5),
-		ui.LineTo(2.0, 5.0),
-		ui.CubicTo(2.0, 3.89543, 2.89543, 3.0, 4.0, 3.0),
-		ui.LineTo(7.9, 3.0),
-		ui.CubicTo(8.57967, 2.99334, 9.2162, 3.33232, 9.59, 3.9),
-		ui.LineTo(10.4, 5.1),
-		ui.CubicTo(10.7699, 5.66172, 11.3974, 5.99989, 12.07, 6.0),
-		ui.LineTo(20.0, 6.0),
-		ui.CubicTo(21.1046, 6.0, 22.0, 6.89543, 22.0, 8.0),
-		ui.LineTo(22.0, 18.0),
-		ui.CubicTo(22.0, 19.1046, 21.1046, 20.0, 20.0, 20.0),
-		ui.LineTo(4.0, 20.0),
-		ui.CubicTo(3.06447, 20.0296, 2.23353, 19.4064, 2.0, 18.5),
-		ui.MoveTo(2.0, 13.0),
-		ui.LineTo(12.0, 13.0),
-		ui.MoveTo(5.0, 10.0),
-		ui.LineTo(2.0, 13.0),
-		ui.LineTo(5.0, 16.0),
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(2.0, 7.5),
+		gfx.LineTo(2.0, 5.0),
+		gfx.CubicTo(2.0, 3.89543, 2.89543, 3.0, 4.0, 3.0),
+		gfx.LineTo(7.9, 3.0),
+		gfx.CubicTo(8.57967, 2.99334, 9.2162, 3.33232, 9.59, 3.9),
+		gfx.LineTo(10.4, 5.1),
+		gfx.CubicTo(10.7699, 5.66172, 11.3974, 5.99989, 12.07, 6.0),
+		gfx.LineTo(20.0, 6.0),
+		gfx.CubicTo(21.1046, 6.0, 22.0, 6.89543, 22.0, 8.0),
+		gfx.LineTo(22.0, 18.0),
+		gfx.CubicTo(22.0, 19.1046, 21.1046, 20.0, 20.0, 20.0),
+		gfx.LineTo(4.0, 20.0),
+		gfx.CubicTo(3.06447, 20.0296, 2.23353, 19.4064, 2.0, 18.5),
+		gfx.MoveTo(2.0, 13.0),
+		gfx.LineTo(12.0, 13.0),
+		gfx.MoveTo(5.0, 10.0),
+		gfx.LineTo(2.0, 13.0),
+		gfx.LineTo(5.0, 16.0),
 	},
 }

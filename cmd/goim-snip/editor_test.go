@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/headless"
-	"github.com/vivaui/viva/ui"
 
 	"goim/internal/capture"
 )
@@ -66,7 +66,7 @@ func openEditorHarness(t *testing.T, editor *editor) *editorHarness {
 	return &editorHarness{editor: editor, driver: driver}
 }
 
-func findHit(t *testing.T, driver *app.Driver, id ui.ID) ui.Hit {
+func findHit(t *testing.T, driver *app.Driver, id gfx.ID) gfx.Hit {
 	t.Helper()
 	for _, hit := range driver.Snapshot().Hits {
 		if hit.ID == id {
@@ -74,10 +74,10 @@ func findHit(t *testing.T, driver *app.Driver, id ui.ID) ui.Hit {
 		}
 	}
 	t.Fatalf("control %v is not on screen", id)
-	return ui.Hit{}
+	return gfx.Hit{}
 }
 
-func clickControl(t *testing.T, driver *app.Driver, id ui.ID) {
+func clickControl(t *testing.T, driver *app.Driver, id gfx.ID) {
 	t.Helper()
 	hit := findHit(t, driver, id)
 	if err := driver.Click(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
@@ -85,10 +85,10 @@ func clickControl(t *testing.T, driver *app.Driver, id ui.ID) {
 	}
 }
 
-func (harness *editorHarness) canvasPoint(t *testing.T, source capture.Point) ui.Point {
+func (harness *editorHarness) canvasPoint(t *testing.T, source capture.Point) gfx.Point {
 	t.Helper()
 	snapshot := harness.driver.Snapshot()
-	layout := computeLayout(ui.Size{Width: float32(snapshot.Width), Height: float32(snapshot.Height)})
+	layout := computeLayout(gfx.Size{Width: float32(snapshot.Width), Height: float32(snapshot.Height)})
 	crop := harness.editor.document.Crop()
 	imageBounds, _ := fitImageRect(layout.imageArea(), crop)
 	if imageRectEmpty(imageBounds) {
@@ -110,7 +110,7 @@ func (harness *editorHarness) dragSource(t *testing.T, points ...capture.Point) 
 		t.Fatal("drag needs at least two points")
 	}
 	start := harness.canvasPoint(t, points[0])
-	if err := harness.driver.Press(start.X, start.Y, ui.PointerButtonPrimary); err != nil {
+	if err := harness.driver.Press(start.X, start.Y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	for _, source := range points[1:] {
@@ -120,7 +120,7 @@ func (harness *editorHarness) dragSource(t *testing.T, points ...capture.Point) 
 		}
 	}
 	end := harness.canvasPoint(t, points[len(points)-1])
-	if err := harness.driver.Release(end.X, end.Y, ui.PointerButtonPrimary); err != nil {
+	if err := harness.driver.Release(end.X, end.Y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -129,7 +129,7 @@ func TestToolButtonsSelectEachTool(t *testing.T) {
 	editor := newEditorForTest(t, 1180, 780, "")
 	harness := openEditorHarness(t, editor)
 	for _, test := range []struct {
-		id   ui.ID
+		id   gfx.ID
 		want tool
 	}{
 		{rectID, toolRectangle},
@@ -282,9 +282,9 @@ func TestUndoRemovesAnnotationThenRestoresCrop(t *testing.T) {
 		t.Fatal("first undo did not remove only the annotation")
 	}
 
-	modifier := ui.ModifierControl
+	modifier := gfx.ModifierControl
 	if runtime.GOOS == "darwin" {
-		modifier = ui.ModifierMeta
+		modifier = gfx.ModifierMeta
 	}
 	handled, err := harness.driver.ShortcutChord(modifier, 'z')
 	if err != nil {
@@ -331,8 +331,8 @@ func TestPreviewIsReusedAcrossRepaints(t *testing.T) {
 
 func TestEditorPaintHasNoSteadyStateAllocations(t *testing.T) {
 	editor := newEditorForTest(t, 1180, 780, "")
-	var canvas ui.Canvas
-	size := ui.Size{Width: 1180, Height: 780}
+	var canvas gfx.Canvas
+	size := gfx.Size{Width: 1180, Height: 780}
 	canvas.Reset()
 	editor.paint(&canvas, size)
 	allocations := testing.AllocsPerRun(50, func() {
@@ -384,7 +384,7 @@ func TestCancelPathsDoNotExport(t *testing.T) {
 		{
 			name: "Escape key",
 			cancel: func(t *testing.T, harness *editorHarness) {
-				if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+				if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -469,7 +469,7 @@ func TestFailedExportReportsFailure(t *testing.T) {
 }
 
 func TestEditorLayoutAtSupportedSizes(t *testing.T) {
-	for _, size := range []ui.Size{
+	for _, size := range []gfx.Size{
 		{Width: 820, Height: 600},
 		{Width: 1180, Height: 780},
 		{Width: 1240, Height: 860},
@@ -492,7 +492,7 @@ func TestEditorLayoutAtSupportedSizes(t *testing.T) {
 					t.Fatal(err)
 				}
 				snapshot := session.Snapshot()
-				for _, id := range []ui.ID{canvasID, selectID, rectID, arrowID, drawID, undoID, cancelID, exportID} {
+				for _, id := range []gfx.ID{canvasID, selectID, rectID, arrowID, drawID, undoID, cancelID, exportID} {
 					findHit(t, session.Driver(), id)
 				}
 				if problems := headless.CheckLayout(snapshot); len(problems) != 0 {
@@ -587,8 +587,8 @@ func BenchmarkEditorPaint(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	var canvas ui.Canvas
-	size := ui.Size{Width: 1180, Height: 780}
+	var canvas gfx.Canvas
+	size := gfx.Size{Width: 1180, Height: 780}
 	canvas.Reset()
 	editor.paint(&canvas, size)
 	b.ReportAllocs()

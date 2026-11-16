@@ -1,12 +1,13 @@
 package neiwangtong
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
-	"errors"
 	"fmt"
+	"math/bits"
 	"strings"
 	"time"
 )
@@ -15,7 +16,7 @@ const (
 	CmdHandshark        uint32 = 1000
 	CmdChangeStatus     uint32 = 1001
 	CmdChangeSign       uint32 = 1002
-	CmdAvatarOffer      uint32 = 1003
+	CmdChangeInfo       uint32 = 1003
 	CmdSendMsg          uint32 = 1004
 	CmdSendMsgAck       uint32 = 1005
 	CmdSendFile         uint32 = 1009
@@ -24,6 +25,7 @@ const (
 	CmdProgressRecvFile uint32 = 1012
 	CmdHeartbeat        uint32 = 1016
 	CmdQuit             uint32 = 1017
+	CmdReady            uint32 = 1018
 	CmdFileReverseReq   uint32 = 1019
 )
 
@@ -38,12 +40,28 @@ type XMLSendMsg struct {
 	HideRecord int      `xml:"HIDE_RECORD"`
 }
 
+type XMLSendMsgAck struct {
+	XMLName xml.Name `xml:"X_SEND_MSG_ACK"`
+	DocVer  string   `xml:"docver,attr"`
+	MsgID   uint64   `xml:"MSG_ID"`
+}
+
 type MsgJSON struct {
 	App  string       `json:"app"`
 	Dt   []MsgDataTxt `json:"dt"`
+	Font messageFont  `json:"ft"`
 	ID   string       `json:"id"`
 	Type string       `json:"type"`
 	Ver  string       `json:"ver"`
+}
+
+type messageFont struct {
+	Bold      string `json:"b"`
+	Color     string `json:"c"`
+	Italic    string `json:"i"`
+	Name      string `json:"n"`
+	Size      string `json:"s"`
+	Underline string `json:"u"`
 }
 
 type MsgDataTxt struct {
@@ -70,34 +88,46 @@ func FormatSendMsg(msgID uint64, text string) ([]byte, error) {
 				},
 			},
 		},
+		Font: messageFont{Name: "微软雅黑", Size: "9", Color: "0x000000", Bold: "0", Italic: "0", Underline: "0"},
 		ID:   hexID,
 		Type: "0",
 		Ver:  "6.0",
 	}
-	jb, err := json.Marshal(mj)
+	jb, err := json.MarshalIndent(mj, "", "   ")
 	if err != nil {
 		return nil, err
 	}
 
-	xmlStr := fmt.Sprintf(`<X_SEND_MSG docver="1"><MSG_ID>%d</MSG_ID><RECEIPT>0</RECEIPT><MSG>%s</MSG><MSG_TIME>%d</MSG_TIME><OFFLINE>0</OFFLINE><HIDE_RECORD>0</HIDE_RECORD></X_SEND_MSG>`,
-		msgID, string(jb), time.Now().Unix())
-	return []byte(xmlStr), nil
+	// Native 3.4.3055 uses named entities and literal line breaks in the XML
+	// text node. Match that representation; its parser is stricter than
+	// encoding/xml even though both forms are valid XML.
+	messageText := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		`"`, "&quot;",
+		" ", "&nbsp;",
+	).Replace(string(jb) + "\n")
+	messageText = strings.ReplaceAll(messageText, "&quot;:", "&quot;&nbsp;:")
+	return []byte(fmt.Sprintf(
+		`<X_SEND_MSG docver="1"><MSG_ID>%d</MSG_ID><RECEIPT>0</RECEIPT><MSG>%s</MSG><MSG_TIME>0</MSG_TIME><OFFLINE>0</OFFLINE><HIDE_RECORD>0</HIDE_RECORD></X_SEND_MSG>`,
+		msgID, messageText,
+	)), nil
 }
 
 func ParseSendMsg(data []byte) (msgID uint64, text string, id string, err error) {
-	s := string(data)
-	start := strings.Index(s, "<X_SEND_MSG")
-	end := strings.Index(s, "</X_SEND_MSG>")
-	if start < 0 || end < 0 {
-		return 0, "", "", errors.New("no X_SEND_MSG tag found")
-	}
-	snippet := s[start : end+len("</X_SEND_MSG>")]
 	var x XMLSendMsg
-	if err := xml.Unmarshal([]byte(snippet), &x); err != nil {
+	if err := decodeNativeXML(data, "X_SEND_MSG", &x); err != nil {
 		return 0, "", "", err
 	}
-	var mj MsgJSON
+	var mj struct {
+		Dt []MsgDataTxt `json:"dt"`
+		ID string       `json:"id"`
+	}
 	if err := json.Unmarshal([]byte(x.Msg), &mj); err != nil {
+		if strings.HasPrefix(strings.TrimSpace(x.Msg), "{") {
+			return 0, "", "", err
+		}
 		return x.MsgID, x.Msg, "", nil
 	}
 	var sb strings.Builder
@@ -107,6 +137,38 @@ func ParseSendMsg(data []byte) (msgID uint64, text string, id string, err error)
 		}
 	}
 	return x.MsgID, sb.String(), mj.ID, nil
+}
+
+func FormatSendMsgAck(msgID uint64) []byte {
+	return []byte(fmt.Sprintf(`<X_SEND_MSG_ACK docver="1"><MSG_ID>%d</MSG_ID></X_SEND_MSG_ACK>`, msgID))
+}
+
+func ParseSendMsgAck(data []byte) (uint64, error) {
+	var ack XMLSendMsgAck
+	if err := decodeNativeXML(data, "X_SEND_MSG_ACK", &ack); err != nil {
+		return 0, err
+	}
+	return ack.MsgID, nil
+}
+
+func decodeNativeXML(data []byte, root string, out any) error {
+	// The original 3.4 client uses &nbsp; for JSON indentation in XML.
+	// Decode that as a space; reject other unknown entities and malformed XML.
+	data = bytes.Trim(data, "\x00\r\n\t ")
+	d := xml.NewDecoder(bytes.NewReader(data))
+	d.Entity = map[string]string{"nbsp": " "}
+	for {
+		token, err := d.Token()
+		if err != nil {
+			return err
+		}
+		if start, ok := token.(xml.StartElement); ok {
+			if start.Name.Local != root || start.Name.Space != "" {
+				return fmt.Errorf("unexpected native XML record %q", start.Name.Local)
+			}
+			return d.DecodeElement(out, &start)
+		}
+	}
 }
 
 type XMLSendFile struct {
@@ -122,19 +184,19 @@ type XMLSendFile struct {
 }
 
 func FormatSendFile(taskID, fileID uint64, name string, size, lastMod int64) []byte {
-	return []byte(fmt.Sprintf(`<X_SEND_FILE docver="1"><TASK_ID>%d</TASK_ID><FILE_ID>%d</FILE_ID><NAME>%s</NAME><PWD></PWD><SIZE>%d</SIZE><LAST_MODIFY>%d</LAST_MODIFY><OFFLINE>0</OFFLINE></X_SEND_FILE>`,
-		taskID, fileID, name, size, lastMod))
+	if lastMod <= 0 {
+		// The native 3.4.3055 file handler rejects epoch-zero metadata by
+		// dropping the authenticated ENet session. Always send real time
+		// metadata when a caller does not have a source timestamp.
+		lastMod = time.Now().Unix()
+	}
+	payload, _ := xml.Marshal(XMLSendFile{DocVer: "1", TaskID: taskID, FileID: fileID, Name: name, Size: size, LastModify: lastMod})
+	return payload
 }
 
 func ParseSendFile(data []byte) (XMLSendFile, error) {
-	s := string(data)
-	start := strings.Index(s, "<X_SEND_FILE")
-	end := strings.Index(s, "</X_SEND_FILE>")
-	if start < 0 || end < 0 {
-		return XMLSendFile{}, errors.New("no X_SEND_FILE tag found")
-	}
 	var x XMLSendFile
-	err := xml.Unmarshal([]byte(s[start:end+len("</X_SEND_FILE>")]), &x)
+	err := decodeNativeXML(data, "X_SEND_FILE", &x)
 	return x, err
 }
 
@@ -150,14 +212,21 @@ func FormatOperateRecvFile(taskID uint64, op uint32) []byte {
 }
 
 func ParseOperateRecvFile(data []byte) (taskID uint64, op uint32, err error) {
-	s := string(data)
-	start := strings.Index(s, "<X_OPERATE_RECV_FILE")
-	end := strings.Index(s, "</X_OPERATE_RECV_FILE>")
-	if start < 0 || end < 0 {
-		return 0, 0, errors.New("no X_OPERATE_RECV_FILE tag found")
-	}
 	var x XMLOperateRecvFile
-	err = xml.Unmarshal([]byte(s[start:end+len("</X_OPERATE_RECV_FILE>")]), &x)
+	err = decodeNativeXML(data, "X_OPERATE_RECV_FILE", &x)
+	return x.TaskID, x.OP, err
+}
+
+type XMLOperateSendFile struct {
+	XMLName xml.Name `xml:"X_OPERATE_SEND_FILE"`
+	DocVer  string   `xml:"docver,attr"`
+	TaskID  uint64   `xml:"TASK_ID"`
+	OP      uint32   `xml:"OP"`
+}
+
+func ParseOperateSendFile(data []byte) (taskID uint64, op uint32, err error) {
+	var x XMLOperateSendFile
+	err = decodeNativeXML(data, "X_OPERATE_SEND_FILE", &x)
 	return x.TaskID, x.OP, err
 }
 
@@ -176,14 +245,8 @@ func FormatProgressRecvFile(taskID uint64, total, recvd int64, speed string) []b
 }
 
 func ParseProgressRecvFile(data []byte) (XMLProgressRecvFile, error) {
-	s := string(data)
-	start := strings.Index(s, "<X_PROGRESS_RECV_FILE")
-	end := strings.Index(s, "</X_PROGRESS_RECV_FILE>")
-	if start < 0 || end < 0 {
-		return XMLProgressRecvFile{}, errors.New("no X_PROGRESS_RECV_FILE tag found")
-	}
 	var x XMLProgressRecvFile
-	err := xml.Unmarshal([]byte(s[start:end+len("</X_PROGRESS_RECV_FILE>")]), &x)
+	err := decodeNativeXML(data, "X_PROGRESS_RECV_FILE", &x)
 	return x, err
 }
 
@@ -198,14 +261,8 @@ func FormatReverseFileReq(taskID uint64) []byte {
 }
 
 func ParseReverseFileReq(data []byte) (uint64, error) {
-	s := string(data)
-	start := strings.Index(s, "<X_REVERSE_FILE_REQ")
-	end := strings.Index(s, "</X_REVERSE_FILE_REQ>")
-	if start < 0 || end < 0 {
-		return 0, errors.New("no X_REVERSE_FILE_REQ tag found")
-	}
 	var x XMLReverseFileReq
-	err := xml.Unmarshal([]byte(s[start:end+len("</X_REVERSE_FILE_REQ>")]), &x)
+	err := decodeNativeXML(data, "X_REVERSE_FILE_REQ", &x)
 	return x.TaskID, err
 }
 
@@ -220,50 +277,154 @@ func FormatChangeStatus(status uint32) []byte {
 }
 
 func ParseChangeStatus(data []byte) (uint32, error) {
-	s := string(data)
-	start := strings.Index(s, "<X_CHANGE_STATUS")
-	end := strings.Index(s, "</X_CHANGE_STATUS>")
-	if start < 0 || end < 0 {
-		return 0, errors.New("no X_CHANGE_STATUS tag found")
-	}
 	var x XMLChangeStatus
-	err := xml.Unmarshal([]byte(s[start:end+len("</X_CHANGE_STATUS>")]), &x)
+	err := decodeNativeXML(data, "X_CHANGE_STATUS", &x)
 	return x.Status, err
 }
 
+const (
+	StatusOnline uint32 = iota
+	StatusBusy
+	StatusRightBack
+	StatusAway
+	StatusInvisible = ^uint32(0) // local-only: native 3.4 has no invisible state
+)
+
+type wireAvatar struct {
+	ID   uint64 `xml:"id,attr"`
+	Hash string `xml:",chardata"`
+}
+
+type wireProfile struct {
+	CorpID       string     `xml:"CORP_ID"`
+	CorpTime     uint64     `xml:"CORP_TIME"`
+	Name         string     `xml:"NAME"`
+	Group        string     `xml:"GROUP"`
+	Company      string     `xml:"CORPORATION"`
+	Department   string     `xml:"DEPARTMENT"`
+	Sex          uint32     `xml:"SEX"`
+	Post         string     `xml:"POST"`
+	Phone        string     `xml:"TEL"`
+	Mobile       string     `xml:"MOBILE"`
+	Email        string     `xml:"EMAIL"`
+	Sign         string     `xml:"SIGN"`
+	SysFace      uint32     `xml:"SYS_FACE"`
+	UserFace     wireAvatar `xml:"USER_FACE"`
+	Status       uint32     `xml:"STATUS"`
+	ActiveSend   uint32     `xml:"ACTIVE_SEND"`
+	OnlinePopup  uint32     `xml:"ONLINE_POPUP"`
+	HideIP       uint32     `xml:"HIDE_IP"`
+	ColorName    uint32     `xml:"COLOR_NAME"`
+	SortName     uint32     `xml:"SORT_NAME"`
+	DecorateName uint32     `xml:"DECORATE_NAME"`
+}
+
+type wireFeatures struct {
+	Major            int    `xml:"MAJOR"`
+	Minor            int    `xml:"MINOR"`
+	Build            int    `xml:"BUILD"`
+	App              string `xml:"APP"`
+	Message          string `xml:"MSG"`
+	File             string `xml:"FILE_TRAN"`
+	Folder           string `xml:"FOLDER_TRAN"`
+	Share            string `xml:"FILE_SHARE"`
+	Group            string `xml:"QGROUP"`
+	GroupMsg         string `xml:"QGROUP_MSG"`
+	GroupFile        string `xml:"QGROUP_FILE"`
+	GroupFolder      string `xml:"QGROUP_FOLDER"`
+	OfflineMsg       string `xml:"OFFLINE_MSG"`
+	OfflineFile      string `xml:"OFFLINE_FILE"`
+	LANUpdate        string `xml:"LAN_UPDATE"`
+	HideRecord       string `xml:"HIDE_RECORD"`
+	RemoteAssistance string `xml:"REMOTE_ASSISTANCE"`
+	GoIM             bool   `xml:"GOIM,omitempty"`
+}
+
 type XMLHandshark struct {
-	XMLName xml.Name `xml:"X_HANDSHARK"`
-	DocVer  string   `xml:"docver,attr"`
-	Info    struct {
-		Name     string `xml:"NAME"`
-		Group    string `xml:"GROUP"`
-		Sign     string `xml:"SIGN"`
-		Sex      uint32 `xml:"SEX"`
-		Status   uint32 `xml:"STATUS"`
-		UserFace struct {
-			ID   uint64 `xml:"id,attr"`
-			Hash string `xml:",chardata"`
-		} `xml:"USER_FACE"`
-	} `xml:"INFO"`
-	Net struct {
-		FileTranTCPPort  uint16 `xml:"FILE_TRAN_TCP_PORT"`
-		FileTranENetPort uint16 `xml:"FILE_TRAN_ENET_PORT"`
+	XMLName  xml.Name     `xml:"X_HANDSHARK"`
+	DocVer   string       `xml:"docver,attr"`
+	Features wireFeatures `xml:"FEATURE"`
+	Info     wireProfile  `xml:"INFO"`
+	Net      struct {
+		FileTranTCPPort           uint16 `xml:"FILE_TRAN_TCP_PORT"`
+		FileTranENetPort          uint16 `xml:"FILE_TRAN_ENET_PORT"`
+		FolderTranTCPPort         uint16 `xml:"FOLDER_TRAN_TCP_PORT"`
+		FolderTranENetPort        uint16 `xml:"FOLDER_TRAN_ENET_PORT"`
+		FileTranTCPReversePort    uint16 `xml:"FILE_TRAN_TCP_REVERSE_PORT"`
+		FileTranENetReversePort   uint16 `xml:"FILE_TRAN_ENET_REVERSE_PORT"`
+		FolderTranTCPReversePort  uint16 `xml:"FOLDER_TRAN_TCP_REVERSE_PORT"`
+		FolderTranENetReversePort uint16 `xml:"FOLDER_TRAN_ENET_REVERSE_PORT"`
+		LANUpdateHTTPPort         uint16 `xml:"LAN_UPDATE_HTTP_PORT"`
 	} `xml:"NET"`
 }
 
-func FormatHandshark(name, group, sign string, status uint32, tcpPort, enetPort uint16, faceID uint64, faceMD5 string) []byte {
-	return []byte(fmt.Sprintf(`<X_HANDSHARK docver="1"><FEATURE><MAJOR>3</MAJOR><MINOR>4</MINOR><BUILD>3055</BUILD><APP>ShiYeLine</APP><MSG>1</MSG><FILE_TRAN>1</FILE_TRAN><FOLDER_TRAN>1</FOLDER_TRAN><REMOTE_ASSISTANCE>1</REMOTE_ASSISTANCE><FILE_SHARE>1</FILE_SHARE><QGROUP>1</QGROUP><QGROUP_MSG>1</QGROUP_MSG><QGROUP_FILE>1</QGROUP_FILE><QGROUP_FOLDER>1</QGROUP_FOLDER><OFFLINE_MSG>1</OFFLINE_MSG><OFFLINE_FILE>1</OFFLINE_FILE><LAN_UPDATE>0</LAN_UPDATE><HIDE_RECORD>0</HIDE_RECORD></FEATURE><INFO><CORP_ID></CORP_ID><CORP_TIME>0</CORP_TIME><NAME>%s</NAME><GROUP>%s</GROUP><CORPORATION></CORPORATION><DEPARTMENT></DEPARTMENT><SEX>1</SEX><POST></POST><TEL></TEL><MOBILE></MOBILE><EMAIL></EMAIL><SIGN>%s</SIGN><SYS_FACE>0</SYS_FACE><USER_FACE id="%d">%s</USER_FACE><STATUS>%d</STATUS><ACTIVE_SEND>0</ACTIVE_SEND><ONLINE_POPUP>0</ONLINE_POPUP><HIDE_IP>0</HIDE_IP><COLOR_NAME>0</COLOR_NAME><SORT_NAME>0</SORT_NAME><DECORATE_NAME>0</DECORATE_NAME></INFO><NET><FILE_TRAN_TCP_PORT>%d</FILE_TRAN_TCP_PORT><FILE_TRAN_ENET_PORT>%d</FILE_TRAN_ENET_PORT><FOLDER_TRAN_TCP_PORT>0</FOLDER_TRAN_TCP_PORT><FOLDER_TRAN_ENET_PORT>0</FOLDER_TRAN_ENET_PORT><FILE_TRAN_TCP_REVERSE_PORT>%d</FILE_TRAN_TCP_REVERSE_PORT><FILE_TRAN_ENET_REVERSE_PORT>0</FILE_TRAN_ENET_REVERSE_PORT><FOLDER_TRAN_TCP_REVERSE_PORT>0</FOLDER_TRAN_TCP_REVERSE_PORT><FOLDER_TRAN_ENET_REVERSE_PORT>0</FOLDER_TRAN_ENET_REVERSE_PORT><LAN_UPDATE_HTTP_PORT>0</LAN_UPDATE_HTTP_PORT></NET></X_HANDSHARK>`,
-		name, group, sign, faceID, faceMD5, status, tcpPort, enetPort, tcpPort))
+func formatProfile(info wireProfile, tcp, udp uint16, goim bool) []byte {
+	return formatProfileWithReverse(info, tcp, 0, udp, goim)
+}
+
+func formatProfileWithReverse(info wireProfile, tcp, reverse, udp uint16, goim bool) []byte {
+	if info.Group == "" {
+		// Native 3.4.3055 rejects an empty contact group even though the XML
+		// field is optional on the wire.
+		info.Group = "Default"
+	}
+	if info.SysFace == 0 {
+		info.SysFace = 401
+	}
+	if info.ActiveSend == 0 {
+		info.ActiveSend = 1
+	}
+	x := XMLHandshark{DocVer: "1", Info: info, Features: wireFeatures{Major: 3, Minor: 4, Build: 3055,
+		App: "1", Message: "2:1", File: "1", GoIM: goim,
+		Folder: "2:1", Share: "1", Group: "2:1", GroupMsg: "2:1", GroupFile: "", GroupFolder: "",
+		OfflineMsg: "1", OfflineFile: "1", LANUpdate: "1", HideRecord: "1", RemoteAssistance: "1"}}
+	x.Net.FileTranTCPPort, x.Net.FileTranENetPort = tcp, udp
+	if tcp == AvatarPort {
+		x.Net.FileTranTCPPort = bits.ReverseBytes16(tcp)
+	}
+	if reverse != 0 {
+		// Native 3.4.3055 writes the TCP port in network byte order and reads
+		// the numeric XML value back. Preserve that wire quirk so the original
+		// client dials the real reverse listener.
+		x.Net.FileTranTCPReversePort = bits.ReverseBytes16(reverse)
+	}
+	out, _ := xml.Marshal(x)
+	return out
+}
+
+func FormatHandshark(name, group, sign string, status uint32, tcpPort, enetPort uint16, faceID uint64, faceHash string) []byte {
+	return formatProfile(wireProfile{Name: name, Group: group, Sign: sign, Status: status, UserFace: wireAvatar{faceID, faceHash}}, tcpPort, enetPort, false)
 }
 
 func ParseHandshark(data []byte) (XMLHandshark, error) {
-	s := string(data)
-	start := strings.Index(s, "<X_HANDSHARK")
-	end := strings.Index(s, "</X_HANDSHARK>")
-	if start < 0 || end < 0 {
-		return XMLHandshark{}, errors.New("no X_HANDSHARK tag found")
-	}
-	var x XMLHandshark
-	err := xml.Unmarshal([]byte(s[start:end+len("</X_HANDSHARK>")]), &x)
-	return x, err
+	var profile XMLHandshark
+	err := decodeNativeXML(data, "X_HANDSHARK", &profile)
+	return profile, err
+}
+
+type profileChange struct {
+	XMLName xml.Name `xml:"X_CHANGE_INFO"`
+	DocVer  string   `xml:"docver,attr"`
+	wireProfile
+}
+
+func formatProfileChange(profile wireProfile) []byte {
+	out, _ := xml.Marshal(profileChange{DocVer: "1", wireProfile: profile})
+	return out
+}
+
+type wireReady struct {
+	XMLName xml.Name `xml:"X_READY"`
+	DocVer  string   `xml:"docver,attr"`
+	UserID  string   `xml:"USER_ID"`
+	Param   string   `xml:"PARAM"`
+}
+
+func formatReady(id string) []byte {
+	out, _ := xml.Marshal(wireReady{DocVer: "1", UserID: id, Param: "0"})
+	return out
+}
+
+func formatHeartbeat() []byte {
+	return []byte(`<X_HEARTBEAT docver="1" />`)
 }

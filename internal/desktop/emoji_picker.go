@@ -1,17 +1,18 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"slices"
 
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 	"goim/internal/i18n"
 )
 
-func (u *UI) drawEmojiPicker(c *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawEmojiPicker(c *gfx.Canvas, viewport ui.Rect) {
 	if !u.emojiOpen {
 		return
 	}
@@ -30,10 +31,10 @@ func (u *UI) drawEmojiPicker(c *ui.Canvas, viewport ui.Rect) {
 	defer c.PopLayer()
 	c.PushFocusScope(u.ids.emojiScope)
 	defer c.PopFocusScope()
-	c.HitWithOptions(u.ids.emojiDismiss, viewport, i18n.T("关闭表情面板"), ui.HitOptions{
-		Role: ui.RoleButton, SkipFocus: true, Backdrop: true, PassPrimary: true, PassSecondary: true,
+	c.HitWithOptions(u.ids.emojiDismiss, viewport, i18n.T("关闭表情面板"), gfx.HitOptions{
+		Role: gfx.RoleButton, SkipFocus: true, Backdrop: true, PassPrimary: true, PassSecondary: true,
 	})
-	c.HitWithOptions(u.ids.emojiDismiss, anchor, i18n.T("关闭表情面板"), ui.HitOptions{Role: ui.RoleButton, SkipFocus: true, Backdrop: true})
+	c.HitWithOptions(u.ids.emojiDismiss, anchor, i18n.T("关闭表情面板"), gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true, Backdrop: true})
 	c.SetEscapeTarget(u.ids.emojiDismiss)
 	c.RoundedBorder(panel, 12, 1, u.palette.border, u.theme.Popover)
 	c.Block(panel)
@@ -83,7 +84,7 @@ func (u *UI) drawEmojiPicker(c *ui.Canvas, viewport ui.Rect) {
 		u.submit(domain.Command{Kind: domain.RememberEmoji, Text: picked})
 		u.emojiOpen = false
 		u.emojiScrollDrag = false
-		c.RequestFocus(u.ids.chatEditor)
+		u.mentionEditor.AutoFocus()
 	}
 	if c.Clicked(u.ids.emojiDismiss) {
 		u.emojiOpen = false
@@ -91,18 +92,18 @@ func (u *UI) drawEmojiPicker(c *ui.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) emojiTile(f *flex.Frame, choice emojiChoice, id ui.ID) bool {
+func (u *UI) emojiTile(f *flex.Frame, choice emojiChoice, id gfx.ID) bool {
 	label := i18n.T(choice.Label)
 	tile := f.Row().Size(42, 41).Radius(7).Items(flex.Center).Justify(flex.Center).
 		Hover(flex.Look{}.Background(u.palette.hover)).
-		HitWith(id, i18n.T("表情 ")+label, ui.HitOptions{Role: ui.RoleButton, Hint: label})
+		HitWith(id, i18n.T("表情 ")+label, gfx.HitOptions{Role: gfx.RoleButton, Hint: label})
 	if f.Canvas().FocusVisible() == id {
 		tile.Stroke(1.5, u.theme.Ring)
 	}
 	return tile.Children(func() { f.Icon(choice.Art).Size(30, 30) }).Clicked()
 }
 
-func (u *UI) drawEmojiScrollbar(c *ui.Canvas, panel ui.Rect) {
+func (u *UI) drawEmojiScrollbar(c *gfx.Canvas, panel ui.Rect) {
 	state := u.emojiView.ScrollState(u.ids.emojiScroll)
 	if state == nil || state.Max() <= 0 {
 		return
@@ -119,8 +120,8 @@ func (u *UI) drawEmojiScrollbar(c *ui.Canvas, panel ui.Rect) {
 		return
 	}
 	switch event.Kind {
-	case ui.PointerDown:
-		if event.Button != ui.PointerButtonPrimary {
+	case gfx.PointerDown:
+		if event.Button != gfx.PointerButtonPrimary {
 			return
 		}
 		thumb := geometry.VerticalThumb
@@ -129,11 +130,11 @@ func (u *UI) drawEmojiScrollbar(c *ui.Canvas, panel ui.Rect) {
 		if pointInside(event.X, event.Y, thumb) {
 			u.emojiScrollGrab = event.Y - thumb.Y
 		}
-	case ui.PointerMove:
+	case gfx.PointerMove:
 		if !u.emojiScrollDrag {
 			return
 		}
-	case ui.PointerUp:
+	case gfx.PointerUp:
 		if !u.emojiScrollDrag {
 			return
 		}

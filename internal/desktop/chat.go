@@ -3,6 +3,7 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"os"
 	"path/filepath"
@@ -10,15 +11,14 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
 
-func (u *UI) drawChat(canvas *ui.Canvas, bounds ui.Rect) {
+func (u *UI) drawChat(canvas *gfx.Canvas, bounds ui.Rect) {
 	conversation := u.state.Conversation(u.selected)
 	chatBounds := bounds
 	surface := u.chatSurface()
@@ -48,7 +48,7 @@ func (u *UI) drawChat(canvas *ui.Canvas, bounds ui.Rect) {
 	// dialogs; the shell paints drawChatImageViewer after drawOverlays.
 }
 
-func (u *UI) drawChatSurface(canvas *ui.Canvas, bounds ui.Rect, conversation domain.Conversation) {
+func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation domain.Conversation) {
 	canvas.Fill(bounds, u.palette.chat)
 	if u.drawChatBackground(canvas, bounds) {
 		// Viva composites images after shapes in each layer. Move the tint,
@@ -104,8 +104,8 @@ func (u *UI) drawChatSurface(canvas *ui.Canvas, bounds ui.Rect, conversation dom
 			Width: max(bounds.Width-36, 0), Height: max(bounds.Height-282, 0),
 		}
 		canvas.RoundedBorder(overlay, 12, 1, u.theme.Primary, ui.RGBA(31, 96, 221, 0.06))
-		canvas.LabelCenter(i18n.T("松开以发送文件"), overlay, ui.TextStyle{
-			Size: 16, Weight: ui.WeightMedium, Color: u.theme.Primary,
+		canvas.LabelCenter(i18n.T("松开以发送文件"), overlay, gfx.TextStyle{
+			Size: 16, Weight: gfx.WeightMedium, Color: u.theme.Primary,
 		})
 	}
 }
@@ -116,7 +116,7 @@ func (u *UI) drawChatEmpty(f *flex.Frame) {
 			Justify(flex.Center).Children(func() {
 			f.Icon(u.iconMessage).Size(28, 28).Color(u.palette.secondaryText)
 		})
-		f.Text(i18n.T("选择一段会话开始聊天")).FontSize(16).Weight(ui.WeightMedium)
+		f.Text(i18n.T("选择一段会话开始聊天")).FontSize(16).Weight(gfx.WeightMedium)
 		f.Paragraph("消息只在局域网内直连。联系人上线后会自动出现，也可以手动输入地址连接。", 3).
 			MaxWidth(430).FontSize(13).Muted().TextCenter().LineHeight(20)
 		f.Row().Gap(10).Justify(flex.Center).Children(func() {
@@ -184,7 +184,7 @@ func (u *UI) drawChatHeader(f *flex.Frame, conversation domain.Conversation) {
 			u.avatarWithPresence(f, avatarName, avatar, 42, online, false, u.palette.chat)
 		}
 		f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
-			f.Text(title).FontSize(17).Weight(ui.WeightSemibold).Ellipsis()
+			f.Text(title).FontSize(17).Weight(gfx.WeightSemibold).Ellipsis()
 			f.Row().Items(flex.Center).Gap(7).Children(func() {
 				dot := u.palette.secondaryText
 				if online {
@@ -275,10 +275,10 @@ func (u *UI) drawChatTimeline(f *flex.Frame, conversation domain.Conversation) {
 				f.Icon(icon).Size(23, 23).Color(u.palette.secondaryText)
 			})
 			if u.chatFind.open && u.chatFind.query != "" {
-				f.Text(i18n.T("没有匹配的消息")).FontSize(16).Weight(ui.WeightMedium)
+				f.Text(i18n.T("没有匹配的消息")).FontSize(16).Weight(gfx.WeightMedium)
 				f.Text(i18n.T("换一个关键词，搜索消息文字或文件名。")).FontSize(12).Muted().TextCenter()
 			} else {
-				f.Text(i18n.T("还没有消息")).FontSize(16).Weight(ui.WeightMedium)
+				f.Text(i18n.T("还没有消息")).FontSize(16).Weight(gfx.WeightMedium)
 				hint := i18n.T("发送一条消息开始聊天。")
 				if conversation.Kind == "group" {
 					hint = i18n.T("发送第一条群消息，邀请会在成员确认后生效。")
@@ -403,7 +403,7 @@ func (u *UI) messageBubble(f *flex.Frame, conversation domain.Conversation, mess
 		background = u.palette.own
 	}
 	bubble := f.Column().MaxWidth(maxWidth).PadSides(10, 13, 9, 13).Radius(11).
-		HitWith(u.messageIDs[message.ID], i18n.T("聊天消息"), ui.HitOptions{Role: ui.RoleGroup, SkipFocus: true}).
+		HitWith(u.messageIDs[message.ID], i18n.T("聊天消息"), gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
 		Background(background).Border(1, u.palette.bubbleBorder).Gap(3).Children(func() {
 		if message.Text != "" {
 			f.Paragraph(message.Text, 60).FontSize(14).LineHeight(21)
@@ -473,7 +473,7 @@ func (u *UI) drawImageMessage(f *flex.Frame, conversation domain.Conversation, m
 				Background(u.palette.mutedAvatar)
 			if file.ID != "" {
 				picture = picture.HitWith(u.fileButtonIDs[file.ID], i18n.T("查看图片 ")+displayFileName(file, message),
-					ui.HitOptions{Role: ui.RoleButton, Hint: i18n.T("打开图片查看器")})
+					gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("打开图片查看器")})
 			}
 			picture.Children(func() {
 				f.Image(bitmap).Fill()
@@ -498,7 +498,7 @@ func (u *UI) drawImageMessage(f *flex.Frame, conversation domain.Conversation, m
 	})
 }
 
-func chatImageThumbnail(bitmap ui.Bitmap, maxWidth float32) (float32, float32) {
+func chatImageThumbnail(bitmap gfx.Bitmap, maxWidth float32) (float32, float32) {
 	if bitmap.Width <= 0 || bitmap.Height <= 0 {
 		return 0, 0
 	}
@@ -530,7 +530,7 @@ func (u *UI) drawFileMessage(f *flex.Frame, conversation domain.Conversation, me
 			card := f.Column().Width(cardWidth).Pad(14).Radius(11).
 				Background(u.palette.fileCard).Border(1, u.palette.fileBorder).Gap(10).
 				HitWith(u.fileButtonIDs[file.ID], i18n.T("查看 ")+displayFileName(file, message)+i18n.T(" 详情"),
-					ui.HitOptions{Role: ui.RoleButton, Hint: i18n.T("查看文件详情")}).
+					gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("查看文件详情")}).
 				Children(func() {
 					f.Row().Items(flex.Center).Gap(11).Children(func() {
 						f.Row().Size(40, 40).Radius(9).Items(flex.Center).Justify(flex.Center).
@@ -539,7 +539,7 @@ func (u *UI) drawFileMessage(f *flex.Frame, conversation domain.Conversation, me
 						})
 						f.Column().Grow(1).Gap(3).Children(func() {
 							f.Text(displayFileName(file, message)).FontSize(14).
-								Weight(ui.WeightSemibold).Ellipsis()
+								Weight(gfx.WeightSemibold).Ellipsis()
 							f.Text(fileMeta(file, message)).FontSize(11).Muted().Ellipsis()
 						})
 					})
@@ -555,7 +555,7 @@ func (u *UI) drawFileMessage(f *flex.Frame, conversation domain.Conversation, me
 						f.Row().Items(flex.Center).Children(func() {
 							f.Text(u.transferProgressLabel(transfer)).FontSize(10.5).Muted().Ellipsis()
 							f.Spacer()
-							f.Text(i18n.T("查看详情")).FontSize(11).Weight(ui.WeightMedium).
+							f.Text(i18n.T("查看详情")).FontSize(11).Weight(gfx.WeightMedium).
 								Color(u.palette.selectedText)
 						})
 					}
@@ -563,7 +563,7 @@ func (u *UI) drawFileMessage(f *flex.Frame, conversation domain.Conversation, me
 						f.Row().Items(flex.Center).Children(func() {
 							f.Text(fileAvailability(u, file)).FontSize(10.5).Muted().Ellipsis()
 							f.Spacer()
-							f.Text(i18n.T("查看详情")).FontSize(11).Weight(ui.WeightMedium).
+							f.Text(i18n.T("查看详情")).FontSize(11).Weight(gfx.WeightMedium).
 								Color(u.palette.selectedText)
 						})
 					}
@@ -587,24 +587,14 @@ func (u *UI) drawComposer(f *flex.Frame, conversation domain.Conversation) {
 	composer := f.Column().FillWidth().FillHeight().PadSides(2, 9, 8, 9).
 		Background(u.palette.header).Children(func() {
 		border := u.theme.Border
-		if f.Canvas().Focused() == u.ids.chatEditor {
+		if u.fieldFocused(&u.chatEditorField) {
 			border = u.palette.selectedText
 		}
 		f.Column().Fill().Radius(11).Border(1, border).Background(u.palette.header).
 			PadSides(1, 5, 4, 5).Children(func() {
-			focused := f.Canvas().Focused() == u.ids.chatEditor
-			selection := u.chatEditor.Selection()
-			composition, _ := u.chatEditor.Composition()
-			caret := u.chatEditor.Caret()
-			editor := f.TextareaBase(components.TextareaSnapshot{
-				ID: u.ids.chatEditor, Label: i18n.T("消息输入框"), Value: u.chatEditor.String(),
-				Placeholder: i18n.T("输入消息…"), Hint: sendKeyHint(u.state.Settings.SendKey),
-				Focused: focused, NativeEditing: false, HideEditorText: true, ShowCaret: true,
-				Layout: &u.chatLayout, Caret: caret,
-				SelectionStart: selection.Start, SelectionEnd: selection.End,
-				CompositionStart: composition.Start, CompositionEnd: composition.End,
-				InsetBottom: 4,
-			}).FillWidth().Grow(1).Basis(0).MinHeight(40)
+			editor := f.TextAreaBase(&u.chatEditorField,
+				i18n.T("消息输入框"), i18n.T("输入消息…")).
+				FillWidth().Grow(1).Basis(0).MinHeight(40)
 			u.mentionEditor = editor
 
 			f.Row().Height(34).Items(flex.Center).Gap(3).Children(func() {
@@ -653,7 +643,7 @@ func (u *UI) drawChatReadOnly(f *flex.Frame, reason string) {
 				f.Icon(u.iconLock).Size(15, 15).Color(u.palette.secondaryText)
 			})
 			f.Column().Grow(1).Gap(2).Children(func() {
-				f.Text(title).FontSize(12.5).Weight(ui.WeightMedium)
+				f.Text(title).FontSize(12.5).Weight(gfx.WeightMedium)
 				f.Text(reason).FontSize(10.5).Muted().Ellipsis()
 			})
 		})
@@ -873,7 +863,7 @@ func (u *UI) connectionPill(f *flex.Frame) {
 	})
 }
 
-func (u *UI) fileIcon(file domain.File) ui.Icon {
+func (u *UI) fileIcon(file domain.File) gfx.Icon {
 	switch {
 	case fileIsImage(file):
 		return u.iconImage

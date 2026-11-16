@@ -1,20 +1,21 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
 
 type lockUIState struct {
-	scope                            ui.Scope
-	focus, confirmID, submit, cancel ui.ID
+	scope                            gfx.Scope
+	focus, confirmID, submit, cancel gfx.ID
 	field, confirmation              flex.Field
 	setup, pending, focused          bool
 	request                          uint64
@@ -55,7 +56,7 @@ func (u *UI) lockVisible() bool {
 	return u.state.Locked || s.setup || s.pending
 }
 
-func (u *UI) drawLocked(canvas *ui.Canvas, bounds ui.Rect) {
+func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {
 	s := &u.lockUI
 	if s.scope.IsZero() {
 		s.scope = u.tree.Feature("lock")
@@ -80,7 +81,7 @@ func (u *UI) drawLocked(canvas *ui.Canvas, bounds ui.Rect) {
 				title, description, action, label = i18n.T("设置锁定密码"), i18n.T("密码至少 6 个字符。可在设置 → 安全中更改。"), i18n.T("设置并锁定"), i18n.T("新密码")
 			}
 			logo = f.Slot().Size(44, 44)
-			f.Text(title).FontSize(26).Weight(ui.WeightSemibold)
+			f.Text(title).FontSize(26).Weight(gfx.WeightSemibold)
 			f.Paragraph(description, 2).Muted().FontSize(13)
 			field := f.Field(&s.field, s.focus, label, label).Height(52).FillWidth().Disabled(s.pending)
 			submitted := field.Submitted()
@@ -160,15 +161,15 @@ func (u *UI) lockTextInput(context app.TextInputContext) *app.TextInput {
 	return flex.Fields(&u.lockUI.field, &u.lockUI.confirmation)(context)
 }
 
-func (u *UI) lockKey(event ui.KeyEvent) ui.EventResult {
-	if event.Key == ui.KeyEscape && !event.Release && u.lockUI.setup {
+func (u *UI) lockKey(event gfx.KeyEvent) gfx.EventResult {
+	if event.Key == gfx.KeyEscape && !event.Release && u.lockUI.setup {
 		u.cancelLockSetup()
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
-func (u *UI) drawChatBackground(canvas *ui.Canvas, bounds ui.Rect) bool {
+func (u *UI) drawChatBackground(canvas *gfx.Canvas, bounds ui.Rect) bool {
 	path := u.state.Settings.Background
 	if path == "" || bounds.Width <= 0 || bounds.Height <= 0 {
 		return false

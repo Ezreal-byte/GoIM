@@ -1,6 +1,8 @@
 package desktop
 
-import "github.com/vivaui/viva/ui"
+import (
+	"github.com/vivaui/viva/gfx"
+)
 
 // Keep a single full-size preview, only for the current detached image. Chat
 // rows retain their small thumbnails. The keyed worker coalesces fast navigation
@@ -18,7 +20,7 @@ func (u *UI) queueViewerOriginal() {
 		return
 	}
 	state.originalPath, state.originalTurn = path, state.rotation
-	state.original = ui.Bitmap{}
+	state.original = gfx.Bitmap{}
 	u.mediaImageGen++
 	state.originalGen = u.mediaImageGen
 	if path != "" {

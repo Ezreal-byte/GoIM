@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/tls"
 	"encoding/binary"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"goim/internal/domain"
+	"goim/internal/neiwangtong"
 )
 
 const protocolVersion = 1
@@ -104,12 +106,27 @@ func (n *Node) advertisedAddress() string {
 	return net.JoinHostPort("", port)
 }
 func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
+	n.establishWithResult(n.ctx, conn, outbound, expected, nil)
+}
+
+func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound bool, expected string, ready chan<- bool) {
+	notify := func(ok bool) {
+		if ready != nil {
+			ready <- ok
+			ready = nil
+		}
+	}
+	defer func() { notify(false) }()
 	if !n.allowedRemote(conn.RemoteAddr()) {
 		conn.Close()
 		return
 	}
-	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
-	if err := conn.HandshakeContext(n.ctx); err != nil {
+	deadline := time.Now().Add(8 * time.Second)
+	if limit, ok := ctx.Deadline(); ok && limit.Before(deadline) {
+		deadline = limit
+	}
+	_ = conn.SetDeadline(deadline)
+	if err := conn.HandshakeContext(ctx); err != nil {
 		conn.Close()
 		return
 	}
@@ -122,7 +139,12 @@ func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
 		conn.Close()
 		return
 	}
-	key, ok := conn.ConnectionState().PeerCertificates[0].PublicKey.(ed25519.PublicKey)
+	certs := conn.ConnectionState().PeerCertificates
+	if len(certs) == 0 || ctx.Err() != nil {
+		conn.Close()
+		return
+	}
+	key, ok := certs[0].PublicKey.(ed25519.PublicKey)
 	if !ok || hello.Peer.ID != keyID(key) || hello.Peer.ID == keyID(n.key.Public().(ed25519.PublicKey)) || expected != "" && hello.Peer.ID != expected {
 		conn.Close()
 		return
@@ -167,6 +189,7 @@ func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
 		if old.outbound == preferred || outbound != preferred {
 			n.mu.Unlock()
 			conn.Close()
+			notify(true)
 			return
 		}
 		old.conn.Close()
@@ -179,18 +202,24 @@ func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
 	n.connections[pc.peer.ID] = pc
 	n.mu.Unlock()
 	_ = conn.SetDeadline(time.Time{})
-	n.change(func(s *domain.State) {
+	err = n.change(func(s *domain.State) {
 		i := peerIndex(s, pc.peer.ID)
-		pc.peer.Online = true
-		pc.peer.LastSeen = time.Now()
+		peer := pc.peer
+		peer.Online = true
+		peer.LastSeen = time.Now()
 		if i < 0 {
-			s.Peers = append(s.Peers, pc.peer)
+			s.Peers = append(s.Peers, peer)
 		} else {
-			pc.peer.ContactGroup = s.Peers[i].ContactGroup
-			s.Peers[i] = pc.peer
+			peer.ContactGroup = s.Peers[i].ContactGroup
+			s.Peers[i] = peer
+		}
+		nativeID := nativeIDForGoIM(peer.ID)
+		if i := peerIndex(s, keyIDFromNative(nativeID)); i >= 0 && s.Peers[i].Transport == transportNWT {
+			s.Peers[i].CompatibilityAliasOf = peer.ID
+			s.Peers[i].Online = false
+			delete(n.compatPeers, compatibilityEndpoint{transportNWT, s.Peers[i].ID})
 		}
 	})
-	n.async(func() { n.replay(pc.peer.ID); n.sendCatalog(pc.peer.ID) })
 	defer func() {
 		conn.Close()
 		n.mu.Lock()
@@ -201,6 +230,9 @@ func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
 		n.mu.Unlock()
 		if current {
 			n.change(func(s *domain.State) {
+				if n.connections[pc.peer.ID] != nil {
+					return
+				}
 				if i := peerIndex(s, pc.peer.ID); i >= 0 {
 					s.Peers[i].Online = false
 				}
@@ -214,6 +246,11 @@ func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
 			})
 		}
 	}()
+	if err != nil {
+		return
+	}
+	notify(true)
+	n.async(func() { n.replay(pc.peer.ID); n.sendCatalog(pc.peer.ID) })
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(25 * time.Second))
 		e, err := readFrame(conn)
@@ -257,6 +294,7 @@ func (n *Node) replay(peer string) {
 }
 func (n *Node) flushPeer(peer string) {
 	n.flushMu.Lock()
+	defer n.flushMu.Unlock()
 	n.mu.Lock()
 	var list []pending
 	for _, p := range n.data.Outbox {
@@ -264,9 +302,6 @@ func (n *Node) flushPeer(peer string) {
 			list = append(list, p)
 		}
 	}
-	pTransport := n.data.State.Peer(peer).Transport
-	legacy := pTransport == legacyIPMSG
-	isNWT := pTransport == domain.TransportNeiwangtong
 	n.mu.Unlock()
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].Sequence == list[j].Sequence {
@@ -274,41 +309,109 @@ func (n *Node) flushPeer(peer string) {
 		}
 		return list[i].Sequence < list[j].Sequence
 	})
-	if legacy {
-		var done []pending
-		for _, p := range list {
-			if err := n.legacyPending(peer, p); err != nil {
-				break
-			}
-			done = append(done, p)
-		}
-		if len(done) != 0 {
-			_ = n.legacyCompleted(done)
-		}
-		n.flushMu.Unlock()
-		return
-	}
-	if isNWT {
-		var done []pending
-		for _, p := range list {
-			if err := n.neiwangtongPending(peer, p); err != nil {
-				break
-			}
-			done = append(done, p)
-		}
-		if len(done) != 0 {
-			_ = n.legacyCompleted(done)
-		}
-		n.flushMu.Unlock()
-		return
-	}
 	for _, p := range list {
-		if err := n.send(peer, p.Envelope); err != nil {
-			n.flushMu.Unlock()
+		n.mu.Lock()
+		current, exists := n.data.Outbox[p.Envelope.ID]
+		transport, wireID, online := n.pendingRouteLocked(current)
+		n.mu.Unlock()
+		if !exists {
+			continue
+		}
+		if transport == domain.TransportGoIM {
+			if n.send(peer, p.Envelope) != nil {
+				return
+			}
+			continue
+		}
+		if !online {
+			if current.WireTransport != "" || p.Envelope.Type == "file_status" || p.Envelope.Type == "file_retry" {
+				continue
+			}
+			return
+		}
+		first := current.WireTransport == ""
+		if first {
+			prepared := false
+			err := n.durable(func(data *persisted) []pending {
+				if entry, ok := data.Outbox[p.Envelope.ID]; ok {
+					entry.WireTransport, entry.WirePeerID = transport, wireID
+					data.Outbox[p.Envelope.ID] = entry
+					prepared = true
+				}
+				return nil
+			})
+			if err != nil || !prepared {
+				return
+			}
+		}
+		var err error
+		if transport == transportNWT {
+			err = n.neiwangtongPending(wireID, p)
+		} else {
+			err = n.legacyPending(wireID, p)
+		}
+		if errors.Is(err, neiwangtong.ErrNotConnected) {
+			if first {
+				_ = n.durable(func(data *persisted) []pending {
+					if entry, ok := data.Outbox[p.Envelope.ID]; ok {
+						entry.WireTransport, entry.WirePeerID = "", ""
+						data.Outbox[p.Envelope.ID] = entry
+					}
+					return nil
+				})
+			}
+			return
+		}
+		if err != nil {
+			n.failCompatibilityDelivery(p, err)
+			continue
+		}
+		if n.legacyCompleted([]pending{p}) != nil {
 			return
 		}
 	}
-	n.flushMu.Unlock()
+}
+
+func (n *Node) pendingRouteLocked(p pending) (transport, wireID string, online bool) {
+	peer := n.data.State.Peer(p.PeerID)
+	transport, wireID = p.WireTransport, p.WirePeerID
+	if transport == "" {
+		transport = peer.Transport
+		if i := transferIndex(&n.data.State, p.Envelope.TransferID); i >= 0 {
+			t := n.data.State.Transfers[i]
+			if t.LegacyTransport != "" && t.RemotePacket != "" {
+				transport, wireID = t.LegacyTransport, transferWireID(&n.data, t)
+			}
+		}
+	}
+	if transport == domain.TransportGoIM {
+		return transport, p.PeerID, n.connections[p.PeerID] != nil
+	}
+	if wireID == "" {
+		wireID = wireCompatibilityID(&n.data, p.PeerID, transport)
+	}
+	online = n.compatPeers[compatibilityEndpoint{transport, wireID}].Online
+	return
+}
+
+func (n *Node) failCompatibilityDelivery(p pending, failure error) {
+	_ = n.durable(func(data *persisted) []pending {
+		delete(data.Outbox, p.Envelope.ID)
+		for i := range data.State.Messages {
+			if data.State.Messages[i].ID == p.Envelope.Message.ID {
+				data.State.Messages[i].Status = "failed"
+				break
+			}
+		}
+		if i := transferIndex(&data.State, p.Envelope.TransferID); i >= 0 {
+			t := &data.State.Transfers[i]
+			if !terminalTransfer(t.Status) {
+				t.Status, t.Error = "failed", failure.Error()
+			}
+		}
+		data.State.Error = failure.Error()
+		return nil
+	})
 }
 func (n *Node) receive(peer string, e envelope) error {
 	if e.Type == "ping" {

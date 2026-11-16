@@ -2,12 +2,13 @@ package desktop
 
 import (
 	"errors"
+	"github.com/vivaui/viva/gfx"
 	"time"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 	"goim/internal/i18n"
@@ -39,18 +40,18 @@ type shareColumns struct {
 	kind, access, date float32
 }
 
-var shareHomeIcon = ui.Icon{ViewBox: 24, Stroke: 2, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-	ui.MoveTo(3, 10), ui.LineTo(12, 3), ui.LineTo(21, 10),
-	ui.MoveTo(5, 9), ui.LineTo(5, 21), ui.LineTo(19, 21), ui.LineTo(19, 9),
-	ui.MoveTo(9, 21), ui.LineTo(9, 14), ui.LineTo(15, 14), ui.LineTo(15, 21),
+var shareHomeIcon = gfx.Icon{ViewBox: 24, Stroke: 2, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+	gfx.MoveTo(3, 10), gfx.LineTo(12, 3), gfx.LineTo(21, 10),
+	gfx.MoveTo(5, 9), gfx.LineTo(5, 21), gfx.LineTo(19, 21), gfx.LineTo(19, 9),
+	gfx.MoveTo(9, 21), gfx.LineTo(9, 14), gfx.LineTo(15, 14), gfx.LineTo(15, 21),
 }}
 
-var shareQRIcon = ui.Icon{ViewBox: 24, Stroke: 2, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-	ui.MoveTo(3, 3), ui.LineTo(9, 3), ui.LineTo(9, 9), ui.LineTo(3, 9), ui.ClosePath(),
-	ui.MoveTo(15, 3), ui.LineTo(21, 3), ui.LineTo(21, 9), ui.LineTo(15, 9), ui.ClosePath(),
-	ui.MoveTo(3, 15), ui.LineTo(9, 15), ui.LineTo(9, 21), ui.LineTo(3, 21), ui.ClosePath(),
-	ui.MoveTo(15, 15), ui.LineTo(18, 15), ui.LineTo(18, 18), ui.LineTo(21, 18), ui.LineTo(21, 21),
-	ui.MoveTo(15, 21), ui.LineTo(15, 20), ui.MoveTo(21, 14), ui.LineTo(21, 15),
+var shareQRIcon = gfx.Icon{ViewBox: 24, Stroke: 2, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+	gfx.MoveTo(3, 3), gfx.LineTo(9, 3), gfx.LineTo(9, 9), gfx.LineTo(3, 9), gfx.ClosePath(),
+	gfx.MoveTo(15, 3), gfx.LineTo(21, 3), gfx.LineTo(21, 9), gfx.LineTo(15, 9), gfx.ClosePath(),
+	gfx.MoveTo(3, 15), gfx.LineTo(9, 15), gfx.LineTo(9, 21), gfx.LineTo(3, 21), gfx.ClosePath(),
+	gfx.MoveTo(15, 15), gfx.LineTo(18, 15), gfx.LineTo(18, 18), gfx.LineTo(21, 18), gfx.LineTo(21, 21),
+	gfx.MoveTo(15, 21), gfx.LineTo(15, 20), gfx.MoveTo(21, 14), gfx.LineTo(21, 15),
 }}
 
 func measureShareColumns(width float32) shareColumns {
@@ -128,10 +129,10 @@ func (p *Panels) drawShareToolbar(f *flex.Frame, theme ui.Theme, device domain.D
 		}
 		deviceButton := f.Row().Height(height).Gap(9).PadX(14).Items(flex.Center).Radius(8).
 			Border(1, theme.Border).Hover(flex.Look{}.Background(theme.Hover)).
-			HitWith(p.ids.deviceShareMenu, label, ui.HitOptions{Role: ui.RoleButton, Expandable: true, Expanded: p.shareMenu.kind == shareMenuDevice})
+			HitWith(p.ids.deviceShareMenu, label, gfx.HitOptions{Role: gfx.RoleButton, Expandable: true, Expanded: p.shareMenu.kind == shareMenuDevice})
 		deviceButton.Children(func() {
 			f.Icon(shareHomeIcon).Size(18, 18).Color(theme.MutedForeground)
-			f.Text(label).FontSize(labelSize).Weight(ui.WeightMedium)
+			f.Text(label).FontSize(labelSize).Weight(gfx.WeightMedium)
 			if device.URL != "" {
 				f.Row().Size(6, 6).Radius(3).Background(theme.Success)
 				if width >= 760 {
@@ -148,10 +149,10 @@ func (p *Panels) drawShareToolbar(f *flex.Frame, theme ui.Theme, device domain.D
 		}
 		addButton := f.Row().Height(height).Gap(9).PadX(14).Items(flex.Center).Radius(8).
 			Background(theme.Primary).Hover(flex.Look{}.Background(theme.Primary.WithAlpha(.87))).
-			HitWith(p.ids.sharesAdd, i18n.T("新增分享"), ui.HitOptions{Role: ui.RoleButton, Disabled: p.sharePickerOpen, Expandable: true, Expanded: p.shareMenu.kind == shareMenuAdd})
+			HitWith(p.ids.sharesAdd, i18n.T("新增分享"), gfx.HitOptions{Role: gfx.RoleButton, Disabled: p.sharePickerOpen, Expandable: true, Expanded: p.shareMenu.kind == shareMenuAdd})
 		addButton.Children(func() {
 			f.Icon(Plus).Size(17, 17).Color(theme.PrimaryForeground)
-			f.Text(i18n.T("新增分享")).Color(theme.PrimaryForeground).FontSize(labelSize).Weight(ui.WeightSemibold)
+			f.Text(i18n.T("新增分享")).Color(theme.PrimaryForeground).FontSize(labelSize).Weight(gfx.WeightSemibold)
 			f.Row().Size(1, 17).Background(theme.PrimaryForeground.WithAlpha(.32))
 			f.Icon(ChevronDown).Size(14, 14).Color(theme.PrimaryForeground)
 		})
@@ -178,10 +179,10 @@ func (p *Panels) drawShareTableHead(f *flex.Frame, theme ui.Theme, columns share
 	})
 }
 
-func panelActionIcon(f *flex.Frame, theme ui.Theme, id ui.ID, icon ui.Icon, label string, active, disabled bool) flex.Box {
+func panelActionIcon(f *flex.Frame, theme ui.Theme, id gfx.ID, icon gfx.Icon, label string, active, disabled bool) flex.Box {
 	box := f.Row().Size(36, 32).Radius(7).Items(flex.Center).Justify(flex.Center).
 		Hover(flex.Look{}.Background(theme.Hover)).
-		HitWith(id, label, ui.HitOptions{Role: ui.RoleButton, Hint: label, Disabled: disabled, Expanded: active})
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: label, Disabled: disabled, Expanded: active})
 	if active || f.Canvas().FocusVisible() == id {
 		box.Background(panelAccentSurface(theme)).Stroke(1, theme.Ring)
 	}
@@ -205,7 +206,7 @@ func (p *Panels) drawShareProjectRow(f *flex.Frame, theme ui.Theme, columns shar
 	}
 	row := f.Row().FillWidth().Height(height).PadX(15).Gap(12).Items(flex.Center).Radius(8).
 		Hover(flex.Look{}.Background(theme.Hover)).
-		HitWith(entry.rowID, entry.label, ui.HitOptions{Role: ui.RoleButton, Selected: selected})
+		HitWith(entry.rowID, entry.label, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected})
 	if selected || canvas.FocusVisible() == entry.rowID {
 		row.Background(panelAccentSurface(theme)).Stroke(1, panelAccentText(theme))
 	}
@@ -217,7 +218,7 @@ func (p *Panels) drawShareProjectRow(f *flex.Frame, theme ui.Theme, columns shar
 			})
 			f.Column().MinWidth(0).Grow(1).Gap(4).Children(func() {
 				f.Row().MinWidth(0).Gap(7).Items(flex.Center).Children(func() {
-					f.Text(entry.title).FontSize(16).Weight(ui.WeightSemibold).MinWidth(0).Ellipsis()
+					f.Text(entry.title).FontSize(16).Weight(gfx.WeightSemibold).MinWidth(0).Ellipsis()
 					if entry.file.ShareProtected && columns.kind > 0 {
 						panelPill(f, theme, i18n.T("密码保护"), panelAccentText(theme))
 					}
@@ -268,7 +269,7 @@ func (p *Panels) drawShareProjectRow(f *flex.Frame, theme ui.Theme, columns shar
 	if row.Clicked() {
 		p.shareSelected = entry.file.ID
 	}
-	if e, ok := canvas.PointerOn(entry.rowID); ok && e.Kind == ui.PointerDown && e.Button == ui.PointerButtonSecondary {
+	if e, ok := canvas.PointerOn(entry.rowID); ok && e.Kind == gfx.PointerDown && e.Button == gfx.PointerButtonSecondary {
 		p.shareSelected = entry.file.ID
 		p.shareMenu = shareMenuState{kind: shareMenuProject, project: entry.file.ID, pointer: true, anchor: ui.Rect{X: e.X, Y: e.Y}}
 		canvas.Consume()
@@ -277,7 +278,7 @@ func (p *Panels) drawShareProjectRow(f *flex.Frame, theme ui.Theme, columns shar
 	f.Divider().FillWidth()
 }
 
-func shareProjectIcon(theme ui.Theme, entry panelShareEntry) (ui.Icon, ui.Color, ui.Color) {
+func shareProjectIcon(theme ui.Theme, entry panelShareEntry) (gfx.Icon, ui.Color, ui.Color) {
 	if entry.file.ShareFolder {
 		ink := ui.RGB(181, 121, 16)
 		if panelDark(theme) {
@@ -312,16 +313,16 @@ type shareMenuDecl struct {
 	separator bool
 }
 
-func (p *Panels) drawShareMenu(c *ui.Canvas, theme ui.Theme, viewport ui.Rect, device domain.DeviceShare, submit func(domain.Command)) {
+func (p *Panels) drawShareMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rect, device domain.DeviceShare, submit func(domain.Command)) {
 	if p.shareMenu.kind == shareMenuClosed || p.shareModalOpen() {
 		return
 	}
 	var actions [12]shareMenuDecl
 	items := actions[:0]
-	add := func(id ui.ID, label string, icon ui.Icon, action func()) {
+	add := func(id gfx.ID, label string, icon gfx.Icon, action func()) {
 		items = append(items, shareMenuDecl{item: components.ContextMenuItem{ID: id, Label: i18n.T(label), Icon: icon}, action: action})
 	}
-	addDanger := func(id ui.ID, label string, icon ui.Icon, action func()) {
+	addDanger := func(id gfx.ID, label string, icon gfx.Icon, action func()) {
 		items = append(items, shareMenuDecl{separator: true})
 		add(id, label, icon, action)
 		items[len(items)-1].item.Variant = components.ContextMenuItemDestructive
@@ -444,7 +445,7 @@ func (p *Panels) shareEntry(id string) (panelShareEntry, bool) {
 	return panelShareEntry{}, false
 }
 
-func (p *Panels) pickShare(c *ui.Canvas, folder bool) {
+func (p *Panels) pickShare(c *gfx.Canvas, folder bool) {
 	if p.sharePickerOpen {
 		return
 	}
@@ -473,7 +474,7 @@ func (p *Panels) pickShare(c *ui.Canvas, folder bool) {
 	})
 }
 
-func (p *Panels) copyShareLink(c *ui.Canvas, link string) {
+func (p *Panels) copyShareLink(c *gfx.Canvas, link string) {
 	if link == "" {
 		p.setShareToast("此分享暂无可用链接", "", components.ToastError)
 		c.RequestFrame()
@@ -495,7 +496,7 @@ func (p *Panels) setShareToast(title, description string, kind components.ToastT
 	}}
 }
 
-func (p *Panels) drawShareToast(c *ui.Canvas, theme ui.Theme, bounds ui.Rect, event domain.ShareFeedback) {
+func (p *Panels) drawShareToast(c *gfx.Canvas, theme ui.Theme, bounds ui.Rect, event domain.ShareFeedback) {
 	if event.Sequence > p.lastShareFeedback {
 		p.lastShareFeedback = event.Sequence
 		kind := components.ToastSuccess

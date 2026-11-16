@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/headless"
-	"github.com/vivaui/viva/ui"
 )
 
 func TestChatPolishQA(t *testing.T) {
@@ -38,7 +38,7 @@ func TestChatPolishQA(t *testing.T) {
 	if err := session.WaitFor(func(_ app.Snapshot) bool { return bitmapReady(u.fileBitmap(path)) }, 4*time.Second); err != nil {
 		t.Fatal(err)
 	}
-	point := func(id ui.ID) (float32, float32) {
+	point := func(id gfx.ID) (float32, float32) {
 		t.Helper()
 		hit, ok := findSessionHit(session.Snapshot().Hits, id)
 		if !ok {
@@ -46,7 +46,7 @@ func TestChatPolishQA(t *testing.T) {
 		}
 		return hit.Bounds.X + hit.Bounds.Width/2, hit.Bounds.Y + hit.Bounds.Height/2
 	}
-	click := func(id ui.ID) {
+	click := func(id gfx.ID) {
 		t.Helper()
 		x, y := point(id)
 		if err := session.Click(x, y); err != nil {
@@ -76,7 +76,7 @@ func TestChatPolishQA(t *testing.T) {
 	}
 	shot("emoji-picker")
 	before := u.emojiView.ScrollState(u.ids.emojiScroll).Offset
-	if err := session.Scroll(ui.ScrollEvent{X: u.emojiPanel.X + 24, Y: u.emojiPanel.Y + 76, DeltaY: 230}); err != nil {
+	if err := session.Scroll(gfx.ScrollEvent{X: u.emojiPanel.X + 24, Y: u.emojiPanel.Y + 76, DeltaY: 230}); err != nil {
 		t.Fatal(err)
 	}
 	if after := u.emojiView.ScrollState(u.ids.emojiScroll).Offset; after == before {

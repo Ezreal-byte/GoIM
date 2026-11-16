@@ -91,25 +91,20 @@ func Decrypt(dst, src, key []byte) error {
 	return nil
 }
 
-// Encrypt encrypts plaintext into dst using XTEA ECB mode.
-// It pads the input with zeros to the next 8-byte block boundary.
+// Encrypt encrypts plaintext into dst using XTEA ECB mode. The native client
+// encrypts complete 8-byte blocks and sends a short final block unchanged.
 func Encrypt(dst, src, key []byte) ([]byte, error) {
 	k, err := parseKey(key)
 	if err != nil {
 		return nil, err
 	}
-	pad := (blockSize - (len(src) % blockSize)) % blockSize
-	paddedLen := len(src) + pad
-	if cap(dst) < paddedLen {
-		dst = make([]byte, paddedLen)
+	if cap(dst) < len(src) {
+		dst = make([]byte, len(src))
 	} else {
-		dst = dst[:paddedLen]
+		dst = dst[:len(src)]
 	}
 	copy(dst, src)
-	for i := len(src); i < paddedLen; i++ {
-		dst[i] = 0
-	}
-	blocks := paddedLen / blockSize
+	blocks := len(src) / blockSize
 	for i := 0; i < blocks; i++ {
 		off := i * blockSize
 		xteaEncryptBlock(dst[off:off+blockSize], dst[off:off+blockSize], k)

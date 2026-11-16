@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"fmt"
+	"github.com/vivaui/viva/gfx"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/vivaui/viva/app"
 	vivaheadless "github.com/vivaui/viva/headless"
-	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
 )
@@ -40,11 +40,21 @@ func TestPromoScreenshots(t *testing.T) {
 	defer session.Close()
 	shell.invalidator.Invalidate()
 
-	click := func(id ui.ID) {
+	click := func(id gfx.ID) {
 		t.Helper()
 		hit, ok := findSessionHit(session.Snapshot().Hits, id)
 		if !ok {
 			t.Fatalf("control %v is missing from the promo", id)
+		}
+		if err := session.Click(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clickLabel := func(label string) {
+		t.Helper()
+		hit, ok := findSessionHitLabel(session.Snapshot().Hits, label)
+		if !ok {
+			t.Fatalf("control %q is missing from the promo", label)
 		}
 		if err := session.Click(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
 			t.Fatal(err)
@@ -99,7 +109,7 @@ func TestPromoScreenshots(t *testing.T) {
 	click(shell.ids.navMessages)
 	click(shell.convRowIDs["north"])
 	click(shell.ids.chatHeaderFile)
-	splitter, ok := findSessionHit(session.Snapshot().Hits, shell.chatSurface().ids.historySplitter)
+	splitter, ok := findSessionHitLabel(session.Snapshot().Hits, "调整聊天记录和输入框高度")
 	if !ok {
 		t.Fatal("missing history splitter")
 	}
@@ -113,7 +123,7 @@ func TestPromoScreenshots(t *testing.T) {
 	if err := session.Release(x, y+43); err != nil {
 		t.Fatal(err)
 	}
-	click(shell.ids.chatEditor)
+	clickLabel("消息输入框")
 	if err := session.Type("我再检查一遍分享链接，确认好就发给大家。"); err != nil {
 		t.Fatal(err)
 	}

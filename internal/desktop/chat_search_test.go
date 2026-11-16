@@ -6,7 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 
 	"goim/internal/domain"
 )
@@ -59,7 +59,7 @@ func TestChatSearchUsesAFieldSeparateFromSidebarQuickFind(t *testing.T) {
 		t.Fatal("the close control did not dismiss the in-chat find bar")
 	}
 
-	handled, err := harness.driver.ShortcutChord(ui.ModifierControl, 'f')
+	handled, err := harness.driver.ShortcutChord(gfx.ModifierControl, 'f')
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestChatSearchUsesAFieldSeparateFromSidebarQuickFind(t *testing.T) {
 		t.Fatal("the in-chat query did not filter the current message timeline")
 	}
 
-	handled, err = harness.driver.ShortcutChord(ui.ModifierControl, 'k')
+	handled, err = harness.driver.ShortcutChord(gfx.ModifierControl, 'k')
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestChatSearchFiltersMessageTextAndFileNamesAndRestoresScroll(t *testing.T)
 	harness := newShellTestHarness(t, state)
 
 	chat := harness.ui.lastChat
-	if err := harness.driver.Scroll(ui.ScrollEvent{
+	if err := harness.driver.Scroll(gfx.ScrollEvent{
 		X: chat.X + chat.Width/2, Y: chat.Y + 300, DeltaY: -500, Precise: true,
 	}); err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestChatSearchFiltersMessageTextAndFileNamesAndRestoresScroll(t *testing.T)
 		t.Fatal("the chat did not scroll away from its end before searching")
 	}
 
-	handled, err := harness.driver.ShortcutChord(ui.ModifierControl, 'f')
+	handled, err := harness.driver.ShortcutChord(gfx.ModifierControl, 'f')
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestChatSearchFiltersMessageTextAndFileNamesAndRestoresScroll(t *testing.T)
 		t.Fatal("a message-text query did not filter the current chat timeline")
 	}
 
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	if harness.ui.chatFind.open {

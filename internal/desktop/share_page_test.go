@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"os"
 	"path/filepath"
 	"testing"
@@ -227,7 +228,7 @@ func TestShareListDesignScreenshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer session.Close()
-	click := func(id ui.ID) {
+	click := func(id gfx.ID) {
 		t.Helper()
 		for _, hit := range session.Snapshot().Hits {
 			if hit.ID == id {

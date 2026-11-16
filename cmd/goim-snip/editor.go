@@ -9,7 +9,7 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 
 	"goim/internal/capture"
 )
@@ -17,7 +17,7 @@ import (
 const previewBitmapID uint64 = 0x474F494D534E4950
 
 var (
-	tree  = ui.Tree{}
+	tree  = gfx.Tree{}
 	page  = tree.Feature("snip")
 	tools = tree.Sub(page, tree.Name("tools"))
 
@@ -98,14 +98,14 @@ type editor struct {
 	dark     bool
 
 	followSystem bool
-	preview      ui.Bitmap
+	preview      gfx.Bitmap
 	version      uint32
 	cropLabel    string
 	displayLabel string
 	toolLabel    string
 	undoHint     string
 	gesture      *gesture
-	pressTarget  ui.ID
+	pressTarget  gfx.ID
 
 	windowWidth  int
 	windowHeight int
@@ -183,7 +183,7 @@ func (editor *editor) refreshPreview() error {
 		rendered.Pix[index], rendered.Pix[index+2] = rendered.Pix[index+2], rendered.Pix[index]
 	}
 	editor.version++
-	editor.preview = ui.Bitmap{
+	editor.preview = gfx.Bitmap{
 		Pix:     rendered.Pix,
 		Width:   rendered.Bounds().Dx(),
 		Height:  rendered.Bounds().Dy(),
@@ -247,49 +247,49 @@ func (editor *editor) undo() bool {
 	return true
 }
 
-func (editor *editor) pointer(event ui.PointerEvent) ui.EventResult {
+func (editor *editor) pointer(event gfx.PointerEvent) gfx.EventResult {
 	layout := computeLayout(event.Viewport)
 	switch event.Kind {
-	case ui.PointerDown:
-		if event.Button != ui.PointerButtonPrimary {
-			return ui.EventResult{}
+	case gfx.PointerDown:
+		if event.Button != gfx.PointerButtonPrimary {
+			return gfx.EventResult{}
 		}
 		editor.pressTarget = event.Target
 		if event.Target != canvasID {
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
 		if !pointIn(event.X, event.Y, layout.imageArea()) {
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		}
 		editor.beginGesture(event, layout)
-		return ui.EventResult{Handled: true, Repaint: true}
-	case ui.PointerMove:
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.PointerMove:
 		if editor.gesture == nil {
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
 		editor.updateGesture(event, layout)
-		return ui.EventResult{Handled: true, Repaint: true}
-	case ui.PointerUp:
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.PointerUp:
 		if editor.pressTarget.IsZero() {
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
 		target := editor.pressTarget
-		editor.pressTarget = ui.ID{}
+		editor.pressTarget = gfx.ID{}
 		if editor.gesture != nil {
 			editor.updateGesture(event, layout)
 			editor.commitGesture(layout)
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
-		if event.Button == ui.PointerButtonPrimary {
+		if event.Button == gfx.PointerButtonPrimary {
 			if editor.activatePointer(target, event.X, event.Y, layout) {
-				return ui.EventResult{Handled: true, Repaint: !editor.done}
+				return gfx.EventResult{Handled: true, Repaint: !editor.done}
 			}
 		}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
-func (editor *editor) beginGesture(event ui.PointerEvent, layout editorLayout) {
+func (editor *editor) beginGesture(event gfx.PointerEvent, layout editorLayout) {
 	crop := editor.document.Crop()
 	imageBounds, _ := fitImageRect(layout.imageArea(), crop)
 	if imageRectEmpty(imageBounds) {
@@ -314,7 +314,7 @@ func (editor *editor) beginGesture(event ui.PointerEvent, layout editorLayout) {
 	editor.gesture = gesture
 }
 
-func (editor *editor) updateGesture(event ui.PointerEvent, layout editorLayout) {
+func (editor *editor) updateGesture(event gfx.PointerEvent, layout editorLayout) {
 	if editor.gesture == nil {
 		return
 	}
@@ -385,7 +385,7 @@ func (editor *editor) commitGesture(layout editorLayout) {
 	}
 }
 
-func (editor *editor) activatePointer(id ui.ID, x, y float32, layout editorLayout) bool {
+func (editor *editor) activatePointer(id gfx.ID, x, y float32, layout editorLayout) bool {
 	switch id {
 	case selectID:
 		if !pointIn(x, y, layout.toolButtons[0]) {
@@ -433,28 +433,28 @@ func (editor *editor) selectTool(next tool) {
 	editor.toolLabel = next.String()
 }
 
-func (editor *editor) key(event ui.KeyEvent) ui.EventResult {
+func (editor *editor) key(event gfx.KeyEvent) gfx.EventResult {
 	if event.Release {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	switch event.Key {
-	case ui.KeyEscape:
+	case gfx.KeyEscape:
 		if !event.Repeat && editor.cancel() {
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		}
-	case ui.KeyEnter:
+	case gfx.KeyEnter:
 		if !event.Repeat && editor.export() {
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		}
-	case ui.KeySpace:
+	case gfx.KeySpace:
 		if !event.Repeat && editor.activateKeyboard(event.Target) {
-			return ui.EventResult{Handled: true, Repaint: !editor.done}
+			return gfx.EventResult{Handled: true, Repaint: !editor.done}
 		}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
-func (editor *editor) activateKeyboard(id ui.ID) bool {
+func (editor *editor) activateKeyboard(id gfx.ID) bool {
 	switch id {
 	case selectID:
 		editor.selectTool(toolSelect)
@@ -476,89 +476,89 @@ func (editor *editor) activateKeyboard(id ui.ID) bool {
 	return true
 }
 
-func (editor *editor) shortcut(event ui.KeyEvent) ui.EventResult {
+func (editor *editor) shortcut(event gfx.KeyEvent) gfx.EventResult {
 	if event.Release {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
-	modifier := ui.ModifierControl
+	modifier := gfx.ModifierControl
 	if runtime.GOOS == "darwin" {
-		modifier = ui.ModifierMeta
+		modifier = gfx.ModifierMeta
 	}
 	if event.Modifiers&modifier != 0 && strings.EqualFold(event.Text, "z") {
 		if editor.undo() {
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
 type editorLayout struct {
-	body        ui.Rect
-	left        ui.Rect
-	center      ui.Rect
-	right       ui.Rect
-	header      ui.Rect
-	footer      ui.Rect
-	well        ui.Rect
-	toolButtons [4]ui.Rect
-	undo        ui.Rect
-	cancel      ui.Rect
-	export      ui.Rect
+	body        gfx.Rect
+	left        gfx.Rect
+	center      gfx.Rect
+	right       gfx.Rect
+	header      gfx.Rect
+	footer      gfx.Rect
+	well        gfx.Rect
+	toolButtons [4]gfx.Rect
+	undo        gfx.Rect
+	cancel      gfx.Rect
+	export      gfx.Rect
 }
 
-func computeLayout(size ui.Size) editorLayout {
-	body := ui.Rect{Width: size.Width, Height: size.Height}
+func computeLayout(size gfx.Size) editorLayout {
+	body := gfx.Rect{Width: size.Width, Height: size.Height}
 	layout := editorLayout{body: body}
-	content := body.Inset(ui.All(14))
+	content := body.Inset(gfx.All(14))
 	layout.left, content = content.CutLeft(184)
-	content = content.Inset(ui.Insets{Left: 14, Right: 14})
+	content = content.Inset(gfx.Insets{Left: 14, Right: 14})
 	layout.right, content = content.CutRight(232)
 	layout.center = content
 
-	leftInner := layout.left.Inset(ui.All(16))
+	leftInner := layout.left.Inset(gfx.All(16))
 	y := leftInner.Y
 	y += 32
 	y += 24
 	y += 19
 	y += 24
 	for index := range layout.toolButtons {
-		layout.toolButtons[index] = ui.Rect{X: leftInner.X, Y: y, Width: leftInner.Width, Height: 38}
+		layout.toolButtons[index] = gfx.Rect{X: leftInner.X, Y: y, Width: leftInner.Width, Height: 38}
 		y += 45
 	}
-	layout.undo = ui.Rect{X: leftInner.X, Y: leftInner.Bottom() - 38, Width: leftInner.Width, Height: 38}
+	layout.undo = gfx.Rect{X: leftInner.X, Y: leftInner.Bottom() - 38, Width: leftInner.Width, Height: 38}
 
-	centerInner := layout.center.Inset(ui.All(18))
+	centerInner := layout.center.Inset(gfx.All(18))
 	layout.header, centerInner = centerInner.CutTop(28)
-	centerInner = centerInner.Inset(ui.Insets{Top: 10})
+	centerInner = centerInner.Inset(gfx.Insets{Top: 10})
 	layout.footer, centerInner = centerInner.CutBottom(18)
-	centerInner = centerInner.Inset(ui.Insets{Bottom: 10})
+	centerInner = centerInner.Inset(gfx.Insets{Bottom: 10})
 	layout.well = centerInner
 
-	rightInner := layout.right.Inset(ui.All(16))
-	layout.export = ui.Rect{X: rightInner.X, Y: rightInner.Bottom() - 44, Width: rightInner.Width, Height: 44}
-	layout.cancel = ui.Rect{X: rightInner.X, Y: layout.export.Y - 8 - 36, Width: rightInner.Width, Height: 36}
+	rightInner := layout.right.Inset(gfx.All(16))
+	layout.export = gfx.Rect{X: rightInner.X, Y: rightInner.Bottom() - 44, Width: rightInner.Width, Height: 44}
+	layout.cancel = gfx.Rect{X: rightInner.X, Y: layout.export.Y - 8 - 36, Width: rightInner.Width, Height: 36}
 	return layout
 }
 
-func (layout editorLayout) imageArea() ui.Rect {
-	return layout.well.Inset(ui.All(18))
+func (layout editorLayout) imageArea() gfx.Rect {
+	return layout.well.Inset(gfx.All(18))
 }
 
-func fitImageRect(area ui.Rect, crop image.Rectangle) (ui.Rect, float64) {
+func fitImageRect(area gfx.Rect, crop image.Rectangle) (gfx.Rect, float64) {
 	if area.Width <= 0 || area.Height <= 0 || crop.Empty() {
-		return ui.Rect{}, 1
+		return gfx.Rect{}, 1
 	}
 	scale := math.Min(
 		float64(area.Width)/float64(crop.Dx()),
 		float64(area.Height)/float64(crop.Dy()),
 	)
 	if scale <= 0 || math.IsNaN(scale) || math.IsInf(scale, 0) {
-		return ui.Rect{}, 1
+		return gfx.Rect{}, 1
 	}
 	width := float32(float64(crop.Dx()) * scale)
 	height := float32(float64(crop.Dy()) * scale)
-	return ui.Rect{
+	return gfx.Rect{
 		X:      area.X + (area.Width-width)/2,
 		Y:      area.Y + (area.Height-height)/2,
 		Width:  width,
@@ -566,16 +566,16 @@ func fitImageRect(area ui.Rect, crop image.Rectangle) (ui.Rect, float64) {
 	}, scale
 }
 
-func sourceToView(point capture.Point, crop image.Rectangle, imageBounds ui.Rect) ui.Point {
+func sourceToView(point capture.Point, crop image.Rectangle, imageBounds gfx.Rect) gfx.Point {
 	sx := imageBounds.Width / float32(crop.Dx())
 	sy := imageBounds.Height / float32(crop.Dy())
-	return ui.Point{
+	return gfx.Point{
 		X: imageBounds.X + (float32(point.X)-float32(crop.Min.X))*sx,
 		Y: imageBounds.Y + (float32(point.Y)-float32(crop.Min.Y))*sy,
 	}
 }
 
-func viewToSource(x, y float32, crop image.Rectangle, imageBounds ui.Rect) capture.Point {
+func viewToSource(x, y float32, crop image.Rectangle, imageBounds gfx.Rect) capture.Point {
 	x = min(max(x, imageBounds.X), imageBounds.Right())
 	y = min(max(y, imageBounds.Y), imageBounds.Bottom())
 	return capture.Point{
@@ -599,51 +599,51 @@ func annotationWidth(scale float64) float64 {
 	return min(max(4/scale, 2), 64)
 }
 
-func pointIn(x, y float32, bounds ui.Rect) bool {
+func pointIn(x, y float32, bounds gfx.Rect) bool {
 	return x >= bounds.X && x < bounds.Right() && y >= bounds.Y && y < bounds.Bottom()
 }
 
-func imageRectEmpty(bounds ui.Rect) bool {
+func imageRectEmpty(bounds gfx.Rect) bool {
 	return bounds.Width <= 0 || bounds.Height <= 0
 }
 
-func intersectRect(a, b ui.Rect) ui.Rect {
+func intersectRect(a, b gfx.Rect) gfx.Rect {
 	left := max(a.X, b.X)
 	top := max(a.Y, b.Y)
 	right := min(a.Right(), b.Right())
 	bottom := min(a.Bottom(), b.Bottom())
 	if right <= left || bottom <= top {
-		return ui.Rect{}
+		return gfx.Rect{}
 	}
-	return ui.Rect{X: left, Y: top, Width: right - left, Height: bottom - top}
+	return gfx.Rect{X: left, Y: top, Width: right - left, Height: bottom - top}
 }
 
-func (editor *editor) paint(canvas *ui.Canvas, size ui.Size) {
+func (editor *editor) paint(canvas *gfx.Canvas, size gfx.Size) {
 	theme := snipTheme(editor.dark)
-	canvas.Fill(ui.Rect{Width: size.Width, Height: size.Height}, theme.Background)
+	canvas.Fill(gfx.Rect{Width: size.Width, Height: size.Height}, theme.Background)
 	layout := computeLayout(size)
 	editor.paintTools(canvas, theme, layout)
 	editor.paintCanvas(canvas, theme, layout)
 	editor.paintExport(canvas, theme, layout)
 }
 
-func (editor *editor) paintTools(canvas *ui.Canvas, theme ui.Theme, layout editorLayout) {
+func (editor *editor) paintTools(canvas *gfx.Canvas, theme gfx.Theme, layout editorLayout) {
 	canvas.RoundedBorder(layout.left, 14, 1, theme.Border, theme.Card)
-	inner := layout.left.Inset(ui.All(16))
+	inner := layout.left.Inset(gfx.All(16))
 
-	canvas.Rounded(ui.Rect{X: inner.X, Y: inner.Y + 4, Width: 3, Height: 18}, 1.5, theme.Primary)
-	canvas.Label("GoIM Snip", ui.Rect{X: inner.X + 12, Y: inner.Y, Width: inner.Width - 12, Height: 26}, ui.TextStyle{
-		Size: 18, Weight: ui.WeightSemibold, Color: theme.Foreground,
+	canvas.Rounded(gfx.Rect{X: inner.X, Y: inner.Y + 4, Width: 3, Height: 18}, 1.5, theme.Primary)
+	canvas.Label("GoIM Snip", gfx.Rect{X: inner.X + 12, Y: inner.Y, Width: inner.Width - 12, Height: 26}, gfx.TextStyle{
+		Size: 18, Weight: gfx.WeightSemibold, Color: theme.Foreground,
 	})
 	y := inner.Y + 32
-	canvas.Label("Screenshot editor", ui.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 18}, ui.TextStyle{
+	canvas.Label("Screenshot editor", gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 18}, gfx.TextStyle{
 		Size: 12, Color: theme.MutedForeground,
 	})
 	y += 24
-	canvas.Fill(ui.Rect{X: inner.X, Y: y + 5, Width: inner.Width, Height: 1}, theme.Border)
+	canvas.Fill(gfx.Rect{X: inner.X, Y: y + 5, Width: inner.Width, Height: 1}, theme.Border)
 	y += 19
-	canvas.Label("TOOLS", ui.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 16}, ui.TextStyle{
-		Size: 10, Weight: ui.WeightSemibold, Color: theme.MutedForeground,
+	canvas.Label("TOOLS", gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 16}, gfx.TextStyle{
+		Size: 10, Weight: gfx.WeightSemibold, Color: theme.MutedForeground,
 	})
 
 	labels := [...]string{"Select area", "Rectangle", "Arrow", "Freehand"}
@@ -659,11 +659,11 @@ func (editor *editor) paintTools(canvas *ui.Canvas, theme ui.Theme, layout edito
 	}
 
 	swatchY := layout.undo.Y - 70
-	canvas.Rounded(ui.Rect{X: inner.X, Y: swatchY + 2, Width: 12, Height: 12}, 6, shapeColor())
-	canvas.Label("Blue ink", ui.Rect{X: inner.X + 20, Y: swatchY - 1, Width: inner.Width - 20, Height: 17}, ui.TextStyle{
+	canvas.Rounded(gfx.Rect{X: inner.X, Y: swatchY + 2, Width: 12, Height: 12}, 6, shapeColor())
+	canvas.Label("Blue ink", gfx.Rect{X: inner.X + 20, Y: swatchY - 1, Width: inner.Width - 20, Height: 17}, gfx.TextStyle{
 		Size: 12, Color: theme.Foreground,
 	})
-	canvas.Label("Drag on the canvas", ui.Rect{X: inner.X, Y: layout.undo.Y - 32, Width: inner.Width, Height: 16}, ui.TextStyle{
+	canvas.Label("Drag on the canvas", gfx.Rect{X: inner.X, Y: layout.undo.Y - 32, Width: inner.Width, Height: 16}, gfx.TextStyle{
 		Size: 11, Color: theme.MutedForeground,
 	})
 	undo := components.BeginButton(canvas, theme, undoID, layout.undo).
@@ -674,7 +674,7 @@ func (editor *editor) paintTools(canvas *ui.Canvas, theme ui.Theme, layout edito
 	undo.Outline("Undo")
 }
 
-func toolID(index int) ui.ID {
+func toolID(index int) gfx.ID {
 	switch index {
 	case 0:
 		return selectID
@@ -685,25 +685,25 @@ func toolID(index int) ui.ID {
 	case 3:
 		return drawID
 	}
-	return ui.ID{}
+	return gfx.ID{}
 }
 
-func (editor *editor) paintCanvas(canvas *ui.Canvas, theme ui.Theme, layout editorLayout) {
+func (editor *editor) paintCanvas(canvas *gfx.Canvas, theme gfx.Theme, layout editorLayout) {
 	canvas.RoundedBorder(layout.center, 14, 1, theme.Border, theme.Card)
 	crop := editor.document.Crop()
-	canvas.Label("Canvas", layout.header, ui.TextStyle{
-		Size: 16, Weight: ui.WeightSemibold, Color: theme.Foreground,
+	canvas.Label("Canvas", layout.header, gfx.TextStyle{
+		Size: 16, Weight: gfx.WeightSemibold, Color: theme.Foreground,
 	})
 	canvas.LabelAligned(
 		editor.cropLabel,
-		layout.header, ui.TextStyle{Size: 12, Color: theme.MutedForeground}, ui.AlignEnd,
+		layout.header, gfx.TextStyle{Size: 12, Color: theme.MutedForeground}, gfx.AlignEnd,
 	)
 
 	canvas.RoundedBorder(layout.well, 10, 1, theme.Border, canvasWell(editor.dark))
 	area := layout.imageArea()
 	imageBounds, scale := fitImageRect(area, crop)
 	if !imageRectEmpty(imageBounds) {
-		canvas.Elevate(imageBounds, 3, ui.ShadowSM)
+		canvas.Elevate(imageBounds, 3, gfx.ShadowSM)
 		canvas.Fill(imageBounds, canvasWell(editor.dark))
 		canvas.DrawBitmap(editor.preview, imageBounds)
 		canvas.RoundedOutline(imageBounds, 3, 1, theme.Border)
@@ -714,18 +714,18 @@ func (editor *editor) paintCanvas(canvas *ui.Canvas, theme ui.Theme, layout edit
 	if canvas.Focused() == canvasID && canvas.FocusVisible() == canvasID {
 		canvas.RoundedOutline(layout.well, 10, 1.5, theme.Primary)
 	}
-	canvas.HitWithOptions(canvasID, layout.well, "Screenshot canvas", ui.HitOptions{
-		Role:        ui.RoleGroup,
-		Cursor:      ui.PointerCursorCrosshair,
+	canvas.HitWithOptions(canvasID, layout.well, "Screenshot canvas", gfx.HitOptions{
+		Role:        gfx.RoleGroup,
+		Cursor:      gfx.PointerCursorCrosshair,
 		Autofocus:   true,
 		Description: "Drag with the selected tool to crop or annotate.",
 	})
 
-	canvas.Label(editor.tool.hint(), layout.footer, ui.TextStyle{Size: 11, Color: theme.MutedForeground})
-	canvas.LabelAligned("Fit to window", layout.footer, ui.TextStyle{Size: 11, Color: theme.MutedForeground}, ui.AlignEnd)
+	canvas.Label(editor.tool.hint(), layout.footer, gfx.TextStyle{Size: 11, Color: theme.MutedForeground})
+	canvas.LabelAligned("Fit to window", layout.footer, gfx.TextStyle{Size: 11, Color: theme.MutedForeground}, gfx.AlignEnd)
 }
 
-func (editor *editor) paintGesture(canvas *ui.Canvas, imageBounds ui.Rect, crop image.Rectangle, scale float64, theme ui.Theme) {
+func (editor *editor) paintGesture(canvas *gfx.Canvas, imageBounds gfx.Rect, crop image.Rectangle, scale float64, theme gfx.Theme) {
 	if editor.gesture == nil {
 		return
 	}
@@ -736,25 +736,25 @@ func (editor *editor) paintGesture(canvas *ui.Canvas, imageBounds ui.Rect, crop 
 		if imageRectEmpty(selection) {
 			return
 		}
-		dim := ui.Color{Alpha: 0.38}
-		top := ui.Rect{X: imageBounds.X, Y: imageBounds.Y, Width: imageBounds.Width, Height: selection.Y - imageBounds.Y}
-		bottom := ui.Rect{X: imageBounds.X, Y: selection.Bottom(), Width: imageBounds.Width, Height: imageBounds.Bottom() - selection.Bottom()}
-		left := ui.Rect{X: imageBounds.X, Y: selection.Y, Width: selection.X - imageBounds.X, Height: selection.Height}
-		right := ui.Rect{X: selection.Right(), Y: selection.Y, Width: imageBounds.Right() - selection.Right(), Height: selection.Height}
-		for _, fill := range [...]ui.Rect{top, bottom, left, right} {
+		dim := gfx.Color{Alpha: 0.38}
+		top := gfx.Rect{X: imageBounds.X, Y: imageBounds.Y, Width: imageBounds.Width, Height: selection.Y - imageBounds.Y}
+		bottom := gfx.Rect{X: imageBounds.X, Y: selection.Bottom(), Width: imageBounds.Width, Height: imageBounds.Bottom() - selection.Bottom()}
+		left := gfx.Rect{X: imageBounds.X, Y: selection.Y, Width: selection.X - imageBounds.X, Height: selection.Height}
+		right := gfx.Rect{X: selection.Right(), Y: selection.Y, Width: imageBounds.Right() - selection.Right(), Height: selection.Height}
+		for _, fill := range [...]gfx.Rect{top, bottom, left, right} {
 			if fill.Width > 0 && fill.Height > 0 {
 				canvas.Fill(fill, dim)
 			}
 		}
 		canvas.RoundedOutline(selection, 2, 1.5, theme.Primary)
-		for _, corner := range [...]ui.Point{
+		for _, corner := range [...]gfx.Point{
 			{X: selection.X, Y: selection.Y},
 			{X: selection.Right(), Y: selection.Y},
 			{X: selection.X, Y: selection.Bottom()},
 			{X: selection.Right(), Y: selection.Bottom()},
 		} {
-			handle := ui.Rect{X: corner.X - 3, Y: corner.Y - 3, Width: 6, Height: 6}
-			canvas.Rounded(handle, 2, ui.RGB(255, 255, 255))
+			handle := gfx.Rect{X: corner.X - 3, Y: corner.Y - 3, Width: 6, Height: 6}
+			canvas.Rounded(handle, 2, gfx.RGB(255, 255, 255))
 			canvas.RoundedOutline(handle, 2, 1, theme.Primary)
 		}
 		return
@@ -780,75 +780,75 @@ func (editor *editor) paintGesture(canvas *ui.Canvas, imageBounds ui.Rect, crop 
 	drawShape(canvas, shape, crop, imageBounds, scale)
 }
 
-func drawShape(canvas *ui.Canvas, shape capture.Shape, crop image.Rectangle, imageBounds ui.Rect, scale float64) {
-	local := func(point capture.Point) ui.Point {
+func drawShape(canvas *gfx.Canvas, shape capture.Shape, crop image.Rectangle, imageBounds gfx.Rect, scale float64) {
+	local := func(point capture.Point) gfx.Point {
 		view := sourceToView(point, crop, imageBounds)
-		return ui.Point{X: view.X - imageBounds.X, Y: view.Y - imageBounds.Y}
+		return gfx.Point{X: view.X - imageBounds.X, Y: view.Y - imageBounds.Y}
 	}
-	stroke := ui.PathStyle{
+	stroke := gfx.PathStyle{
 		Stroke:      shapeColor(),
 		StrokeWidth: max(float32(shape.Width*scale), 1),
-		Cap:         ui.CapRound,
-		Join:        ui.JoinRound,
+		Cap:         gfx.CapRound,
+		Join:        gfx.JoinRound,
 	}
 	switch shape.Kind {
 	case capture.Rectangle:
 		start, end := local(shape.Start), local(shape.End)
-		path := ui.NewPath(
+		path := gfx.NewPath(
 			imageBounds.Width, imageBounds.Height,
-			ui.MoveTo(start.X, start.Y),
-			ui.LineTo(end.X, start.Y),
-			ui.LineTo(end.X, end.Y),
-			ui.LineTo(start.X, end.Y),
-			ui.ClosePath(),
+			gfx.MoveTo(start.X, start.Y),
+			gfx.LineTo(end.X, start.Y),
+			gfx.LineTo(end.X, end.Y),
+			gfx.LineTo(start.X, end.Y),
+			gfx.ClosePath(),
 		)
 		canvas.DrawPath(path, imageBounds, stroke)
 	case capture.Arrow:
 		start, end := local(shape.Start), local(shape.End)
-		shaft := ui.NewPath(imageBounds.Width, imageBounds.Height, ui.MoveTo(start.X, start.Y), ui.LineTo(end.X, end.Y))
+		shaft := gfx.NewPath(imageBounds.Width, imageBounds.Height, gfx.MoveTo(start.X, start.Y), gfx.LineTo(end.X, end.Y))
 		canvas.DrawPath(shaft, imageBounds, stroke)
 		head := capture.ArrowHead(shape.Start, shape.End, shape.Width)
 		tip, left, right := local(head[0]), local(head[1]), local(head[2])
-		headPath := ui.NewPath(
+		headPath := gfx.NewPath(
 			imageBounds.Width, imageBounds.Height,
-			ui.MoveTo(tip.X, tip.Y),
-			ui.LineTo(left.X, left.Y),
-			ui.LineTo(right.X, right.Y),
-			ui.ClosePath(),
+			gfx.MoveTo(tip.X, tip.Y),
+			gfx.LineTo(left.X, left.Y),
+			gfx.LineTo(right.X, right.Y),
+			gfx.ClosePath(),
 		)
-		canvas.DrawPath(headPath, imageBounds, ui.PathStyle{Fill: shapeColor(), FillRule: ui.PathFillNonZero})
+		canvas.DrawPath(headPath, imageBounds, gfx.PathStyle{Fill: shapeColor(), FillRule: gfx.PathFillNonZero})
 	case capture.Freehand:
 		if len(shape.Points) == 0 {
 			return
 		}
-		commands := make([]ui.PathCommand, 0, len(shape.Points))
+		commands := make([]gfx.PathCommand, 0, len(shape.Points))
 		start := local(shape.Points[0])
-		commands = append(commands, ui.MoveTo(start.X, start.Y))
+		commands = append(commands, gfx.MoveTo(start.X, start.Y))
 		for _, point := range shape.Points[1:] {
 			next := local(point)
-			commands = append(commands, ui.LineTo(next.X, next.Y))
+			commands = append(commands, gfx.LineTo(next.X, next.Y))
 		}
-		path := ui.NewPath(imageBounds.Width, imageBounds.Height, commands...)
+		path := gfx.NewPath(imageBounds.Width, imageBounds.Height, commands...)
 		canvas.DrawPath(path, imageBounds, stroke)
 	}
 }
 
-func (editor *editor) paintExport(canvas *ui.Canvas, theme ui.Theme, layout editorLayout) {
+func (editor *editor) paintExport(canvas *gfx.Canvas, theme gfx.Theme, layout editorLayout) {
 	canvas.RoundedBorder(layout.right, 14, 1, theme.Border, theme.Card)
-	inner := layout.right.Inset(ui.All(16))
+	inner := layout.right.Inset(gfx.All(16))
 	y := inner.Y
-	canvas.Label("Export", ui.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 24}, ui.TextStyle{
-		Size: 18, Weight: ui.WeightSemibold, Color: theme.Foreground,
+	canvas.Label("Export", gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 24}, gfx.TextStyle{
+		Size: 18, Weight: gfx.WeightSemibold, Color: theme.Foreground,
 	})
 	y += 31
-	detailStyle := ui.TextStyle{Size: 11, Color: theme.MutedForeground}
+	detailStyle := gfx.TextStyle{Size: 11, Color: theme.MutedForeground}
 	canvas.Label(canvas.FitLine(editor.info.detail, detailStyle.Size, detailStyle.Weight, inner.Width),
-		ui.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 16}, detailStyle)
+		gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 16}, detailStyle)
 	y += 24
-	canvas.Fill(ui.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 1}, theme.Border)
+	canvas.Fill(gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 1}, theme.Border)
 	y += 18
-	canvas.Label("SOURCE", ui.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 15}, ui.TextStyle{
-		Size: 10, Weight: ui.WeightSemibold, Color: theme.MutedForeground,
+	canvas.Label("SOURCE", gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 15}, gfx.TextStyle{
+		Size: 10, Weight: gfx.WeightSemibold, Color: theme.MutedForeground,
 	})
 	y += 22
 
@@ -862,21 +862,21 @@ func (editor *editor) paintExport(canvas *ui.Canvas, theme ui.Theme, layout edit
 		{"Tool", editor.toolLabel},
 	}
 	for _, row := range rows {
-		canvas.Label(row.label, ui.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 14}, ui.TextStyle{
+		canvas.Label(row.label, gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 14}, gfx.TextStyle{
 			Size: 11, Color: theme.MutedForeground,
 		})
-		canvas.Label(canvas.FitLine(row.value, 13, ui.WeightRegular, inner.Width),
-			ui.Rect{X: inner.X, Y: y + 15, Width: inner.Width, Height: 19}, ui.TextStyle{
+		canvas.Label(canvas.FitLine(row.value, 13, gfx.WeightRegular, inner.Width),
+			gfx.Rect{X: inner.X, Y: y + 15, Width: inner.Width, Height: 19}, gfx.TextStyle{
 				Size: 13, Color: theme.Foreground,
 			})
 		y += 38
 	}
 
-	hintStyle := ui.TextStyle{Size: 11, Color: theme.MutedForeground}
+	hintStyle := gfx.TextStyle{Size: 11, Color: theme.MutedForeground}
 	hintY := layout.cancel.Y - 62
-	canvas.Label("Enter     Export", ui.Rect{X: inner.X, Y: hintY, Width: inner.Width, Height: 16}, hintStyle)
-	canvas.Label(editor.undoHint, ui.Rect{X: inner.X, Y: hintY + 18, Width: inner.Width, Height: 16}, hintStyle)
-	canvas.Label("Esc       Cancel", ui.Rect{X: inner.X, Y: hintY + 36, Width: inner.Width, Height: 16}, hintStyle)
+	canvas.Label("Enter     Export", gfx.Rect{X: inner.X, Y: hintY, Width: inner.Width, Height: 16}, hintStyle)
+	canvas.Label(editor.undoHint, gfx.Rect{X: inner.X, Y: hintY + 18, Width: inner.Width, Height: 16}, hintStyle)
+	canvas.Label("Esc       Cancel", gfx.Rect{X: inner.X, Y: hintY + 36, Width: inner.Width, Height: 16}, hintStyle)
 
 	components.BeginButton(canvas, theme, exportID, layout.export).
 		Height(layout.export.Height).FontSize(14).Default("Export PNG")
@@ -884,67 +884,67 @@ func (editor *editor) paintExport(canvas *ui.Canvas, theme ui.Theme, layout edit
 		Height(layout.cancel.Height).FontSize(13).Outline("Cancel")
 }
 
-func snipTheme(dark bool) ui.Theme {
-	theme := ui.LightTheme()
+func snipTheme(dark bool) gfx.Theme {
+	theme := gfx.LightTheme()
 	if dark {
-		theme = ui.DarkTheme()
+		theme = gfx.DarkTheme()
 	}
-	theme.Primary = ui.RGB(29, 78, 216)
-	theme.PrimaryForeground = ui.RGB(239, 246, 255)
+	theme.Primary = gfx.RGB(29, 78, 216)
+	theme.PrimaryForeground = gfx.RGB(239, 246, 255)
 	theme.Ring = theme.Primary
 	if dark {
-		theme.Background = ui.RGB(8, 12, 20)
-		theme.Foreground = ui.RGB(228, 236, 247)
-		theme.Card = ui.RGB(17, 24, 39)
+		theme.Background = gfx.RGB(8, 12, 20)
+		theme.Foreground = gfx.RGB(228, 236, 247)
+		theme.Card = gfx.RGB(17, 24, 39)
 		theme.CardForeground = theme.Foreground
-		theme.CardElevated = ui.RGB(23, 33, 50)
+		theme.CardElevated = gfx.RGB(23, 33, 50)
 		theme.Popover = theme.Card
 		theme.PopoverForeground = theme.Foreground
-		theme.Muted = ui.RGB(26, 36, 53)
-		theme.MutedForeground = ui.RGB(142, 159, 182)
-		theme.Border = ui.RGB(45, 59, 82)
-		theme.Hover = ui.RGB(29, 41, 59)
+		theme.Muted = gfx.RGB(26, 36, 53)
+		theme.MutedForeground = gfx.RGB(142, 159, 182)
+		theme.Border = gfx.RGB(45, 59, 82)
+		theme.Hover = gfx.RGB(29, 41, 59)
 		theme.Input = theme.Border
-		theme.Secondary = ui.RGB(29, 41, 59)
+		theme.Secondary = gfx.RGB(29, 41, 59)
 		theme.SecondaryForeground = theme.Foreground
 		theme.Accent = theme.Hover
 		theme.AccentForeground = theme.Foreground
-		theme.Primary = ui.RGB(59, 130, 246)
-		theme.PrimaryForeground = ui.RGB(8, 15, 28)
-		theme.Selection = ui.RGB(30, 64, 175)
+		theme.Primary = gfx.RGB(59, 130, 246)
+		theme.PrimaryForeground = gfx.RGB(8, 15, 28)
+		theme.Selection = gfx.RGB(30, 64, 175)
 		theme.SelectionForeground = theme.Foreground
 	} else {
-		theme.Background = ui.RGB(244, 247, 252)
-		theme.Foreground = ui.RGB(15, 23, 42)
-		theme.Card = ui.RGB(255, 255, 255)
+		theme.Background = gfx.RGB(244, 247, 252)
+		theme.Foreground = gfx.RGB(15, 23, 42)
+		theme.Card = gfx.RGB(255, 255, 255)
 		theme.CardForeground = theme.Foreground
-		theme.CardElevated = ui.RGB(248, 250, 253)
+		theme.CardElevated = gfx.RGB(248, 250, 253)
 		theme.Popover = theme.Card
 		theme.PopoverForeground = theme.Foreground
-		theme.Muted = ui.RGB(238, 242, 248)
-		theme.MutedForeground = ui.RGB(91, 105, 128)
-		theme.Border = ui.RGB(212, 222, 236)
-		theme.Hover = ui.RGB(241, 245, 250)
+		theme.Muted = gfx.RGB(238, 242, 248)
+		theme.MutedForeground = gfx.RGB(91, 105, 128)
+		theme.Border = gfx.RGB(212, 222, 236)
+		theme.Hover = gfx.RGB(241, 245, 250)
 		theme.Input = theme.Border
-		theme.Secondary = ui.RGB(241, 245, 250)
+		theme.Secondary = gfx.RGB(241, 245, 250)
 		theme.SecondaryForeground = theme.Foreground
 		theme.Accent = theme.Hover
 		theme.AccentForeground = theme.Foreground
-		theme.Selection = ui.RGB(181, 211, 255)
-		theme.SelectionForeground = ui.RGB(17, 24, 39)
+		theme.Selection = gfx.RGB(181, 211, 255)
+		theme.SelectionForeground = gfx.RGB(17, 24, 39)
 	}
 	return theme
 }
 
-func canvasWell(dark bool) ui.Color {
+func canvasWell(dark bool) gfx.Color {
 	if dark {
-		return ui.RGB(8, 13, 22)
+		return gfx.RGB(8, 13, 22)
 	}
-	return ui.RGB(232, 238, 247)
+	return gfx.RGB(232, 238, 247)
 }
 
-func shapeColor() ui.Color {
-	return ui.RGB(capture.DefaultShapeColor.R, capture.DefaultShapeColor.G, capture.DefaultShapeColor.B)
+func shapeColor() gfx.Color {
+	return gfx.RGB(capture.DefaultShapeColor.R, capture.DefaultShapeColor.G, capture.DefaultShapeColor.B)
 }
 
 func sourceDisplayLabel(info sourceInfo) string {
@@ -965,8 +965,8 @@ func primaryShortcut() string {
 	return "Ctrl+Z"
 }
 
-func normalizedPointRect(a, b ui.Point) ui.Rect {
-	return ui.Rect{
+func normalizedPointRect(a, b gfx.Point) gfx.Rect {
+	return gfx.Rect{
 		X:      min(a.X, b.X),
 		Y:      min(a.Y, b.Y),
 		Width:  abs(a.X - b.X),

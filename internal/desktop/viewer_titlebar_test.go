@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"path/filepath"
 	"testing"
 
@@ -20,7 +21,7 @@ func viewerTitlebarDriver(tb testing.TB) (*UI, *app.Driver, *app.Invalidator) {
 	}))
 	tb.Cleanup(u.Close)
 	u.chatSurface().viewer = imageViewerState{open: true, fileID: file.ID, conversationID: file.ConversationID, fit: true, zoom: 1}
-	u.imageCache[path] = ui.Bitmap{ID: 1, Version: 1, Width: 1, Height: 1, Stride: 4, Pix: []byte{120, 120, 120, 255}}
+	u.imageCache[path] = gfx.Bitmap{ID: 1, Version: 1, Width: 1, Height: 1, Stride: 4, Pix: []byte{120, 120, 120, 255}}
 	config := u.imageViewerConfig()
 	config.Width = config.MinWidth
 	invalidator := new(app.Invalidator)
@@ -47,7 +48,7 @@ func TestDetachedViewerTitlebarSeparatesWindowDragFromControls(t *testing.T) {
 		t.Fatal("the empty part of the picture titlebar cannot drag the window")
 	}
 	snapshot := d.Snapshot()
-	for _, id := range []ui.ID{ids.viewerZoomIn, ids.viewerRotate, ids.viewerSave, ids.viewerMenu.trigger, ids.viewerStage} {
+	for _, id := range []gfx.ID{ids.viewerZoomIn, ids.viewerRotate, ids.viewerSave, ids.viewerMenu.trigger, ids.viewerStage} {
 		hit, ok := findSessionHit(snapshot.Hits, id)
 		if !ok {
 			t.Fatalf("missing viewer control %v at minimum width", id)

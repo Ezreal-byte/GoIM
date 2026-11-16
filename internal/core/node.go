@@ -23,57 +23,60 @@ import (
 )
 
 type Options struct {
-	DataDir          string
-	Listen           string
-	Name             string
-	DisableDiscovery bool
-	DisableIPMSG     bool
-	Version          string
-	DownloadDir      string
+	DataDir              string
+	Listen               string
+	Name                 string
+	DisableDiscovery     bool
+	DisableIPMSG         bool
+	DisableCompatibility bool
+	Version              string
+	DownloadDir          string
 }
 type Node struct {
-	mu                sync.Mutex
-	groupMu           sync.Mutex
-	flushMu           sync.Mutex
-	data              persisted
-	db                *bolt.DB
-	key               ed25519.PrivateKey
-	tls               *tls.Config
-	dir               string
-	ctx               context.Context
-	cancel            context.CancelFunc
-	listener          net.Listener
-	localIP           string
-	connections       map[string]*peerConn
-	dialing           map[string]bool
-	commands          chan domain.Command
-	updates           chan struct{}
-	wg                sync.WaitGroup
-	workers           sync.WaitGroup
-	closing           bool
-	transfers         map[string]context.CancelFunc
-	discovery         bool
-	webServer         *http.Server
-	webAddress        string
-	webKey            [32]byte
-	webSlots          chan struct{}
-	webLinks          map[string]shareLink
-	webHomeLink       shareLink
-	webUploads        chan struct{}
-	webUploadMu       sync.Mutex
-	shareFeedback     domain.ShareFeedback
-	unlockAfter       time.Time
-	lockResult        domain.LockResult
-	legacy            *ipmsgproto.Service
-	legacyLive        *atomic.Bool
-	neiwangtong       *neiwangtong.Service
-	neiwangtongLive   *atomic.Bool
-	compatMu          sync.Mutex
-	ipmsgStatus       domain.CompatibilityStatus
-	neiwangtongStatus domain.CompatibilityStatus
-	ipmsgOverride     bool
-	compatScheduled   bool
-	version           string
+	mu                    sync.Mutex
+	groupMu               sync.Mutex
+	flushMu               sync.Mutex
+	data                  persisted
+	db                    *bolt.DB
+	key                   ed25519.PrivateKey
+	tls                   *tls.Config
+	dir                   string
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	listener              net.Listener
+	localIP               string
+	connections           map[string]*peerConn
+	dialing               map[string]bool
+	commands              chan domain.Command
+	updates               chan struct{}
+	wg                    sync.WaitGroup
+	workers               sync.WaitGroup
+	closing               bool
+	transfers             map[string]context.CancelFunc
+	discovery             bool
+	webServer             *http.Server
+	webAddress            string
+	webKey                [32]byte
+	webSlots              chan struct{}
+	webLinks              map[string]shareLink
+	webHomeLink           shareLink
+	webUploads            chan struct{}
+	webUploadMu           sync.Mutex
+	shareFeedback         domain.ShareFeedback
+	unlockAfter           time.Time
+	lockResult            domain.LockResult
+	legacy                *ipmsgproto.Service
+	legacyLive            *atomic.Bool
+	neiwangtong           *neiwangtong.Service
+	neiwangtongLive       *atomic.Bool
+	compatMu              sync.Mutex
+	compatPeers           map[compatibilityEndpoint]domain.Peer
+	ipmsgStatus           domain.CompatibilityStatus
+	neiwangtongStatus     domain.CompatibilityStatus
+	ipmsgOverride         bool
+	compatibilityDisabled bool
+	compatScheduled       bool
+	version               string
 }
 
 func New(opts Options) (*Node, error) {
@@ -118,12 +121,17 @@ func New(opts Options) (*Node, error) {
 	} else {
 		n.data.State.Settings.EnsureDefaultShortcuts()
 	}
-	if !n.data.State.Settings.CompatibilityConfigured {
-		n.data.State.Settings.CompatibilityConfigured = true
-		n.data.State.Settings.IPMSG = domain.CompatibilityConfig{Enabled: true, Port: domain.IPMSGPort}
-		n.data.State.Settings.Neiwangtong = domain.CompatibilityConfig{Port: domain.NeiwangtongDiscoveryPort}
+	settings := &n.data.State.Settings
+	if settings.IPMSG.Port == 0 {
+		settings.IPMSG = domain.CompatibilityConfig{Enabled: true, Port: domain.IPMSGPort}
 	}
-	n.ipmsgOverride, n.version = opts.DisableIPMSG, opts.Version
+	if settings.Neiwangtong.Port == 0 {
+		settings.Neiwangtong = domain.CompatibilityConfig{Enabled: true, Port: domain.NeiwangtongDiscoveryPort}
+	}
+	settings.CompatibilityConfigured = true
+	settings.CompatibilityDefaultsVersion = 1
+	removeUnverifiedBridges(&n.data)
+	n.ipmsgOverride, n.compatibilityDisabled, n.version = opts.DisableIPMSG, opts.DisableCompatibility, opts.Version
 	n.hideUnusedDirectConversations()
 	n.data.State.Settings.HasLockPassword = n.data.LockCredential.set()
 	n.data.State.Locked = n.data.State.Settings.HasLockPassword && (n.data.State.Locked || n.data.State.Settings.LockOnStartup)
@@ -206,6 +214,10 @@ func (n *Node) snapshot(urls bool) domain.State {
 		s.IPMSGStatus.Pending = &pending
 	}
 	s.NeiwangtongStatus = n.neiwangtongStatus
+	if s.NeiwangtongStatus.Pending != nil {
+		pending := *s.NeiwangtongStatus.Pending
+		s.NeiwangtongStatus.Pending = &pending
+	}
 	n.attachShareLinks(&s, urls)
 	return s
 }
@@ -341,19 +353,38 @@ func (n *Node) dialTo(address, expected string, quiet bool) {
 	n.mu.Unlock()
 	n.async(func() {
 		defer func() { n.mu.Lock(); delete(n.dialing, address); n.mu.Unlock() }()
-		d := net.Dialer{Timeout: 4 * time.Second}
-		if ip := n.selectedIP(); ip != nil {
-			d.LocalAddr = &net.TCPAddr{IP: ip}
+		if err := n.connectGoIM(address, expected); err != nil && !quiet {
+			n.report(fmt.Errorf("连接 %s 失败: %w", address, err))
 		}
-		raw, err := d.DialContext(n.ctx, "tcp", address)
-		if err != nil {
-			if !quiet {
-				n.report(fmt.Errorf("连接 %s 失败: %w", address, err))
-			}
-			return
-		}
-		n.establish(tls.Client(raw, n.tls.Clone()), true, expected)
 	})
+}
+
+func (n *Node) connectGoIM(address, expected string) error {
+	ctx, cancel := context.WithTimeout(n.ctx, 4*time.Second)
+	defer cancel()
+	d := net.Dialer{}
+	if ip := n.selectedIP(); ip != nil {
+		d.LocalAddr = &net.TCPAddr{IP: ip}
+	}
+	raw, err := d.DialContext(ctx, "tcp", address)
+	if err != nil {
+		return err
+	}
+	ready := make(chan bool, 1)
+	if !n.async(func() { n.establishWithResult(ctx, tls.Client(raw, n.tls.Clone()), true, expected, ready) }) {
+		raw.Close()
+		return context.Canceled
+	}
+	select {
+	case ok := <-ready:
+		if ok {
+			return nil
+		}
+		return errors.New("未完成 GoIM TLS 握手")
+	case <-ctx.Done():
+		_ = raw.Close()
+		return ctx.Err()
+	}
 }
 func peerIndex(s *domain.State, id string) int {
 	for i := range s.Peers {

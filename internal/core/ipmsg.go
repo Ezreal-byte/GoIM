@@ -115,44 +115,22 @@ func (n *Node) newIPMSG(port int, live *atomic.Bool) (*ipmsgproto.Service, error
 }
 
 func (n *Node) receiveLegacyPeer(peer ipmsgproto.Peer) {
-	if peer.ID == "" || !utf8.ValidString(peer.Name) {
-		return
-	}
 	name := strings.TrimSpace(peer.Name)
-	if name == "" || len(peer.Name) > 160 {
+	if peer.ID == "" || name == "" || len(peer.Name) > 160 || !utf8.ValidString(peer.Name) {
 		return
 	}
 	presence := domain.PresenceOnline
 	if peer.Away {
 		presence = domain.PresenceAway
 	}
-	_ = n.change(func(s *domain.State) {
-		i := peerIndex(s, peer.ID)
-		group := ""
-		client := domain.ClientIPMSG
-		if peer.Neiwangtong {
-			client = domain.ClientNeiwangtong
-		}
-		if i >= 0 {
-			group = s.Peers[i].ContactGroup
-			if s.Peers[i].ClientType == domain.ClientNeiwangtong {
-				client = domain.ClientNeiwangtong
-			}
-		}
-		value := domain.Peer{
-			ID: peer.ID, Name: name, Address: peer.Address, ContactGroup: group,
-			Online: peer.Online, LastSeen: time.Now(), Presence: presence,
-			Transport: legacyIPMSG, ClientType: client,
-		}
-		if i < 0 {
-			s.Peers = append(s.Peers, value)
-		} else {
-			s.Peers[i] = value
-		}
-	})
-	if peer.Online {
-		n.async(func() { n.flushPeer(peer.ID) })
+	client := domain.ClientIPMSG
+	if peer.Neiwangtong {
+		client = domain.ClientNeiwangtong
 	}
+	n.observeCompatibilityPeer(domain.Peer{
+		ID: peer.ID, Name: name, Address: peer.Address, Online: peer.Online,
+		Presence: presence, Transport: legacyIPMSG, ClientType: client,
+	})
 }
 
 func (n *Node) receiveLegacyText(peerID string, packetNumber uint64, text string) {
@@ -160,8 +138,8 @@ func (n *Node) receiveLegacyText(peerID string, packetNumber uint64, text string
 		return
 	}
 	_ = n.change(func(s *domain.State) {
-		peer := s.Peer(peerID)
-		if peer.ID != peerID || peer.Transport != legacyIPMSG {
+		peer := n.compatibilitySenderLocked(legacyIPMSG, peerID)
+		if peer.ID == "" {
 			return
 		}
 		conversationID := ensureDirect(s, peer)
@@ -172,7 +150,7 @@ func (n *Node) receiveLegacyText(peerID string, packetNumber uint64, text string
 			}
 		}
 		addMessageState(s, domain.Message{
-			ID: messageID, ConversationID: conversationID, SenderID: peerID,
+			ID: messageID, ConversationID: conversationID, SenderID: peer.ID,
 			Kind: "text", Text: text, CreatedAt: time.Now(), Status: "delivered",
 		})
 	})
@@ -183,8 +161,8 @@ func (n *Node) receiveLegacyFiles(peerID string, packetNumber uint64, message st
 		return
 	}
 	_ = n.change(func(s *domain.State) {
-		peer := s.Peer(peerID)
-		if peer.ID != peerID || peer.Transport != legacyIPMSG {
+		peer := n.compatibilitySenderLocked(legacyIPMSG, peerID)
+		if peer.ID == "" {
 			return
 		}
 		conversationID := ensureDirect(s, peer)
@@ -202,7 +180,7 @@ func (n *Node) receiveLegacyFiles(peerID string, packetNumber uint64, message st
 			mediaType := mime.TypeByExtension(strings.ToLower(filepath.Ext(attachment.Name)))
 			file := domain.File{
 				ID: fileID, Name: attachment.Name, Size: attachment.Size,
-				Hash: strings.Repeat("0", 64), MIME: mediaType, SenderID: peerID,
+				Hash: strings.Repeat("0", 64), MIME: mediaType, SenderID: peer.ID,
 				// The source modification time is unrelated to chat order.
 				ConversationID: conversationID, CreatedAt: receivedAt,
 			}
@@ -215,17 +193,17 @@ func (n *Node) receiveLegacyFiles(peerID string, packetNumber uint64, message st
 			s.Files = append(s.Files, file)
 			s.Transfers = append(s.Transfers, domain.Transfer{
 				ID: transferID, FileID: fileID, ConversationID: conversationID,
-				PeerID: peerID, Direction: "receive", Status: status,
+				PeerID: peer.ID, Direction: "receive", Status: status,
 				Name: file.Name, Size: file.Size, UpdatedAt: receivedAt,
 				LegacyTransport: legacyIPMSG, RemotePacket: packetHex,
-				RemoteFile: fmt.Sprintf("%x", attachment.ID),
+				RemoteFile: fmt.Sprintf("%x", attachment.ID), RemotePeerID: peerID,
 			})
 			text := message
 			if strings.TrimSpace(text) == "" {
 				text = file.Name
 			}
 			addMessageState(s, domain.Message{
-				ID: fileID, ConversationID: conversationID, SenderID: peerID,
+				ID: fileID, ConversationID: conversationID, SenderID: peer.ID,
 				Kind: kind, FileID: fileID, Text: text,
 				CreatedAt: file.CreatedAt, Status: "delivered",
 			})
@@ -289,7 +267,7 @@ func legacyStableID(parts ...string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func (n *Node) legacyPending(peer string, value pending) error {
+func (n *Node) legacyPending(wireID string, value pending) error {
 	n.mu.Lock()
 	service := n.legacy
 	n.mu.Unlock()
@@ -299,7 +277,7 @@ func (n *Node) legacyPending(peer string, value pending) error {
 	e := value.Envelope
 	switch e.Type {
 	case "message":
-		return service.SendText(peer, e.Message.Text)
+		return service.SendText(wireID, e.Message.Text)
 	case "file_offer", "file_retry":
 		s := n.snapshot(false)
 		index := transferIndex(&s, e.TransferID)
@@ -315,10 +293,14 @@ func (n *Node) legacyPending(peer string, value pending) error {
 			n.setTransfer(t.ID, "failed", t.Done, 0, "源文件不可用")
 			return nil
 		}
-		if !s.Peer(peer).Online {
-			return errors.New("等待对方上线")
+		if err := n.change(func(s *domain.State) {
+			if i := transferIndex(s, t.ID); i >= 0 && !terminalTransfer(s.Transfers[i].Status) {
+				s.Transfers[i].LegacyTransport, s.Transfers[i].RemotePeerID = legacyIPMSG, wireID
+			}
+		}); err != nil {
+			return err
 		}
-		if _, _, err := service.OfferFile(peer, f.SourcePath, t.ID, ""); err != nil && !errors.Is(err, context.Canceled) {
+		if _, _, err := service.OfferFile(wireID, f.SourcePath, t.ID, ""); err != nil && !errors.Is(err, context.Canceled) {
 			n.setTransfer(t.ID, "failed", t.Done, 0, err.Error())
 		}
 		return nil
@@ -350,8 +332,9 @@ func (n *Node) legacyCompleted(done []pending) error {
 func (n *Node) downloadLegacy(ctx context.Context, transfer domain.Transfer, file domain.File, destination string) error {
 	n.mu.Lock()
 	service := n.legacy
+	wireID := transferWireID(&n.data, transfer)
 	n.mu.Unlock()
-	if service == nil {
+	if service == nil || wireID == "" {
 		return errors.New("飞鸽／飞秋互通服务尚未就绪")
 	}
 	packet, err := strconv.ParseUint(transfer.RemotePacket, 16, 64)
@@ -427,7 +410,7 @@ func (n *Node) downloadLegacy(ctx context.Context, transfer domain.Transfer, fil
 		}
 	})
 	started := time.Now()
-	_, err = service.DownloadFile(ctx, transfer.PeerID, packet, remoteFile, file.Size, offset, output, func(done int64) {
+	_, err = service.DownloadFile(ctx, wireID, packet, remoteFile, file.Size, offset, output, func(done int64) {
 		speed := float64(done-offset) / time.Since(started).Seconds()
 		n.setTransfer(transfer.ID, "transferring", done, speed, "")
 	})

@@ -2,13 +2,13 @@ package desktop
 
 import (
 	"fmt"
+	"github.com/vivaui/viva/gfx"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	vivaheadless "github.com/vivaui/viva/headless"
-	"github.com/vivaui/viva/ui"
 )
 
 // Exercises the real painter and layout at desktop DPI scales. The fixture is
@@ -32,7 +32,7 @@ func TestDesktopScaleMatrix(t *testing.T) {
 						t.Fatal(err)
 					}
 					defer session.Close()
-					click := func(id ui.ID) {
+					click := func(id gfx.ID) {
 						t.Helper()
 						for _, h := range session.Snapshot().Hits {
 							if h.ID == id {
@@ -62,7 +62,7 @@ func TestDesktopScaleMatrix(t *testing.T) {
 					check("chat")
 					click(shell.ids.chatHeaderMembers)
 					check("members")
-					if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+					if err := session.Driver().Key(gfx.KeyEscape, 0); err != nil {
 						t.Fatal(err)
 					}
 					click(shell.ids.navSettings)

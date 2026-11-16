@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"github.com/vivaui/viva/gfx"
 	"image"
 	"strings"
 	"sync"
-
-	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
 )
@@ -27,7 +26,7 @@ type shareQRKey struct {
 
 type shareQRResult struct {
 	key    shareQRKey
-	bitmap ui.Bitmap
+	bitmap gfx.Bitmap
 	ok     bool
 	err    string
 }
@@ -108,23 +107,23 @@ func shareQRBitmapID(key shareQRKey) uint64 {
 	return id
 }
 
-func decodeShareQR(data []byte, limit int) (ui.Bitmap, bool) {
+func decodeShareQR(data []byte, limit int) (gfx.Bitmap, bool) {
 	if len(data) == 0 || len(data) > maxShareQRBytes {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	config, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || config.Width <= 0 || config.Height <= 0 ||
 		int64(config.Width) > maxShareQRPixels || int64(config.Height) > maxShareQRPixels ||
 		int64(config.Width)*int64(config.Height) > maxShareQRPixels {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	source, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	bounds := source.Bounds()
 	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	width, height := bounds.Dx(), bounds.Dy()
 	if limit > 0 && (width > limit || height > limit) {
@@ -145,5 +144,5 @@ func decodeShareQR(data []byte, limit int) (ui.Bitmap, bool) {
 			pixels[offset+3] = uint8(alpha >> 8)
 		}
 	}
-	return ui.Bitmap{Pix: pixels, Width: width, Height: height, Stride: width * 4}, true
+	return gfx.Bitmap{Pix: pixels, Width: width, Height: height, Stride: width * 4}, true
 }

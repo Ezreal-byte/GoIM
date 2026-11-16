@@ -2,12 +2,13 @@ package desktop
 
 import (
 	"fmt"
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"path/filepath"
 	"strings"
 
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -33,7 +34,7 @@ type shareQRDialogState struct {
 	url     string
 	key     shareQRKey
 	hasKey  bool
-	bitmap  ui.Bitmap
+	bitmap  gfx.Bitmap
 	loading bool
 	err     string
 }
@@ -210,7 +211,7 @@ func (p *Panels) drawShareSendDialog(f *flex.Frame, theme ui.Theme, submit func(
 				names = append(names, fmt.Sprintf(i18n.T("等 %d 个文件"), count))
 			}
 			f.Text(strings.Join(names, "、")).FontSize(theme.Metrics.FontSizeS + 1).
-				Weight(ui.WeightMedium).Ellipsis()
+				Weight(gfx.WeightMedium).Ellipsis()
 			field := f.Field(&p.shareDialog.password, p.ids.shareDialogPassword,
 				i18n.T("访问密码（可选）"), i18n.T("留空表示无需密码")).FillWidth()
 			submitted = field.Submitted()

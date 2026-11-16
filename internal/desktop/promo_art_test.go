@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"image"
 	"image/color"
 	"image/png"
@@ -22,30 +23,30 @@ func writePromoPoster(t *testing.T, path string) {
 	const width, height = 720, 384
 	session, err := vivaheadless.Open(app.Config{
 		Width: width, Height: height, WindowMode: app.WindowFrameless,
-		Paint: func(c *ui.Canvas, size ui.Size) {
+		Paint: func(c *gfx.Canvas, size ui.Size) {
 			canvas := ui.Rect{Width: size.Width, Height: size.Height}
-			c.FillGradient(canvas, 0, 180, []ui.GradientStop{
-				ui.Stop(0, ui.RGB(39, 44, 66)), ui.Stop(0.34, ui.RGB(116, 82, 109)),
-				ui.Stop(0.69, ui.RGB(232, 144, 108)), ui.Stop(1, ui.RGB(249, 195, 135)),
+			c.FillGradient(canvas, 0, 180, []gfx.GradientStop{
+				gfx.Stop(0, ui.RGB(39, 44, 66)), gfx.Stop(0.34, ui.RGB(116, 82, 109)),
+				gfx.Stop(0.69, ui.RGB(232, 144, 108)), gfx.Stop(1, ui.RGB(249, 195, 135)),
 			})
 			c.Rounded(ui.Rect{X: 493, Y: 59, Width: 114, Height: 114}, 57, ui.RGB(255, 220, 158))
 			for _, star := range []ui.Point{{X: 366, Y: 68}, {X: 422, Y: 44}, {X: 457, Y: 93}, {X: 636, Y: 86}, {X: 663, Y: 61}, {X: 675, Y: 108}} {
 				c.Rounded(ui.Rect{X: star.X, Y: star.Y, Width: 2, Height: 2}, 1, ui.RGBA(255, 231, 201, .8))
 			}
 			fill := func(ink ui.Color, xy ...float32) {
-				commands := make([]ui.PathCommand, 0, len(xy)/2+1)
-				commands = append(commands, ui.MoveTo(xy[0], xy[1]))
+				commands := make([]gfx.PathCommand, 0, len(xy)/2+1)
+				commands = append(commands, gfx.MoveTo(xy[0], xy[1]))
 				for i := 2; i < len(xy); i += 2 {
-					commands = append(commands, ui.LineTo(xy[i], xy[i+1]))
+					commands = append(commands, gfx.LineTo(xy[i], xy[i+1]))
 				}
-				commands = append(commands, ui.ClosePath())
-				c.DrawPath(ui.NewPath(width, height, commands...), canvas, ui.PathStyle{Fill: ink})
+				commands = append(commands, gfx.ClosePath())
+				c.DrawPath(gfx.NewPath(width, height, commands...), canvas, gfx.PathStyle{Fill: ink})
 			}
 			fill(ui.RGB(140, 103, 121), 0, 259, 67, 224, 133, 235, 220, 197, 266, 212, 315, 186, 357, 209, 398, 177, 432, 207, 465, 185, 500, 198, 545, 160, 574, 173, 630, 150, 675, 183, 720, 166, 720, 315, 0, 315)
 			fill(ui.RGB(77, 73, 94), 0, 284, 65, 258, 118, 264, 197, 226, 248, 257, 310, 215, 346, 231, 394, 186, 428, 214, 470, 222, 502, 200, 543, 227, 585, 209, 627, 230, 669, 200, 720, 211, 720, 324, 0, 324)
 			fill(ui.RGB(53, 65, 83), 0, 298, 78, 280, 134, 288, 209, 258, 253, 270, 331, 242, 379, 262, 430, 243, 482, 260, 528, 229, 585, 260, 640, 246, 681, 266, 720, 246, 720, 384, 0, 384)
-			c.FillGradient(ui.Rect{Y: 294, Width: width, Height: 90}, 0, 180, []ui.GradientStop{
-				ui.Stop(0, ui.RGB(77, 78, 100)), ui.Stop(0.4, ui.RGB(52, 63, 82)), ui.Stop(1, ui.RGB(25, 42, 57)),
+			c.FillGradient(ui.Rect{Y: 294, Width: width, Height: 90}, 0, 180, []gfx.GradientStop{
+				gfx.Stop(0, ui.RGB(77, 78, 100)), gfx.Stop(0.4, ui.RGB(52, 63, 82)), gfx.Stop(1, ui.RGB(25, 42, 57)),
 			})
 			for i := 0; i < 13; i++ {
 				y := float32(299 + i*5)
@@ -62,9 +63,9 @@ func writePromoPoster(t *testing.T, path string) {
 					x+h*.05, y-h*.65, x+h*.14, y-h*.39, x+h*.08, y-h*.42, x+h*.18, y-h*.13, x+2, y-h*.13, x+2, y)
 			}
 			c.PushLayer(2)
-			c.Label("NORTH RIDGE  /  2026", ui.Rect{X: 48, Y: 43, Width: 390, Height: 22}, ui.TextStyle{Size: 16, Weight: ui.WeightSemibold, Color: ui.RGB(255, 224, 173)})
-			c.Label("北岭计划", ui.Rect{X: 46, Y: 72, Width: 425, Height: 74}, ui.TextStyle{Size: 58, Weight: ui.WeightBold, Color: ui.RGB(255, 248, 223)})
-			c.Label("山野设计季 · 秋日企划", ui.Rect{X: 50, Y: 157, Width: 352, Height: 30}, ui.TextStyle{Size: 20, Color: ui.RGB(253, 223, 193)})
+			c.Label("NORTH RIDGE  /  2026", ui.Rect{X: 48, Y: 43, Width: 390, Height: 22}, gfx.TextStyle{Size: 16, Weight: gfx.WeightSemibold, Color: ui.RGB(255, 224, 173)})
+			c.Label("北岭计划", ui.Rect{X: 46, Y: 72, Width: 425, Height: 74}, gfx.TextStyle{Size: 58, Weight: gfx.WeightBold, Color: ui.RGB(255, 248, 223)})
+			c.Label("山野设计季 · 秋日企划", ui.Rect{X: 50, Y: 157, Width: 352, Height: 30}, gfx.TextStyle{Size: 20, Color: ui.RGB(253, 223, 193)})
 			c.PopLayer()
 		},
 	}, nil, vivaheadless.Options{Scale: 1})

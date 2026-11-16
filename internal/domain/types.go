@@ -4,21 +4,22 @@ package domain
 import "time"
 
 type Peer struct {
-	RecallSupported bool `json:"RecallSupported,omitempty"`
-	ID              string
-	Name            string
-	Address         string
-	Avatar          string
-	ContactGroup    string
-	Online          bool
-	LastSeen        time.Time
-	PublicKey       []byte
-	Signature       string         `json:",omitempty"`
-	Presence        Presence       `json:",omitempty"`
-	Details         ProfileDetails `json:",omitzero"`
-	Version         string         `json:",omitempty"`
-	Transport       string         `json:",omitempty"` // empty for GoIM TLS
-	ClientType      ClientType     `json:",omitempty"`
+	RecallSupported      bool `json:"RecallSupported,omitempty"`
+	ID                   string
+	Name                 string
+	Address              string
+	Avatar               string
+	ContactGroup         string
+	Online               bool
+	LastSeen             time.Time
+	PublicKey            []byte
+	Signature            string         `json:",omitempty"`
+	Presence             Presence       `json:",omitempty"`
+	Details              ProfileDetails `json:",omitzero"`
+	Version              string         `json:",omitempty"`
+	Transport            string         `json:",omitempty"` // empty for GoIM TLS
+	ClientType           ClientType     `json:",omitempty"`
+	CompatibilityAliasOf string         `json:",omitempty"` // local contact linkage; never an authenticated identity
 }
 
 // ProfileDetails contains optional information shared with connected GoIM peers.
@@ -41,6 +42,7 @@ const (
 
 const (
 	TransportGoIM            = ""
+	TransportAuto            = "auto" // connection request only; never a stored transport
 	TransportIPMSG           = "ipmsg"
 	TransportNeiwangtong     = "neiwangtong"
 	IPMSGPort                = 2425
@@ -183,6 +185,7 @@ type Transfer struct {
 	LegacyTransport string `json:",omitempty"`
 	RemotePacket    string `json:",omitempty"`
 	RemoteFile      string `json:",omitempty"`
+	RemotePeerID    string `json:",omitempty"` // wire identity of an existing compatibility transfer
 }
 
 type Shortcut struct {
@@ -194,39 +197,43 @@ type Shortcut struct {
 const ShortcutScreenshot = "截图标注"
 
 type Settings struct {
-	IPMSG                   CompatibilityConfig
-	Neiwangtong             CompatibilityConfig
-	CompatibilityConfigured bool
-	RecentEmoji             []string `json:",omitempty"`
-	Language                string
-	Theme                   string
-	Nickname                string
-	Avatar                  string
-	Signature               string
-	ProfileDetails          ProfileDetails `json:",omitzero"`
-	Presence                Presence
-	Background              string
-	BackgroundShade         int
-	HasLockPassword         bool
-	LockOnStartup           bool
-	HideNotificationText    bool
-	HideOfflineContacts     bool
-	DisableAutoDiscovery    bool
-	AutoAcceptImages        bool
-	DesktopNotifications    bool
-	Sound                   bool
-	DownloadDir             string
-	DuplicatePolicy         string
-	AutoAccept              bool
-	Network                 string
-	PendingNetwork          string
-	CloseToTray             bool
-	SendKey                 string
-	Shortcuts               []Shortcut
+	IPMSG                        CompatibilityConfig
+	Neiwangtong                  CompatibilityConfig
+	CompatibilityConfigured      bool
+	CompatibilityDefaultsVersion int      `json:",omitempty"`
+	RecentEmoji                  []string `json:",omitempty"`
+	Language                     string
+	Theme                        string
+	Nickname                     string
+	Avatar                       string
+	Signature                    string
+	ProfileDetails               ProfileDetails `json:",omitzero"`
+	Presence                     Presence
+	Background                   string
+	BackgroundShade              int
+	HasLockPassword              bool
+	LockOnStartup                bool
+	HideNotificationText         bool
+	HideOfflineContacts          bool
+	DisableAutoDiscovery         bool
+	AutoAcceptImages             bool
+	DesktopNotifications         bool
+	Sound                        bool
+	DownloadDir                  string
+	DuplicatePolicy              string
+	AutoAccept                   bool
+	Network                      string
+	PendingNetwork               string
+	CloseToTray                  bool
+	SendKey                      string
+	Shortcuts                    []Shortcut
 }
 
 func DefaultSettings(downloadDir string) Settings {
-	return Settings{CompatibilityConfigured: true, IPMSG: CompatibilityConfig{Port: IPMSGPort}, Neiwangtong: CompatibilityConfig{Port: NeiwangtongDiscoveryPort}, Language: "zh-CN", Theme: "light", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
+	return Settings{CompatibilityConfigured: true, CompatibilityDefaultsVersion: 1,
+		IPMSG:       CompatibilityConfig{Enabled: true, Port: IPMSGPort},
+		Neiwangtong: CompatibilityConfig{Enabled: true, Port: NeiwangtongDiscoveryPort},
+		Language:    "zh-CN", Theme: "light", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
 		DuplicatePolicy: "rename", CloseToTray: true, SendKey: "Enter", Shortcuts: []Shortcut{
 			{Action: "会话内搜索", Keys: "Ctrl+F", Scope: "应用内"},
 			{Action: "快速查找", Keys: "Ctrl+K", Scope: "应用内"},
@@ -346,6 +353,8 @@ type CommandKind string
 const (
 	Connect            CommandKind = "connect"
 	SetCompatibility   CommandKind = "set_compatibility"
+	LinkCompatibility  CommandKind = "link_compatibility"
+	RefreshPeerAvatar  CommandKind = "refresh_peer_avatar"
 	StartChat          CommandKind = "start_chat"
 	SendText           CommandKind = "send_text"
 	SendFiles          CommandKind = "send_files"
@@ -399,6 +408,7 @@ type Command struct {
 	MessageID      string
 	Kind           CommandKind
 	PeerID         string
+	RelatedPeerID  string
 	ConversationID string
 	GroupID        string
 	FileID         string
@@ -415,6 +425,7 @@ type Command struct {
 	Password       string // local secret, never serialized into app state or wire messages
 	AvatarBGRA     []byte // optional immutable preview pixels in premultiplied BGRA
 	AvatarSize     int
+	RemoveAvatar   bool
 	Signature      string
 	ProfileDetails *ProfileDetails
 	Presence       Presence

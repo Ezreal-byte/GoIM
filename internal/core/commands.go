@@ -29,6 +29,10 @@ func (n *Node) execute(c domain.Command) error {
 		return n.connectVia(c.Transport, c.Address)
 	case domain.SetCompatibility:
 		return n.setCompatibility(c.Transport, c.Compatibility)
+	case domain.LinkCompatibility:
+		return n.linkCompatibility(c.PeerID, c.RelatedPeerID)
+	case domain.RefreshPeerAvatar:
+		return n.refreshNeiwangtongAvatar(c.PeerID)
 	case domain.StartChat:
 		s := n.snapshot(false)
 		if c.ConversationID != "" {
@@ -139,7 +143,7 @@ func (n *Node) execute(c domain.Command) error {
 	case domain.SetSetting:
 		return n.setting(c)
 	case domain.SetProfile:
-		return n.updateProfile(c.Name, c.Value, c.AvatarBGRA, c.AvatarSize, c.Signature, c.Presence, c.ProfileDetails)
+		return n.updateProfile(c.Name, c.Value, c.AvatarBGRA, c.AvatarSize, c.Signature, c.Presence, c.ProfileDetails, c.RemoveAvatar)
 	case domain.SetLockPassword, domain.LockApp, domain.UnlockApp:
 		err := n.updateLock(c)
 		if c.Request == 0 {
@@ -507,6 +511,7 @@ func (n *Node) setting(c domain.Command) error {
 		settings.IPMSG = s.Settings.IPMSG
 		settings.Neiwangtong = s.Settings.Neiwangtong
 		settings.CompatibilityConfigured = s.Settings.CompatibilityConfigured
+		settings.CompatibilityDefaultsVersion = s.Settings.CompatibilityDefaultsVersion
 		s.Settings = settings
 		s.Notice, s.Error = "已保存", ""
 	}); err != nil {
@@ -515,9 +520,13 @@ func (n *Node) setting(c domain.Command) error {
 	if c.Setting == "disable_auto_discovery" {
 		n.mu.Lock()
 		legacy := n.legacy
+		native := n.neiwangtong
 		n.mu.Unlock()
 		if legacy != nil {
 			legacy.SetBroadcastEnabled(n.discovery && !settings.DisableAutoDiscovery)
+		}
+		if native != nil {
+			native.SetBroadcastEnabled(n.discovery && !settings.DisableAutoDiscovery)
 		}
 	}
 	return nil
@@ -526,7 +535,7 @@ func (n *Node) broadcastProfile() {
 	s := n.snapshot(false)
 	e := n.profileEnvelope()
 	for _, p := range s.Peers {
-		if p.Online && p.Transport != legacyIPMSG {
+		if p.Online && p.Transport == domain.TransportGoIM {
 			n.reliable(p.ID, e)
 		}
 	}

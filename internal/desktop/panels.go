@@ -2,11 +2,10 @@ package desktop
 
 import (
 	"fmt"
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"net"
 	"path/filepath"
-	"runtime"
-	"runtime/debug"
 	"slices"
 	"sort"
 	"strconv"
@@ -15,8 +14,8 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -63,101 +62,110 @@ var (
 )
 
 type panelIDs struct {
-	settingsFeature    ui.Scope
-	settingsCategories ui.Scope
-	themeChoice        ui.Scope
-	languageChoice     ui.Scope
-	duplicateChoice    ui.Scope
-	networkChoice      ui.Scope
-	sendKeyChoice      ui.Scope
+	settingsFeature    gfx.Scope
+	settingsCategories gfx.Scope
+	themeChoice        gfx.Scope
+	languageChoice     gfx.Scope
+	duplicateChoice    gfx.Scope
+	networkChoice      gfx.Scope
+	sendKeyChoice      gfx.Scope
 
-	settingsNotification ui.ID
-	settingsSound        ui.ID
-	settingsAutoAccept   ui.ID
-	settingsCloseToTray  ui.ID
-	settingsChooseDir    ui.ID
-	settingsOpenDir      ui.ID
-	settingsRefreshNet   ui.ID
-	settingsDismissLocal ui.ID
-	settingsClearError   ui.ID
+	settingsNotification gfx.ID
+	settingsSound        gfx.ID
+	settingsAutoAccept   gfx.ID
+	settingsCloseToTray  gfx.ID
+	settingsChooseDir    gfx.ID
+	settingsOpenDir      gfx.ID
+	settingsRefreshNet   gfx.ID
+	settingsDismissLocal gfx.ID
+	settingsClearError   gfx.ID
 
-	networkDefer  ui.ID
-	networkCancel ui.ID
+	networkDefer  gfx.ID
+	networkCancel gfx.ID
 
-	settingsGeneralScroll   ui.ID
-	settingsShortcutsScroll ui.ID
-	settingsAboutScroll     ui.ID
+	settingsGeneralScroll   gfx.ID
+	settingsShortcutsScroll gfx.ID
+	settingsAboutScroll     gfx.ID
 
-	shortcutRecord       ui.Scope
-	shortcutSave         ui.Scope
-	shortcutCancel       ui.Scope
-	shortcutReset        ui.ID
-	shortcutConfirmReset ui.ID
-	shortcutCancelReset  ui.ID
+	shortcutRecord        gfx.Scope
+	shortcutSave          gfx.Scope
+	shortcutCancel        gfx.Scope
+	shortcutReset         gfx.ID
+	shortcutConfirmReset  gfx.ID
+	shortcutCancelReset   gfx.ID
+	shortcutDialog        gfx.ID
+	shortcutDialogScope   gfx.Scope
+	shortcutDialogDismiss gfx.ID
+	shortcutDialogClose   gfx.ID
+	shortcutDialogReset   gfx.Scope
+	shortcutDialogClear   gfx.Scope
+	shortcutDialogSave    gfx.Scope
+	shortcutDialogCancel  gfx.Scope
 
-	aboutCopyVersion ui.ID
-	aboutLicense     ui.ID
-	aboutBack        ui.ID
-	aboutCopyLicense ui.ID
+	aboutCopyVersion gfx.ID
+	aboutLicense     gfx.ID
+	aboutBack        gfx.ID
+	aboutCopyLicense gfx.ID
+	aboutCards       gfx.Scope
 
-	transferActions     ui.Scope
-	transferFilters     ui.Scope
-	transferScroll      ui.ID
-	transferIncoming    ui.ID
-	transferDirectory   ui.ID
-	transferMenuScope   ui.ID
-	transferMenuDismiss ui.ID
-	transferMenuCopy    ui.ID
-	transfersDismiss    ui.ID
-	transfersClearError ui.ID
+	transferActions     gfx.Scope
+	transferFilters     gfx.Scope
+	transferScroll      gfx.ID
+	transferIncoming    gfx.ID
+	transferDirectory   gfx.ID
+	transferMenuScope   gfx.ID
+	transferMenuDismiss gfx.ID
+	transferMenuCopy    gfx.ID
+	transfersDismiss    gfx.ID
+	transfersClearError gfx.ID
 
-	sharesFeature                        ui.Scope
-	sharesScroll                         ui.ID
-	sharesFilters                        ui.Scope
-	sharesRefresh                        ui.ID
-	sharesAdd                            ui.ID
-	sharePickFiles, sharePickFolder      ui.ID
-	deviceShareMenu, shareMenuEnableLink ui.ID
-	shareToastScope, shareToastDismiss   ui.ID
-	deviceShareStart                     ui.ID
-	deviceShareCopy                      ui.ID
-	deviceShareQR                        ui.ID
-	deviceShareInbox                     ui.ID
-	deviceShareStop                      ui.ID
-	shareCopyLink                        ui.Scope
-	shareMore                            ui.Scope
-	shareRow                             ui.Scope
+	sharesFeature                        gfx.Scope
+	sharesScroll                         gfx.ID
+	sharesFilters                        gfx.Scope
+	sharesRefresh                        gfx.ID
+	sharesAdd                            gfx.ID
+	sharePickFiles, sharePickFolder      gfx.ID
+	deviceShareMenu, shareMenuEnableLink gfx.ID
+	shareToastScope, shareToastDismiss   gfx.ID
+	deviceShareStart                     gfx.ID
+	deviceShareCopy                      gfx.ID
+	deviceShareQR                        gfx.ID
+	deviceShareInbox                     gfx.ID
+	deviceShareStop                      gfx.ID
+	shareCopyLink                        gfx.Scope
+	shareMore                            gfx.Scope
+	shareRow                             gfx.Scope
 
-	shareMenuScope     ui.ID
-	shareMenuDismiss   ui.ID
-	shareMenuOpen      ui.ID
-	shareMenuFolder    ui.ID
-	shareMenuGet       ui.ID
-	shareMenuCopy      ui.ID
-	shareMenuQR        ui.ID
-	shareMenuPassword  ui.ID
-	shareMenuClearPass ui.ID
-	shareMenuUnshare   ui.ID
+	shareMenuScope     gfx.ID
+	shareMenuDismiss   gfx.ID
+	shareMenuOpen      gfx.ID
+	shareMenuFolder    gfx.ID
+	shareMenuGet       gfx.ID
+	shareMenuCopy      gfx.ID
+	shareMenuQR        gfx.ID
+	shareMenuPassword  gfx.ID
+	shareMenuClearPass gfx.ID
+	shareMenuUnshare   gfx.ID
 
-	shareDialogScope    ui.ID
-	shareDialogDismiss  ui.ID
-	shareDialogClose    ui.ID
-	shareDialogPassword ui.ID
-	shareDialogCancel   ui.ID
-	shareDialogSubmit   ui.ID
+	shareDialogScope    gfx.ID
+	shareDialogDismiss  gfx.ID
+	shareDialogClose    gfx.ID
+	shareDialogPassword gfx.ID
+	shareDialogCancel   gfx.ID
+	shareDialogSubmit   gfx.ID
 
-	sharePasswordScope   ui.ID
-	sharePasswordDismiss ui.ID
-	sharePasswordClose   ui.ID
-	sharePasswordField   ui.ID
-	sharePasswordCancel  ui.ID
-	sharePasswordSubmit  ui.ID
+	sharePasswordScope   gfx.ID
+	sharePasswordDismiss gfx.ID
+	sharePasswordClose   gfx.ID
+	sharePasswordField   gfx.ID
+	sharePasswordCancel  gfx.ID
+	sharePasswordSubmit  gfx.ID
 
-	shareQRScope         ui.ID
-	shareQRDismiss       ui.ID
-	shareQRClose         ui.ID
-	shareQRDismissButton ui.ID
-	shareQRCopy          ui.ID
+	shareQRScope         gfx.ID
+	shareQRDismiss       gfx.ID
+	shareQRClose         gfx.ID
+	shareQRDismissButton gfx.ID
+	shareQRCopy          gfx.ID
 }
 
 type panelNetworkOption struct {
@@ -202,7 +210,7 @@ type panelTransferEntry struct {
 
 type panelShareEntry struct {
 	file                                                    domain.File
-	rowID, copyID, moreID                                   ui.ID
+	rowID, copyID, moreID                                   gfx.ID
 	title, label, kind, date, access, compactMeta, iconKind string
 	sender                                                  string
 	meta                                                    string
@@ -230,18 +238,11 @@ type panelPendingSetting struct {
 	revision uint64
 }
 
-type panelBuildInfo struct {
-	goVersion   string
-	vivaVersion string
-	revision    string
-	buildTime   string
-}
-
 // Panels owns the settings, transfers, and file-sharing surfaces. Init must be
 // called with the application's tree before Draw; Draw can also initialize from
 // the canvas tree for standalone tests.
 type Panels struct {
-	tree        *ui.Tree
+	tree        *gfx.Tree
 	initialized bool
 	view        flex.View
 	ids         panelIDs
@@ -251,6 +252,8 @@ type Panels struct {
 	settingsTab     panelSettingsTab
 	settingsScroll  [panelSettingsCount]float32
 	settingsExtra   panelSettingsExtra
+	settingsWidth   float32
+	settingsNarrow  bool
 	scrollTab       panelSettingsTab
 	scrollTabSet    bool
 	aboutLicense    bool
@@ -315,7 +318,7 @@ type Panels struct {
 	build       panelBuildInfo
 }
 
-func (p *Panels) Init(tree *ui.Tree) {
+func (p *Panels) Init(tree *gfx.Tree) {
 	if tree == nil {
 		return
 	}
@@ -323,6 +326,7 @@ func (p *Panels) Init(tree *ui.Tree) {
 		return
 	}
 	p.tree = tree
+	p.view = flex.NewView("panels")
 	p.initialized = true
 	p.shortcutEdit = -1
 	p.localActions = make(map[uint64]panelLocalAction)
@@ -360,11 +364,23 @@ func (p *Panels) Init(tree *ui.Tree) {
 	p.ids.shortcutReset = tree.ID(settings, "reset-shortcuts")
 	p.ids.shortcutConfirmReset = tree.ID(settings, "confirm-reset-shortcuts")
 	p.ids.shortcutCancelReset = tree.ID(settings, "cancel-reset-shortcuts")
+	shortcutDialog := tree.Sub(settings, tree.Name("shortcut-dialog"))
+	p.ids.shortcutDialogScope = shortcutDialog
+	p.ids.shortcutDialog = tree.ID(shortcutDialog, "scope")
+	p.ids.shortcutDialogDismiss = tree.ID(shortcutDialog, "dismiss")
+	p.ids.shortcutDialogClose = tree.ID(shortcutDialog, "close")
+	p.ids.shortcutDialogReset = tree.Sub(shortcutDialog, tree.Name("reset"))
+	p.ids.shortcutDialogClear = tree.Sub(shortcutDialog, tree.Name("clear"))
+	p.ids.shortcutDialogSave = tree.Sub(shortcutDialog, tree.Name("save"))
+	p.ids.shortcutDialogCancel = tree.Sub(shortcutDialog, tree.Name("cancel"))
+	p.ids.shortcutSave = p.ids.shortcutDialogSave
+	p.ids.shortcutCancel = p.ids.shortcutDialogCancel
 
 	p.ids.aboutCopyVersion = tree.ID(settings, "copy-version")
 	p.ids.aboutLicense = tree.ID(settings, "show-license")
 	p.ids.aboutBack = tree.ID(settings, "about-back")
 	p.ids.aboutCopyLicense = tree.ID(settings, "copy-license")
+	p.ids.aboutCards = tree.Sub(settings, tree.Name("about-card"))
 
 	transfers := tree.Feature("transfers-panel")
 	p.ids.transferActions = tree.Sub(transfers, tree.Name("task"))
@@ -437,7 +453,7 @@ func (p *Panels) Init(tree *ui.Tree) {
 // Draw renders one whole panel inside bounds. The shell owns the outer rail and
 // passes state it obtained on OnWake; this method never blocks and never starts
 // background work.
-func (p *Panels) Draw(canvas *ui.Canvas, theme ui.Theme, bounds ui.Rect, module string, state domain.State, submit func(domain.Command)) {
+func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module string, state domain.State, submit func(domain.Command)) {
 	if canvas == nil || bounds.Width <= 0 || bounds.Height <= 0 {
 		return
 	}
@@ -471,7 +487,11 @@ func (p *Panels) Draw(canvas *ui.Canvas, theme ui.Theme, bounds ui.Rect, module 
 
 	canvas.Clip(bounds)
 	canvas.Fill(bounds, theme.Background)
-	p.view.Draw(canvas, theme, bounds, func(f *flex.Frame) {
+	panelTheme := theme
+	if module == panelModuleSettings {
+		panelTheme = theme.WithControlHeight(panelSettingsControlH)
+	}
+	p.view.Draw(canvas, panelTheme, bounds, func(f *flex.Frame) {
 		switch module {
 		case panelModuleSettings:
 			p.drawSettings(f, theme, state, submit)
@@ -593,9 +613,9 @@ func (p *Panels) TextInput() app.TextInputProvider {
 // Key handles keys the shell routes while a panel is visible. Call it from
 // Config.OnKey and Config.OnShortcut (Shortcut is an alias for convenience).
 // It consumes only shortcut recording and Escape on its own detail pages.
-func (p *Panels) Key(event ui.KeyEvent) ui.EventResult {
+func (p *Panels) Key(event gfx.KeyEvent) gfx.EventResult {
 	if event.Release {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	if p.module == panelModuleTransfers && p.transferMenu == "" &&
 		(event.Target == p.ids.transferFilters.At(panelTransferPending) || event.Target == p.ids.transferFilters.At(panelTransferFinished)) {
@@ -604,7 +624,7 @@ func (p *Panels) Key(event ui.KeyEvent) ui.EventResult {
 			{ID: p.ids.transferFilters.At(panelTransferFinished)},
 		}
 		if next, ok := components.TabsKeyDown(event.Target, options[:], components.TabsHorizontal, components.DirectionLTR, event.Key); ok {
-			return ui.EventResult{Handled: true, Repaint: true, Focus: next, FocusVisible: true}
+			return gfx.EventResult{Handled: true, Repaint: true, Focus: next, FocusVisible: true}
 		}
 	}
 	if p.module == panelModuleSettings {
@@ -614,10 +634,10 @@ func (p *Panels) Key(event ui.KeyEvent) ui.EventResult {
 			}
 		}
 		if p.settingsTab == panelSettingsNetwork || p.settingsTab == panelSettingsTransfers {
-			if event.Key == ui.KeyEscape && (p.duplicateSelect.Open || p.networkSelect.Open) {
+			if event.Key == gfx.KeyEscape && (p.duplicateSelect.Open || p.networkSelect.Open) {
 				p.duplicateSelect.Open = false
 				p.networkSelect.Open = false
-				return ui.EventResult{Handled: true, Repaint: true}
+				return gfx.EventResult{Handled: true, Repaint: true}
 			}
 			if result := p.duplicateSelect.Key(event); result.Handled {
 				return result
@@ -627,44 +647,53 @@ func (p *Panels) Key(event ui.KeyEvent) ui.EventResult {
 			}
 		}
 		if p.shortcutEdit >= 0 {
-			if event.Key == ui.KeyEscape {
+			if event.Key == gfx.KeyEscape {
 				p.cancelShortcutEdit()
-				return ui.EventResult{Handled: true, Repaint: true}
+				return gfx.EventResult{Handled: true, Repaint: true}
+			}
+			if event.Key.IsModifier() {
+				return gfx.EventResult{Handled: true}
+			}
+			inDialog := p.tree != nil && p.tree.Within(event.Target.Scope(), p.ids.shortcutDialogScope)
+			if event.Key == gfx.KeyTab && event.Modifiers&(gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierMeta) == 0 ||
+				inDialog && (event.Key == gfx.KeyEnter || event.Key == gfx.KeySpace) &&
+					event.Modifiers&(gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierMeta) == 0 {
+				return gfx.EventResult{}
 			}
 			keys, ok := panelShortcutFromKey(event)
 			if !ok {
 				p.shortcutError = i18n.T("此按键无法录制，请换一组")
-				return ui.EventResult{Handled: true, Repaint: true}
+				return gfx.EventResult{Handled: true, Repaint: true}
 			}
 			p.shortcutKeys = keys
 			p.shortcutError = ""
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
-		if event.Key == ui.KeyEscape {
+		if event.Key == gfx.KeyEscape {
 			switch {
 			case p.aboutLicense:
 				p.aboutLicense = false
-				return ui.EventResult{Handled: true, Repaint: true}
+				return gfx.EventResult{Handled: true, Repaint: true}
 			case p.resetShortcuts:
 				p.resetShortcuts = false
-				return ui.EventResult{Handled: true, Repaint: true}
+				return gfx.EventResult{Handled: true, Repaint: true}
 			}
 		}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
 // Shortcut is for Config.OnShortcut; its events carry Ctrl/Alt/Meta chords.
-func (p *Panels) Shortcut(event ui.KeyEvent) ui.EventResult {
+func (p *Panels) Shortcut(event gfx.KeyEvent) gfx.EventResult {
 	return p.Key(event)
 }
 
 // Wheel routes the wheel to an open settings dropdown first, then to the panel
 // scroll area under the pointer.
-func (p *Panels) Wheel(event ui.ScrollEvent) ui.EventResult {
+func (p *Panels) Wheel(event gfx.ScrollEvent) gfx.EventResult {
 	if p.module == panelModuleTransfers && p.transferMenu != "" {
 		p.transferMenu = ""
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if p.module == panelModuleSettings && (p.settingsTab == panelSettingsNetwork || p.settingsTab == panelSettingsTransfers) {
 		if p.duplicateSelect.Open {
@@ -746,7 +775,7 @@ func (p *Panels) captureScroll() {
 	}
 }
 
-func (p *Panels) settingsScrollID(tab panelSettingsTab) ui.ID {
+func (p *Panels) settingsScrollID(tab panelSettingsTab) gfx.ID {
 	switch tab {
 	case panelSettingsGeneral:
 		return p.ids.settingsGeneralScroll
@@ -1140,39 +1169,39 @@ func (p *Panels) cancelShortcutEdit() {
 	p.shortcutError = ""
 }
 
-func panelShortcutFromKey(event ui.KeyEvent) (string, bool) {
+func panelShortcutFromKey(event gfx.KeyEvent) (string, bool) {
 	if event.Release || event.Key.IsModifier() {
 		return "", false
 	}
 	name := ""
 	switch event.Key {
-	case ui.KeyEnter:
+	case gfx.KeyEnter:
 		name = "Enter"
-	case ui.KeySpace:
+	case gfx.KeySpace:
 		name = "Space"
-	case ui.KeyTab:
+	case gfx.KeyTab:
 		name = "Tab"
-	case ui.KeyBackspace:
+	case gfx.KeyBackspace:
 		name = "Backspace"
-	case ui.KeyDelete:
+	case gfx.KeyDelete:
 		name = "Delete"
-	case ui.KeyHome:
+	case gfx.KeyHome:
 		name = "Home"
-	case ui.KeyEnd:
+	case gfx.KeyEnd:
 		name = "End"
-	case ui.KeyPageUp:
+	case gfx.KeyPageUp:
 		name = "PageUp"
-	case ui.KeyPageDown:
+	case gfx.KeyPageDown:
 		name = "PageDown"
-	case ui.KeyInsert:
+	case gfx.KeyInsert:
 		name = "Insert"
-	case ui.KeyLeft, ui.KeyRight, ui.KeyUp, ui.KeyDown:
-		name = map[ui.Key]string{
-			ui.KeyLeft: "Left", ui.KeyRight: "Right", ui.KeyUp: "Up", ui.KeyDown: "Down",
+	case gfx.KeyLeft, gfx.KeyRight, gfx.KeyUp, gfx.KeyDown:
+		name = map[gfx.Key]string{
+			gfx.KeyLeft: "Left", gfx.KeyRight: "Right", gfx.KeyUp: "Up", gfx.KeyDown: "Down",
 		}[event.Key]
-	case ui.KeyF1, ui.KeyF2, ui.KeyF3, ui.KeyF4, ui.KeyF5, ui.KeyF6,
-		ui.KeyF7, ui.KeyF8, ui.KeyF9, ui.KeyF10, ui.KeyF11, ui.KeyF12:
-		name = fmt.Sprintf("F%d", int(event.Key-ui.KeyF1)+1)
+	case gfx.KeyF1, gfx.KeyF2, gfx.KeyF3, gfx.KeyF4, gfx.KeyF5, gfx.KeyF6,
+		gfx.KeyF7, gfx.KeyF8, gfx.KeyF9, gfx.KeyF10, gfx.KeyF11, gfx.KeyF12:
+		name = fmt.Sprintf("F%d", int(event.Key-gfx.KeyF1)+1)
 	default:
 		name = strings.TrimSpace(event.Text)
 		if name != "" {
@@ -1183,16 +1212,16 @@ func panelShortcutFromKey(event ui.KeyEvent) (string, bool) {
 		return "", false
 	}
 	var parts []string
-	if event.Modifiers&ui.ModifierControl != 0 {
+	if event.Modifiers&gfx.ModifierControl != 0 {
 		parts = append(parts, "Ctrl")
 	}
-	if event.Modifiers&ui.ModifierAlt != 0 {
+	if event.Modifiers&gfx.ModifierAlt != 0 {
 		parts = append(parts, "Alt")
 	}
-	if event.Modifiers&ui.ModifierShift != 0 {
+	if event.Modifiers&gfx.ModifierShift != 0 {
 		parts = append(parts, "Shift")
 	}
-	if event.Modifiers&ui.ModifierMeta != 0 {
+	if event.Modifiers&gfx.ModifierMeta != 0 {
 		parts = append(parts, "Meta")
 	}
 	parts = append(parts, name)
@@ -1314,43 +1343,7 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 	return false
 }
 
-func panelReadBuildInfo() panelBuildInfo {
-	info := panelBuildInfo{goVersion: runtime.Version(), vivaVersion: i18n.T("未提供")}
-	build, ok := debug.ReadBuildInfo()
-	if !ok {
-		return info
-	}
-	if build.GoVersion != "" {
-		info.goVersion = build.GoVersion
-	}
-	for _, dependency := range build.Deps {
-		if dependency.Path != "github.com/vivaui/viva" {
-			continue
-		}
-		switch {
-		case dependency.Replace != nil && dependency.Replace.Version != "":
-			info.vivaVersion = dependency.Replace.Version
-		case dependency.Replace != nil:
-			info.vivaVersion = i18n.T("本地替换")
-		case dependency.Version != "":
-			info.vivaVersion = dependency.Version
-		}
-	}
-	for _, setting := range build.Settings {
-		switch setting.Key {
-		case "vcs.revision":
-			info.revision = setting.Value
-		case "vcs.time":
-			info.buildTime = setting.Value
-		}
-	}
-	if len(info.revision) > 12 {
-		info.revision = info.revision[:12]
-	}
-	return info
-}
-
-func panelCopy(canvas *ui.Canvas, p *Panels, text string) {
+func panelCopy(canvas *gfx.Canvas, p *Panels, text string) {
 	canvas.AfterPaint(func() {
 		if err := app.SetClipboardText(text); err != nil {
 			p.localError = i18n.T("复制失败：") + err.Error()
@@ -1361,7 +1354,7 @@ func panelCopy(canvas *ui.Canvas, p *Panels, text string) {
 	})
 }
 
-func panelOpenLocal(_ *ui.Canvas, p *Panels, path string, reveal bool) {
+func panelOpenLocal(_ *gfx.Canvas, p *Panels, path string, reveal bool) {
 	p.requestLocalAction(path, reveal, false)
 }
 
@@ -1453,7 +1446,7 @@ func panelStatusColor(theme ui.Theme, status string) ui.Color {
 func panelPageHeader(f *flex.Frame, theme ui.Theme, title, description string, trailing func()) {
 	f.Row().FillWidth().Items(flex.Center).Gap(20).Children(func() {
 		f.Column().Grow(1).Gap(3).Children(func() {
-			f.Text(title).FontSize(25).Weight(ui.WeightSemibold)
+			f.Text(title).FontSize(25).Weight(gfx.WeightSemibold)
 			if description != "" {
 				f.Paragraph(description, 2).Muted().FontSize(theme.Metrics.FontSizeS + 1)
 			}
@@ -1467,7 +1460,7 @@ func panelPageHeader(f *flex.Frame, theme ui.Theme, title, description string, t
 func panelSection(f *flex.Frame, title, description string, body func()) {
 	f.Column().FillWidth().Gap(2).PadSides(0, 0, 2, 0).Children(func() {
 		f.Row().FillWidth().PadY(8).Children(func() {
-			f.Text(title).FontSize(16).Weight(ui.WeightSemibold)
+			f.Text(title).FontSize(16).Weight(gfx.WeightSemibold)
 		})
 		if description != "" {
 			f.Paragraph(description, 2).Muted().FontSize(12)
@@ -1479,7 +1472,7 @@ func panelSection(f *flex.Frame, title, description string, body func()) {
 func panelSettingRow(f *flex.Frame, theme ui.Theme, title, description string, control func()) {
 	f.Row().FillWidth().Gap(24).PadY(13).Items(flex.Center).Children(func() {
 		f.Column().Grow(1).Gap(3).Children(func() {
-			f.Text(title).FontSize(theme.Metrics.FontSizeM + 1).Weight(ui.WeightMedium)
+			f.Text(title).FontSize(theme.Metrics.FontSizeM + 1).Weight(gfx.WeightMedium)
 			if description != "" {
 				f.Paragraph(description, 3).Muted().FontSize(theme.Metrics.FontSizeS)
 			}
@@ -1497,9 +1490,9 @@ func panelControlColumn(f *flex.Frame, width float32, body func()) {
 
 func panelPill(f *flex.Frame, theme ui.Theme, text string, tone ui.Color) {
 	background := panelTint(tone, 0.10, theme.Background)
-	f.Row().PadSides(4, 9, 4, 9).Radius(ui.RadiusFull).Background(background).
+	f.Row().PadSides(4, 9, 4, 9).Radius(gfx.RadiusFull).Background(background).
 		Border(1, panelTint(tone, 0.22, theme.Background)).Children(func() {
-		f.Text(text).FontSize(theme.Metrics.FontSizeS).Weight(ui.WeightMedium).Color(tone)
+		f.Text(text).FontSize(theme.Metrics.FontSizeS).Weight(gfx.WeightMedium).Color(tone)
 	})
 }
 
@@ -1516,7 +1509,7 @@ func panelBanner(f *flex.Frame, theme ui.Theme, text string, danger bool, dismis
 		Border(1, panelTint(tone, 0.24, theme.Background)).Radius(8).Children(func() {
 		f.Paragraph(text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1).Color(tone)
 		if dismiss != nil {
-			if f.Button(ui.ID{}, i18n.T("关闭")).Small().Ghost().Clicked() {
+			if f.Button(gfx.ID{}, i18n.T("关闭")).Small().Ghost().Clicked() {
 				dismiss()
 			}
 		}
@@ -1533,7 +1526,7 @@ func panelScrollFooter(f *flex.Frame, theme ui.Theme, left, right string) {
 	})
 }
 
-func (p *Panels) panelFeedback(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command), dismissLocal, clearError ui.ID) {
+func (p *Panels) panelFeedback(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command), dismissLocal, clearError gfx.ID) {
 	if p.localError != "" {
 		id := dismissLocal
 		if id.IsZero() {
@@ -1556,7 +1549,7 @@ func (p *Panels) panelFeedback(f *flex.Frame, theme ui.Theme, state domain.State
 	}
 }
 
-func panelBannerWithAction(f *flex.Frame, theme ui.Theme, text string, danger bool, id ui.ID, dismiss func()) {
+func panelBannerWithAction(f *flex.Frame, theme ui.Theme, text string, danger bool, id gfx.ID, dismiss func()) {
 	tone := theme.Primary
 	if danger {
 		tone = theme.Danger
@@ -1575,7 +1568,7 @@ func panelBannerWithAction(f *flex.Frame, theme ui.Theme, text string, danger bo
 
 func panelEmpty(f *flex.Frame, theme ui.Theme, title, description string) {
 	f.Column().FillWidth().PadY(64).Gap(6).Items(flex.Center).Children(func() {
-		f.Text(title).FontSize(16).Weight(ui.WeightMedium)
+		f.Text(title).FontSize(16).Weight(gfx.WeightMedium)
 		f.Paragraph(description, 2).Muted().FontSize(theme.Metrics.FontSizeS + 1).MaxWidth(420).TextCenter()
 	})
 }
@@ -1593,67 +1586,67 @@ func panelPathText(f *flex.Frame, theme ui.Theme, path string) {
 }
 
 var (
-	panelIconGear = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-		ui.MoveTo(12, 3.5), ui.CubicTo(16.7, 3.5, 20.5, 7.3, 20.5, 12),
-		ui.CubicTo(20.5, 16.7, 16.7, 20.5, 12, 20.5),
-		ui.CubicTo(7.3, 20.5, 3.5, 16.7, 3.5, 12), ui.CubicTo(3.5, 7.3, 7.3, 3.5, 12, 3.5),
-		ui.MoveTo(12, 8.2), ui.CubicTo(14.1, 8.2, 15.8, 9.9, 15.8, 12),
-		ui.CubicTo(15.8, 14.1, 14.1, 15.8, 12, 15.8),
-		ui.CubicTo(9.9, 15.8, 8.2, 14.1, 8.2, 12), ui.CubicTo(8.2, 9.9, 9.9, 8.2, 12, 8.2),
-		ui.MoveTo(12, 1.5), ui.LineTo(12, 3.5), ui.MoveTo(12, 20.5), ui.LineTo(12, 22.5),
-		ui.MoveTo(1.5, 12), ui.LineTo(3.5, 12), ui.MoveTo(20.5, 12), ui.LineTo(22.5, 12),
-		ui.MoveTo(4.6, 4.6), ui.LineTo(6, 6), ui.MoveTo(18, 18), ui.LineTo(19.4, 19.4),
-		ui.MoveTo(19.4, 4.6), ui.LineTo(18, 6), ui.MoveTo(6, 18), ui.LineTo(4.6, 19.4),
+	panelIconGear = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+		gfx.MoveTo(12, 3.5), gfx.CubicTo(16.7, 3.5, 20.5, 7.3, 20.5, 12),
+		gfx.CubicTo(20.5, 16.7, 16.7, 20.5, 12, 20.5),
+		gfx.CubicTo(7.3, 20.5, 3.5, 16.7, 3.5, 12), gfx.CubicTo(3.5, 7.3, 7.3, 3.5, 12, 3.5),
+		gfx.MoveTo(12, 8.2), gfx.CubicTo(14.1, 8.2, 15.8, 9.9, 15.8, 12),
+		gfx.CubicTo(15.8, 14.1, 14.1, 15.8, 12, 15.8),
+		gfx.CubicTo(9.9, 15.8, 8.2, 14.1, 8.2, 12), gfx.CubicTo(8.2, 9.9, 9.9, 8.2, 12, 8.2),
+		gfx.MoveTo(12, 1.5), gfx.LineTo(12, 3.5), gfx.MoveTo(12, 20.5), gfx.LineTo(12, 22.5),
+		gfx.MoveTo(1.5, 12), gfx.LineTo(3.5, 12), gfx.MoveTo(20.5, 12), gfx.LineTo(22.5, 12),
+		gfx.MoveTo(4.6, 4.6), gfx.LineTo(6, 6), gfx.MoveTo(18, 18), gfx.LineTo(19.4, 19.4),
+		gfx.MoveTo(19.4, 4.6), gfx.LineTo(18, 6), gfx.MoveTo(6, 18), gfx.LineTo(4.6, 19.4),
 	}}
-	panelIconKeyboard = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-		ui.MoveTo(6, 6), ui.LineTo(18, 6), ui.QuadTo(20, 6, 20, 8), ui.LineTo(20, 16),
-		ui.QuadTo(20, 18, 18, 18), ui.LineTo(6, 18), ui.QuadTo(4, 18, 4, 16),
-		ui.LineTo(4, 8), ui.QuadTo(4, 6, 6, 6), ui.ClosePath(),
-		ui.MoveTo(7, 10), ui.LineTo(17, 10), ui.MoveTo(7, 14), ui.LineTo(13, 14),
+	panelIconKeyboard = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+		gfx.MoveTo(6, 6), gfx.LineTo(18, 6), gfx.QuadTo(20, 6, 20, 8), gfx.LineTo(20, 16),
+		gfx.QuadTo(20, 18, 18, 18), gfx.LineTo(6, 18), gfx.QuadTo(4, 18, 4, 16),
+		gfx.LineTo(4, 8), gfx.QuadTo(4, 6, 6, 6), gfx.ClosePath(),
+		gfx.MoveTo(7, 10), gfx.LineTo(17, 10), gfx.MoveTo(7, 14), gfx.LineTo(13, 14),
 	}}
-	panelIconInfo = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-		ui.MoveTo(12, 3.5), ui.CubicTo(16.7, 3.5, 20.5, 7.3, 20.5, 12),
-		ui.CubicTo(20.5, 16.7, 16.7, 20.5, 12, 20.5),
-		ui.CubicTo(7.3, 20.5, 3.5, 16.7, 3.5, 12), ui.CubicTo(3.5, 7.3, 7.3, 3.5, 12, 3.5),
-		ui.MoveTo(12, 10.5), ui.LineTo(12, 17), ui.MoveTo(12, 7.2), ui.LineTo(12, 7.6),
+	panelIconInfo = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+		gfx.MoveTo(12, 3.5), gfx.CubicTo(16.7, 3.5, 20.5, 7.3, 20.5, 12),
+		gfx.CubicTo(20.5, 16.7, 16.7, 20.5, 12, 20.5),
+		gfx.CubicTo(7.3, 20.5, 3.5, 16.7, 3.5, 12), gfx.CubicTo(3.5, 7.3, 7.3, 3.5, 12, 3.5),
+		gfx.MoveTo(12, 10.5), gfx.LineTo(12, 17), gfx.MoveTo(12, 7.2), gfx.LineTo(12, 7.6),
 	}}
-	panelIconFolder = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-		ui.MoveTo(3.5, 7), ui.QuadTo(3.5, 5, 5.5, 5), ui.LineTo(9.2, 5),
-		ui.LineTo(11, 7), ui.LineTo(18.5, 7), ui.QuadTo(20.5, 7, 20.5, 9),
-		ui.LineTo(20.5, 17), ui.QuadTo(20.5, 19, 18.5, 19), ui.LineTo(5.5, 19),
-		ui.QuadTo(3.5, 19, 3.5, 17), ui.ClosePath(),
+	panelIconFolder = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+		gfx.MoveTo(3.5, 7), gfx.QuadTo(3.5, 5, 5.5, 5), gfx.LineTo(9.2, 5),
+		gfx.LineTo(11, 7), gfx.LineTo(18.5, 7), gfx.QuadTo(20.5, 7, 20.5, 9),
+		gfx.LineTo(20.5, 17), gfx.QuadTo(20.5, 19, 18.5, 19), gfx.LineTo(5.5, 19),
+		gfx.QuadTo(3.5, 19, 3.5, 17), gfx.ClosePath(),
 	}}
-	panelIconDownload = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-		ui.MoveTo(12, 4), ui.LineTo(12, 15), ui.MoveTo(7.5, 10.5), ui.LineTo(12, 15),
-		ui.LineTo(16.5, 10.5), ui.MoveTo(4.5, 18.5), ui.LineTo(19.5, 18.5),
+	panelIconDownload = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+		gfx.MoveTo(12, 4), gfx.LineTo(12, 15), gfx.MoveTo(7.5, 10.5), gfx.LineTo(12, 15),
+		gfx.LineTo(16.5, 10.5), gfx.MoveTo(4.5, 18.5), gfx.LineTo(19.5, 18.5),
 	}}
-	panelIconUpload = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-		ui.MoveTo(12, 15), ui.LineTo(12, 4), ui.MoveTo(7.5, 8.5), ui.LineTo(12, 4),
-		ui.LineTo(16.5, 8.5), ui.MoveTo(4.5, 18.5), ui.LineTo(19.5, 18.5),
+	panelIconUpload = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+		gfx.MoveTo(12, 15), gfx.LineTo(12, 4), gfx.MoveTo(7.5, 8.5), gfx.LineTo(12, 4),
+		gfx.LineTo(16.5, 8.5), gfx.MoveTo(4.5, 18.5), gfx.LineTo(19.5, 18.5),
 	}}
-	panelIconRefresh = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-		ui.MoveTo(19.5, 8), ui.CubicTo(17.8, 5.2, 14.7, 3.5, 11.3, 4.1),
-		ui.CubicTo(7.2, 4.8, 4, 8, 3.5, 12), ui.MoveTo(19.5, 4.5), ui.LineTo(19.5, 8),
-		ui.LineTo(16, 8), ui.MoveTo(4.5, 16), ui.CubicTo(6.2, 18.8, 9.3, 20.5, 12.7, 19.9),
-		ui.CubicTo(16.8, 19.2, 20, 16, 20.5, 12), ui.MoveTo(4.5, 19.5),
-		ui.LineTo(4.5, 16), ui.LineTo(8, 16),
+	panelIconRefresh = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+		gfx.MoveTo(19.5, 8), gfx.CubicTo(17.8, 5.2, 14.7, 3.5, 11.3, 4.1),
+		gfx.CubicTo(7.2, 4.8, 4, 8, 3.5, 12), gfx.MoveTo(19.5, 4.5), gfx.LineTo(19.5, 8),
+		gfx.LineTo(16, 8), gfx.MoveTo(4.5, 16), gfx.CubicTo(6.2, 18.8, 9.3, 20.5, 12.7, 19.9),
+		gfx.CubicTo(16.8, 19.2, 20, 16, 20.5, 12), gfx.MoveTo(4.5, 19.5),
+		gfx.LineTo(4.5, 16), gfx.LineTo(8, 16),
 	}}
-	panelIconCopy = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-		ui.MoveTo(8, 8), ui.LineTo(18, 8), ui.QuadTo(20, 8, 20, 10), ui.LineTo(20, 20),
-		ui.QuadTo(20, 22, 18, 22), ui.LineTo(8, 22), ui.QuadTo(6, 22, 6, 20),
-		ui.LineTo(6, 10), ui.QuadTo(6, 8, 8, 8),
-		ui.MoveTo(4, 16), ui.QuadTo(2, 16, 2, 14), ui.LineTo(2, 4), ui.QuadTo(2, 2, 4, 2),
-		ui.LineTo(14, 2), ui.QuadTo(16, 2, 16, 4), ui.MoveTo(16, 4), ui.LineTo(16, 6),
+	panelIconCopy = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+		gfx.MoveTo(8, 8), gfx.LineTo(18, 8), gfx.QuadTo(20, 8, 20, 10), gfx.LineTo(20, 20),
+		gfx.QuadTo(20, 22, 18, 22), gfx.LineTo(8, 22), gfx.QuadTo(6, 22, 6, 20),
+		gfx.LineTo(6, 10), gfx.QuadTo(6, 8, 8, 8),
+		gfx.MoveTo(4, 16), gfx.QuadTo(2, 16, 2, 14), gfx.LineTo(2, 4), gfx.QuadTo(2, 2, 4, 2),
+		gfx.LineTo(14, 2), gfx.QuadTo(16, 2, 16, 4), gfx.MoveTo(16, 4), gfx.LineTo(16, 6),
 	}}
-	panelIconBack = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-		ui.MoveTo(19, 12), ui.LineTo(5, 12), ui.MoveTo(11, 6), ui.LineTo(5, 12), ui.LineTo(11, 18),
+	panelIconBack = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+		gfx.MoveTo(19, 12), gfx.LineTo(5, 12), gfx.MoveTo(11, 6), gfx.LineTo(5, 12), gfx.LineTo(11, 18),
 	}}
-	panelIconFile = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-		ui.MoveTo(6, 3.5), ui.LineTo(14, 3.5), ui.LineTo(19, 8.5), ui.LineTo(19, 20.5),
-		ui.LineTo(6, 20.5), ui.ClosePath(), ui.MoveTo(14, 3.5), ui.LineTo(14, 8.5),
-		ui.LineTo(19, 8.5),
+	panelIconFile = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+		gfx.MoveTo(6, 3.5), gfx.LineTo(14, 3.5), gfx.LineTo(19, 8.5), gfx.LineTo(19, 20.5),
+		gfx.LineTo(6, 20.5), gfx.ClosePath(), gfx.MoveTo(14, 3.5), gfx.LineTo(14, 8.5),
+		gfx.LineTo(19, 8.5),
 	}}
-	panelIconCheck = ui.Icon{ViewBox: 24, Stroke: 2, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-		ui.MoveTo(5, 12.5), ui.LineTo(9.5, 17), ui.LineTo(19, 7),
+	panelIconCheck = gfx.Icon{ViewBox: 24, Stroke: 2, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+		gfx.MoveTo(5, 12.5), gfx.LineTo(9.5, 17), gfx.LineTo(19, 7),
 	}}
 )

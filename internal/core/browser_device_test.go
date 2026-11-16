@@ -20,7 +20,10 @@ import (
 func TestDeviceHomeRoutesAndUpload(t *testing.T) {
 	dir := t.TempDir()
 	openNode := func() *Node {
-		node, err := New(Options{DataDir: dir, DownloadDir: filepath.Join(dir, "downloads"), Listen: "127.0.0.1:0", DisableDiscovery: true, DisableIPMSG: true})
+		node, err := New(Options{
+			DataDir: dir, DownloadDir: filepath.Join(dir, "downloads"),
+			Listen: "127.0.0.1:0", DisableDiscovery: true, DisableCompatibility: true,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}

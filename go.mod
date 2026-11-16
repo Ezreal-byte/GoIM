@@ -1,6 +1,6 @@
 module goim
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/jezek/xgb v1.1.1
@@ -8,8 +8,8 @@ require (
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/vivaui/viva v0.0.0
 	go.etcd.io/bbolt v1.5.0
-	golang.org/x/sys v0.45.0
-	golang.org/x/text v0.36.0
+	golang.org/x/sys v0.50.0
+	golang.org/x/text v0.44.0
 )
 
 require (

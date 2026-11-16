@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"image"
 	"image/color"
 	"image/png"
@@ -10,12 +11,10 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/vivaui/viva/ui"
-
 	"goim/internal/domain"
 )
 
-func (harness *shellTestHarness) rightClickID(id ui.ID) {
+func (harness *shellTestHarness) rightClickID(id gfx.ID) {
 	harness.t.Helper()
 	hit, ok := harness.findHit(id)
 	if !ok {
@@ -26,12 +25,12 @@ func (harness *shellTestHarness) rightClickID(id ui.ID) {
 
 func (harness *shellTestHarness) rightClick(x, y float32) {
 	harness.t.Helper()
-	if err := harness.driver.ClickButton(x, y, ui.PointerButtonSecondary); err != nil {
+	if err := harness.driver.ClickButton(x, y, gfx.PointerButtonSecondary); err != nil {
 		harness.t.Fatal(err)
 	}
 }
 
-func (harness *shellTestHarness) replaceFieldText(id ui.ID, current, replacement string) {
+func (harness *shellTestHarness) replaceFieldText(id gfx.ID, current, replacement string) {
 	harness.t.Helper()
 	harness.clickID(id)
 	if err := harness.driver.SelectText(0, utf8.RuneCountInString(current)); err != nil {
@@ -87,7 +86,7 @@ func TestSelfRowAppearsWithNoOtherContactsAndOpensProfile(t *testing.T) {
 		t.Fatal("clicking the self row did not open the profile editor")
 	}
 	requireShellLayout(t, harness.snapshot())
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	harness.settle()
@@ -203,7 +202,7 @@ func TestConversationContextMenuPinsMutesAndDeletesWithConfirmation(t *testing.T
 		harness.ui.shellMenu.target != "conv-alice" {
 		t.Fatalf("conversation context menu state = %+v", harness.ui.shellMenu)
 	}
-	for _, id := range []ui.ID{harness.ui.ids.shellMenuPin, harness.ui.ids.shellMenuMute, harness.ui.ids.shellMenuDelete} {
+	for _, id := range []gfx.ID{harness.ui.ids.shellMenuPin, harness.ui.ids.shellMenuMute, harness.ui.ids.shellMenuDelete} {
 		hit, ok := harness.findHit(id)
 		if !ok || hit.Scope != harness.ui.ids.shellMenuScope {
 			t.Fatalf("conversation menu item %v is missing from its scope", id)
@@ -325,7 +324,7 @@ func TestSidebarContextMenuCollapsesAndExpandsContactGroups(t *testing.T) {
 	if !harness.ui.shellMenu.open || harness.ui.shellMenu.kind != shellMenuSidebar {
 		t.Fatalf("sidebar context menu state = %+v", harness.ui.shellMenu)
 	}
-	for _, id := range []ui.ID{
+	for _, id := range []gfx.ID{
 		harness.ui.ids.shellMenuNewGroup, harness.ui.ids.shellMenuConnect,
 		harness.ui.ids.shellMenuExpand, harness.ui.ids.shellMenuCollapse,
 	} {
@@ -415,7 +414,7 @@ func TestChatImageThumbnailPreservesAspectRatio(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			width, height := chatImageThumbnail(ui.Bitmap{Width: test.width, Height: test.height}, test.maxWidth)
+			width, height := chatImageThumbnail(gfx.Bitmap{Width: test.width, Height: test.height}, test.maxWidth)
 			if width != test.wantW || height != test.wantH {
 				t.Fatalf("thumbnail = %.1fx%.1f, want %.1fx%.1f", width, height, test.wantW, test.wantH)
 			}
@@ -452,7 +451,7 @@ func TestImageMessageUsesAspectRatioThumbnailAfterDecode(t *testing.T) {
 }
 
 func TestSquareAvatarCropUsesCenterPixelsAndLeavesTheSourceAlone(t *testing.T) {
-	source := ui.Bitmap{
+	source := gfx.Bitmap{
 		Pix: []byte{
 			1, 2, 3, 4, 10, 20, 30, 40, 100, 110, 120, 130, 200, 210, 220, 230,
 			5, 6, 7, 8, 50, 60, 70, 80, 140, 150, 160, 170, 240, 250, 255, 255,
@@ -482,7 +481,7 @@ func TestSquareAvatarCropUsesCenterPixelsAndLeavesTheSourceAlone(t *testing.T) {
 func TestAvatarCacheMasksOnceAndKeepsStableIdentity(t *testing.T) {
 	shell := New(nil)
 	defer shell.Close()
-	source := ui.Bitmap{
+	source := gfx.Bitmap{
 		Pix: []byte{
 			1, 2, 3, 4, 10, 20, 30, 40, 100, 110, 120, 130, 200, 210, 220, 230,
 			5, 6, 7, 8, 50, 60, 70, 80, 140, 150, 160, 170, 240, 250, 255, 255,
@@ -507,7 +506,7 @@ func TestAvatarCacheMasksOnceAndKeepsStableIdentity(t *testing.T) {
 
 func TestCircularAvatarMaskTransparentCornersOpaqueCenter(t *testing.T) {
 	side := 16
-	source := ui.Bitmap{
+	source := gfx.Bitmap{
 		Pix:     make([]byte, side*side*4),
 		Width:   side,
 		Height:  side,
@@ -541,13 +540,13 @@ func TestCircularAvatarMaskTransparentCornersOpaqueCenter(t *testing.T) {
 }
 
 func TestBitmapReadinessAcceptsTinyImagesAndRejectsPendingPlaceholder(t *testing.T) {
-	if !bitmapReady(ui.Bitmap{Pix: make([]byte, 8), Width: 2, Height: 1, Stride: 8, Version: 1}) {
+	if !bitmapReady(gfx.Bitmap{Pix: make([]byte, 8), Width: 2, Height: 1, Stride: 8, Version: 1}) {
 		t.Fatal("a valid 2x1 bitmap was treated as unready")
 	}
-	if bitmapReady(ui.Bitmap{Pix: make([]byte, 4), Width: 1, Height: 1, Stride: 4}) {
+	if bitmapReady(gfx.Bitmap{Pix: make([]byte, 4), Width: 1, Height: 1, Stride: 4}) {
 		t.Fatal("the pending 1x1 placeholder was treated as ready")
 	}
-	if !bitmapReady(ui.Bitmap{Pix: make([]byte, 4), Width: 1, Height: 1, Stride: 4, Version: 1}) {
+	if !bitmapReady(gfx.Bitmap{Pix: make([]byte, 4), Width: 1, Height: 1, Stride: 4, Version: 1}) {
 		t.Fatal("a decoded 1x1 bitmap was treated as pending")
 	}
 }
@@ -591,7 +590,7 @@ func TestRailLockEntryUsesLockSetupAndBlocksTheShell(t *testing.T) {
 
 		typePasswordKeys(t, harness, harness.ui.lockUI.focus, "Pass-123!")
 		typePasswordKeys(t, harness, harness.ui.lockUI.confirmID, "Pass-123!")
-		if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
+		if err := harness.driver.Key(gfx.KeyEnter, 0); err != nil {
 			t.Fatal(err)
 		}
 		harness.settle()
@@ -605,7 +604,7 @@ func TestRailLockEntryUsesLockSetupAndBlocksTheShell(t *testing.T) {
 		harness := newShellTestHarness(t, shellMinimalState(t))
 		harness.clickID(harness.ui.ids.navLock)
 		harness.settle()
-		if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+		if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 			t.Fatal(err)
 		}
 		harness.settle()
@@ -630,14 +629,14 @@ func TestRailLockEntryUsesLockSetupAndBlocksTheShell(t *testing.T) {
 	})
 }
 
-func typePasswordKeys(t *testing.T, harness *shellTestHarness, field ui.ID, value string) {
+func typePasswordKeys(t *testing.T, harness *shellTestHarness, field gfx.ID, value string) {
 	t.Helper()
 	harness.clickID(field)
 	for _, char := range value {
-		if err := harness.driver.KeyDown(ui.KeyUnknown, string(char)); err != nil {
+		if err := harness.driver.KeyDown(gfx.KeyUnknown, string(char)); err != nil {
 			t.Fatal(err)
 		}
-		if err := harness.driver.KeyUp(ui.KeyUnknown, string(char)); err != nil {
+		if err := harness.driver.KeyUp(gfx.KeyUnknown, string(char)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -661,7 +660,7 @@ func TestPasswordKeysInSecuritySettingsAndUnlock(t *testing.T) {
 	typePasswordKeys(t, h, fields.passwordOld, "Pass-123!")
 	typePasswordKeys(t, h, fields.passwordNew, "Next-456?")
 	typePasswordKeys(t, h, fields.passwordRepeat, "Next-456?")
-	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	change, ok := findShellCommand(h.backend.commandLog(), domain.SetLockPassword)
@@ -673,7 +672,7 @@ func TestPasswordKeysInSecuritySettingsAndUnlock(t *testing.T) {
 	state.Revision++
 	h.publish(state)
 	typePasswordKeys(t, h, h.ui.lockUI.focus, "Next-456?")
-	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	unlock, ok := findShellCommand(h.backend.commandLog(), domain.UnlockApp)

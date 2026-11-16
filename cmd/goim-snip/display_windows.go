@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/capture"
 	"golang.org/x/sys/windows"
 )
@@ -101,7 +101,7 @@ func appendSnipWindow(hwnd, _ uintptr) uintptr {
 // Viva creates the frameless HWND on the primary display before applying the
 // requested logical origin. Convert the target's physical anchor with that
 // initial DPI, then let fullscreen acquire the actual monitor and its DPI.
-func overlayPlacement(display capture.Display) (width, height int, origin ui.Point) {
+func overlayPlacement(display capture.Display) (width, height int, origin gfx.Point) {
 	initial := float64(1)
 	if snipInitialDPI.Find() == nil {
 		if dpi, _, _ := snipInitialDPI.Call(); dpi != 0 {
@@ -114,5 +114,5 @@ func overlayPlacement(display capture.Display) (width, height int, origin ui.Poi
 	}
 	scale := max(initial, display.Scale())
 	return max(1, int(float64(work.Dx())/scale)), max(1, int(float64(work.Dy())/scale)),
-		ui.Point{X: float32(float64(work.Min.X) / initial), Y: float32(float64(work.Min.Y) / initial)}
+		gfx.Point{X: float32(float64(work.Min.X) / initial), Y: float32(float64(work.Min.Y) / initial)}
 }

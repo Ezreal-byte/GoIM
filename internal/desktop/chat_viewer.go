@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"math"
 	"sort"
 	"strings"
@@ -32,12 +33,12 @@ type imageViewerState struct {
 	dragX      float32
 	dragY      float32
 
-	original     ui.Bitmap
+	original     gfx.Bitmap
 	originalPath string
 	originalTurn int
 	originalGen  uint64
 
-	cached             ui.Bitmap
+	cached             gfx.Bitmap
 	cachedSourceID     uint64
 	cachedSourceVer    uint32
 	cachedRotation     int
@@ -79,8 +80,8 @@ func (u *UI) closeImageViewer() {
 	surface := u.chatSurface()
 	surface.viewer.open = false
 	surface.viewer.drag = false
-	surface.viewer.cached = ui.Bitmap{}
-	surface.viewer.original = ui.Bitmap{}
+	surface.viewer.cached = gfx.Bitmap{}
+	surface.viewer.original = gfx.Bitmap{}
 	surface.viewer.originalPath = ""
 	surface.viewer.originalGen = 0
 	surface.viewer.fileID = ""
@@ -150,7 +151,7 @@ func (u *UI) selectImageViewerFile(fileID string) {
 	state.panX = 0
 	state.panY = 0
 	state.drag = false
-	state.cached = ui.Bitmap{}
+	state.cached = gfx.Bitmap{}
 	u.queueViewerOriginal()
 	if path := u.fileLocalPath[fileID]; path != "" {
 		u.ensureImage(path)
@@ -195,7 +196,7 @@ func (u *UI) zoomImageViewer(factor float32) {
 func (u *UI) rotateImageViewer(direction int) {
 	state := &u.chatSurface().viewer
 	state.rotation = (state.rotation + direction + 4) % 4
-	state.cached = ui.Bitmap{}
+	state.cached = gfx.Bitmap{}
 	state.panX = 0
 	state.panY = 0
 	u.queueViewerOriginal()
@@ -206,24 +207,24 @@ func (u *UI) rotateImageViewer(direction int) {
 	}
 }
 
-func (u *UI) imageViewerKey(event ui.KeyEvent) ui.EventResult {
+func (u *UI) imageViewerKey(event gfx.KeyEvent) gfx.EventResult {
 	state := &u.chatSurface().viewer
 	if !state.open || event.Release {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	if state.menuOpen {
-		if event.Key == ui.KeyEscape {
+		if event.Key == gfx.KeyEscape {
 			state.menuOpen = false
-			return ui.EventResult{Handled: true, Repaint: true, Focus: u.chatSurface().ids.viewerMenu.trigger}
+			return gfx.EventResult{Handled: true, Repaint: true, Focus: u.chatSurface().ids.viewerMenu.trigger}
 		}
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	switch event.Key {
-	case ui.KeyTab:
-		return ui.EventResult{}
-	case ui.KeyEnter, ui.KeySpace:
-		return ui.EventResult{}
-	case ui.KeyEscape:
+	case gfx.KeyTab:
+		return gfx.EventResult{}
+	case gfx.KeyEnter, gfx.KeySpace:
+		return gfx.EventResult{}
+	case gfx.KeyEscape:
 		if state.fullscreen && u.fullscreenViewer != nil {
 			if u.fullscreenViewer(false) {
 				state.fullscreen = false
@@ -231,34 +232,34 @@ func (u *UI) imageViewerKey(event ui.KeyEvent) ui.EventResult {
 		} else {
 			u.closeImageViewer()
 		}
-		return ui.EventResult{Handled: true, Repaint: true}
-	case ui.KeyLeft, ui.KeyPageUp:
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyLeft, gfx.KeyPageUp:
 		u.navigateImageViewer(-1)
-		return ui.EventResult{Handled: true, Repaint: true}
-	case ui.KeyRight, ui.KeyPageDown:
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyRight, gfx.KeyPageDown:
 		u.navigateImageViewer(1)
-		return ui.EventResult{Handled: true, Repaint: true}
-	case ui.KeyHome:
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyHome:
 		files := u.viewerImageFiles(state)
 		if len(files) > 0 {
 			u.selectImageViewerFile(files[0].ID)
 		}
-		return ui.EventResult{Handled: true, Repaint: true}
-	case ui.KeyEnd:
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyEnd:
 		files := u.viewerImageFiles(state)
 		if len(files) > 0 {
 			u.selectImageViewerFile(files[len(files)-1].ID)
 		}
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	if event.Modifiers&(ui.ModifierControl|ui.ModifierMeta) != 0 && strings.EqualFold(event.Text, "s") && u.saveViewer != nil {
+	if event.Modifiers&(gfx.ModifierControl|gfx.ModifierMeta) != 0 && strings.EqualFold(event.Text, "s") && u.saveViewer != nil {
 		if !event.Repeat {
 			u.saveViewer(u.fileLocalPath[state.fileID])
 		}
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
-	if event.Modifiers&(ui.ModifierControl|ui.ModifierMeta|ui.ModifierAlt) != 0 {
-		return ui.EventResult{Handled: true}
+	if event.Modifiers&(gfx.ModifierControl|gfx.ModifierMeta|gfx.ModifierAlt) != 0 {
+		return gfx.EventResult{Handled: true}
 	}
 	switch strings.ToLower(event.Text) {
 	case "0", "f":
@@ -271,32 +272,32 @@ func (u *UI) imageViewerKey(event ui.KeyEvent) ui.EventResult {
 		u.zoomImageViewer(0.8)
 	case "r":
 		direction := 1
-		if event.Modifiers&ui.ModifierShift != 0 {
+		if event.Modifiers&gfx.ModifierShift != 0 {
 			direction = -1
 		}
 		u.rotateImageViewer(direction)
 	default:
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
-func (u *UI) imageViewerWheel(event ui.ScrollEvent) ui.EventResult {
+func (u *UI) imageViewerWheel(event gfx.ScrollEvent) gfx.EventResult {
 	if !u.chatSurface().viewer.open || event.DeltaY == 0 {
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
 	factor := float32(math.Exp(-float64(event.DeltaY) / 240))
 	u.zoomImageViewer(factor)
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
-func (u *UI) drawChatImageViewer(canvas *ui.Canvas) {
+func (u *UI) drawChatImageViewer(canvas *gfx.Canvas) {
 	if u.presentViewer == nil {
 		u.drawImageViewer(canvas, u.lastBody, false)
 	}
 }
 
-func (u *UI) drawImageViewer(canvas *ui.Canvas, viewport ui.Rect, detached bool) {
+func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool) {
 	state := &u.chatSurface().viewer
 	if !state.open {
 		return
@@ -353,18 +354,18 @@ func (u *UI) drawImageViewer(canvas *ui.Canvas, viewport ui.Rect, detached bool)
 		canvas.Label(
 			intString(index+1)+" / "+intString(len(files)),
 			ui.Rect{X: viewport.X + 20, Y: top.Y, Width: 90, Height: top.Height},
-			ui.TextStyle{Size: 12, Color: ui.RGBA(167, 174, 186, 1)},
+			gfx.TextStyle{Size: 12, Color: ui.RGBA(167, 174, 186, 1)},
 		)
 		titleWidth := max(viewport.Width-260, 160)
 		canvas.LabelCenter(
 			file.Name,
 			ui.Rect{X: viewport.X + 110, Y: top.Y, Width: titleWidth, Height: top.Height},
-			ui.TextStyle{Size: 14, Weight: ui.WeightMedium, Color: ui.RGBA(238, 241, 247, 1)},
+			gfx.TextStyle{Size: 14, Weight: gfx.WeightMedium, Color: ui.RGBA(238, 241, 247, 1)},
 		)
 
 	}
 	if detached {
-		canvas.LabelCenter(file.Name, ui.Rect{X: 12, Y: stage.Bottom(), Width: max(viewport.Width-24, 1), Height: bottomHeight}, ui.TextStyle{Size: 12, Color: muted})
+		canvas.LabelCenter(file.Name, ui.Rect{X: 12, Y: stage.Bottom(), Width: max(viewport.Width-24, 1), Height: bottomHeight}, gfx.TextStyle{Size: 12, Color: muted})
 	}
 	if bitmapReady(bitmap) {
 		imageRect := u.viewerImageRect(state, stage, bitmap)
@@ -378,17 +379,17 @@ func (u *UI) drawImageViewer(canvas *ui.Canvas, viewport ui.Rect, detached bool)
 		if path == "" {
 			message = i18n.T("图片尚未保存到本机")
 		}
-		canvas.LabelCenter(message, stage, ui.TextStyle{
+		canvas.LabelCenter(message, stage, gfx.TextStyle{
 			Size: 14, Color: muted,
 		})
 	}
 
-	cursor := ui.PointerCursorDefault
+	cursor := gfx.PointerCursorDefault
 	if state.imageRect.Width > stage.Width || state.imageRect.Height > stage.Height {
-		cursor = ui.PointerCursorHand
+		cursor = gfx.PointerCursorHand
 	}
-	canvas.HitWithOptions(ids.viewerStage, stage, i18n.T("拖动查看图片"), ui.HitOptions{
-		Role: ui.RoleGroup, SkipFocus: true, Cursor: cursor,
+	canvas.HitWithOptions(ids.viewerStage, stage, i18n.T("拖动查看图片"), gfx.HitOptions{
+		Role: gfx.RoleGroup, SkipFocus: true, Cursor: cursor,
 	})
 	if event, ok := canvas.PointerOn(ids.viewerStage); ok {
 		u.handleImageViewerPointer(canvas, state, event, stage, detached)
@@ -406,17 +407,17 @@ func (u *UI) drawImageViewer(canvas *ui.Canvas, viewport ui.Rect, detached bool)
 	arrowY := stage.Y + stage.Height/2 - 25
 	if u.viewerIconButton(canvas, ui.Rect{X: viewport.X + 22, Y: arrowY, Width: 50, Height: 50},
 		ids.viewerPrevious, i18n.T("上一张图片（←）"), u.iconChevronRight,
-		ui.IconTransform{Rotate: float32(math.Pi)}, !previousEnabled, false) {
+		gfx.IconTransform{Rotate: float32(math.Pi)}, !previousEnabled, false) {
 		u.navigateImageViewer(-1)
 	}
 	if u.viewerIconButton(canvas, ui.Rect{X: viewport.X + viewport.Width - 72, Y: arrowY, Width: 50, Height: 50},
 		ids.viewerNext, i18n.T("下一张图片（→）"), u.iconChevronRight,
-		ui.IconTransform{}, !nextEnabled, false) {
+		gfx.IconTransform{}, !nextEnabled, false) {
 		u.navigateImageViewer(1)
 	}
 	if u.viewerIconButton(canvas, ui.Rect{X: viewport.X + viewport.Width - 58, Y: viewport.Y + 10, Width: 38, Height: 38},
 		ids.viewerClose, i18n.T("关闭图片查看器（Esc）"), u.iconX,
-		ui.IconTransform{}, false, false) {
+		gfx.IconTransform{}, false, false) {
 		u.closeImageViewer()
 		return
 	}
@@ -427,13 +428,13 @@ func (u *UI) drawImageViewer(canvas *ui.Canvas, viewport ui.Rect, detached bool)
 	canvas.SetEscapeTarget(ids.viewerClose)
 }
 
-func (u *UI) viewerRotatedBitmap(state *imageViewerState, source ui.Bitmap) ui.Bitmap {
+func (u *UI) viewerRotatedBitmap(state *imageViewerState, source gfx.Bitmap) gfx.Bitmap {
 	turns := state.rotation % 4
 	if turns < 0 {
 		turns += 4
 	}
 	if turns == 0 {
-		state.cached = ui.Bitmap{}
+		state.cached = gfx.Bitmap{}
 		return source
 	}
 	if bitmapReady(state.cached) && state.cachedRotation == turns &&
@@ -453,7 +454,7 @@ func (u *UI) viewerRotatedBitmap(state *imageViewerState, source ui.Bitmap) ui.B
 	return rotated
 }
 
-func rotateBitmapQuarter(source ui.Bitmap, turns int) ui.Bitmap {
+func rotateBitmapQuarter(source gfx.Bitmap, turns int) gfx.Bitmap {
 	turns = ((turns % 4) + 4) % 4
 	if turns == 0 || !bitmapReady(source) {
 		return source
@@ -480,10 +481,10 @@ func rotateBitmapQuarter(source ui.Bitmap, turns int) ui.Bitmap {
 			copy(pixels[targetOffset:targetOffset+4], source.Pix[sourceOffset:sourceOffset+4])
 		}
 	}
-	return ui.Bitmap{Pix: pixels, Width: width, Height: height, Stride: width * 4}
+	return gfx.Bitmap{Pix: pixels, Width: width, Height: height, Stride: width * 4}
 }
 
-func (u *UI) viewerImageRect(state *imageViewerState, stage ui.Rect, bitmap ui.Bitmap) ui.Rect {
+func (u *UI) viewerImageRect(state *imageViewerState, stage ui.Rect, bitmap gfx.Bitmap) ui.Rect {
 	scale := state.zoom
 	if state.fit {
 		scale = min(
@@ -511,11 +512,11 @@ func (u *UI) viewerImageRect(state *imageViewerState, stage ui.Rect, bitmap ui.B
 	}
 }
 
-func (u *UI) handleImageViewerPointer(canvas *ui.Canvas, state *imageViewerState,
-	event ui.PointerEvent, stage ui.Rect, detached bool) {
+func (u *UI) handleImageViewerPointer(canvas *gfx.Canvas, state *imageViewerState,
+	event gfx.PointerEvent, stage ui.Rect, detached bool) {
 	switch event.Kind {
-	case ui.PointerDown:
-		if event.Button != ui.PointerButtonPrimary {
+	case gfx.PointerDown:
+		if event.Button != gfx.PointerButtonPrimary {
 			canvas.Consume()
 			return
 		}
@@ -544,7 +545,7 @@ func (u *UI) handleImageViewerPointer(canvas *ui.Canvas, state *imageViewerState
 		state.drag = true
 		state.dragX, state.dragY = event.X, event.Y
 		canvas.Consume()
-	case ui.PointerMove:
+	case gfx.PointerMove:
 		if !state.drag {
 			return
 		}
@@ -557,7 +558,7 @@ func (u *UI) handleImageViewerPointer(canvas *ui.Canvas, state *imageViewerState
 		state.panY = min(max(state.panY, -maxY), maxY)
 		canvas.Consume()
 		canvas.RequestFrame()
-	case ui.PointerUp:
+	case gfx.PointerUp:
 		if state.drag {
 			state.drag = false
 			canvas.Consume()
@@ -565,7 +566,7 @@ func (u *UI) handleImageViewerPointer(canvas *ui.Canvas, state *imageViewerState
 	}
 }
 
-func (u *UI) drawImageViewerToolbar(canvas *ui.Canvas, viewport ui.Rect,
+func (u *UI) drawImageViewerToolbar(canvas *gfx.Canvas, viewport ui.Rect,
 	ids chatSurfaceIDs, state *imageViewerState) {
 	width := min(float32(392), max(viewport.Width-32, 300))
 	bar := ui.Rect{
@@ -585,7 +586,7 @@ func (u *UI) drawImageViewerToolbar(canvas *ui.Canvas, viewport ui.Rect,
 	x += 40
 	percent := intString(int(math.Round(float64(u.viewerScale(state))*100))) + "%"
 	canvas.LabelCenter(percent, ui.Rect{X: x, Y: buttonY, Width: 62, Height: 38},
-		ui.TextStyle{Size: 11.5, Color: ui.RGBA(206, 212, 222, 1)})
+		gfx.TextStyle{Size: 11.5, Color: ui.RGBA(206, 212, 222, 1)})
 	x += 64
 	if u.viewerTextButton(canvas, ui.Rect{X: x, Y: buttonY, Width: 38, Height: 38},
 		ids.viewerZoomIn, i18n.T("放大图片"), "+", false, false) {
@@ -606,7 +607,7 @@ func (u *UI) drawImageViewerToolbar(canvas *ui.Canvas, viewport ui.Rect,
 	x += 56
 	if u.viewerIconButton(canvas, ui.Rect{X: x, Y: buttonY, Width: 38, Height: 38},
 		ids.viewerRotate, i18n.T("顺时针旋转图片"), u.iconRotate,
-		ui.IconTransform{}, false, false) {
+		gfx.IconTransform{}, false, false) {
 		u.rotateImageViewer(1)
 	}
 }
@@ -622,24 +623,24 @@ func (u *UI) viewerScale(state *imageViewerState) float32 {
 	return scale
 }
 
-func (u *UI) viewerTextButton(canvas *ui.Canvas, bounds ui.Rect, id ui.ID,
+func (u *UI) viewerTextButton(canvas *gfx.Canvas, bounds ui.Rect, id gfx.ID,
 	label, text string, disabled, selected bool) bool {
 	u.viewerButtonSurface(canvas, bounds, id, label, disabled, selected)
-	canvas.LabelCenter(text, bounds, ui.TextStyle{
-		Size: 12, Weight: ui.WeightMedium,
+	canvas.LabelCenter(text, bounds, gfx.TextStyle{
+		Size: 12, Weight: gfx.WeightMedium,
 		Color: u.viewerForeground(disabled, selected),
 	})
 	if canvas.FocusVisible() == id {
 		canvas.RoundedBorder(bounds, 10, 1, ui.RGBA(255, 255, 255, 0.7), ui.Color{})
 	}
-	canvas.HitWithOptions(id, bounds, label, ui.HitOptions{
-		Role: ui.RoleButton, Hint: label, Disabled: disabled, Cursor: ui.PointerCursorHand,
+	canvas.HitWithOptions(id, bounds, label, gfx.HitOptions{
+		Role: gfx.RoleButton, Hint: label, Disabled: disabled, Cursor: gfx.PointerCursorHand,
 	})
 	return !disabled && canvas.Clicked(id)
 }
 
-func (u *UI) viewerIconButton(canvas *ui.Canvas, bounds ui.Rect, id ui.ID,
-	label string, icon ui.Icon, transform ui.IconTransform, disabled, selected bool) bool {
+func (u *UI) viewerIconButton(canvas *gfx.Canvas, bounds ui.Rect, id gfx.ID,
+	label string, icon gfx.Icon, transform gfx.IconTransform, disabled, selected bool) bool {
 	u.viewerButtonSurface(canvas, bounds, id, label, disabled, selected)
 	iconBounds := ui.Rect{
 		X: bounds.X + (bounds.Width-18)/2, Y: bounds.Y + (bounds.Height-18)/2,
@@ -649,13 +650,13 @@ func (u *UI) viewerIconButton(canvas *ui.Canvas, bounds ui.Rect, id ui.ID,
 	if canvas.FocusVisible() == id {
 		canvas.RoundedBorder(bounds, 10, 1, ui.RGBA(255, 255, 255, 0.7), ui.Color{})
 	}
-	canvas.HitWithOptions(id, bounds, label, ui.HitOptions{
-		Role: ui.RoleButton, Hint: label, Disabled: disabled, Cursor: ui.PointerCursorHand,
+	canvas.HitWithOptions(id, bounds, label, gfx.HitOptions{
+		Role: gfx.RoleButton, Hint: label, Disabled: disabled, Cursor: gfx.PointerCursorHand,
 	})
 	return !disabled && canvas.Clicked(id)
 }
 
-func (u *UI) viewerButtonSurface(canvas *ui.Canvas, bounds ui.Rect, id ui.ID,
+func (u *UI) viewerButtonSurface(canvas *gfx.Canvas, bounds ui.Rect, id gfx.ID,
 	label string, disabled, selected bool) {
 	color := ui.RGBA(255, 255, 255, 0.07)
 	switch {

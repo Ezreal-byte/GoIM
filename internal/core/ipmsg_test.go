@@ -10,7 +10,7 @@ import (
 func TestLegacyTextAndFileCallbacksCreateDirectConversation(t *testing.T) {
 	node, err := New(Options{
 		DataDir: t.TempDir(), Listen: "127.0.0.1:0", Name: "local",
-		DisableDiscovery: true, DisableIPMSG: true, Version: "test",
+		DisableDiscovery: true, DisableCompatibility: true, Version: "test",
 	})
 	if err != nil {
 		t.Fatal(err)

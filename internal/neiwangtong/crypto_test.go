@@ -12,15 +12,30 @@ func TestXTEARoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encrypt error: %v", err)
 	}
-	if len(enc)%8 != 0 {
-		t.Fatalf("Padded length should be multiple of 8, got %d", len(enc))
+	if len(enc) != len(plain) {
+		t.Fatalf("ciphertext length changed from %d to %d", len(plain), len(enc))
 	}
 	dec := make([]byte, len(enc))
 	if err := Decrypt(dec, enc, Key); err != nil {
 		t.Fatalf("Decrypt error: %v", err)
 	}
-	if !strings.HasPrefix(string(dec), string(plain)) {
+	if string(dec) != string(plain) {
 		t.Fatalf("Decrypted does not match plain: %s", string(dec))
+	}
+}
+
+func TestEncryptCapturedHeartbeat(t *testing.T) {
+	plain := []byte(`<X_HEARTBEAT docver="1" />`)
+	expected, err := hex.DecodeString("d529c5439de045c9d3dc11866769e1fedfa896e8e704a5532f3e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := Encrypt(nil, plain, Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encrypted) != string(expected) {
+		t.Fatalf("captured heartbeat mismatch:\nwant %x\n got %x", expected, encrypted)
 	}
 }
 

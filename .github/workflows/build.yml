@@ -47,7 +47,7 @@ jobs:
         run: |
           test "$(git -C ../viva rev-parse HEAD)" = "$(tr -d '\r\n' < framework/viva-commit.txt)"
           git -C ../viva -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
-          git -C ../viva apply ../GoIM/framework/0003-window-size.patch ../GoIM/framework/0004-windows-tray-notifications.patch
+          git -C ../viva apply ../GoIM/framework/0004-windows-tray-notifications.patch
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.27.3'
@@ -71,7 +71,7 @@ jobs:
         run: go test github.com/vivaui/viva/internal/platform/windows -run '^TestDesktopNotificationReusesStatusItem$' -count=1
       - name: Core and background media race tests
         if: matrix.os == 'linux' && matrix.arch == 'amd64'
-        run: go test -race ./internal/core ./internal/desktop ./internal/ipmsg -count=1 -timeout=180s
+        run: go test -race ./internal/core ./internal/desktop ./internal/ipmsg ./internal/neiwangtong -count=1 -timeout=180s
       - name: Shared catalog ordering regression on macOS Intel
         if: matrix.os == 'darwin' && matrix.arch == 'amd64'
         run: go test ./internal/core -run 'TestCatalogRejectsOutOfOrderInitialSnapshot|TestUnsharingPreservesDownloadedMetadata' -count=20 -timeout=120s

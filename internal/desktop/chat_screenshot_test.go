@@ -1,13 +1,13 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	vivaheadless "github.com/vivaui/viva/headless"
-	"github.com/vivaui/viva/ui"
 )
 
 func TestChatLayoutScreenshotQA(t *testing.T) {
@@ -41,7 +41,7 @@ func TestChatLayoutScreenshotQA(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(session.Close)
-		click := func(id ui.ID) {
+		click := func(id gfx.ID) {
 			t.Helper()
 			for _, hit := range session.Snapshot().Hits {
 				if hit.ID == id {
@@ -65,7 +65,7 @@ func TestChatLayoutScreenshotQA(t *testing.T) {
 
 		shot("chat-layout-" + suffix + ".png")
 		historyPos := shell.chatSurface().history.Pos
-		history, ok := findSessionHit(session.Snapshot().Hits, shell.chatSurface().ids.historySplitter)
+		history, ok := findSessionHitLabel(session.Snapshot().Hits, "调整聊天记录和输入框高度")
 		if !ok {
 			t.Fatal("history splitter is missing")
 		}
@@ -81,7 +81,7 @@ func TestChatLayoutScreenshotQA(t *testing.T) {
 			t.Fatal(err)
 		}
 		shot("chat-layout-history-" + suffix + ".png")
-		history, ok = findSessionHit(session.Snapshot().Hits, shell.chatSurface().ids.historySplitter)
+		history, ok = findSessionHitLabel(session.Snapshot().Hits, "调整聊天记录和输入框高度")
 		if !ok {
 			t.Fatal("history splitter disappeared after its drag")
 		}
@@ -98,7 +98,7 @@ func TestChatLayoutScreenshotQA(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		splitter, ok := findSessionHit(session.Snapshot().Hits, shell.chatSurface().ids.sidebarSplitter)
+		splitter, ok := findSessionHitLabel(session.Snapshot().Hits, "调整联系人和聊天区域宽度")
 		if !ok {
 			t.Fatal("sidebar splitter is missing")
 		}
@@ -134,11 +134,20 @@ func TestChatLayoutScreenshotQA(t *testing.T) {
 	run("light", 1000, 700, "compact-light")
 }
 
-func findSessionHit(hits []ui.Hit, id ui.ID) (ui.Hit, bool) {
+func findSessionHit(hits []gfx.Hit, id gfx.ID) (gfx.Hit, bool) {
 	for _, hit := range hits {
 		if hit.ID == id {
 			return hit, true
 		}
 	}
-	return ui.Hit{}, false
+	return gfx.Hit{}, false
+}
+
+func findSessionHitLabel(hits []gfx.Hit, label string) (gfx.Hit, bool) {
+	for _, hit := range hits {
+		if hit.Label == label {
+			return hit, true
+		}
+	}
+	return gfx.Hit{}, false
 }

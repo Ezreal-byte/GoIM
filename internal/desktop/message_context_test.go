@@ -2,11 +2,11 @@ package desktop
 
 import (
 	"bytes"
+	"github.com/vivaui/viva/gfx"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/vivaui/viva/ui"
 	"goim/internal/domain"
 )
 
@@ -24,13 +24,13 @@ func TestMessageMenuCopyRecallDeleteAndSave(t *testing.T) {
 	if h.hasText("已保存") {
 		t.Fatal("generic saved notice leaked into chat")
 	}
-	right := func(id ui.ID) {
+	right := func(id gfx.ID) {
 		t.Helper()
 		hit, ok := h.findHit(id)
 		if !ok {
 			t.Fatalf("missing message hit %v", id)
 		}
-		if err := h.driver.ClickButton(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2, ui.PointerButtonSecondary); err != nil {
+		if err := h.driver.ClickButton(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2, gfx.PointerButtonSecondary); err != nil {
 			t.Fatal(err)
 		}
 		if h.ui.shellMenu.kind != shellMenuMessage {

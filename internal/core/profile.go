@@ -186,10 +186,10 @@ func (n *Node) setProfile(name, path string) error {
 	return n.setProfilePixels(name, path, nil, 0)
 }
 func (n *Node) setProfilePixels(name, path string, preview []byte, size int) error {
-	return n.updateProfile(name, path, preview, size, "", "", nil)
+	return n.updateProfile(name, path, preview, size, "", "", nil, false)
 }
 
-func (n *Node) updateProfile(name, path string, preview []byte, size int, signature string, presence domain.Presence, details *domain.ProfileDetails) error {
+func (n *Node) updateProfile(name, path string, preview []byte, size int, signature string, presence domain.Presence, details *domain.ProfileDetails, removeAvatar bool) error {
 	name = strings.TrimSpace(name)
 	if name == "" || utf8.RuneCountInString(name) > 40 {
 		return errors.New("昵称需为 1 至 40 个字符")
@@ -215,7 +215,9 @@ func (n *Node) updateProfile(name, path string, preview []byte, size int, signat
 		}
 	}
 	avatar := s.Settings.Avatar
-	if path != "" && path != avatar {
+	if removeAvatar {
+		avatar = ""
+	} else if path != "" && path != avatar {
 		var source image.Image
 		var err error
 		if len(preview) > 0 {
@@ -255,9 +257,18 @@ func (n *Node) updateProfile(name, path string, preview []byte, size int, signat
 	n.broadcastProfile()
 	n.mu.Lock()
 	legacy := n.legacy
+	native := n.neiwangtong
+	self := n.data.State.Self
 	n.mu.Unlock()
 	if legacy != nil {
 		legacy.UpdateProfile(name, presence == domain.PresenceInvisible, presence == domain.PresenceAway || presence == domain.PresenceBusy)
+	}
+	if native != nil {
+		var png []byte
+		if avatar != "" {
+			png, _ = readAvatar(avatar)
+		}
+		native.UpdateProfile(nativeLocalProfile(self, name), png)
 	}
 	return nil
 }

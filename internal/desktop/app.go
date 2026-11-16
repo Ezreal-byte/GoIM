@@ -2,6 +2,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"image"
 	"image/draw"
 	_ "image/gif"
@@ -19,9 +20,9 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 	"goim/internal/i18n"
@@ -119,7 +120,7 @@ type mentionState struct {
 type avatarPaint struct {
 	bounds ui.Rect
 	name   string
-	image  ui.Bitmap
+	image  gfx.Bitmap
 	status components.AvatarStatus
 }
 
@@ -129,172 +130,175 @@ type imageStamp struct {
 }
 
 type appIDs struct {
-	page   ui.Scope
-	nav    ui.Scope
-	side   ui.Scope
-	chat   ui.Scope
-	dialog ui.Scope
-	menu   ui.Scope
+	page   gfx.Scope
+	nav    gfx.Scope
+	side   gfx.Scope
+	chat   gfx.Scope
+	dialog gfx.Scope
+	menu   gfx.Scope
 
-	navMessages   ui.ID
-	navContacts   ui.ID
-	navTransfers  ui.ID
-	navShares     ui.ID
-	navLock       ui.ID
-	navTheme      ui.ID
-	navSettings   ui.ID
-	profileAvatar ui.ID
+	navMessages   gfx.ID
+	navContacts   gfx.ID
+	navTransfers  gfx.ID
+	navShares     gfx.ID
+	navLock       gfx.ID
+	navTheme      gfx.ID
+	navSettings   gfx.ID
+	profileAvatar gfx.ID
 
-	sidebarCreate  ui.ID
-	sidebarConnect ui.ID
-	sidebarSearch  ui.ID
-	filterAll      ui.ID
-	filterOnline   ui.ID
-	emptyConnect   ui.ID
-	emptyCompose   ui.ID
+	sidebarCreate  gfx.ID
+	sidebarConnect gfx.ID
+	sidebarSearch  gfx.ID
+	filterAll      gfx.ID
+	filterOnline   gfx.ID
+	emptyConnect   gfx.ID
+	emptyCompose   gfx.ID
 
-	chatMessages                                                           ui.ID
-	chatEditor                                                             ui.ID
-	chatScreenshot                                                         ui.ID
-	chatSend                                                               ui.ID
-	chatImage                                                              ui.ID
-	chatFile                                                               ui.ID
-	chatEmoji                                                              ui.ID
-	chatHeaderFile                                                         ui.ID
-	chatHeaderSearch                                                       ui.ID
-	chatHeaderMembers                                                      ui.ID
-	chatHeaderMore                                                         ui.ID
-	chatSearchField                                                        ui.ID
-	chatSearchClose                                                        ui.ID
-	chatEmptyConnect                                                       ui.ID
-	chatEmptyCompose                                                       ui.ID
-	chatMenuDismiss                                                        ui.ID
-	chatMenuPin                                                            ui.ID
-	chatMenuMute                                                           ui.ID
-	chatMenuRead                                                           ui.ID
-	chatMenuLeave                                                          ui.ID
-	chatNoticeDismiss                                                      ui.ID
-	chatMenuScope                                                          ui.ID
-	shellMenuDismiss                                                       ui.ID
-	shellMenuPin                                                           ui.ID
-	shellMenuMute                                                          ui.ID
-	shellMenuRead                                                          ui.ID
-	shellMenuDelete                                                        ui.ID
-	shellMenuTalk                                                          ui.ID
-	shellMenuOrganize                                                      ui.ID
-	shellMenuProfile                                                       ui.ID
-	shellMenuNewGroup                                                      ui.ID
-	shellMenuNewContactGroup                                               ui.ID
-	shellMenuRenameContactGroup                                            ui.ID
-	shellMenuDeleteContactGroup                                            ui.ID
-	shellMenuConnect                                                       ui.ID
-	shellMenuExpand                                                        ui.ID
-	shellMenuCollapse                                                      ui.ID
-	shellMenuScope                                                         ui.ID
-	sidebarSurface                                                         ui.ID
-	selfRow                                                                ui.ID
-	sidebarContactList                                                     ui.ID
-	sidebarChatList                                                        ui.ID
-	mentionScope                                                           ui.ID
-	mentionDismiss                                                         ui.ID
-	emojiScope                                                             ui.ID
-	emojiScrollbar                                                         ui.ID
-	emojiScroll                                                            ui.ID
-	messageMenuCopy, messageMenuSave, messageMenuRecall, messageMenuDelete ui.ID
-	emojiDismiss                                                           ui.ID
+	chatMessages                                                           gfx.ID
+	chatScreenshot                                                         gfx.ID
+	chatSend                                                               gfx.ID
+	chatImage                                                              gfx.ID
+	chatFile                                                               gfx.ID
+	chatEmoji                                                              gfx.ID
+	chatHeaderFile                                                         gfx.ID
+	chatHeaderSearch                                                       gfx.ID
+	chatHeaderMembers                                                      gfx.ID
+	chatHeaderMore                                                         gfx.ID
+	chatSearchField                                                        gfx.ID
+	chatSearchClose                                                        gfx.ID
+	chatEmptyConnect                                                       gfx.ID
+	chatEmptyCompose                                                       gfx.ID
+	chatMenuDismiss                                                        gfx.ID
+	chatMenuPin                                                            gfx.ID
+	chatMenuMute                                                           gfx.ID
+	chatMenuRead                                                           gfx.ID
+	chatMenuLeave                                                          gfx.ID
+	chatNoticeDismiss                                                      gfx.ID
+	chatMenuScope                                                          gfx.ID
+	shellMenuDismiss                                                       gfx.ID
+	shellMenuPin                                                           gfx.ID
+	shellMenuMute                                                          gfx.ID
+	shellMenuRead                                                          gfx.ID
+	shellMenuDelete                                                        gfx.ID
+	shellMenuTalk                                                          gfx.ID
+	shellMenuOrganize                                                      gfx.ID
+	shellMenuProfile                                                       gfx.ID
+	shellMenuNewGroup                                                      gfx.ID
+	shellMenuNewContactGroup                                               gfx.ID
+	shellMenuRenameContactGroup                                            gfx.ID
+	shellMenuDeleteContactGroup                                            gfx.ID
+	shellMenuConnect                                                       gfx.ID
+	shellMenuExpand                                                        gfx.ID
+	shellMenuCollapse                                                      gfx.ID
+	shellMenuScope                                                         gfx.ID
+	sidebarSurface                                                         gfx.ID
+	selfRow                                                                gfx.ID
+	sidebarContactList                                                     gfx.ID
+	sidebarChatList                                                        gfx.ID
+	mentionScope                                                           gfx.ID
+	mentionDismiss                                                         gfx.ID
+	emojiScope                                                             gfx.ID
+	emojiScrollbar                                                         gfx.ID
+	emojiScroll                                                            gfx.ID
+	messageMenuCopy, messageMenuSave, messageMenuRecall, messageMenuDelete gfx.ID
+	emojiDismiss                                                           gfx.ID
 
-	connectScope       ui.ID
-	connectDismiss     ui.ID
-	connectClose       ui.ID
-	connectField       ui.ID
-	connectProtocol    ui.Scope
-	contactDetails     ui.ID
-	contactTalk        ui.ID
-	contactMemberScope ui.Scope
-	chatHeaderAvatar   ui.ID
-	connectCancel      ui.ID
-	connectSubmit      ui.ID
+	connectScope         gfx.ID
+	connectDismiss       gfx.ID
+	connectClose         gfx.ID
+	connectField         gfx.ID
+	connectProtocol      gfx.Scope
+	contactDetails       gfx.ID
+	contactTalk          gfx.ID
+	contactRefreshAvatar gfx.ID
+	contactLink          gfx.ID
+	contactLinkChoice    gfx.Scope
+	contactMemberScope   gfx.Scope
+	chatHeaderAvatar     gfx.ID
+	connectCancel        gfx.ID
+	connectSubmit        gfx.ID
 
-	composeScope   ui.ID
-	composeDismiss ui.ID
-	composeClose   ui.ID
-	composeName    ui.ID
-	composeSearch  ui.ID
-	composeCreate  ui.ID
-	composeCancel  ui.ID
-	composeScroll  ui.ID
-	composePicked  ui.ID
+	composeScope   gfx.ID
+	composeDismiss gfx.ID
+	composeClose   gfx.ID
+	composeName    gfx.ID
+	composeSearch  gfx.ID
+	composeCreate  gfx.ID
+	composeCancel  gfx.ID
+	composeScroll  gfx.ID
+	composePicked  gfx.ID
 
-	profileScope       ui.ID
-	profileDismiss     ui.ID
-	profileClose       ui.ID
-	profileField       ui.ID
-	profileSignature   ui.ID
-	profileDetails     [5]ui.ID
-	profileGender      ui.Scope
-	profilePresence    ui.Scope
-	profileChooseImage ui.ID
-	profileSave        ui.ID
-	profileCancel      ui.ID
+	profileScope       gfx.ID
+	profileDismiss     gfx.ID
+	profileClose       gfx.ID
+	profileField       gfx.ID
+	profileSignature   gfx.ID
+	profileDetails     [5]gfx.ID
+	profileGender      gfx.Scope
+	profilePresence    gfx.Scope
+	profileChooseImage gfx.ID
+	profileRemoveImage gfx.ID
+	profileSave        gfx.ID
+	profileCancel      gfx.ID
 
-	organizeScope   ui.ID
-	organizeDismiss ui.ID
-	organizeClose   ui.ID
-	organizeField   ui.ID
-	organizeSave    ui.ID
-	organizeCancel  ui.ID
+	organizeScope   gfx.ID
+	organizeDismiss gfx.ID
+	organizeClose   gfx.ID
+	organizeField   gfx.ID
+	organizeSave    gfx.ID
+	organizeCancel  gfx.ID
 
-	memberScope          ui.ID
-	memberListScroll     ui.ID
-	memberDismiss        ui.ID
-	memberClose          ui.ID
-	memberSearch         ui.ID
-	memberInvite         ui.ID
-	memberStartRename    ui.ID
-	memberRename         ui.ID
-	memberSaveRename     ui.ID
-	memberCancelRename   ui.ID
-	memberStartNickname  ui.ID
-	memberNickname       ui.ID
-	memberSaveNickname   ui.ID
-	memberCancelNickname ui.ID
-	memberLeave          ui.ID
-	memberDissolve       ui.ID
-	memberMenuDismiss    ui.ID
-	memberMenuScope      ui.ID
-	memberProfileScope   ui.ID
-	memberProfileDismiss ui.ID
-	memberProfileClose   ui.ID
-	memberProfileTalk    ui.ID
-	memberProfileScroll  ui.ID
-	memberMuteToggle     ui.ID
-	memberPinToggle      ui.ID
+	memberScope          gfx.ID
+	memberListScroll     gfx.ID
+	memberDismiss        gfx.ID
+	memberClose          gfx.ID
+	memberSearch         gfx.ID
+	memberInvite         gfx.ID
+	memberStartRename    gfx.ID
+	memberRename         gfx.ID
+	memberSaveRename     gfx.ID
+	memberCancelRename   gfx.ID
+	memberStartNickname  gfx.ID
+	memberNickname       gfx.ID
+	memberSaveNickname   gfx.ID
+	memberCancelNickname gfx.ID
+	memberLeave          gfx.ID
+	memberDissolve       gfx.ID
+	memberMenuDismiss    gfx.ID
+	memberMenuScope      gfx.ID
+	memberProfileScope   gfx.ID
+	memberProfileDismiss gfx.ID
+	memberProfileClose   gfx.ID
+	memberProfileTalk    gfx.ID
+	memberProfileScroll  gfx.ID
+	memberMuteToggle     gfx.ID
+	memberPinToggle      gfx.ID
 
-	fileScope        ui.ID
-	fileListScroll   ui.ID
-	fileDetailScroll ui.ID
-	fileDismiss      ui.ID
-	fileClose        ui.ID
-	fileSearch       ui.ID
-	fileFilterAll    ui.ID
-	fileFilterImage  ui.ID
-	fileFilterFile   ui.ID
-	fileBack         ui.ID
-	fileOpen         ui.ID
-	fileReveal       ui.ID
-	fileAccept       ui.ID
-	fileReject       ui.ID
-	fileCancel       ui.ID
-	fileRetry        ui.ID
-	fileSave         ui.ID
-	fileRefresh      ui.ID
-	fileBatchCancel  ui.ID
+	fileScope        gfx.ID
+	fileListScroll   gfx.ID
+	fileDetailScroll gfx.ID
+	fileDismiss      gfx.ID
+	fileClose        gfx.ID
+	fileSearch       gfx.ID
+	fileFilterAll    gfx.ID
+	fileFilterImage  gfx.ID
+	fileFilterFile   gfx.ID
+	fileBack         gfx.ID
+	fileOpen         gfx.ID
+	fileReveal       gfx.ID
+	fileAccept       gfx.ID
+	fileReject       gfx.ID
+	fileCancel       gfx.ID
+	fileRetry        gfx.ID
+	fileSave         gfx.ID
+	fileRefresh      gfx.ID
+	fileBatchCancel  gfx.ID
 
-	confirmScope   ui.ID
-	confirmDismiss ui.ID
-	confirmClose   ui.ID
-	confirmCancel  ui.ID
-	confirmRun     ui.ID
+	confirmScope   gfx.ID
+	confirmDismiss gfx.ID
+	confirmClose   gfx.ID
+	confirmCancel  gfx.ID
+	confirmRun     gfx.ID
 }
 
 // UI is the native Viva desktop application. It reads detached backend
@@ -305,7 +309,7 @@ type UI struct {
 	localNotice string
 	theme       ui.Theme
 	palette     palette
-	tree        ui.Tree
+	tree        gfx.Tree
 	panels      Panels
 	panelInput  app.TextInputProvider
 	invalidator app.Invalidator
@@ -339,6 +343,7 @@ type UI struct {
 	contactGroup    string
 
 	chatEditor        *text.Editor
+	chatEditorField   flex.Field
 	requestScreenshot func()
 	presentViewer     func()
 	pinViewer         func(bool) bool
@@ -381,7 +386,7 @@ type UI struct {
 	organize       organizeState
 	lockUI         lockUIState
 	focusSearch    bool
-	focusedID      ui.ID
+	focusedID      gfx.ID
 	titleLeading   float32
 	titleTrailing  float32
 	lastBody       ui.Rect
@@ -414,42 +419,46 @@ type UI struct {
 	mediaFiles       map[string]mediaFileRequest
 	mediaFileGen     uint64
 
-	peerRowIDs          map[string]ui.ID
-	convRowIDs          map[string]ui.ID
-	groupHeadIDs        map[string]ui.ID
-	inviteAcceptIDs     map[string]ui.ID
-	inviteRejectIDs     map[string]ui.ID
-	fileRowIDs          map[string]ui.ID
-	fileButtonIDs       map[string]ui.ID
-	fileAcceptIDs       map[string]ui.ID
-	fileRejectIDs       map[string]ui.ID
-	fileCancelIDs       map[string]ui.ID
-	fileRetryIDs        map[string]ui.ID
-	fileSaveIDs         map[string]ui.ID
-	groupSelectIDs      map[string]ui.ID
-	groupSelectRows     map[string]ui.ID
-	groupRemoveIDs      map[string]ui.ID
-	memberMenuIDs       map[string]ui.ID
-	memberInfoIDs       map[string]ui.ID
-	contactMemberIDs    map[string]ui.ID
-	memberMessageIDs    map[string]ui.ID
-	memberRemoveIDs     map[string]ui.ID
-	memberTransferIDs   map[string]ui.ID
-	composeGroupHeadIDs map[string]ui.ID
-	inviteWithdrawIDs   map[string]ui.ID
-	inviteReinviteIDs   map[string]ui.ID
-	mentionCandidateIDs map[string]ui.ID
-	emojiIDs            map[string]ui.ID
-	emojiRecentIDs      map[string]ui.ID
+	peerRowIDs          map[string]gfx.ID
+	convRowIDs          map[string]gfx.ID
+	groupHeadIDs        map[string]gfx.ID
+	inviteAcceptIDs     map[string]gfx.ID
+	inviteRejectIDs     map[string]gfx.ID
+	fileRowIDs          map[string]gfx.ID
+	fileButtonIDs       map[string]gfx.ID
+	fileAcceptIDs       map[string]gfx.ID
+	fileRejectIDs       map[string]gfx.ID
+	fileCancelIDs       map[string]gfx.ID
+	fileRetryIDs        map[string]gfx.ID
+	fileSaveIDs         map[string]gfx.ID
+	groupSelectIDs      map[string]gfx.ID
+	groupSelectRows     map[string]gfx.ID
+	groupRemoveIDs      map[string]gfx.ID
+	memberMenuIDs       map[string]gfx.ID
+	memberInfoIDs       map[string]gfx.ID
+	contactMemberIDs    map[string]gfx.ID
+	contactLinkState    flex.SelectState
+	contactLinkLabels   []string
+	contactLinkIDs      []string
+	contactLinkSelected string
+	memberMessageIDs    map[string]gfx.ID
+	memberRemoveIDs     map[string]gfx.ID
+	memberTransferIDs   map[string]gfx.ID
+	composeGroupHeadIDs map[string]gfx.ID
+	inviteWithdrawIDs   map[string]gfx.ID
+	inviteReinviteIDs   map[string]gfx.ID
+	mentionCandidateIDs map[string]gfx.ID
+	emojiIDs            map[string]gfx.ID
+	emojiRecentIDs      map[string]gfx.ID
 	recentEmoji         []string
 	emojiScrollDrag     bool
 	emojiScrollGrab     float32
 	emojiPanel          ui.Rect
-	messageIDs          map[string]ui.ID
-	messageAvatarIDs    map[string]ui.ID
+	messageIDs          map[string]gfx.ID
+	messageAvatarIDs    map[string]gfx.ID
 
-	imageCache  map[string]ui.Bitmap
-	avatarCache map[string]ui.Bitmap
+	imageCache  map[string]gfx.Bitmap
+	avatarCache map[string]gfx.Bitmap
 	imageStamps map[string]imageStamp
 	nextImageID uint64
 
@@ -459,63 +468,63 @@ type UI struct {
 	mediaImageGen       uint64
 	mediaImageQueued    map[string]uint64
 	mediaDesiredImages  map[string]bool
-	mediaPendingBitmaps map[string]ui.Bitmap
+	mediaPendingBitmaps map[string]gfx.Bitmap
 
-	iconMessage       ui.Icon
-	iconUsers         ui.Icon
-	iconTransfers     ui.Icon
-	iconFolder        ui.Icon
-	iconSettings      ui.Icon
-	iconMoon          ui.Icon
-	iconSun           ui.Icon
-	iconUserPlus      ui.Icon
-	iconPlus          ui.Icon
-	iconInbox         ui.Icon
-	iconChevronDown   ui.Icon
-	iconChevronRight  ui.Icon
-	iconPin           ui.Icon
-	iconBellOff       ui.Icon
-	iconPaperclip     ui.Icon
-	iconImage         ui.Icon
-	iconSmile         ui.Icon
-	iconSend          ui.Icon
-	iconFile          ui.Icon
-	iconFileText      ui.Icon
-	iconFolderOpen    ui.Icon
-	iconDownload      ui.Icon
-	iconUpload        ui.Icon
-	iconCheck         ui.Icon
-	iconCheckCheck    ui.Icon
-	iconX             ui.Icon
-	iconMore          ui.Icon
-	iconSearch        ui.Icon
-	iconExternalLink  ui.Icon
-	iconRotate        ui.Icon
-	iconTrash         ui.Icon
-	iconUserMinus     ui.Icon
-	iconCrown         ui.Icon
-	iconLogOut        ui.Icon
-	iconPencil        ui.Icon
-	iconClock         ui.Icon
-	iconAlert         ui.Icon
-	iconWifi          ui.Icon
-	iconWifiOff       ui.Icon
-	iconAt            ui.Icon
-	iconFileArchive   ui.Icon
-	iconMessageSquare ui.Icon
-	iconCircleCheck   ui.Icon
-	iconPlay          ui.Icon
-	iconPause         ui.Icon
-	iconHardDrive     ui.Icon
-	iconRefresh       ui.Icon
-	iconEye           ui.Icon
-	iconLock          ui.Icon
-	iconShield        ui.Icon
-	iconCalendar      ui.Icon
-	iconReply         ui.Icon
-	iconArchive       ui.Icon
-	iconLink          ui.Icon
-	iconCopy          ui.Icon
+	iconMessage       gfx.Icon
+	iconUsers         gfx.Icon
+	iconTransfers     gfx.Icon
+	iconFolder        gfx.Icon
+	iconSettings      gfx.Icon
+	iconMoon          gfx.Icon
+	iconSun           gfx.Icon
+	iconUserPlus      gfx.Icon
+	iconPlus          gfx.Icon
+	iconInbox         gfx.Icon
+	iconChevronDown   gfx.Icon
+	iconChevronRight  gfx.Icon
+	iconPin           gfx.Icon
+	iconBellOff       gfx.Icon
+	iconPaperclip     gfx.Icon
+	iconImage         gfx.Icon
+	iconSmile         gfx.Icon
+	iconSend          gfx.Icon
+	iconFile          gfx.Icon
+	iconFileText      gfx.Icon
+	iconFolderOpen    gfx.Icon
+	iconDownload      gfx.Icon
+	iconUpload        gfx.Icon
+	iconCheck         gfx.Icon
+	iconCheckCheck    gfx.Icon
+	iconX             gfx.Icon
+	iconMore          gfx.Icon
+	iconSearch        gfx.Icon
+	iconExternalLink  gfx.Icon
+	iconRotate        gfx.Icon
+	iconTrash         gfx.Icon
+	iconUserMinus     gfx.Icon
+	iconCrown         gfx.Icon
+	iconLogOut        gfx.Icon
+	iconPencil        gfx.Icon
+	iconClock         gfx.Icon
+	iconAlert         gfx.Icon
+	iconWifi          gfx.Icon
+	iconWifiOff       gfx.Icon
+	iconAt            gfx.Icon
+	iconFileArchive   gfx.Icon
+	iconMessageSquare gfx.Icon
+	iconCircleCheck   gfx.Icon
+	iconPlay          gfx.Icon
+	iconPause         gfx.Icon
+	iconHardDrive     gfx.Icon
+	iconRefresh       gfx.Icon
+	iconEye           gfx.Icon
+	iconLock          gfx.Icon
+	iconShield        gfx.Icon
+	iconCalendar      gfx.Icon
+	iconReply         gfx.Icon
+	iconArchive       gfx.Icon
+	iconLink          gfx.Icon
+	iconCopy          gfx.Icon
 }
 
 // New creates the shell from an already-running backend. It takes the first
@@ -526,6 +535,14 @@ func New(backend domain.Backend) *UI {
 		theme:               ui.LightTheme(),
 		done:                make(chan struct{}),
 		section:             sectionMessages,
+		titleView:           flex.NewView("title"),
+		railView:            flex.NewView("rail"),
+		sidebarView:         flex.NewView("sidebar"),
+		chatView:            flex.NewView("chat"),
+		dialogView:          flex.NewView("dialog"),
+		drawerView:          flex.NewView("drawer"),
+		mentionView:         flex.NewView("mention"),
+		emojiView:           flex.NewView("emoji"),
 		collapsed:           make(map[string]bool),
 		chatEditor:          text.NewEditor(""),
 		drafts:              make(map[string]string),
@@ -537,42 +554,42 @@ func New(backend domain.Backend) *UI {
 		fileLocalPath:       make(map[string]string),
 		fileAvailable:       make(map[string]bool),
 		mediaFiles:          make(map[string]mediaFileRequest),
-		peerRowIDs:          make(map[string]ui.ID),
-		convRowIDs:          make(map[string]ui.ID),
-		groupHeadIDs:        make(map[string]ui.ID),
-		inviteAcceptIDs:     make(map[string]ui.ID),
-		inviteRejectIDs:     make(map[string]ui.ID),
-		fileRowIDs:          make(map[string]ui.ID),
-		fileButtonIDs:       make(map[string]ui.ID),
-		fileAcceptIDs:       make(map[string]ui.ID),
-		fileRejectIDs:       make(map[string]ui.ID),
-		fileCancelIDs:       make(map[string]ui.ID),
-		fileRetryIDs:        make(map[string]ui.ID),
-		fileSaveIDs:         make(map[string]ui.ID),
-		groupSelectIDs:      make(map[string]ui.ID),
-		groupSelectRows:     make(map[string]ui.ID),
-		groupRemoveIDs:      make(map[string]ui.ID),
-		memberMenuIDs:       make(map[string]ui.ID),
-		memberInfoIDs:       make(map[string]ui.ID),
-		contactMemberIDs:    make(map[string]ui.ID),
-		memberMessageIDs:    make(map[string]ui.ID),
-		memberRemoveIDs:     make(map[string]ui.ID),
-		memberTransferIDs:   make(map[string]ui.ID),
-		composeGroupHeadIDs: make(map[string]ui.ID),
-		inviteWithdrawIDs:   make(map[string]ui.ID),
-		inviteReinviteIDs:   make(map[string]ui.ID),
-		mentionCandidateIDs: make(map[string]ui.ID),
-		emojiIDs:            make(map[string]ui.ID),
-		emojiRecentIDs:      make(map[string]ui.ID),
-		messageIDs:          make(map[string]ui.ID),
-		messageAvatarIDs:    make(map[string]ui.ID),
-		imageCache:          make(map[string]ui.Bitmap),
-		avatarCache:         make(map[string]ui.Bitmap),
+		peerRowIDs:          make(map[string]gfx.ID),
+		convRowIDs:          make(map[string]gfx.ID),
+		groupHeadIDs:        make(map[string]gfx.ID),
+		inviteAcceptIDs:     make(map[string]gfx.ID),
+		inviteRejectIDs:     make(map[string]gfx.ID),
+		fileRowIDs:          make(map[string]gfx.ID),
+		fileButtonIDs:       make(map[string]gfx.ID),
+		fileAcceptIDs:       make(map[string]gfx.ID),
+		fileRejectIDs:       make(map[string]gfx.ID),
+		fileCancelIDs:       make(map[string]gfx.ID),
+		fileRetryIDs:        make(map[string]gfx.ID),
+		fileSaveIDs:         make(map[string]gfx.ID),
+		groupSelectIDs:      make(map[string]gfx.ID),
+		groupSelectRows:     make(map[string]gfx.ID),
+		groupRemoveIDs:      make(map[string]gfx.ID),
+		memberMenuIDs:       make(map[string]gfx.ID),
+		memberInfoIDs:       make(map[string]gfx.ID),
+		contactMemberIDs:    make(map[string]gfx.ID),
+		memberMessageIDs:    make(map[string]gfx.ID),
+		memberRemoveIDs:     make(map[string]gfx.ID),
+		memberTransferIDs:   make(map[string]gfx.ID),
+		composeGroupHeadIDs: make(map[string]gfx.ID),
+		inviteWithdrawIDs:   make(map[string]gfx.ID),
+		inviteReinviteIDs:   make(map[string]gfx.ID),
+		mentionCandidateIDs: make(map[string]gfx.ID),
+		emojiIDs:            make(map[string]gfx.ID),
+		emojiRecentIDs:      make(map[string]gfx.ID),
+		messageIDs:          make(map[string]gfx.ID),
+		messageAvatarIDs:    make(map[string]gfx.ID),
+		imageCache:          make(map[string]gfx.Bitmap),
+		avatarCache:         make(map[string]gfx.Bitmap),
 		imageStamps:         make(map[string]imageStamp),
 		avatarImagePaths:    make(map[string]bool),
 		mediaImageQueued:    make(map[string]uint64),
 		mediaDesiredImages:  make(map[string]bool),
-		mediaPendingBitmaps: make(map[string]ui.Bitmap),
+		mediaPendingBitmaps: make(map[string]gfx.Bitmap),
 		compose: composeState{
 			selected:    make(map[string]bool),
 			knownGroups: make(map[string]bool),
@@ -633,6 +650,8 @@ func New(backend domain.Backend) *UI {
 		iconLink:          Link,
 		iconCopy:          Copy,
 	}
+	u.chatEditorField.Bind(u.chatEditor)
+	u.chatFind.field.Bind(u.ensureChatSearchEditor())
 	u.windowVisible.Store(true)
 	u.palette = paletteFor(u.theme)
 	u.titleLeading, u.titleTrailing = app.TitlebarInsets()
@@ -959,7 +978,6 @@ func (u *UI) initIDs() {
 	u.ids.emojiDismiss = u.tree.ID(u.ids.chat, "emoji-dismiss")
 
 	u.ids.chatMessages = u.tree.ID(u.ids.chat, "messages")
-	u.ids.chatEditor = u.tree.ID(u.ids.chat, "editor")
 	u.ids.chatScreenshot = u.tree.ID(u.ids.chat, "screenshot")
 	u.ids.chatSend = u.tree.ID(u.ids.chat, "send")
 	u.ids.chatImage = u.tree.ID(u.ids.chat, "send-image")
@@ -1005,6 +1023,9 @@ func (u *UI) initIDs() {
 	contacts := u.tree.Feature("contact-details")
 	u.ids.contactDetails = u.tree.ID(contacts, "scroll")
 	u.ids.contactTalk = u.tree.ID(contacts, "primary-action")
+	u.ids.contactRefreshAvatar = u.tree.ID(contacts, "refresh-avatar")
+	u.ids.contactLink = u.tree.ID(contacts, "confirm-route-link")
+	u.ids.contactLinkChoice = u.tree.Sub(contacts, u.tree.Name("route-link-choice"))
 	u.ids.contactMemberScope = u.tree.Sub(contacts, u.tree.Name("members"))
 	u.ids.chatHeaderAvatar = u.tree.ID(u.ids.chat, "peer-avatar")
 	u.ids.connectCancel = u.tree.ID(u.ids.dialog, "connect-cancel")
@@ -1031,6 +1052,7 @@ func (u *UI) initIDs() {
 	u.ids.profileGender = u.tree.Sub(u.ids.dialog, u.tree.Name("profile-gender"))
 	u.ids.profilePresence = u.tree.Sub(u.ids.dialog, u.tree.Name("profile-presence"))
 	u.ids.profileChooseImage = u.tree.ID(u.ids.dialog, "profile-choose-image")
+	u.ids.profileRemoveImage = u.tree.ID(u.ids.dialog, "profile-remove-image")
 	u.ids.profileSave = u.tree.ID(u.ids.dialog, "profile-save")
 	u.ids.profileCancel = u.tree.ID(u.ids.dialog, "profile-cancel")
 
@@ -1099,7 +1121,7 @@ func (u *UI) initIDs() {
 	}
 }
 
-func (u *UI) paint(canvas *ui.Canvas, size ui.Size) {
+func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	u.theme = themeForName(u.state.Settings.Theme)
 	u.palette = paletteFor(u.theme)
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
@@ -1135,7 +1157,7 @@ func (u *UI) isPanelSection() bool {
 	return u.section == sectionSettings || u.section == sectionTransfers || u.section == sectionShares
 }
 
-func (u *UI) drawTitlebar(canvas *ui.Canvas, bounds ui.Rect) {
+func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	if bounds.Height <= 0 {
 		return
 	}
@@ -1147,7 +1169,7 @@ func (u *UI) drawTitlebar(canvas *ui.Canvas, bounds ui.Rect) {
 			Items(flex.Center).Children(func() {
 			brand = f.Slot().Size(24, 24)
 			f.Row().Width(9).Height(1)
-			f.Text("GoIM").FontSize(16).Weight(ui.WeightSemibold)
+			f.Text("GoIM").FontSize(16).Weight(gfx.WeightSemibold)
 			f.Spacer()
 			if u.state.ListenAddress != "" && bounds.Width > 900 {
 				f.Row().Items(flex.Center).Gap(7).Children(func() {
@@ -1161,7 +1183,7 @@ func (u *UI) drawTitlebar(canvas *ui.Canvas, bounds ui.Rect) {
 	canvas.Fill(ui.Rect{X: bounds.X, Y: bounds.Y + bounds.Height - 1, Width: bounds.Width, Height: 1}, u.palette.border)
 }
 
-func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
+func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	canvas.Fill(bounds, u.palette.rail)
 	var avatarSlot flex.Box
 	var messages, contacts, transfers, shares, lock, themeToggle, settings flex.Box
@@ -1180,7 +1202,7 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 	u.railView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
 		f.Column().Fill().PadY(14).Items(flex.Center).Gap(5).Children(func() {
 			avatarSlot = f.Stack().Size(42, 42).HitWith(u.ids.profileAvatar, i18n.T("编辑个人资料"),
-				ui.HitOptions{Role: ui.RoleButton, Hint: i18n.T("编辑昵称和头像")}).
+				gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("编辑昵称和头像")}).
 				Children(func() {
 					u.avatarStatusOn(f, selfName, selfAvatar, 42, u.state.Self.Presence != domain.PresenceInvisible, u.palette.rail)
 				})
@@ -1229,11 +1251,11 @@ func (u *UI) drawRail(canvas *ui.Canvas, bounds ui.Rect) {
 	canvas.Fill(ui.Rect{X: bounds.X + bounds.Width - 1, Y: bounds.Y, Width: 1, Height: bounds.Height}, u.palette.border)
 }
 
-func (u *UI) railItem(f *flex.Frame, id ui.ID, icon ui.Icon, label string, active bool) flex.Box {
+func (u *UI) railItem(f *flex.Frame, id gfx.ID, icon gfx.Icon, label string, active bool) flex.Box {
 	return u.railItemBadged(f, id, icon, label, active, "", "")
 }
 
-func (u *UI) railItemBadged(f *flex.Frame, id ui.ID, icon ui.Icon, label string,
+func (u *UI) railItemBadged(f *flex.Frame, id gfx.ID, icon gfx.Icon, label string,
 	active bool, badge, badgeHint string) flex.Box {
 	background := ui.Color{}
 	foreground := u.palette.icon
@@ -1261,7 +1283,7 @@ func (u *UI) railItemBadged(f *flex.Frame, id ui.ID, icon ui.Icon, label string,
 	}
 	box := f.Column().Size(56, 58).Radius(10).Items(flex.Center).Justify(flex.Center).Gap(4).
 		Background(background).Hover(flex.Look{}.Background(hover)).
-		HitWith(id, accessible, ui.HitOptions{Role: ui.RoleButton, Selected: active, Hint: accessible}).
+		HitWith(id, accessible, gfx.HitOptions{Role: gfx.RoleButton, Selected: active, Hint: accessible}).
 		Children(func() {
 			f.Stack().Width(36).Height(24).Children(func() {
 				f.Stack().Size(21, 21).Absolute().Left(7).Top(2).Children(func() {
@@ -1271,17 +1293,17 @@ func (u *UI) railItemBadged(f *flex.Frame, id ui.ID, icon ui.Icon, label string,
 					f.Row().MinWidth(16).Height(16).PadX(4).Radius(8).Absolute().Right(0).Top(0).
 						Background(u.theme.Primary).Items(flex.Center).Justify(flex.Center).
 						Children(func() {
-							f.Text(badge).FontSize(9).Weight(ui.WeightSemibold).
+							f.Text(badge).FontSize(9).Weight(gfx.WeightSemibold).
 								Color(u.theme.PrimaryForeground).TextCenter()
 						})
 				}
 			})
-			f.Text(visual).FontSize(11).Weight(ui.WeightMedium).Color(foreground)
+			f.Text(visual).FontSize(11).Weight(gfx.WeightMedium).Color(foreground)
 		})
 	return box
 }
 
-func (u *UI) drawSidebar(canvas *ui.Canvas, bounds ui.Rect) {
+func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	canvas.Fill(bounds, u.palette.sidebar)
 	var connect, create flex.Box
 	u.sidebarView.Draw(canvas, u.theme, bounds, func(f *flex.Frame) {
@@ -1303,7 +1325,7 @@ func (u *UI) drawSidebar(canvas *ui.Canvas, bounds ui.Rect) {
 			}
 			f.ScrollArea(listID).Grow(1).Gap(4).
 				HitWith(u.ids.sidebarSurface, i18n.T("侧栏列表"),
-					ui.HitOptions{Role: ui.RoleGroup, SkipFocus: true}).
+					gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
 				Children(func() {
 					if u.section == sectionContacts {
 						u.drawContacts(f)
@@ -1321,7 +1343,7 @@ func (u *UI) drawSidebar(canvas *ui.Canvas, bounds ui.Rect) {
 		u.openCompose("create", "")
 	}
 	if event, ok := canvas.PointerOn(u.ids.sidebarSurface); ok &&
-		event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+		event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 		u.openSidebarMenu(event.X, event.Y)
 		canvas.Consume()
 	}
@@ -1335,14 +1357,14 @@ func (u *UI) searchPlaceholder() string {
 	return i18n.T("搜索会话")
 }
 
-func (u *UI) iconButton(f *flex.Frame, id ui.ID, icon ui.Icon, label string, size float32) flex.Box {
+func (u *UI) iconButton(f *flex.Frame, id gfx.ID, icon gfx.Icon, label string, size float32) flex.Box {
 	return u.sizedIconButton(f, id, icon, label, size, 18)
 }
 
-func (u *UI) sizedIconButton(f *flex.Frame, id ui.ID, icon ui.Icon, label string, size, glyph float32) flex.Box {
+func (u *UI) sizedIconButton(f *flex.Frame, id gfx.ID, icon gfx.Icon, label string, size, glyph float32) flex.Box {
 	return f.Row().Size(size, size).Radius(8).Items(flex.Center).Justify(flex.Center).
 		Hover(flex.Look{}.Background(u.palette.hover)).
-		HitWith(id, label, ui.HitOptions{Role: ui.RoleButton, Hint: label}).
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: label}).
 		Children(func() {
 			f.Icon(icon).Size(glyph, glyph).Color(u.palette.icon)
 		})
@@ -1354,7 +1376,7 @@ func (u *UI) drawContactFilters(f *flex.Frame) {
 		peerCount, allOnline = 1, 1
 	}
 	for _, peer := range u.state.Peers {
-		if peer.ID == u.state.Self.ID || u.state.Settings.HideOfflineContacts && !peer.Online {
+		if peer.ID == u.state.Self.ID || peer.CompatibilityAliasOf != "" || u.state.Settings.HideOfflineContacts && !peer.Online {
 			continue
 		}
 		peerCount++
@@ -1363,7 +1385,7 @@ func (u *UI) drawContactFilters(f *flex.Frame) {
 		}
 	}
 	labels := []struct {
-		id    ui.ID
+		id    gfx.ID
 		label string
 		value string
 		count int
@@ -1383,9 +1405,9 @@ func (u *UI) drawContactFilters(f *flex.Frame) {
 			label := item.label + "  " + intString(item.count)
 			box := f.Row().Height(30).PadX(12).Radius(15).Items(flex.Center).Gap(4).
 				Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
-				HitWith(item.id, item.label, ui.HitOptions{Role: ui.RoleButton, Selected: active}).
+				HitWith(item.id, item.label, gfx.HitOptions{Role: gfx.RoleButton, Selected: active}).
 				Children(func() {
-					f.Text(label).FontSize(12).Weight(ui.WeightMedium).Color(foreground)
+					f.Text(label).FontSize(12).Weight(gfx.WeightMedium).Color(foreground)
 				})
 			if box.Clicked() {
 				u.sidebarFilter = item.value
@@ -1419,7 +1441,7 @@ func (u *UI) drawContacts(f *flex.Frame) {
 	query := strings.TrimSpace(u.sidebarSearch.Text())
 	otherPeers := 0
 	for _, peer := range u.state.Peers {
-		if peer.ID == u.state.Self.ID {
+		if peer.ID == u.state.Self.ID || peer.CompatibilityAliasOf != "" {
 			continue
 		}
 		if u.state.Settings.HideOfflineContacts && !peer.Online {
@@ -1468,19 +1490,19 @@ func (u *UI) selfContactRow(f *flex.Frame) {
 	row := f.Row().FillWidth().Height(58).PadSides(8, 9, 8, 9).Radius(9).Gap(10).
 		Hover(flex.Look{}.Background(u.palette.hover)).
 		HitWith(u.ids.selfRow, name+i18n.T("，个人资料"),
-			ui.HitOptions{Role: ui.RoleButton, Hint: i18n.T("编辑个人资料")}).
+			gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("编辑个人资料")}).
 		Children(func() {
 			u.avatarStatus(f, name, u.selfAvatarPath(), 38, true)
 			f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
 				f.Row().Items(flex.Center).Gap(6).Children(func() {
-					f.Text(name).FontSize(14).Weight(ui.WeightMedium).Ellipsis()
+					f.Text(name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
 					f.Stack().Size(6, 6).Radius(3).Background(u.palette.success)
 				})
 				f.Text(i18n.T("个人资料 · 本机")).FontSize(11).Muted().Ellipsis()
 			})
 		})
 	if event, ok := f.Canvas().PointerOn(u.ids.selfRow); ok &&
-		event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+		event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 		u.openSelfMenu(event.X, event.Y)
 		f.Canvas().Consume()
 	}
@@ -1508,7 +1530,7 @@ func (u *UI) drawInvitations(f *flex.Frame) {
 	f.Row().Height(8)
 	if joinCount > 0 {
 		f.Row().Height(24).Items(flex.Center).Children(func() {
-			f.Text(i18n.T("群聊邀请")).FontSize(12).Weight(ui.WeightSemibold)
+			f.Text(i18n.T("群聊邀请")).FontSize(12).Weight(gfx.WeightSemibold)
 			f.Row().Width(6)
 			u.badgeText(f, intString(joinCount), false)
 		})
@@ -1523,7 +1545,7 @@ func (u *UI) drawInvitations(f *flex.Frame) {
 			f.Row().Height(4)
 		}
 		f.Row().Height(24).Items(flex.Center).Children(func() {
-			f.Text(i18n.T("群主转让")).FontSize(12).Weight(ui.WeightSemibold)
+			f.Text(i18n.T("群主转让")).FontSize(12).Weight(gfx.WeightSemibold)
 			f.Row().Width(6)
 			u.badgeText(f, intString(transferCount), false)
 		})
@@ -1546,7 +1568,7 @@ func (u *UI) invitationCard(f *flex.Frame, invitation domain.Invitation, ownersh
 				if name == "" {
 					name = i18n.T("群聊")
 				}
-				f.Text(name).FontSize(13).Weight(ui.WeightMedium).Ellipsis()
+				f.Text(name).FontSize(13).Weight(gfx.WeightMedium).Ellipsis()
 				from := invitation.FromName
 				if from == "" {
 					from = u.state.Peer(invitation.FromID).Name
@@ -1621,10 +1643,10 @@ func (u *UI) contactGroupHeader(f *flex.Frame, group contactGroupView, collapsed
 	}
 	header := f.Row().Height(32).Items(flex.Center).Gap(6).Radius(7).
 		Hover(flex.Look{}.Background(u.palette.hover)).
-		HitWith(id, group.Name, ui.HitOptions{Role: ui.RoleButton, Expanded: !collapsed}).
+		HitWith(id, group.Name, gfx.HitOptions{Role: gfx.RoleButton, Expanded: !collapsed}).
 		Children(func() {
 			f.Icon(icon).Size(15, 15).Color(u.palette.secondaryText)
-			f.Text(displayContactGroup(group.Name)).FontSize(13).Weight(ui.WeightSemibold).Ellipsis()
+			f.Text(displayContactGroup(group.Name)).FontSize(13).Weight(gfx.WeightSemibold).Ellipsis()
 			f.Spacer()
 			f.Text(intString(group.Online) + "/" + intString(group.Total)).FontSize(11).Muted()
 		})
@@ -1632,7 +1654,7 @@ func (u *UI) contactGroupHeader(f *flex.Frame, group contactGroupView, collapsed
 		u.collapsed[group.Name] = !collapsed
 	}
 	if event, ok := f.Canvas().PointerOn(id); ok && group.Name != "未分组" &&
-		event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+		event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 		u.openShellMenu(shellMenuContactGroup, group.Name, event.X, event.Y)
 		f.Canvas().Consume()
 	}
@@ -1647,12 +1669,12 @@ func (u *UI) contactRow(f *flex.Frame, peer domain.Peer) {
 	}
 	row := f.Row().FillWidth().Height(62).PadSides(8, 9, 8, 9).Radius(9).Gap(10).
 		Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
-		HitWith(id, peer.Name, ui.HitOptions{Role: ui.RoleButton, Selected: selected}).
+		HitWith(id, peer.Name, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
 			u.avatarStatus(f, peer.Name, peer.Avatar, 38, peer.VisibleOnline())
 			f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
 				f.Row().Items(flex.Center).Gap(6).Children(func() {
-					f.Text(peer.Name).FontSize(14).Weight(ui.WeightMedium).Ellipsis()
+					f.Text(peer.Name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
 				})
 				subtitle := peerPresenceLabel(peer)
 				if peer.Transport != domain.TransportGoIM {
@@ -1667,7 +1689,7 @@ func (u *UI) contactRow(f *flex.Frame, peer domain.Peer) {
 			})
 		})
 	if event, ok := f.Canvas().PointerOn(id); ok &&
-		event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+		event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 		u.openContactMenu(peer, event.X, event.Y)
 		f.Canvas().Consume()
 	}
@@ -1683,7 +1705,7 @@ func (u *UI) drawGroupChats(f *flex.Frame) {
 	f.Row().Height(6)
 	f.Row().Height(32).Items(flex.Center).Gap(6).Children(func() {
 		f.Icon(u.iconChevronDown).Size(15, 15).Color(u.palette.secondaryText)
-		f.Text(i18n.T("我的群聊")).FontSize(13).Weight(ui.WeightSemibold)
+		f.Text(i18n.T("我的群聊")).FontSize(13).Weight(gfx.WeightSemibold)
 		f.Spacer()
 		f.Text(intString(len(u.groupChats))).FontSize(11).Muted()
 	})
@@ -1726,7 +1748,7 @@ func (u *UI) conversationRow(f *flex.Frame, conversation domain.Conversation, he
 	title := u.conversationTitle(conversation)
 	row := f.Row().FillWidth().Height(height).PadSides(9, 9, 9, 9).Radius(9).Gap(10).
 		Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
-		HitWith(id, title, ui.HitOptions{Role: ui.RoleButton, Selected: selected}).
+		HitWith(id, title, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
 			online := false
 			avatar := ""
@@ -1745,7 +1767,7 @@ func (u *UI) conversationRow(f *flex.Frame, conversation domain.Conversation, he
 			u.avatarStatus(f, avatarName, avatar, 42, online)
 			f.Column().Grow(1).Gap(4).Justify(flex.Center).Children(func() {
 				f.Row().Items(flex.Center).Gap(5).Children(func() {
-					f.Text(title).FontSize(14).Weight(ui.WeightMedium).Ellipsis()
+					f.Text(title).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
 					if conversation.Pinned {
 						f.Icon(u.iconPin).Size(12, 12).Color(u.palette.secondaryText)
 					}
@@ -1771,7 +1793,7 @@ func (u *UI) conversationRow(f *flex.Frame, conversation domain.Conversation, he
 			})
 		})
 	if event, ok := f.Canvas().PointerOn(id); ok &&
-		event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+		event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 		u.openConversationMenu(conversation, event.X, event.Y)
 		f.Canvas().Consume()
 	}
@@ -1786,7 +1808,7 @@ func (u *UI) emptySidebar(f *flex.Frame, title, description string, actions bool
 			Children(func() {
 				f.Icon(u.iconUsers).Size(22, 22).Color(u.palette.secondaryText)
 			})
-		f.Text(title).FontSize(15).Weight(ui.WeightSemibold).TextCenter()
+		f.Text(title).FontSize(15).Weight(gfx.WeightSemibold).TextCenter()
 		f.Paragraph(description, 3).FontSize(12).Muted().TextCenter().LineHeight(18)
 		if actions {
 			f.Row().Gap(8).Justify(flex.Center).Children(func() {
@@ -1803,7 +1825,7 @@ func (u *UI) emptySidebar(f *flex.Frame, title, description string, actions bool
 
 func (u *UI) emptyListMessage(f *flex.Frame, title, body string) {
 	f.Column().PadSides(24, 22, 18, 22).Gap(5).Children(func() {
-		f.Text(title).FontSize(13).Weight(ui.WeightMedium).TextCenter()
+		f.Text(title).FontSize(13).Weight(gfx.WeightMedium).TextCenter()
 		f.Text(body).FontSize(11).Muted().TextCenter()
 	})
 }
@@ -1813,7 +1835,7 @@ func (u *UI) initialsAvatar(f *flex.Frame, name string, size float32) {
 	f.Row().Size(size, size).Radius(size / 2).Background(u.palette.mutedAvatar).
 		Items(flex.Center).Justify(flex.Center).
 		Children(func() {
-			f.Text(initial).FontSize(max(11, size*0.36)).Weight(ui.WeightSemibold).
+			f.Text(initial).FontSize(max(11, size*0.36)).Weight(gfx.WeightSemibold).
 				Color(u.palette.avatarText).TextCenter()
 		})
 }
@@ -1827,7 +1849,7 @@ func (u *UI) badgeText(f *flex.Frame, label string, primary bool) {
 	}
 	width := max(21, float32(len([]rune(label)))*7+12)
 	f.Stack().Width(width).Height(20).Radius(10).Background(background).Children(func() {
-		f.Text(label).FontSize(10.5).Weight(ui.WeightSemibold).Color(foreground).TextCenter()
+		f.Text(label).FontSize(10.5).Weight(gfx.WeightSemibold).Color(foreground).TextCenter()
 	})
 }
 
@@ -1884,11 +1906,12 @@ func (u *UI) rebuildPresentation(oldError string) {
 	}
 
 	groups := make(map[string][]domain.Peer)
+	u.refreshContactLinkChoices()
 	for _, name := range u.state.ContactGroups {
 		groups[name] = nil
 	}
 	for _, peer := range u.state.Peers {
-		if peer.ID == u.state.Self.ID || u.state.Settings.HideOfflineContacts && !peer.Online {
+		if peer.ID == u.state.Self.ID || peer.CompatibilityAliasOf != "" || u.state.Settings.HideOfflineContacts && !peer.Online {
 			continue
 		}
 		name := strings.TrimSpace(peer.ContactGroup)
@@ -2026,7 +2049,7 @@ func (u *UI) initialsAvatarStatus(f *flex.Frame, name string, size float32, onli
 	f.Row().Size(size, size).Radius(size / 2).Background(u.palette.mutedAvatar).
 		Items(flex.Center).Justify(flex.Center).
 		Children(func() {
-			f.Text(initialOf(name)).FontSize(max(11, size*0.36)).Weight(ui.WeightSemibold).
+			f.Text(initialOf(name)).FontSize(max(11, size*0.36)).Weight(gfx.WeightSemibold).
 				Color(u.palette.avatarText).TextCenter()
 			dot := max(8, size*0.22)
 			color := u.palette.secondaryText
@@ -2407,7 +2430,7 @@ func (u *UI) filteredPeers(peers []domain.Peer, query string) []domain.Peer {
 	return out
 }
 
-func (u *UI) drawOverlays(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawOverlays(canvas *gfx.Canvas, viewport ui.Rect) {
 	if u.moreOpen && !u.isPanelSection() {
 		u.drawChatMenu(canvas)
 	}
@@ -2446,7 +2469,7 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 	if u.shellMenu.open {
 		return nil
 	}
-	if context.ID == u.ids.chatEditor {
+	if flex.Fields(&u.chatEditorField)(context) != nil {
 		return u.chatTextInput()
 	}
 	if input := u.chatSearchTextInput(context); input != nil {
@@ -2469,21 +2492,21 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 	return nil
 }
 
-func (u *UI) onScroll(event ui.ScrollEvent) ui.EventResult {
+func (u *UI) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 	if !u.lockVisible() && u.emojiOpen && pointInside(event.X, event.Y, u.emojiPanel) {
 		result := u.emojiView.Wheel(event)
 		result.Handled = true
 		return result
 	}
 	if u.lockVisible() {
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
 	if result, handled := u.chatOverlayWheel(event); handled {
 		return result
 	}
 	if u.shellMenu.open {
 		u.closeShellMenu()
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if u.modalOpen() {
 		if result := u.dialogView.Wheel(event); result.Handled {
@@ -2506,7 +2529,7 @@ func (u *UI) onScroll(event ui.ScrollEvent) ui.EventResult {
 	return result
 }
 
-func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
+func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if u.lockVisible() {
 		// The only registered hits while locked belong to the lock screen.
 		// Let Viva deliver text keys, focus traversal and Enter to those hits.
@@ -2515,119 +2538,119 @@ func (u *UI) onKey(event ui.KeyEvent) ui.EventResult {
 	if result, handled := u.chatOverlayKey(event); handled {
 		return result
 	}
-	if u.mention.open && u.focusedID == u.ids.chatEditor && !event.Release &&
+	if u.mention.open && u.fieldFocused(&u.chatEditorField) && !event.Release &&
 		event.Modifiers == 0 && u.chatEditor != nil {
 		if _, composing := u.chatEditor.Composition(); !composing {
 			switch event.Key {
-			case ui.KeyUp:
+			case gfx.KeyUp:
 				u.moveMention(-1)
-				return ui.EventResult{Handled: true, Repaint: true}
-			case ui.KeyDown:
+				return gfx.EventResult{Handled: true, Repaint: true}
+			case gfx.KeyDown:
 				u.moveMention(1)
-				return ui.EventResult{Handled: true, Repaint: true}
-			case ui.KeyEnter:
+				return gfx.EventResult{Handled: true, Repaint: true}
+			case gfx.KeyEnter:
 				if u.insertMention() {
-					return ui.EventResult{Handled: true, Repaint: true}
+					return gfx.EventResult{Handled: true, Repaint: true}
 				}
 			}
 		}
 	}
-	if event.Key == ui.KeyEscape {
+	if event.Key == gfx.KeyEscape {
 		switch {
 		case u.confirm.open:
 			u.confirm.open = false
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		case u.shellMenu.open:
 			u.closeShellMenu()
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.organize.open:
 			u.closeOrganize()
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.profile.open:
 			u.closeProfile()
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.emojiOpen:
 			u.emojiOpen = false
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.mention.open:
 			u.closeMention()
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.compose.open:
 			u.requestCloseCompose()
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		case u.connectOpen:
 			u.connectOpen = false
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		case u.memberProfile != "":
 			u.memberProfile = ""
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		case u.memberMenu != "":
 			u.memberMenu = ""
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		case u.activeFileID != "" && u.fileReturn == "list":
 			u.activeFileID = ""
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		case u.drawer != "":
 			u.requestCloseDrawer()
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		case u.moreOpen:
 			u.moreOpen = false
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		case u.chatFind.open:
 			u.closeChatSearch()
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 	}
 	if u.shellMenu.open {
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
 	if u.isPanelSection() {
 		return u.panels.Key(event)
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
-func (u *UI) onShortcut(event ui.KeyEvent) ui.EventResult {
+func (u *UI) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if u.lockVisible() || (u.section == sectionSettings && u.panels.settingsTab == panelSettingsSecurity &&
 		u.panels.settingsExtra.isPasswordField(event.Target)) {
 		// Viva offers plain printable keys here before native text input.
 		// Skip application shortcuts without consuming the editor's keys.
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	if result, handled := u.chatOverlayShortcut(event); handled {
 		return result
 	}
 	if u.modalOpen() {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	if u.isPanelSection() {
 		if result := u.panels.Shortcut(event); result.Handled {
 			return result
 		}
 	}
-	control := event.Modifiers&ui.ModifierControl != 0 || event.Modifiers&ui.ModifierMeta != 0
-	if event.Key == ui.KeyEnter && control && u.focusedID == u.ids.chatEditor && u.selected != "" {
+	control := event.Modifiers&gfx.ModifierControl != 0 || event.Modifiers&gfx.ModifierMeta != 0
+	if event.Key == gfx.KeyEnter && control && u.fieldFocused(&u.chatEditorField) && u.selected != "" {
 		if u.chatEditor == nil {
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
 		if _, composing := u.chatEditor.Composition(); composing {
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		}
 		if u.state.Settings.SendKey == "Ctrl+Enter" {
 			u.sendChatText()
-			return ui.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true}
 		}
 		u.chatEditor.NewLine()
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if u.shortcutTriggered(shortcutActionOpenSettings, "Ctrl+,", event) {
 		u.setSection(sectionSettings)
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
 	if u.shortcutTriggered(shortcutActionSearchInConversation, "Ctrl+F", event) {
 		if !u.isPanelSection() && u.selected != "" {
 			u.openChatSearch()
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 	}
 	if u.shortcutTriggered(shortcutActionQuickFind, "Ctrl+K", event) {
@@ -2636,42 +2659,46 @@ func (u *UI) onShortcut(event ui.KeyEvent) ui.EventResult {
 		}
 		u.chatFind.focus = false
 		u.focusSearch = true
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if u.shortcutTriggered(shortcutActionCreateGroup, "Ctrl+Shift+N", event) {
 		if u.isPanelSection() {
 			u.setSection(sectionMessages)
 		}
 		u.openCompose("create", "")
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
-func (u *UI) onFileDrop(event ui.FileDropEvent) ui.EventResult {
+func (u *UI) fieldFocused(field *flex.Field) bool {
+	return field != nil && flex.Fields(field)(app.TextInputContext{ID: u.focusedID}) != nil
+}
+
+func (u *UI) onFileDrop(event gfx.FileDropEvent) gfx.EventResult {
 	if u.lockVisible() {
 		u.dragging = false
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	switch event.Phase {
-	case ui.FileDropOver:
+	case gfx.FileDropOver:
 		if u.chatDropReady() && pointInside(event.X, event.Y, u.lastChat) {
 			u.dragging = true
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
-	case ui.FileDropLeave:
+	case gfx.FileDropLeave:
 		if u.dragging {
 			u.dragging = false
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
-	case ui.FileDropDrop:
+	case gfx.FileDropDrop:
 		u.dragging = false
 		if u.chatDropReady() && len(event.Paths) > 0 && pointInside(event.X, event.Y, u.lastChat) {
 			u.submit(domain.Command{Kind: domain.SendFiles, ConversationID: u.selected, Paths: append([]string(nil), event.Paths...)})
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
 func (u *UI) chatDropReady() bool {
@@ -2761,7 +2788,7 @@ func (u *UI) ensureGroupInviteIDs(groupID, peerID string) {
 	u.ensureID(u.inviteReinviteIDs, u.ids.dialog, "invite-reinvite:", key)
 }
 
-func (u *UI) ensureID(cache map[string]ui.ID, scope ui.Scope, prefix, key string) ui.ID {
+func (u *UI) ensureID(cache map[string]gfx.ID, scope gfx.Scope, prefix, key string) gfx.ID {
 	if key == "" {
 		key = "empty"
 	}
@@ -2865,9 +2892,9 @@ func (u *UI) queueImage(path string) {
 	})
 }
 
-func (u *UI) avatarBitmap(path string) ui.Bitmap {
+func (u *UI) avatarBitmap(path string) gfx.Bitmap {
 	if path == "" {
-		return ui.Bitmap{}
+		return gfx.Bitmap{}
 	}
 	if bitmap, ok := u.avatarCache[path]; ok && bitmapReady(bitmap) {
 		return bitmap
@@ -2882,7 +2909,7 @@ func (u *UI) avatarBitmap(path string) ui.Bitmap {
 			return u.pendingBitmap(path)
 		}
 	}
-	return ui.Bitmap{}
+	return gfx.Bitmap{}
 }
 
 func (u *UI) selfDisplayName() string {
@@ -2903,10 +2930,10 @@ func (u *UI) selfAvatarPath() string {
 	return strings.TrimSpace(u.state.Settings.Avatar)
 }
 
-func (u *UI) avatarUploadBitmap(path string) (ui.Bitmap, bool) {
+func (u *UI) avatarUploadBitmap(path string) (gfx.Bitmap, bool) {
 	full, ok := u.imageCache[path]
 	if !ok {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	return squareBitmap(full)
 }
@@ -2933,10 +2960,10 @@ func (u *UI) cacheAvatarBitmap(path string) {
 	u.avatarCache[path] = round
 }
 
-func squareBitmap(bitmap ui.Bitmap) (ui.Bitmap, bool) {
+func squareBitmap(bitmap gfx.Bitmap) (gfx.Bitmap, bool) {
 	if bitmap.Width <= 0 || bitmap.Height <= 0 || bitmap.Stride < bitmap.Width*4 ||
 		len(bitmap.Pix) < bitmap.Stride*bitmap.Height {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	side := min(bitmap.Width, bitmap.Height)
 	if bitmap.Width == bitmap.Height && bitmap.Stride == side*4 {
@@ -2950,7 +2977,7 @@ func squareBitmap(bitmap ui.Bitmap) (ui.Bitmap, bool) {
 		start := (offsetY+y)*bitmap.Stride + offsetX*4
 		copy(pixels[y*stride:(y+1)*stride], bitmap.Pix[start:start+stride])
 	}
-	return ui.Bitmap{
+	return gfx.Bitmap{
 		Pix: pixels, Width: side, Height: side, Stride: stride,
 		ID: bitmap.ID, Version: bitmap.Version,
 	}, true
@@ -2959,11 +2986,11 @@ func squareBitmap(bitmap ui.Bitmap) (ui.Bitmap, bool) {
 // circularBitmap applies a one-pixel-antialiased circular alpha mask without
 // touching the source. The image is already a square center crop, so painting
 // it whole yields a round avatar with one draw instead of per-row strips.
-func circularBitmap(bitmap ui.Bitmap) (ui.Bitmap, bool) {
+func circularBitmap(bitmap gfx.Bitmap) (gfx.Bitmap, bool) {
 	side := bitmap.Width
 	if side <= 0 || bitmap.Height != side || bitmap.Stride != side*4 ||
 		len(bitmap.Pix) < bitmap.Stride*side {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	pixels := make([]byte, len(bitmap.Pix))
 	copy(pixels, bitmap.Pix)
@@ -2989,20 +3016,20 @@ func circularBitmap(bitmap ui.Bitmap) (ui.Bitmap, bool) {
 			}
 		}
 	}
-	return ui.Bitmap{
+	return gfx.Bitmap{
 		Pix: pixels, Width: side, Height: side, Stride: bitmap.Stride,
 		ID: bitmap.ID, Version: bitmap.Version,
 	}, true
 }
 
-func (u *UI) fileBitmap(path string) ui.Bitmap {
+func (u *UI) fileBitmap(path string) gfx.Bitmap {
 	if path == "" {
-		return ui.Bitmap{}
+		return gfx.Bitmap{}
 	}
 	return u.imageCache[path]
 }
 
-func bitmapReady(bitmap ui.Bitmap) bool {
+func bitmapReady(bitmap gfx.Bitmap) bool {
 	if bitmap.Width <= 0 || bitmap.Height <= 0 || bitmap.Stride < bitmap.Width*4 ||
 		len(bitmap.Pix) < bitmap.Stride*bitmap.Height {
 		return false
@@ -3011,12 +3038,12 @@ func bitmapReady(bitmap ui.Bitmap) bool {
 		len(bitmap.Pix) != 4 || bitmap.Version != 0
 }
 
-func (u *UI) pendingBitmap(path string) ui.Bitmap {
+func (u *UI) pendingBitmap(path string) gfx.Bitmap {
 	if bitmap, ok := u.mediaPendingBitmaps[path]; ok {
 		return bitmap
 	}
 	u.nextImageID++
-	bitmap := ui.Bitmap{
+	bitmap := gfx.Bitmap{
 		Pix: make([]byte, 4), Width: 1, Height: 1, Stride: 4,
 		ID: u.nextImageID,
 	}
@@ -3115,10 +3142,10 @@ const (
 	maxImageDimension    = 8192
 )
 
-func decodeBitmap(path string, limit int) (ui.Bitmap, bool) {
+func decodeBitmap(path string, limit int) (gfx.Bitmap, bool) {
 	file, err := os.Open(path)
 	if err != nil {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	defer file.Close()
 	info, err := file.Stat()
@@ -3127,11 +3154,11 @@ func decodeBitmap(path string, limit int) (ui.Bitmap, bool) {
 		maxBytes = 8 << 20
 	}
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxBytes {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	config, format, err := image.DecodeConfig(file)
 	if err != nil {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	maxPixels := maxImageDecodePixels
 	if format == "gif" || (format == "png" && limit <= 192) {
@@ -3139,18 +3166,18 @@ func decodeBitmap(path string, limit int) (ui.Bitmap, bool) {
 	}
 	if config.Width <= 0 || config.Height <= 0 || config.Width > maxImageDimension || config.Height > maxImageDimension ||
 		int64(config.Width)*int64(config.Height) > maxPixels {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	source, _, err := image.Decode(file)
 	if err != nil {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	bounds := source.Bounds()
 	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
-		return ui.Bitmap{}, false
+		return gfx.Bitmap{}, false
 	}
 	width, height := bounds.Dx(), bounds.Dy()
 	if width > limit || height > limit {
@@ -3167,7 +3194,7 @@ func decodeBitmap(path string, limit int) (ui.Bitmap, bool) {
 		for i := 0; i < len(rgba.Pix); i += 4 {
 			rgba.Pix[i], rgba.Pix[i+2] = rgba.Pix[i+2], rgba.Pix[i]
 		}
-		return ui.Bitmap{Pix: rgba.Pix, Width: width, Height: height, Stride: rgba.Stride}, true
+		return gfx.Bitmap{Pix: rgba.Pix, Width: width, Height: height, Stride: rgba.Stride}, true
 	}
 	pixels := make([]byte, width*height*4)
 	for y := 0; y < height; y++ {
@@ -3182,7 +3209,7 @@ func decodeBitmap(path string, limit int) (ui.Bitmap, bool) {
 			pixels[offset+3] = uint8(alpha >> 8)
 		}
 	}
-	return ui.Bitmap{Pix: pixels, Width: width, Height: height, Stride: width * 4}, true
+	return gfx.Bitmap{Pix: pixels, Width: width, Height: height, Stride: width * 4}, true
 }
 
 func initialOf(name string) string {
@@ -3190,11 +3217,11 @@ func initialOf(name string) string {
 	if name == "" || !utf8.ValidString(name) {
 		return "?"
 	}
-	last := ui.GraphemeStart(name, len(name)-1)
+	last := gfx.GraphemeStart(name, len(name)-1)
 	if last <= 0 {
 		return name
 	}
-	previous := ui.GraphemeStart(name, last-1)
+	previous := gfx.GraphemeStart(name, last-1)
 	return name[previous:]
 }
 

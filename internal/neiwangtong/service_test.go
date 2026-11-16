@@ -3,126 +3,293 @@ package neiwangtong
 import (
 	"bytes"
 	"context"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestServiceLocalLoopback(t *testing.T) {
-	textCh := make(chan string, 1)
-	fileCh := make(chan uint64, 1)
+var loopback = netip.MustParseAddr("127.0.0.1")
 
-	localIP := netip.AddrFrom4([4]byte{127, 0, 0, 1})
-
-	// Server 1
-	s1, err := Start(Config{
-		Name:             "Node1",
-		Group:            "Dev",
-		DiscoveryPort:    19011,
-		ControlPort:      19012,
-		TransferPort:     19013,
-		BindIP:           localIP,
-		DisableBroadcast: true,
-		Callbacks: Callbacks{
-			Text: func(peerID string, packetID uint64, text string) {
-				textCh <- text
-			},
-			Files: func(peerID string, taskID uint64, name string, size int64) {
-				fileCh <- taskID
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Start s1 error: %v", err)
-	}
-	defer s1.Close()
-
-	// Server 2
-	s2, err := Start(Config{
-		Name:             "Node2",
-		Group:            "Dev",
-		DiscoveryPort:    29011,
-		ControlPort:      29012,
-		TransferPort:     29013,
-		BindIP:           localIP,
-		DisableBroadcast: true,
-	})
-	if err != nil {
-		t.Fatalf("Start s2 error: %v", err)
-	}
-	defer s2.Close()
-
-	// Directed probe s2 -> s1
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if err := s2.Probe(ctx, netip.AddrPortFrom(localIP, 19011), 19012, 19013); err != nil {
-		t.Fatalf("Probe error: %v", err)
-	}
-
-	time.Sleep(300 * time.Millisecond)
-
-	s1PeerID := s1.markerHex
-	s2PeerID := s2.markerHex
-
-	s1.peersMu.RLock()
-	for id, p := range s1.peers {
-		t.Logf("s1 sees peer %s: udp9012=%v, tcp9013=%v", id, p.udp9012, p.tcp9013)
-	}
-	s1.peersMu.RUnlock()
-
-	s2.peersMu.RLock()
-	for id, p := range s2.peers {
-		t.Logf("s2 sees peer %s: udp9012=%v, tcp9013=%v", id, p.udp9012, p.tcp9013)
-	}
-	s2.peersMu.RUnlock()
-
-	// 1. Send text from s2 to s1
-	if err := s2.SendText(s1PeerID, "loopback hello!"); err != nil {
-		t.Fatalf("SendText error: %v", err)
-	}
-
-	select {
-	case msg := <-textCh:
-		if msg != "loopback hello!" {
-			t.Errorf("Unexpected text: %s", msg)
+func freePort(t *testing.T, network string) int {
+	t.Helper()
+	if network == "tcp" {
+		conn, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
 		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("Timeout waiting for text message")
+		defer conn.Close()
+		return conn.Addr().(*net.TCPAddr).Port
 	}
-
-	// 2. Send file offer from s2 to s1
-	tmpDir := t.TempDir()
-	srcPath := filepath.Join(tmpDir, "test-send.txt")
-	testData := []byte("neiwangtong file loopback data content 12345")
-	_ = os.WriteFile(srcPath, testData, 0644)
-	taskID := uint64(888)
-	if err := s2.SendFileOffer(s1PeerID, taskID, "test-send.txt", int64(len(testData)), time.Now().Unix(), srcPath); err != nil {
-		t.Fatalf("SendFileOffer error: %v", err)
-	}
-
-	var recvdTaskID uint64
-	select {
-	case recvdTaskID = <-fileCh:
-		if recvdTaskID != taskID {
-			t.Errorf("Unexpected taskID: %d", recvdTaskID)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("Timeout waiting for file offer")
-	}
-
-	// 3. Accept file on s1
-	destPath := filepath.Join(tmpDir, "test-recvd.txt")
-	if err := s1.AcceptFile(context.Background(), s2PeerID, recvdTaskID, int64(len(testData)), destPath); err != nil {
-		t.Fatalf("AcceptFile error: %v", err)
-	}
-
-	readBack, err := os.ReadFile(destPath)
+	conn, err := net.ListenUDP("udp4", net.UDPAddrFromAddrPort(netip.AddrPortFrom(loopback, 0)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(readBack, testData) {
-		t.Fatalf("Downloaded file mismatch: got %s, want %s", string(readBack), string(testData))
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).Port
+}
+
+func waitEvent[T any](t *testing.T, events <-chan T) T {
+	t.Helper()
+	select {
+	case value := <-events:
+		return value
+	case <-time.After(6 * time.Second):
+		t.Fatal("timed out waiting for a native protocol event")
+		var zero T
+		return zero
+	}
+}
+
+func TestNativeDiscoveryIsNotACompletedHandshake(t *testing.T) {
+	peer, err := Start(Config{
+		Name: "Receiver", BindIP: loopback, DisableBroadcast: true,
+		DiscoveryPort: freePort(t, "udp"), ControlPort: freePort(t, "udp"), TransferPort: freePort(t, "tcp"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Close()
+	stub, err := net.ListenUDP("udp4", net.UDPAddrFromAddrPort(netip.AddrPortFrom(loopback, 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stub.Close()
+	target := stub.LocalAddr().(*net.UDPAddr).AddrPort()
+	go func() {
+		buf := make([]byte, 512)
+		if _, addr, err := stub.ReadFromUDPAddrPort(buf); err == nil {
+			reply := Discovery{Kind: Reply, ID: [16]byte{91}, Broadcast: loopback}
+			packet, _ := reply.MarshalBinary()
+			_, _ = stub.WriteToUDPAddrPort(packet, addr)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	if err := peer.Probe(ctx, target, int(target.Port()), 0); err == nil {
+		t.Fatal("a discovery reply was treated as a verified control connection")
+	}
+	peer.mu.Lock()
+	defer peer.mu.Unlock()
+	if p := peer.peers[keyForDiscovery([16]byte{91})]; p == nil || p.peer.Online {
+		t.Fatalf("unexpected peer readiness: %+v", p)
+	}
+}
+
+func TestNativeDiscoveryReplyUsesRequestInterface(t *testing.T) {
+	peer, err := Start(Config{
+		Name: "Receiver", BindIP: loopback, DisableBroadcast: true, ID: [16]byte{11},
+		DiscoveryPort: freePort(t, "udp"), ControlPort: freePort(t, "udp"), TransferPort: freePort(t, "tcp"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Close()
+
+	requester, err := net.ListenUDP("udp4", net.UDPAddrFromAddrPort(netip.AddrPortFrom(loopback, 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer requester.Close()
+	_ = requester.SetDeadline(time.Now().Add(2 * time.Second))
+	request := Discovery{
+		Kind: Announce, ID: [16]byte{12},
+		Broadcast: netip.AddrFrom4([4]byte{127, 0, 0, 255}),
+	}
+	peer.mu.Lock()
+	wantBroadcast := peer.selfDisc.Broadcast
+	peer.mu.Unlock()
+	packet, err := request.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := netip.AddrPortFrom(loopback, uint16(peer.cfg.DiscoveryPort))
+	if _, err := requester.WriteToUDPAddrPort(packet, target); err != nil {
+		t.Fatal(err)
+	}
+	var buf [discoverySize + 1]byte
+	n, _, err := requester.ReadFromUDPAddrPort(buf[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := ParseDiscovery(buf[:n])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Kind != Reply || reply.Broadcast != wantBroadcast {
+		t.Fatalf("discovery reply = %+v, want Reply with sender broadcast %s", reply, wantBroadcast)
+	}
+}
+
+func TestProfileBootstrapPromotesToMainControlConnection(t *testing.T) {
+	peers := make(chan Peer, 16)
+	trace := make(chan string, 256)
+	callbacks := Callbacks{Peer: func(p Peer) { peers <- p }}
+	traceLine := func(line string) {
+		select {
+		case trace <- line:
+		default:
+		}
+	}
+	first := Config{
+		Name: "First", BindIP: loopback, DisableBroadcast: true, ID: [16]byte{21},
+		DiscoveryPort: freePort(t, "udp"), ControlPort: freePort(t, "udp"), TransferPort: freePort(t, "tcp"),
+		Callbacks: callbacks, Trace: traceLine,
+	}
+	second := Config{
+		Name: "Second", BindIP: loopback, DisableBroadcast: true, ID: [16]byte{22},
+		DiscoveryPort: freePort(t, "udp"), ControlPort: freePort(t, "udp"), TransferPort: freePort(t, "tcp"),
+		Callbacks: callbacks, Trace: traceLine,
+	}
+	first.RemoteControlPort = second.ControlPort
+	second.RemoteControlPort = first.ControlPort
+	firstService, err := Start(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer firstService.Close()
+	secondService, err := Start(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondService.Close()
+
+	profileTarget := netip.AddrPortFrom(loopback, uint16(firstService.selfDisc.Trailer))
+	discovery := firstService.selfDisc
+	discovery.Kind = Reply
+	controlTarget := netip.AddrPortFrom(loopback, uint16(second.RemoteControlPort))
+	if _, ok := secondService.recordDiscovery(discovery, netip.AddrPort{}, controlTarget, AvatarPort); !ok {
+		t.Fatal("could not seed profile bootstrap identity")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	secondService.kickHandshake(firstService.selfID, profileTarget)
+
+	seen := make(map[string]bool)
+	var traceLines []string
+	for !seen[firstService.selfID] || !seen[secondService.selfID] {
+		select {
+		case peer := <-peers:
+			seen[peer.ID] = peer.Online
+		case line := <-trace:
+			traceLines = append(traceLines, line)
+			if len(traceLines) > 80 {
+				traceLines = traceLines[len(traceLines)-80:]
+			}
+		case <-ctx.Done():
+			t.Fatalf("reverse profile bootstrap did not confirm both peers: first=%t second=%t\ntrace:\n%s",
+				seen[firstService.selfID], seen[secondService.selfID], strings.Join(traceLines, "\n"))
+		}
+	}
+	if !secondService.profileENet.connected(profileTarget) {
+		t.Fatal("profile bootstrap did not use the advertised temporary ENet endpoint")
+	}
+}
+
+func TestServiceLocalLoopback(t *testing.T) {
+	texts := make(chan string, 4)
+	offers := make(chan XMLSendFile, 4)
+	avatars := make(chan []byte, 8)
+	peers := make(chan Peer, 16)
+	aCfg := Config{
+		Name: "Receiver", BindIP: loopback, DisableBroadcast: true, ID: [16]byte{1},
+		DiscoveryPort: freePort(t, "udp"), ControlPort: freePort(t, "udp"), TransferPort: freePort(t, "tcp"),
+		Callbacks: Callbacks{
+			Text:          func(_ string, _ uint64, text string) { texts <- text },
+			Files:         func(_ string, offer XMLSendFile) { offers <- offer },
+			Peer:          func(p Peer) { peers <- p },
+			AvatarUpdated: func(_ string, _ uint64, png []byte) { avatars <- png },
+		},
+	}
+	bCfg := Config{
+		Name: "Sender", BindIP: loopback, DisableBroadcast: true, ID: [16]byte{2},
+		DiscoveryPort: freePort(t, "udp"), ControlPort: freePort(t, "udp"), TransferPort: freePort(t, "tcp"),
+		AvatarPNG: createTestPNG(),
+	}
+	aCfg.RemoteControlPort = bCfg.ControlPort
+	bCfg.RemoteControlPort = aCfg.ControlPort
+	a, err := Start(aCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	b, err := Start(bCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	if err := a.Probe(ctx, netip.AddrPortFrom(loopback, uint16(bCfg.DiscoveryPort)), bCfg.ControlPort, bCfg.TransferPort); err != nil {
+		t.Fatal(err)
+	}
+	first := waitEvent(t, peers)
+	if first.ID != b.selfID || first.Name != "Sender" || !first.Online {
+		t.Fatalf("first profile = %+v", first)
+	}
+	if got := waitEvent(t, avatars); !bytes.Equal(got, bCfg.AvatarPNG) {
+		t.Fatal("first avatar differs")
+	}
+	// Wait for the other side's profile on the same verified control session.
+	if err := b.Probe(ctx, netip.AddrPortFrom(loopback, uint16(aCfg.DiscoveryPort)), aCfg.ControlPort, aCfg.TransferPort); err != nil {
+		t.Fatal(err)
+	}
+	message := "本机消息 & <文本> 😀 " + string(bytes.Repeat([]byte("a"), 3000))
+	if err := b.SendText(a.selfID, message); err != nil {
+		t.Fatal(err)
+	}
+	if got := waitEvent(t, texts); got != message {
+		t.Fatal("reassembled message differs")
+	}
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.txt")
+	payload := []byte("synthetic native file bytes")
+	if err := os.WriteFile(source, payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.SendFileOffer(a.selfID, 888, "项目 & 文件.txt", int64(len(payload)), time.Now().Unix(), source); err != nil {
+		t.Fatal(err)
+	}
+	offer := waitEvent(t, offers)
+	if offer.FileID != 888 || offer.TaskID != 888 || offer.Name != "项目 & 文件.txt" {
+		t.Fatalf("offer: %+v", offer)
+	}
+	dest := filepath.Join(dir, "received.txt")
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("downloaded before acceptance: %v", err)
+	}
+	if err := a.AcceptFile(ctx, b.selfID, offer.TaskID, offer.FileID, offer.Size, dest, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("file data mismatch: %v", err)
+	}
+	b.UpdateProfile(Peer{Name: "Changed & ready", Sign: "在线", Status: StatusAway}, nil)
+	var next Peer
+	updateDeadline := time.After(6 * time.Second)
+	for next.Name != "Changed & ready" {
+		select {
+		case next = <-peers:
+		case <-updateDeadline:
+			t.Fatalf("profile update did not arrive; last profile: %+v", next)
+		}
+	}
+	if next.Name != "Changed & ready" || next.Sign != "在线" || next.Status != StatusAway {
+		t.Fatalf("profile update: %+v", next)
+	}
+	avatarDeadline := time.After(6 * time.Second)
+	for {
+		select {
+		case avatar := <-avatars:
+			if len(avatar) == 0 {
+				return
+			}
+		case <-avatarDeadline:
+			t.Fatal("avatar removal did not clear the image")
+		}
 	}
 }

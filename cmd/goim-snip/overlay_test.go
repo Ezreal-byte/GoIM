@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/headless"
-	"github.com/vivaui/viva/ui"
 	"goim/internal/capture"
 	"goim/internal/i18n"
 )
@@ -28,13 +28,13 @@ func TestSelectionOverlayExportsOnlyMarkedRegion(t *testing.T) {
 	d := session.Driver()
 	drag := func(x, y, endX, endY float32) {
 		t.Helper()
-		if err := d.Press(x, y, ui.PointerButtonPrimary); err != nil {
+		if err := d.Press(x, y, gfx.PointerButtonPrimary); err != nil {
 			t.Fatal(err)
 		}
 		if err := d.Move(endX, endY); err != nil {
 			t.Fatal(err)
 		}
-		if err := d.Release(endX, endY, ui.PointerButtonPrimary); err != nil {
+		if err := d.Release(endX, endY, gfx.PointerButtonPrimary); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -127,18 +127,18 @@ func TestSelectionOverlayClickSnapAndResizeAtScaledResolution(t *testing.T) {
 		t.Fatalf("click did not select the hovered window: %v", o.selection)
 	}
 	// A fast follow-up press can have a double-click count; a drag still edits.
-	drag := func(x, y, endX, endY float32, id ui.ID) {
+	drag := func(x, y, endX, endY float32, id gfx.ID) {
 		t.Helper()
 		if target, ok := d.HitTest(x, y); !ok || target != id {
 			t.Fatalf("grip (%v, %v) hits %v, want %v", x, y, target, id)
 		}
-		if err := d.PressCount(x, y, ui.PointerButtonPrimary, 2); err != nil {
+		if err := d.PressCount(x, y, gfx.PointerButtonPrimary, 2); err != nil {
 			t.Fatal(err)
 		}
 		if err := d.Move(endX, endY); err != nil {
 			t.Fatal(err)
 		}
-		if err := d.ReleaseCount(endX, endY, ui.PointerButtonPrimary, 2); err != nil {
+		if err := d.ReleaseCount(endX, endY, gfx.PointerButtonPrimary, 2); err != nil {
 			t.Fatal(err)
 		}
 		if e.done {
@@ -194,13 +194,13 @@ func TestSelectionOverlayWholeScreenAndUndo(t *testing.T) {
 		findHit(t, d, grip.id)
 	}
 	clickControl(t, d, rectID)
-	if err := d.Press(80, 120, ui.PointerButtonPrimary); err != nil {
+	if err := d.Press(80, 120, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.Move(280, 290); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.Release(280, 290, ui.PointerButtonPrimary); err != nil {
+	if err := d.Release(280, 290, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	if len(o.shapes) != 1 {

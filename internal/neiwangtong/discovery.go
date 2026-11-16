@@ -18,7 +18,7 @@ const (
 	AvatarPort     uint16 = 9013
 	discoverySize         = 304
 	discoveryMagic        = 0x5fc1d8ec
-	discoveryTag          = "#3#4#"
+	discoveryTag          = "#3#4#4"
 )
 
 type DiscoveryKind uint32
@@ -44,7 +44,7 @@ var errDiscovery = errors.New("invalid native discovery record")
 func ParseDiscovery(p []byte) (Discovery, error) {
 	if len(p) != discoverySize || binary.BigEndian.Uint32(p) != discoverySize ||
 		binary.BigEndian.Uint32(p[8:]) != 1 || binary.BigEndian.Uint32(p[12:]) != discoveryMagic ||
-		string(p[24:29]) != discoveryTag || p[61] != '0' {
+		string(p[24:30]) != discoveryTag {
 		return Discovery{}, errDiscovery
 	}
 	d := Discovery{
@@ -56,7 +56,7 @@ func ParseDiscovery(p []byte) (Discovery, error) {
 	if !d.validKind() {
 		return Discovery{}, errDiscovery
 	}
-	if _, err := hex.Decode(d.ID[:], p[29:61]); err != nil || d.ID == [16]byte{} {
+	if _, err := hex.Decode(d.ID[:], p[30:62]); err != nil || d.ID == [16]byte{} {
 		return Discovery{}, errDiscovery
 	}
 	return d, nil
@@ -76,9 +76,8 @@ func (d Discovery) MarshalBinary() ([]byte, error) {
 	binary.BigEndian.PutUint32(p[8:], 1)
 	binary.BigEndian.PutUint32(p[12:], discoveryMagic)
 	copy(p[20:24], d.Broadcast.AsSlice())
-	copy(p[24:29], discoveryTag)
-	hex.Encode(p[29:61], d.ID[:])
-	p[61] = '0'
+	copy(p[24:30], discoveryTag)
+	hex.Encode(p[30:62], d.ID[:])
 	copy(p[95:111], d.ProfileTag[:])
 	binary.BigEndian.PutUint16(p[162:164], 500)
 	binary.BigEndian.PutUint16(p[165:167], d.Trailer)

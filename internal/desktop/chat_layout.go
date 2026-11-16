@@ -1,12 +1,13 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"sync"
 	"weak"
 
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -28,20 +29,20 @@ const (
 )
 
 type chatSurfaceIDs struct {
-	sidebarSplitter ui.ID
-	historySplitter ui.ID
+	sidebarSplitter gfx.ID
+	historySplitter gfx.ID
 
-	viewerScope                             ui.ID
-	viewerStage                             ui.ID
-	viewerClose                             ui.ID
-	viewerPrevious                          ui.ID
-	viewerNext                              ui.ID
-	viewerFit                               ui.ID
-	viewerActual                            ui.ID
-	viewerZoomOut                           ui.ID
-	viewerZoomIn                            ui.ID
-	viewerRotate                            ui.ID
-	viewerPin, viewerFullscreen, viewerSave ui.ID
+	viewerScope                             gfx.ID
+	viewerStage                             gfx.ID
+	viewerClose                             gfx.ID
+	viewerPrevious                          gfx.ID
+	viewerNext                              gfx.ID
+	viewerFit                               gfx.ID
+	viewerActual                            gfx.ID
+	viewerZoomOut                           gfx.ID
+	viewerZoomIn                            gfx.ID
+	viewerRotate                            gfx.ID
+	viewerPin, viewerFullscreen, viewerSave gfx.ID
 	viewerMenu                              viewerMenuIDs
 }
 
@@ -111,7 +112,8 @@ func (u *UI) chatSurface() *chatSurface {
 
 func (u *UI) newChatSurface() *chatSurface {
 	return &chatSurface{
-		sidebar: flex.SplitterState{Pos: sidebarWidth},
+		workspace: flex.NewView("workspace"),
+		sidebar:   flex.SplitterState{Pos: sidebarWidth},
 		ids: chatSurfaceIDs{
 			sidebarSplitter:  u.tree.ID(u.ids.side, "workspace-divider"),
 			historySplitter:  u.tree.ID(u.ids.chat, "history-composer-divider"),
@@ -136,7 +138,7 @@ func (u *UI) newChatSurface() *chatSurface {
 // drawMainBody owns the rail and the resizable workspace between the rail,
 // contact list, chat, and panel sections. The native shell calls it once per
 // paint after the title bar and lock screen.
-func (u *UI) drawMainBody(canvas *ui.Canvas, body ui.Rect) {
+func (u *UI) drawMainBody(canvas *gfx.Canvas, body ui.Rect) {
 	rail := ui.Rect{
 		X: body.X, Y: body.Y,
 		Width: min(railWidth, body.Width), Height: body.Height,
@@ -156,23 +158,23 @@ func (u *UI) drawMainBody(canvas *ui.Canvas, body ui.Rect) {
 	u.drawChatWorkspace(canvas, body)
 }
 
-func (u *UI) drawChatWorkspace(canvas *ui.Canvas, body ui.Rect) {
+func (u *UI) drawChatWorkspace(canvas *gfx.Canvas, body ui.Rect) {
 	surface := u.chatSurface()
 	surface.clampSidebar()
 	workspace := ui.Rect{
 		X: min(railWidth, body.Width), Y: body.Y,
 		Width: max(body.Width-railWidth, 0), Height: body.Height,
 	}
-	f := surface.workspace.Begin(canvas, u.theme, workspace)
 	var sidebar, chat flex.Box
-	f.Row().Fill().Children(func() {
-		sidebar = f.Row().Width(surface.sidebar.Pos)
-		f.Splitter(surface.ids.sidebarSplitter, &surface.sidebar).
-			Mins(chatSidebarMinWidth, chatWorkspaceMinWidth).
-			Label(i18n.T("调整联系人和聊天区域宽度"))
-		chat = f.Row().Grow(1)
+	surface.workspace.Draw(canvas, u.theme, workspace, func(f *flex.Frame) {
+		f.Row().Fill().Children(func() {
+			sidebar = f.Row().Width(surface.sidebar.Pos)
+			f.Splitter(surface.ids.sidebarSplitter, &surface.sidebar).
+				Mins(chatSidebarMinWidth, chatWorkspaceMinWidth).
+				Label(i18n.T("调整联系人和聊天区域宽度"))
+			chat = f.Row().Grow(1)
+		})
 	})
-	f.End()
 
 	sidebarBounds := sidebar.Rect()
 	chatBounds := chat.Rect()
@@ -270,24 +272,24 @@ func (u *UI) chatComposerMinimum(conversation domain.Conversation) float32 {
 // chatOverlayKey runs before the shell's normal keyboard routing. It keeps the
 // image viewer modal, closes the docked files pane, and lets a focused splitter
 // resize either side with the keyboard.
-func (u *UI) chatOverlayKey(event ui.KeyEvent) (ui.EventResult, bool) {
+func (u *UI) chatOverlayKey(event gfx.KeyEvent) (gfx.EventResult, bool) {
 	if u.lockVisible() {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	if u.imageViewerOpen() {
 		return u.imageViewerKey(event), true
 	}
 	if u.modalOpen() {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
-	if event.Key == ui.KeyEscape && u.drawer == "files" {
+	if event.Key == gfx.KeyEscape && u.drawer == "files" {
 		if u.activeFileID != "" && u.fileReturn == "list" {
 			u.activeFileID = ""
 			u.fileReturn = ""
-			return ui.EventResult{Handled: true, Repaint: true}, true
+			return gfx.EventResult{Handled: true, Repaint: true}, true
 		}
 		u.closeDrawer()
-		return ui.EventResult{Handled: true, Repaint: true}, true
+		return gfx.EventResult{Handled: true, Repaint: true}, true
 	}
 	surface := u.chatSurface()
 	if result := surface.sidebar.Key(event); result.Handled {
@@ -296,28 +298,28 @@ func (u *UI) chatOverlayKey(event ui.KeyEvent) (ui.EventResult, bool) {
 	if result := surface.history.Key(event); result.Handled {
 		return result, true
 	}
-	return ui.EventResult{}, false
+	return gfx.EventResult{}, false
 }
 
-func (u *UI) chatOverlayShortcut(event ui.KeyEvent) (ui.EventResult, bool) {
+func (u *UI) chatOverlayShortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 	if u.lockVisible() {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	if u.imageViewerOpen() {
 		return u.imageViewerKey(event), true
 	}
-	return ui.EventResult{}, false
+	return gfx.EventResult{}, false
 }
 
-func (u *UI) chatOverlayWheel(event ui.ScrollEvent) (ui.EventResult, bool) {
+func (u *UI) chatOverlayWheel(event gfx.ScrollEvent) (gfx.EventResult, bool) {
 	if u.lockVisible() {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	if u.imageViewerOpen() {
 		return u.imageViewerWheel(event), true
 	}
 	if u.modalOpen() || u.isPanelSection() {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	if u.drawer == "files" {
 		surface := u.chatSurface()
@@ -333,7 +335,7 @@ func (u *UI) chatOverlayWheel(event ui.ScrollEvent) (ui.EventResult, bool) {
 		}
 		return result, true
 	}
-	return ui.EventResult{}, false
+	return gfx.EventResult{}, false
 }
 
 // setWindowMaximized records the state of the shell's frame. A normal window is

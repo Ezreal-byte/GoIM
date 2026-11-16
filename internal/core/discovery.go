@@ -12,7 +12,9 @@ import (
 const discoveryPort = 47841
 
 func (n *Node) selectedInterface() *net.Interface {
-	name := n.snapshot(false).Settings.Network
+	n.mu.Lock()
+	name := n.data.State.Settings.Network
+	n.mu.Unlock()
 	if name == "" || name == "auto" {
 		return nil
 	}
@@ -157,7 +159,7 @@ func (n *Node) discoveryLoop() {
 			n.replay(id)
 		}
 		for _, p := range s.Peers {
-			if !p.Online && p.Address != "" {
+			if p.Transport == domain.TransportGoIM && !p.Online && p.Address != "" {
 				n.dialTo(p.Address, p.ID, true)
 			}
 		}

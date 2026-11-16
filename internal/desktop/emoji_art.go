@@ -1,23 +1,26 @@
 package desktop
 
-import "github.com/vivaui/viva/ui"
+import (
+	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
+)
 
 // These are GoIM's own classic yellow faces. The picker does not ask the OS
 // emoji font to draw them. Unicode remains on the wire for older GoIM clients.
 type emojiChoice struct {
 	Name, Label, Value string
-	Art                ui.Icon
+	Art                gfx.Icon
 }
 
 var emojiChoices = makeChatEmoji()
 
-func emojiArt(value string) (ui.Icon, bool) {
+func emojiArt(value string) (gfx.Icon, bool) {
 	for _, choice := range emojiChoices {
 		if value == choice.Value {
 			return choice.Art, true
 		}
 	}
-	return ui.Icon{}, false
+	return gfx.Icon{}, false
 }
 
 func makeChatEmoji() []emojiChoice {
@@ -100,7 +103,7 @@ func makeChatEmoji() []emojiChoice {
 	}
 	out := make([]emojiChoice, 0, len(specs))
 	for _, s := range specs {
-		var icon ui.Icon
+		var icon gfx.Icon
 		if s.accent == "symbol" {
 			icon = emojiSymbol(s.name)
 		} else {
@@ -111,7 +114,7 @@ func makeChatEmoji() []emojiChoice {
 	return out
 }
 
-func classicFace(eyes, mouth, accent string) ui.Icon {
+func classicFace(eyes, mouth, accent string) gfx.Icon {
 	ink, blush, tear := ui.RGB(88, 43, 32), ui.RGB(251, 119, 112), ui.RGB(63, 159, 243)
 	light, shade := ui.RGB(255, 248, 175), ui.RGB(255, 156, 20)
 	if accent == "warm" {
@@ -123,23 +126,23 @@ func classicFace(eyes, mouth, accent string) ui.Icon {
 	if accent == "cat" {
 		light, shade = ui.RGB(255, 245, 222), ui.RGB(245, 167, 72)
 	}
-	icon := ui.Icon{ViewBox: 32}
-	layer := func(fill ui.Color, path ...ui.PathCommand) {
-		icon.Layers = append(icon.Layers, ui.IconLayer{Fill: fill, Commands: path})
+	icon := gfx.Icon{ViewBox: 32}
+	layer := func(fill ui.Color, path ...gfx.PathCommand) {
+		icon.Layers = append(icon.Layers, gfx.IconLayer{Fill: fill, Commands: path})
 	}
 	oval := func(fill ui.Color, x, y, rx, ry float32) {
 		const k = 0.55228475
-		layer(fill, ui.MoveTo(x+rx, y), ui.CubicTo(x+rx, y+k*ry, x+k*rx, y+ry, x, y+ry),
-			ui.CubicTo(x-k*rx, y+ry, x-rx, y+k*ry, x-rx, y),
-			ui.CubicTo(x-rx, y-k*ry, x-k*rx, y-ry, x, y-ry),
-			ui.CubicTo(x+k*rx, y-ry, x+rx, y-k*ry, x+rx, y), ui.ClosePath())
+		layer(fill, gfx.MoveTo(x+rx, y), gfx.CubicTo(x+rx, y+k*ry, x+k*rx, y+ry, x, y+ry),
+			gfx.CubicTo(x-k*rx, y+ry, x-rx, y+k*ry, x-rx, y),
+			gfx.CubicTo(x-rx, y-k*ry, x-k*rx, y-ry, x, y-ry),
+			gfx.CubicTo(x+k*rx, y-ry, x+rx, y-k*ry, x+rx, y), gfx.ClosePath())
 	}
 	wedge := func(fill ui.Color, ax, ay, bx, by, cx, cy float32) {
-		layer(fill, ui.MoveTo(ax, ay), ui.LineTo(bx, by), ui.LineTo(cx, cy), ui.ClosePath())
+		layer(fill, gfx.MoveTo(ax, ay), gfx.LineTo(bx, by), gfx.LineTo(cx, cy), gfx.ClosePath())
 	}
 	heart := func(x, y float32) {
-		layer(ui.RGB(239, 61, 103), ui.MoveTo(x, y+3), ui.CubicTo(x-10, y-2, x-4, y-7, x, y-3),
-			ui.CubicTo(x+4, y-7, x+10, y-2, x, y+3), ui.ClosePath())
+		layer(ui.RGB(239, 61, 103), gfx.MoveTo(x, y+3), gfx.CubicTo(x-10, y-2, x-4, y-7, x, y-3),
+			gfx.CubicTo(x+4, y-7, x+10, y-2, x, y+3), gfx.ClosePath())
 	}
 	if accent == "cat" {
 		wedge(ui.RGB(203, 126, 49), 4, 12, 5, 2, 13, 7)
@@ -147,7 +150,7 @@ func classicFace(eyes, mouth, accent string) ui.Icon {
 	}
 	oval(ui.RGB(181, 96, 19), 16, 16, 14.1, 14.1)
 	oval(shade, 16, 15.7, 13.3, 13.3)
-	icon.Layers[len(icon.Layers)-1].Gradient = &ui.LinearGradient{Start: ui.Point{Y: 3}, End: ui.Point{Y: 29}, From: light, To: shade}
+	icon.Layers[len(icon.Layers)-1].Gradient = &gfx.LinearGradient{Start: ui.Point{Y: 3}, End: ui.Point{Y: 29}, From: light, To: shade}
 	oval(ui.RGBA(255, 255, 255, .28), 11.6, 6.5, 5.8, 2.1)
 	if accent == "cheeks" || accent == "love" {
 		oval(blush, 8.1, 18.2, 2.3, 1.3)
@@ -190,8 +193,8 @@ func classicFace(eyes, mouth, accent string) ui.Icon {
 			if eyes == "sleep" {
 				direction = -1
 			}
-			layer(ink, ui.MoveTo(x-3.1, 14), ui.QuadTo(x, 14-7*direction, x+3.1, 14),
-				ui.QuadTo(x, 14-3.6*direction, x-3.1, 14), ui.ClosePath())
+			layer(ink, gfx.MoveTo(x-3.1, 14), gfx.QuadTo(x, 14-7*direction, x+3.1, 14),
+				gfx.QuadTo(x, 14-3.6*direction, x-3.1, 14), gfx.ClosePath())
 		default:
 			rx, ry := float32(1.45), float32(2.05)
 			if eyes == "wide" {
@@ -215,15 +218,15 @@ func classicFace(eyes, mouth, accent string) ui.Icon {
 			oval(ui.RGB(255, 249, 231), x, 21, .55, .68)
 		}
 	case "mask":
-		layer(ui.RGB(248, 253, 255), ui.MoveTo(7, 17), ui.QuadTo(16, 19, 25, 17), ui.LineTo(23, 24),
-			ui.QuadTo(16, 28, 9, 24), ui.ClosePath())
+		layer(ui.RGB(248, 253, 255), gfx.MoveTo(7, 17), gfx.QuadTo(16, 19, 25, 17), gfx.LineTo(23, 24),
+			gfx.QuadTo(16, 28, 9, 24), gfx.ClosePath())
 		oval(ui.RGB(174, 211, 230), 16, 22, 5, .6)
 	case "teeth", "laugh", "tongue":
-		layer(ink, ui.MoveTo(8.2, 17.2), ui.QuadTo(16, 19.1, 23.8, 17.2),
-			ui.CubicTo(23, 27, 9, 27, 8.2, 17.2), ui.ClosePath())
+		layer(ink, gfx.MoveTo(8.2, 17.2), gfx.QuadTo(16, 19.1, 23.8, 17.2),
+			gfx.CubicTo(23, 27, 9, 27, 8.2, 17.2), gfx.ClosePath())
 		if mouth == "teeth" {
-			layer(ui.RGB(255, 252, 242), ui.MoveTo(9.2, 18), ui.QuadTo(16, 19.5, 22.8, 18),
-				ui.LineTo(21.6, 20.6), ui.QuadTo(16, 22, 10.4, 20.6), ui.ClosePath())
+			layer(ui.RGB(255, 252, 242), gfx.MoveTo(9.2, 18), gfx.QuadTo(16, 19.5, 22.8, 18),
+				gfx.LineTo(21.6, 20.6), gfx.QuadTo(16, 22, 10.4, 20.6), gfx.ClosePath())
 		}
 		if mouth == "tongue" {
 			oval(blush, 16, 23.6, 3.6, 2.6)
@@ -243,13 +246,13 @@ func classicFace(eyes, mouth, accent string) ui.Icon {
 		if mouth == "sad" {
 			direction = -1
 		}
-		layer(ink, ui.MoveTo(11, 19), ui.QuadTo(16, 19+8*direction, 21, 19),
-			ui.QuadTo(16, 19+12*direction, 11, 19), ui.ClosePath())
+		layer(ink, gfx.MoveTo(11, 19), gfx.QuadTo(16, 19+8*direction, 21, 19),
+			gfx.QuadTo(16, 19+12*direction, 11, 19), gfx.ClosePath())
 	}
 	switch accent {
 	case "question":
-		layer(ui.RGB(69, 100, 139), ui.MoveTo(23, 6), ui.CubicTo(26, 1, 32, 5, 28, 8), ui.QuadTo(26, 9, 26, 11),
-			ui.LineTo(24, 11), ui.QuadTo(23, 9, 26, 7), ui.QuadTo(28, 5, 25, 6), ui.ClosePath())
+		layer(ui.RGB(69, 100, 139), gfx.MoveTo(23, 6), gfx.CubicTo(26, 1, 32, 5, 28, 8), gfx.QuadTo(26, 9, 26, 11),
+			gfx.LineTo(24, 11), gfx.QuadTo(23, 9, 26, 7), gfx.QuadTo(28, 5, 25, 6), gfx.ClosePath())
 		oval(ui.RGB(69, 100, 139), 25.1, 13.2, 1.05, 1.05)
 	case "halo":
 		oval(ui.RGB(57, 156, 242), 16, 5.4, 9, 2.8)
@@ -258,8 +261,8 @@ func classicFace(eyes, mouth, accent string) ui.Icon {
 		oval(ui.RGB(255, 253, 247), 7, 19, 4.3, 2.1)
 		oval(ui.RGB(255, 253, 247), 25, 19, 4.3, 2.1)
 	case "bandage":
-		layer(ui.RGB(255, 250, 239), ui.MoveTo(4, 8), ui.QuadTo(17, 3, 27, 10), ui.LineTo(28, 14),
-			ui.QuadTo(17, 8, 3, 13), ui.ClosePath())
+		layer(ui.RGB(255, 250, 239), gfx.MoveTo(4, 8), gfx.QuadTo(17, 3, 27, 10), gfx.LineTo(28, 14),
+			gfx.QuadTo(17, 8, 3, 13), gfx.ClosePath())
 	case "shush":
 		oval(ui.RGB(189, 106, 23), 18, 23, 2.8, 6.2)
 		oval(ui.RGB(255, 209, 100), 18, 22.9, 2.15, 5.9)
@@ -272,7 +275,7 @@ func classicFace(eyes, mouth, accent string) ui.Icon {
 		heart(6, 9)
 		heart(24, 19)
 	case "salute":
-		layer(ui.RGB(255, 208, 100), ui.MoveTo(17, 8), ui.LineTo(28, 3), ui.LineTo(30, 6), ui.LineTo(20, 12), ui.ClosePath())
+		layer(ui.RGB(255, 208, 100), gfx.MoveTo(17, 8), gfx.LineTo(28, 3), gfx.LineTo(30, 6), gfx.LineTo(20, 12), gfx.ClosePath())
 	case "sweat", "tear", "tears":
 		x, y := float32(25), float32(18)
 		if accent == "sweat" {
@@ -282,8 +285,8 @@ func classicFace(eyes, mouth, accent string) ui.Icon {
 			if offset != 0 && accent != "tears" {
 				break
 			}
-			layer(tear, ui.MoveTo(x+offset, y-3.5), ui.CubicTo(x-5+offset, y+1.2, x-3+offset, y+4, x+offset, y+4),
-				ui.CubicTo(x+3+offset, y+4, x+4+offset, y+1.2, x+offset, y-3.5), ui.ClosePath())
+			layer(tear, gfx.MoveTo(x+offset, y-3.5), gfx.CubicTo(x-5+offset, y+1.2, x-3+offset, y+4, x+offset, y+4),
+				gfx.CubicTo(x+3+offset, y+4, x+4+offset, y+1.2, x+offset, y-3.5), gfx.ClosePath())
 		}
 	case "heart":
 		heart(26, 23)
@@ -301,17 +304,17 @@ func classicFace(eyes, mouth, accent string) ui.Icon {
 }
 
 // The symbol tiles are drawn with the same baked vector palette as the faces.
-func emojiSymbol(name string) ui.Icon {
-	icon := ui.Icon{ViewBox: 32}
-	layer := func(color ui.Color, commands ...ui.PathCommand) {
-		icon.Layers = append(icon.Layers, ui.IconLayer{Fill: color, Commands: commands})
+func emojiSymbol(name string) gfx.Icon {
+	icon := gfx.Icon{ViewBox: 32}
+	layer := func(color ui.Color, commands ...gfx.PathCommand) {
+		icon.Layers = append(icon.Layers, gfx.IconLayer{Fill: color, Commands: commands})
 	}
 	poly := func(color ui.Color, xy ...float32) {
-		commands := []ui.PathCommand{ui.MoveTo(xy[0], xy[1])}
+		commands := []gfx.PathCommand{gfx.MoveTo(xy[0], xy[1])}
 		for i := 2; i < len(xy); i += 2 {
-			commands = append(commands, ui.LineTo(xy[i], xy[i+1]))
+			commands = append(commands, gfx.LineTo(xy[i], xy[i+1]))
 		}
-		layer(color, append(commands, ui.ClosePath())...)
+		layer(color, append(commands, gfx.ClosePath())...)
 	}
 	gold, shade := ui.RGB(255, 209, 87), ui.RGB(203, 112, 30)
 	red, green := ui.RGB(232, 65, 80), ui.RGB(54, 148, 74)
@@ -319,12 +322,12 @@ func emojiSymbol(name string) ui.Icon {
 	case "rose":
 		poly(green, 15, 29, 15, 15, 18, 15, 18, 29)
 		poly(green, 16, 24, 7, 20, 8, 16, 16, 20, 24, 17, 26, 19, 17, 24)
-		layer(red, ui.MoveTo(9, 4), ui.QuadTo(16, 1, 23, 5), ui.CubicTo(25, 18, 10, 21, 9, 4), ui.ClosePath())
-		layer(ui.RGB(255, 137, 131), ui.MoveTo(12, 5), ui.QuadTo(20, 3, 22, 7), ui.QuadTo(15, 9, 12, 5), ui.ClosePath())
+		layer(red, gfx.MoveTo(9, 4), gfx.QuadTo(16, 1, 23, 5), gfx.CubicTo(25, 18, 10, 21, 9, 4), gfx.ClosePath())
+		layer(ui.RGB(255, 137, 131), gfx.MoveTo(12, 5), gfx.QuadTo(20, 3, 22, 7), gfx.QuadTo(15, 9, 12, 5), gfx.ClosePath())
 	case "heart":
-		layer(red, ui.MoveTo(16, 28), ui.CubicTo(7, 22, 2, 17, 2, 11), ui.CubicTo(2, 3, 11, 1, 16, 8),
-			ui.CubicTo(21, 1, 30, 3, 30, 11), ui.CubicTo(30, 17, 25, 22, 16, 28), ui.ClosePath())
-		layer(ui.RGBA(255, 255, 255, .35), ui.MoveTo(6, 10), ui.QuadTo(8, 5, 13, 7), ui.QuadTo(9, 8, 8, 12), ui.ClosePath())
+		layer(red, gfx.MoveTo(16, 28), gfx.CubicTo(7, 22, 2, 17, 2, 11), gfx.CubicTo(2, 3, 11, 1, 16, 8),
+			gfx.CubicTo(21, 1, 30, 3, 30, 11), gfx.CubicTo(30, 17, 25, 22, 16, 28), gfx.ClosePath())
+		layer(ui.RGBA(255, 255, 255, .35), gfx.MoveTo(6, 10), gfx.QuadTo(8, 5, 13, 7), gfx.QuadTo(9, 8, 8, 12), gfx.ClosePath())
 	case "sparkle":
 		poly(shade, 15, 2, 19, 11, 28, 15, 19, 19, 15, 28, 11, 19, 2, 15, 11, 11)
 		poly(gold, 15, 4, 18, 12, 26, 15, 18, 18, 15, 26, 12, 18, 4, 15, 12, 12)
@@ -333,7 +336,7 @@ func emojiSymbol(name string) ui.Icon {
 		poly(red, 5, 12, 27, 12, 27, 27, 5, 27)
 		poly(ui.RGB(255, 108, 106), 4, 9, 28, 9, 28, 14, 4, 14)
 		poly(gold, 14, 9, 18, 9, 18, 27, 14, 27)
-		layer(gold, ui.MoveTo(16, 10), ui.CubicTo(1, 11, 6, -1, 16, 7), ui.CubicTo(26, -1, 31, 11, 16, 10), ui.ClosePath())
+		layer(gold, gfx.MoveTo(16, 10), gfx.CubicTo(1, 11, 6, -1, 16, 7), gfx.CubicTo(26, -1, 31, 11, 16, 10), gfx.ClosePath())
 	default:
 		// The four hand gestures use their own silhouettes, cuffs and highlights.
 		switch name {

@@ -2,24 +2,24 @@ package desktop
 
 import (
 	"errors"
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"strconv"
-	"strings"
 
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
 
 type panelSettingsExtra struct {
-	scroll                                                                                                ui.Scope
-	background, clearBackground, backgroundShade, notificationPrivacy, offline, discovery, acceptImages   ui.ID
-	profile, connect, connectAddress, lockStartup, passwordOld, passwordNew, passwordRepeat, passwordSave ui.ID
+	scroll                                                                                                gfx.Scope
+	background, clearBackground, backgroundShade, notificationPrivacy, offline, discovery, acceptImages   gfx.ID
+	profile, connect, connectAddress, lockStartup, passwordOld, passwordNew, passwordRepeat, passwordSave gfx.ID
 	shade                                                                                                 flex.SliderState
 	shadeDirty                                                                                            bool
-	connectProtocol                                                                                       ui.Scope
+	connectProtocol                                                                                       gfx.Scope
 	connectRoute                                                                                          int
 	connectSelect                                                                                         flex.SelectState
 	compat                                                                                                [2]compatibilityEditor
@@ -28,18 +28,18 @@ type panelSettingsExtra struct {
 	openProfile                                                                                           func()
 }
 
-var panelSettingsLockIcon = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-	ui.MoveTo(7, 10), ui.LineTo(7, 7), ui.CubicTo(7, 1, 17, 1, 17, 7), ui.LineTo(17, 10),
-	ui.MoveTo(4, 10), ui.LineTo(20, 10), ui.LineTo(20, 21), ui.LineTo(4, 21), ui.ClosePath(),
-	ui.MoveTo(12, 14), ui.LineTo(12, 17),
+var panelSettingsLockIcon = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+	gfx.MoveTo(7, 10), gfx.LineTo(7, 7), gfx.CubicTo(7, 1, 17, 1, 17, 7), gfx.LineTo(17, 10),
+	gfx.MoveTo(4, 10), gfx.LineTo(20, 10), gfx.LineTo(20, 21), gfx.LineTo(4, 21), gfx.ClosePath(),
+	gfx.MoveTo(12, 14), gfx.LineTo(12, 17),
 }}
 
-var panelSettingsBellIcon = ui.Icon{ViewBox: 24, Stroke: 1.8, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-	ui.MoveTo(5, 17), ui.LineTo(19, 17), ui.LineTo(17, 14), ui.LineTo(17, 8), ui.CubicTo(17, 2, 7, 2, 7, 8),
-	ui.LineTo(7, 14), ui.LineTo(5, 17), ui.ClosePath(), ui.MoveTo(10, 21), ui.QuadTo(12, 23, 14, 21),
+var panelSettingsBellIcon = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+	gfx.MoveTo(5, 17), gfx.LineTo(19, 17), gfx.LineTo(17, 14), gfx.LineTo(17, 8), gfx.CubicTo(17, 2, 7, 2, 7, 8),
+	gfx.LineTo(7, 14), gfx.LineTo(5, 17), gfx.ClosePath(), gfx.MoveTo(10, 21), gfx.QuadTo(12, 23, 14, 21),
 }}
 
-func (s *panelSettingsExtra) init(tree *ui.Tree, scope ui.Scope) {
+func (s *panelSettingsExtra) init(tree *gfx.Tree, scope gfx.Scope) {
 	s.scroll = tree.Sub(scope, tree.Name("category-scroll"))
 	s.background = tree.ID(scope, "background-choose")
 	s.clearBackground = tree.ID(scope, "background-clear")
@@ -67,7 +67,7 @@ func (s *panelSettingsExtra) resetSecrets() {
 	s.passwordError = ""
 }
 
-func (s *panelSettingsExtra) isPasswordField(id ui.ID) bool {
+func (s *panelSettingsExtra) isPasswordField(id gfx.ID) bool {
 	return !id.IsZero() && (id == s.passwordOld || id == s.passwordNew || id == s.passwordRepeat)
 }
 
@@ -78,8 +78,8 @@ func (s *panelSettingsExtra) textInput(context app.TextInputContext) *app.TextIn
 func (p *Panels) drawBackgroundSettings(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	s := &p.settingsExtra
 	settings := state.Settings
-	panelSettingRow(f, theme, i18n.T("自定义背景"), i18n.T("用于聊天区域，图片仅保存在本机"), func() {
-		panelControlColumn(f, 240, func() {
+	p.settingsRow(f, theme, i18n.T("自定义背景"), i18n.T("用于聊天区域，图片仅保存在本机"), func() {
+		p.settingsControl(f, 240, func() {
 			f.Row().Gap(8).Items(flex.Center).Children(func() {
 				if f.Button(s.background, i18n.T("选择图片…")).Small().Outline().Clicked() {
 					paths, err := app.OpenFiles(app.OpenFileOptions{Title: i18n.T("选择聊天背景"), Filters: []app.FileFilter{
@@ -97,8 +97,8 @@ func (p *Panels) drawBackgroundSettings(f *flex.Frame, theme ui.Theme, state dom
 			})
 		})
 	})
-	panelSettingRow(f, theme, i18n.T("背景深浅"), i18n.T("调整图片上的底色，保持聊天文字清晰"), func() {
-		panelControlColumn(f, 240, func() {
+	p.settingsRow(f, theme, i18n.T("背景深浅"), i18n.T("调整图片上的底色，保持聊天文字清晰"), func() {
+		p.settingsControl(f, 240, func() {
 			if !s.shade.Dragging() && !s.shadeDirty && (p.pending == nil || p.pending.setting != "background_shade") {
 				s.shade.Value = float32(settings.BackgroundShade)
 			}
@@ -121,13 +121,13 @@ func (p *Panels) drawBackgroundSettings(f *flex.Frame, theme ui.Theme, state dom
 func (p *Panels) drawSettingsProfile(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	s := &p.settingsExtra
 	panelSection(f, i18n.T("个人资料"), "", func() {
-		panelSettingRow(f, theme, state.Self.Name, i18n.T("本机昵称和头像"), func() {
+		p.settingsRow(f, theme, state.Self.Name, i18n.T("本机昵称和头像"), func() {
 			if f.Button(s.profile, i18n.T("编辑资料…")).Small().Outline().Clicked() && s.openProfile != nil {
 				s.openProfile()
 			}
 		})
-		panelSettingRow(f, theme, i18n.T("隐藏离线联系人"), i18n.T("联系人列表仅显示自己和在线联系人"), func() {
-			panelControlColumn(f, 80, func() {
+		p.settingsRow(f, theme, i18n.T("隐藏离线联系人"), i18n.T("联系人列表仅显示自己和在线联系人"), func() {
+			p.settingsControl(f, 80, func() {
 				if f.Switch(s.offline, state.Settings.HideOfflineContacts).Label(i18n.T("隐藏离线联系人")).Clicked() {
 					p.submitBool(submit, state, "hide_offline_contacts", !state.Settings.HideOfflineContacts)
 				}
@@ -138,31 +138,28 @@ func (p *Panels) drawSettingsProfile(f *flex.Frame, theme ui.Theme, state domain
 
 func (p *Panels) drawDiscoverySettings(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	s := &p.settingsExtra
-	panelSettingRow(f, theme, i18n.T("自动发现联系人"), i18n.T("搜索同一局域网内运行 GoIM 的设备"), func() {
-		panelControlColumn(f, 80, func() {
+	p.settingsRow(f, theme, i18n.T("自动发现联系人"), i18n.T("搜索同一局域网内运行 GoIM 的设备"), func() {
+		p.settingsControl(f, 80, func() {
 			if f.Switch(s.discovery, !state.Settings.DisableAutoDiscovery).Label(i18n.T("自动发现联系人")).Clicked() {
 				p.submitBool(submit, state, "disable_auto_discovery", !state.Settings.DisableAutoDiscovery)
 			}
 		})
 	})
-	panelSettingRow(f, theme, i18n.T("手动连接"), i18n.T("先选择协议，再输入对方设备地址。"), func() {
-		panelControlColumn(f, 280, func() {
-			if index, picked := f.Select(s.connectProtocol, &s.connectSelect, connectionLabels(), s.connectRoute).Label(i18n.T("连接方式")).Picked(); picked {
-				s.connectRoute = index
-			}
-			f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
-				available := connectionAvailable(state, s.connectRoute)
-				field := f.Field(&s.address, s.connectAddress, i18n.T("对方 IP 地址"), connectionHint(state, s.connectRoute)).Grow(1)
-				if f.Button(s.connect, i18n.T("连接")).Small().Outline().Disabled(!available).Clicked() || available && field.Submitted() {
-					address := strings.TrimSpace(s.address.Text())
-					if address == "" {
-						p.localError = i18n.T("请输入对方 IP 地址")
-						return
-					}
-					p.localError, p.localNotice = "", i18n.T("已发起连接")
-					submit(domain.Command{Kind: domain.Connect, Address: address, Transport: connectionTransport(s.connectRoute)})
-				}
+	p.settingsRow(f, theme, i18n.T("手动连接"), i18n.T("先选择连接方式，再输入对方设备地址。"), func() {
+		p.settingsControl(f, 300, func() {
+			address, transport, submitted := panelConnectionForm(f, state, panelConnectionFields{
+				protocol: s.connectProtocol, selectState: &s.connectSelect, route: &s.connectRoute,
+				address: &s.address, addressID: s.connectAddress, connectID: s.connect,
 			})
+			if !submitted {
+				return
+			}
+			if address == "" {
+				p.localError = i18n.T("请输入对方 IP 地址")
+				return
+			}
+			p.localError, p.localNotice = "", i18n.T("已发起连接")
+			submit(domain.Command{Kind: domain.Connect, Address: address, Transport: transport})
 		})
 	})
 }
@@ -171,42 +168,46 @@ func (p *Panels) drawSettingsSecurity(f *flex.Frame, theme ui.Theme, state domai
 	s := &p.settingsExtra
 	settings := state.Settings
 	panelSection(f, i18n.T("应用锁定"), i18n.T("锁定后需要输入密码才能查看会话。消息与文件仍在后台接收。"), func() {
-		panelSettingRow(f, theme, i18n.T("启动时锁定"), i18n.T("下次启动 GoIM 时先验证密码"), func() {
-			panelControlColumn(f, 80, func() {
+		p.settingsRow(f, theme, i18n.T("启动时锁定"), i18n.T("下次启动 GoIM 时先验证密码"), func() {
+			p.settingsControl(f, 80, func() {
 				if f.Switch(s.lockStartup, settings.LockOnStartup).Label(i18n.T("启动时锁定")).Disabled(!settings.HasLockPassword).Clicked() {
 					p.submitBool(submit, state, "lock_on_startup", !settings.LockOnStartup)
 				}
 			})
 		})
-		f.Column().MaxWidth(360).Gap(8).PadY(10).Children(func() {
-			if settings.HasLockPassword {
-				f.Text(i18n.T("当前密码")).FontSize(13)
-				f.Field(&s.old, s.passwordOld, i18n.T("当前密码"), i18n.T("输入当前密码")).FillWidth()
-			}
-			f.Text(i18n.T("新密码")).FontSize(13)
-			f.Field(&s.password, s.passwordNew, i18n.T("新密码"), i18n.T("至少 6 个字符")).FillWidth()
-			f.Text(i18n.T("确认新密码")).FontSize(13)
-			last := f.Field(&s.repeat, s.passwordRepeat, i18n.T("确认新密码"), i18n.T("再输入一次新密码")).FillWidth()
-			if s.passwordError != "" {
-				f.Paragraph(s.passwordError, 2).Color(theme.Danger).FontSize(12)
-			}
-			if f.Button(s.passwordSave, i18n.T("保存密码")).Small().Clicked() || last.Submitted() {
-				password := s.password.Text()
-				if err := validatePasswordPair(password, s.repeat.Text()); err != "" {
-					s.passwordError = err
-					return
-				}
-				submit(domain.Command{Kind: domain.SetLockPassword, Password: s.old.Text(), Text: password})
-				s.resetSecrets()
-			}
+		f.Row().FillWidth().Justify(flex.End).Children(func() {
+			p.settingsControl(f, 360, func() {
+				f.Column().FillWidth().Gap(8).PadY(10).Children(func() {
+					if settings.HasLockPassword {
+						f.Text(i18n.T("当前密码")).FontSize(13)
+						f.Field(&s.old, s.passwordOld, i18n.T("当前密码"), i18n.T("输入当前密码")).FillWidth()
+					}
+					f.Text(i18n.T("新密码")).FontSize(13)
+					f.Field(&s.password, s.passwordNew, i18n.T("新密码"), i18n.T("至少 6 个字符")).FillWidth()
+					f.Text(i18n.T("确认新密码")).FontSize(13)
+					last := f.Field(&s.repeat, s.passwordRepeat, i18n.T("确认新密码"), i18n.T("再输入一次新密码")).FillWidth()
+					if s.passwordError != "" {
+						f.Paragraph(s.passwordError, 2).Color(theme.Danger).FontSize(12)
+					}
+					if f.Button(s.passwordSave, i18n.T("保存密码")).Small().Clicked() || last.Submitted() {
+						password := s.password.Text()
+						if err := validatePasswordPair(password, s.repeat.Text()); err != "" {
+							s.passwordError = err
+							return
+						}
+						submit(domain.Command{Kind: domain.SetLockPassword, Password: s.old.Text(), Text: password})
+						s.resetSecrets()
+					}
+				})
+			})
 		})
 	})
 }
 
 func (p *Panels) drawAutoAcceptImages(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	settings := state.Settings
-	panelSettingRow(f, theme, i18n.T("自动接收聊天图片"), i18n.T("接收后可直接在聊天中预览"), func() {
-		panelControlColumn(f, 80, func() {
+	p.settingsRow(f, theme, i18n.T("自动接收聊天图片"), i18n.T("接收后可直接在聊天中预览"), func() {
+		p.settingsControl(f, 80, func() {
 			if f.Switch(p.settingsExtra.acceptImages, settings.AutoAcceptImages || settings.AutoAccept).
 				Label(i18n.T("自动接收聊天图片")).Disabled(settings.AutoAccept).Clicked() {
 				p.submitBool(submit, state, "auto_accept_images", !settings.AutoAcceptImages)

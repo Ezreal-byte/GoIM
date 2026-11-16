@@ -12,9 +12,11 @@ import (
 )
 
 type pending struct {
-	Sequence uint64
-	PeerID   string
-	Envelope envelope
+	Sequence      uint64
+	PeerID        string
+	Envelope      envelope
+	WireTransport string `json:",omitempty"`
+	WirePeerID    string `json:",omitempty"`
 }
 type ownershipOffer struct {
 	PeerID    string
@@ -28,6 +30,7 @@ type persisted struct {
 	CatalogRevisions   map[string]uint64
 	NextSequence       uint64
 	TransferTombstones map[string]string
+	PeerBridges        map[string]peerBridge
 	Version            int
 	State              domain.State
 	Outbox             map[string]pending
@@ -79,6 +82,9 @@ func openStore(dir string) (*bolt.DB, persisted, error) {
 	}
 	if data.TransferTombstones == nil {
 		data.TransferTombstones = make(map[string]string)
+	}
+	if data.PeerBridges == nil {
+		data.PeerBridges = make(map[string]peerBridge)
 	}
 	if data.OwnerOffers == nil {
 		data.OwnerOffers = make(map[string]ownershipOffer)

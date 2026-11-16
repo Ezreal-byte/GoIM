@@ -47,8 +47,11 @@ func main() {
 }
 func build() error {
 	version := flag.String("version", "0.1.0", "release version")
-	commit := flag.String("commit", "working-tree", "source commit")
+	commit := flag.String("commit", "", "source commit (defaults to git HEAD or working-tree)")
 	framework := flag.String("framework", "", "override Viva source (defaults to the project pin)")
+	source := flag.String("source", "", "build source: local or github-actions (defaults from CI)")
+	buildTime := flag.String("build-time", "", "UTC build time in RFC3339 (defaults to now)")
+	ciURL := flag.String("ci-url", "", "CI run URL (defaults from GitHub Actions)")
 	out := flag.String("out", "dist", "artifact directory")
 	stamp := flag.String("stamp-windows", "", "apply the Windows icon and metadata to an existing GoIM executable")
 	flag.Parse()
@@ -67,9 +70,38 @@ func build() error {
 		}
 		*framework = pin + "+patch"
 	}
-	for _, s := range []string{*version, *commit} {
+	sourceCommit := strings.TrimSpace(*commit)
+	if sourceCommit == "" {
+		sourceCommit = localCommit()
+	}
+	for _, s := range []string{*version, sourceCommit} {
 		if strings.ContainsAny(s, " /\\\"'\n\r") {
 			return fmt.Errorf("invalid build identifier")
+		}
+	}
+	facts := packageBuildFactsFromEnvironment(os.Getenv, time.Now().UTC())
+	facts.commitTime = localCommitTime(sourceCommit)
+	if value := strings.TrimSpace(*source); value != "" {
+		facts.source = value
+	}
+	if value := strings.TrimSpace(*buildTime); value != "" {
+		facts.buildTime = value
+	}
+	if value := strings.TrimSpace(*ciURL); value != "" {
+		facts.ciURL = value
+	}
+	if _, err := time.Parse(time.RFC3339, facts.buildTime); err != nil {
+		return fmt.Errorf("invalid build time")
+	}
+	if facts.source != "local" && facts.source != "github-actions" {
+		return fmt.Errorf("invalid build source")
+	}
+	if !validFrameworkValue(*framework) {
+		return fmt.Errorf("invalid framework revision")
+	}
+	for _, value := range []string{*framework, facts.source, facts.buildTime, facts.commitTime, facts.ciRef, facts.ciRunID, facts.ciURL} {
+		if !validLinkerValue(value) {
+			return fmt.Errorf("invalid build metadata")
 		}
 	}
 	name := "GoIM_" + *version + "_" + runtime.GOOS + "_" + runtime.GOARCH
@@ -81,10 +113,7 @@ func build() error {
 	if runtime.GOOS == "windows" {
 		executable += ".exe"
 	}
-	ld := "-s -w -buildid= -X main.version=" + *version + " -X main.commit=" + *commit
-	if runtime.GOOS == "windows" {
-		ld += " -H=windowsgui"
-	}
+	ld := packageLinkerFlags(*version, sourceCommit, *framework, facts, runtime.GOOS == "windows")
 	if err := run("go", "build", "-trimpath", "-ldflags", ld, "-o", executable, "./cmd/goim"); err != nil {
 		return err
 	}
@@ -160,8 +189,17 @@ func build() error {
 	}); err != nil {
 		return err
 	}
-	info := map[string]string{"version": *version, "commit": *commit, "viva": *framework, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH, "desktop_validation": "Windows loopback and offscreen tests; native shortcut lifecycle tests; physical multi-device desktop validation pending"}
-	b, _ := json.MarshalIndent(info, "", "  ")
+	info := map[string]string{
+		"version": *version, "commit": sourceCommit, "commit_time": facts.commitTime,
+		"viva": *framework, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH,
+		"source": facts.source, "source_ref": facts.ciRef, "run_id": facts.ciRunID,
+		"build_time": facts.buildTime, "ci_url": facts.ciURL,
+		"desktop_validation": "Windows loopback and offscreen tests; native shortcut lifecycle tests; physical multi-device desktop validation pending",
+	}
+	b, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return err
+	}
 	if err := os.WriteFile(filepath.Join(staging, "build-info.json"), b, 0644); err != nil {
 		return err
 	}
@@ -189,6 +227,120 @@ func build() error {
 	}
 	fmt.Print(sum)
 	return nil
+}
+
+type packageBuildFacts struct {
+	source     string
+	ciRef      string
+	ciRunID    string
+	ciURL      string
+	buildTime  string
+	commitTime string
+}
+
+func packageBuildFactsFromEnvironment(getenv func(string) string, now time.Time) packageBuildFacts {
+	facts := packageBuildFacts{
+		source:    "local",
+		buildTime: now.UTC().Format(time.RFC3339),
+	}
+	if getenv("GITHUB_ACTIONS") != "true" {
+		return facts
+	}
+	facts.source = "github-actions"
+	facts.ciRef = firstValue(getenv("GITHUB_REF"), getenv("GITHUB_REF_NAME"))
+	facts.ciRunID = strings.TrimSpace(getenv("GITHUB_RUN_ID"))
+	server := firstValue(getenv("GITHUB_SERVER_URL"), "https://github.com")
+	repository := strings.TrimSpace(getenv("GITHUB_REPOSITORY"))
+	if repository != "" && facts.ciRunID != "" {
+		facts.ciURL = strings.TrimRight(server, "/") + "/" + repository + "/actions/runs/" + facts.ciRunID
+	}
+	return facts
+}
+
+func packageLinkerFlags(version, commit, framework string, facts packageBuildFacts, windowsGUI bool) string {
+	parts := []string{
+		"-s", "-w", "-buildid=",
+		"-X", "main.version=" + version,
+		"-X", "main.commit=" + commit,
+		"-X", "goim/internal/buildinfo.Version=" + version,
+		"-X", "goim/internal/buildinfo.Commit=" + commit,
+		"-X", "goim/internal/buildinfo.CommitTime=" + facts.commitTime,
+		"-X", "goim/internal/buildinfo.Framework=" + framework,
+		"-X", "goim/internal/buildinfo.Source=" + facts.source,
+		"-X", "goim/internal/buildinfo.BuildTime=" + facts.buildTime,
+		"-X", "goim/internal/buildinfo.CIRef=" + facts.ciRef,
+		"-X", "goim/internal/buildinfo.CIRunID=" + facts.ciRunID,
+		"-X", "goim/internal/buildinfo.CIURL=" + facts.ciURL,
+	}
+	if windowsGUI {
+		parts = append(parts, "-H=windowsgui")
+	}
+	return strings.Join(parts, " ")
+}
+
+func validLinkerValue(value string) bool {
+	return !strings.ContainsAny(value, " \t\r\n\"'\\")
+}
+
+func validFrameworkValue(value string) bool {
+	return value != "" && validLinkerValue(value) && !strings.ContainsAny(value, "/")
+}
+
+func firstValue(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func localCommit() string {
+	revision, err := gitOutput("rev-parse", "HEAD")
+	if err != nil || revision == "" {
+		return "working-tree"
+	}
+	if status, err := gitOutput("status", "--porcelain"); err == nil && status != "" {
+		revision += "-dirty"
+	}
+	return revision
+}
+
+func localCommitTime(revision string) string {
+	revision = strings.TrimSuffix(strings.TrimSpace(revision), "-dirty")
+	if !hexRevision(revision) {
+		return ""
+	}
+	value, err := gitOutput("show", "-s", "--format=%cI", revision)
+	if err != nil {
+		return ""
+	}
+	stamp, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return ""
+	}
+	return stamp.UTC().Format(time.RFC3339)
+}
+
+func hexRevision(value string) bool {
+	if len(value) < 7 {
+		return false
+	}
+	for _, digit := range value {
+		if digit < '0' || digit > '9' {
+			if digit < 'a' || digit > 'f' {
+				if digit < 'A' || digit > 'F' {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+func gitOutput(args ...string) (string, error) {
+	output, err := exec.Command("git", args...).Output()
+	return strings.TrimSpace(string(output)), err
 }
 
 func stampWindowsExecutable(path, version string) error {

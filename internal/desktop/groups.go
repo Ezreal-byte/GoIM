@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"errors"
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"slices"
 	"sort"
@@ -10,20 +11,20 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
 
-func (u *UI) drawSideDrawer(canvas *ui.Canvas) {
+func (u *UI) drawSideDrawer(canvas *gfx.Canvas) {
 	switch u.drawer {
 	case "members":
 		u.drawMemberDrawer(canvas, u.lastChat)
 	}
 }
 
-func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 	conversation := u.state.Conversation(u.selected)
 	group := u.state.Group(conversation.GroupID)
 	if conversation.Kind != "group" || group.ID == "" || group.Left || group.Dissolved {
@@ -54,7 +55,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 			f.Row().Items(flex.Center).Gap(12).Children(func() {
 				u.initialsAvatarStatus(f, group.Name, 46, true)
 				f.Column().Grow(1).Gap(3).Children(func() {
-					f.Text(group.Name).FontSize(17).Weight(ui.WeightSemibold).Ellipsis()
+					f.Text(group.Name).FontSize(17).Weight(gfx.WeightSemibold).Ellipsis()
 					note := i18n.T("群主可修改群名")
 					if !owner {
 						note = i18n.T("群成员可查看成员信息")
@@ -86,7 +87,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 			f.Row().Height(26).Items(flex.Center).Children(func() {
 				total, _ := u.groupCounts(group)
 				f.Text(i18n.T("成员 (") + intString(total) + ")").FontSize(14).
-					Weight(ui.WeightSemibold)
+					Weight(gfx.WeightSemibold)
 				f.Spacer()
 				if owner {
 					invite := f.Button(u.ids.memberInvite, i18n.T("邀请成员")).XSmall().Outline()
@@ -118,7 +119,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 					}()).Hover(flex.Look{}.Background(u.palette.hover))
 					if peer.ID != u.state.Self.ID {
 						row = row.HitWith(u.memberMenuIDs[peer.ID], peer.Name,
-							ui.HitOptions{Role: ui.RoleButton, Hint: i18n.T("成员操作")})
+							gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("成员操作")})
 					}
 					if peer.ID == u.memberMenu {
 						menuAnchor = row
@@ -127,7 +128,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 						u.avatarStatus(f, name, peer.Avatar, 36, peerOnline(u, peer.ID))
 						f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
 							f.Row().Items(flex.Center).Gap(6).Children(func() {
-								f.Text(name).FontSize(13.5).Weight(ui.WeightMedium).Ellipsis()
+								f.Text(name).FontSize(13.5).Weight(gfx.WeightMedium).Ellipsis()
 								if peer.ID == group.OwnerID {
 									f.Row().PadSides(2, 7, 2, 7).Radius(8).
 										Background(u.palette.mutedAvatar).Children(func() {
@@ -205,7 +206,7 @@ func (u *UI) drawMemberDrawer(canvas *ui.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) drawMemberMenu(canvas *ui.Canvas, viewport ui.Rect, group domain.Group, anchor ui.Rect) {
+func (u *UI) drawMemberMenu(canvas *gfx.Canvas, viewport ui.Rect, group domain.Group, anchor ui.Rect) {
 	peer := u.state.Peer(u.memberMenu)
 	if peer.ID == "" {
 		u.memberMenu = ""
@@ -266,7 +267,7 @@ func (u *UI) drawMemberMenu(canvas *ui.Canvas, viewport ui.Rect, group domain.Gr
 	}
 }
 
-func (u *UI) drawMemberProfile(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawMemberProfile(canvas *gfx.Canvas, viewport ui.Rect) {
 	peer := u.state.Peer(u.memberProfile)
 	if peer.ID == "" {
 		u.memberProfile = ""
@@ -583,7 +584,7 @@ func (u *UI) requestDiscardGroupRename(next func()) {
 
 // drawChatFilesPane paints the file list and file detail as a docked section
 // of the chat column, so the conversation stays visible and usable beside it.
-func (u *UI) drawChatFilesPane(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawChatFilesPane(canvas *gfx.Canvas, viewport ui.Rect) {
 	conversation := u.state.Conversation(u.selected)
 	if conversation.ID == "" || viewport.Width <= 0 || viewport.Height <= 0 {
 		u.closeDrawer()
@@ -611,7 +612,7 @@ func (u *UI) drawChatFilesPane(canvas *ui.Canvas, viewport ui.Rect) {
 			f.Row().Height(64).FillWidth().PadSides(18, 16, 0, 14).
 				Items(flex.Center).Gap(8).Children(func() {
 				f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
-					f.Text(title).FontSize(16).Weight(ui.WeightSemibold).Ellipsis()
+					f.Text(title).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis()
 					f.Text(subtitle).FontSize(11).Muted().Ellipsis()
 				})
 				closeButton := u.iconButton(f, u.ids.fileClose, u.iconX, i18n.T("关闭聊天文件"), 30)
@@ -639,7 +640,7 @@ func (u *UI) drawFileList(f *flex.Frame) {
 	f.Column().Fill().Gap(10).Children(func() {
 		f.Row().Height(32).Gap(7).Children(func() {
 			labels := []struct {
-				id    ui.ID
+				id    gfx.ID
 				label string
 				value string
 			}{
@@ -656,13 +657,13 @@ func (u *UI) drawFileList(f *flex.Frame) {
 				filter := f.Row().Height(30).PadX(12).Radius(8).Items(flex.Center).
 					Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
 					HitWith(item.id, i18n.T("筛选")+item.label,
-						ui.HitOptions{Role: ui.RoleButton, Selected: active}).
+						gfx.HitOptions{Role: gfx.RoleButton, Selected: active}).
 					Children(func() {
 						foreground := u.palette.secondaryText
 						if active {
 							foreground = u.palette.selectedText
 						}
-						f.Text(item.label).FontSize(11.5).Weight(ui.WeightMedium).Color(foreground)
+						f.Text(item.label).FontSize(11.5).Weight(gfx.WeightMedium).Color(foreground)
 					})
 				if filter.Clicked() {
 					u.fileFilter = item.value
@@ -683,14 +684,14 @@ func (u *UI) drawFileList(f *flex.Frame) {
 				row := f.Row().FillWidth().MinHeight(64).Pad(10).Radius(9).Gap(10).
 					Hover(flex.Look{}.Background(u.palette.hover)).
 					HitWith(u.fileRowIDs[file.ID], file.Name,
-						ui.HitOptions{Role: ui.RoleButton, Hint: i18n.T("文件详情")}).
+						gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("文件详情")}).
 					Children(func() {
 						f.Row().Size(36, 36).Radius(9).Items(flex.Center).Justify(flex.Center).
 							Background(fileIconTint(file)).Children(func() {
 							f.Icon(u.fileIcon(file)).Size(19, 19).Color(fileIconColor(file))
 						})
 						f.Column().Grow(1).Gap(3).Justify(flex.Center).Children(func() {
-							f.Text(file.Name).FontSize(13).Weight(ui.WeightMedium).Ellipsis()
+							f.Text(file.Name).FontSize(13).Weight(gfx.WeightMedium).Ellipsis()
 							sender := i18n.T("我")
 							if file.SenderID != "" && file.SenderID != u.state.Self.ID {
 								sender = u.state.Peer(file.SenderID).Name
@@ -736,7 +737,7 @@ func (u *UI) drawFileDetail(f *flex.Frame, file domain.File) {
 				f.Icon(u.fileIcon(file)).Size(25, 25).Color(fileIconColor(file))
 			})
 			f.Column().Grow(1).Gap(4).Children(func() {
-				f.Text(file.Name).FontSize(17).Weight(ui.WeightSemibold).MaxLines(2)
+				f.Text(file.Name).FontSize(17).Weight(gfx.WeightSemibold).MaxLines(2)
 				f.Text(formatBytes(file.Size) + fileTypeSuffix(file)).FontSize(11).Muted()
 			})
 		})
@@ -757,7 +758,7 @@ func (u *UI) drawFileDetail(f *flex.Frame, file domain.File) {
 			u.fileInfoRow(f, i18n.T("本地路径"), path)
 		}
 		f.Divider()
-		f.Text(i18n.T("传输状态")).FontSize(13).Weight(ui.WeightSemibold)
+		f.Text(i18n.T("传输状态")).FontSize(13).Weight(gfx.WeightSemibold)
 		f.ScrollArea(u.ids.fileDetailScroll).MaxHeight(190).Grow(1).Gap(4).Children(func() {
 			transfers := u.transfersFor[file.ID]
 			if len(transfers) == 0 {
@@ -781,7 +782,7 @@ func (u *UI) drawTransferRow(f *flex.Frame, transfer domain.Transfer) {
 		f.Row().FillWidth().Items(flex.Center).Gap(9).Children(func() {
 			u.avatarStatus(f, peer.Name, peer.Avatar, 28, peerOnline(u, peer.ID))
 			f.Column().Grow(1).Gap(3).Children(func() {
-				f.Text(transferPeerLabel(u, transfer)).FontSize(12).Weight(ui.WeightMedium).Ellipsis()
+				f.Text(transferPeerLabel(u, transfer)).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
 				f.Text(transferStatusText(transfer)).FontSize(10.5).Muted().Ellipsis()
 			})
 			if transferNeedsAttention(transfer) {
@@ -1017,7 +1018,7 @@ func longDate(at time.Time) string {
 	return at.Local().Format("2006-01-02 15:04")
 }
 
-func (u *UI) drawChatMenu(canvas *ui.Canvas) {
+func (u *UI) drawChatMenu(canvas *gfx.Canvas) {
 	conversation := u.state.Conversation(u.selected)
 	if conversation.ID == "" {
 		u.moreOpen = false
@@ -1086,7 +1087,7 @@ func (u *UI) drawChatMenu(canvas *ui.Canvas) {
 	}
 }
 
-func (u *UI) drawConnectDialog(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawConnectDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
 		Layer: 70, Scope: u.ids.connectScope, DismissID: u.ids.connectDismiss,
 		CloseID: u.ids.connectClose, InitialFocusID: u.ids.connectField,
@@ -1098,10 +1099,10 @@ func (u *UI) drawConnectDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	var submitted bool
 	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
 		f.Column().Fill().Gap(8).Children(func() {
-			if index, picked := f.Select(u.ids.connectProtocol, &u.connectProtocol, connectionLabels(), u.connectRoute).Label(i18n.T("连接方式")).Picked(); picked {
+			if index, picked := f.Select(u.ids.connectProtocol, &u.connectProtocol, connectionLabels(), u.connectRoute).FillWidth().Height(38).Label(i18n.T("连接方式")).Picked(); picked {
 				u.connectRoute = index
 			}
-			f.Text(i18n.T("设备地址")).FontSize(12).Weight(ui.WeightMedium)
+			f.Text(i18n.T("设备地址")).FontSize(12).Weight(gfx.WeightMedium)
 			connect = f.Field(&u.connectField, u.ids.connectField, i18n.T("设备地址"),
 				connectionHint(u.state, u.connectRoute)).Height(38)
 			if !connectionAvailable(u.state, u.connectRoute) {
@@ -1134,7 +1135,7 @@ func (u *UI) drawConnectDialog(canvas *ui.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) drawComposeDialog(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawComposeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 	create := u.compose.mode == "create"
 	group := u.state.Group(u.compose.groupID)
 	if !create && group.ID == "" {
@@ -1202,7 +1203,7 @@ func (u *UI) drawComposeBody(f *flex.Frame, create bool, group domain.Group) {
 	f.Column().Fill().Gap(10).Children(func() {
 		if create {
 			f.Row().Height(36).Items(flex.Center).Gap(12).Children(func() {
-				f.Text(i18n.T("群名称（可选）")).Width(96).FontSize(12).Weight(ui.WeightMedium)
+				f.Text(i18n.T("群名称（可选）")).Width(96).FontSize(12).Weight(gfx.WeightMedium)
 				f.Field(&u.compose.name, u.ids.composeName, i18n.T("群名称"), i18n.T("留空将按成员昵称生成")).
 					Height(36).Grow(1)
 			})
@@ -1212,7 +1213,7 @@ func (u *UI) drawComposeBody(f *flex.Frame, create bool, group domain.Group) {
 		f.Divider()
 		f.Row().Grow(1).Gap(18).Children(func() {
 			f.Column().Grow(1).Gap(6).Children(func() {
-				f.Text(i18n.T("可邀请联系人")).FontSize(12).Weight(ui.WeightSemibold)
+				f.Text(i18n.T("可邀请联系人")).FontSize(12).Weight(gfx.WeightSemibold)
 				f.ScrollArea(u.ids.composeScroll).Grow(1).Gap(2).Children(func() {
 					u.drawComposeCandidates(f, create, group)
 				})
@@ -1222,13 +1223,13 @@ func (u *UI) drawComposeBody(f *flex.Frame, create bool, group domain.Group) {
 				selected := u.selectedPeersForCompose()
 				f.Row().Height(24).Items(flex.Center).Children(func() {
 					f.Text(i18n.T("已选择 ") + intString(len(selected)) + i18n.T(" 人")).FontSize(12).
-						Weight(ui.WeightSemibold)
+						Weight(gfx.WeightSemibold)
 					f.Spacer()
 				})
 				f.ScrollArea(u.ids.composePicked).Grow(1).Gap(4).Children(func() {
 					if len(selected) == 0 {
 						f.Column().PadSides(10, 12, 8, 12).Gap(5).Children(func() {
-							f.Text(i18n.T("尚未选择联系人")).FontSize(12).Weight(ui.WeightMedium)
+							f.Text(i18n.T("尚未选择联系人")).FontSize(12).Weight(gfx.WeightMedium)
 							f.Text(i18n.T("勾选左侧在线联系人。")).FontSize(10.5).Muted()
 						})
 					}
@@ -1240,7 +1241,7 @@ func (u *UI) drawComposeBody(f *flex.Frame, create bool, group domain.Group) {
 							remove := f.Row().Size(24, 24).Radius(6).Items(flex.Center).
 								Justify(flex.Center).Hover(flex.Look{}.Background(u.palette.hover)).
 								HitWith(u.groupRemoveIDs[peer.ID], i18n.T("移除 ")+peer.Name,
-									ui.HitOptions{Role: ui.RoleButton, Hint: i18n.T("移除")}).
+									gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("移除")}).
 								Children(func() {
 									f.Icon(u.iconX).Size(14, 14).Color(u.palette.secondaryText)
 								})
@@ -1294,14 +1295,14 @@ func (u *UI) drawComposeCandidates(f *flex.Frame, create bool, group domain.Grou
 		header := f.Row().Height(28).Items(flex.Center).Gap(6).Radius(6).
 			Hover(flex.Look{}.Background(u.palette.hover)).
 			HitWith(headerID, contactGroup.Name,
-				ui.HitOptions{Role: ui.RoleButton, Expanded: !collapsed}).
+				gfx.HitOptions{Role: gfx.RoleButton, Expanded: !collapsed}).
 			Children(func() {
 				icon := u.iconChevronDown
 				if collapsed {
 					icon = u.iconChevronRight
 				}
 				f.Icon(icon).Size(14, 14).Color(u.palette.secondaryText)
-				f.Text(contactGroup.Name).FontSize(12).Weight(ui.WeightSemibold).Ellipsis()
+				f.Text(contactGroup.Name).FontSize(12).Weight(gfx.WeightSemibold).Ellipsis()
 				f.Spacer()
 				f.Text(intString(len(peers))).FontSize(10.5).Muted()
 			})
@@ -1323,13 +1324,13 @@ func (u *UI) drawComposeCandidates(f *flex.Frame, create bool, group domain.Grou
 				}()).Hover(flex.Look{}.Background(u.palette.hover))
 			if available {
 				row = row.HitWith(u.groupSelectRows[peer.ID], peer.Name,
-					ui.HitOptions{Role: ui.RoleButton, Selected: selected})
+					gfx.HitOptions{Role: gfx.RoleButton, Selected: selected})
 			}
 			var checkbox flex.Box
 			row.Children(func() {
 				u.avatarStatus(f, peer.Name, peer.Avatar, 30, peer.Online)
 				f.Column().Grow(1).Gap(2).Justify(flex.Center).Children(func() {
-					f.Text(peer.Name).FontSize(12.5).Weight(ui.WeightMedium).Ellipsis()
+					f.Text(peer.Name).FontSize(12.5).Weight(gfx.WeightMedium).Ellipsis()
 					status := i18n.T("在线")
 					if !peer.Online {
 						status = i18n.T("离线 · 上线后可邀请")
@@ -1351,7 +1352,7 @@ func (u *UI) drawComposeCandidates(f *flex.Frame, create bool, group domain.Grou
 	}
 }
 
-func (u *UI) drawConfirmation(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawConfirmation(canvas *gfx.Canvas, viewport ui.Rect) {
 	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
 		Layer: 76, Scope: u.ids.confirmScope, DismissID: u.ids.confirmDismiss,
 		CloseID: u.ids.confirmClose, InitialFocusID: u.ids.confirmCancel,

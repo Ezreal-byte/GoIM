@@ -14,8 +14,8 @@ func TestContactDetailsAndAvatarMenuKeepCurrentChat(t *testing.T) {
 	h.clickID(h.ui.ids.navContacts)
 	before := len(h.backend.commandLog())
 	h.clickID(h.ui.peerRowIDs[state.Peers[0].ID])
-	if h.ui.section != sectionContacts || !h.hasText("用户类型") ||
-		!h.hasText("内网通") || !h.hasText("飞鸽／飞秋兼容") || h.hasHit(h.ui.ids.chatEditor) {
+	if _, editorVisible := h.chatEditorHit(); h.ui.section != sectionContacts || !h.hasText("用户类型") ||
+		!h.hasText("内网通") || !h.hasText("飞鸽／飞秋兼容") || editorVisible {
 		t.Fatal("contact selection did not display a separate profile and its connection type")
 	}
 	for _, c := range h.backend.commandLog()[before:] {

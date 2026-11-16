@@ -2,13 +2,13 @@ package desktop
 
 import (
 	"errors"
+	"github.com/vivaui/viva/gfx"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
 	"goim/internal/domain"
 	"goim/internal/i18n"
 )
@@ -34,7 +34,7 @@ func (r *desktopRuntime) syncViewer() {
 		return
 	}
 	var window *app.Window
-	var canvas ui.Canvas
+	var canvas gfx.Canvas
 	config := u.imageViewerConfig()
 	config.Invalidator = &r.viewerWake
 	config.OnWake = r.saveViewerOriginal

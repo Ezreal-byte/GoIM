@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 
 	"goim/internal/domain"
 )
@@ -117,7 +117,7 @@ func TestStateAvatarsAreDecodedOnWake(t *testing.T) {
 
 func TestEmojiPickerInsertsUnicodeTextWithoutSending(t *testing.T) {
 	harness := newShellTestHarness(t, shellTestState(t))
-	harness.clickID(harness.ui.ids.chatEditor)
+	harness.clickLabel("消息输入框")
 	harness.clickID(harness.ui.ids.chatEmoji)
 	if !harness.ui.emojiOpen || !harness.hasHit(harness.ui.emojiIDs["grin"]) {
 		t.Fatal("emoji button did not open the emoji picker")
@@ -148,7 +148,7 @@ func TestEmojiPickerInsertsUnicodeTextWithoutSending(t *testing.T) {
 
 func TestMentionAutocompleteSupportsTypingKeyboardSelectionAndEscape(t *testing.T) {
 	harness := newShellTestHarness(t, shellTestState(t))
-	harness.clickID(harness.ui.ids.chatEditor)
+	harness.clickLabel("消息输入框")
 	if err := harness.driver.Type("@A"); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestMentionAutocompleteSupportsTypingKeyboardSelectionAndEscape(t *testing.
 	}
 	requireShellLayout(t, harness.snapshot())
 
-	if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got := harness.ui.chatEditor.String(); got != "@Alice " {
@@ -171,13 +171,13 @@ func TestMentionAutocompleteSupportsTypingKeyboardSelectionAndEscape(t *testing.
 	if !harness.ui.mention.open || len(harness.ui.mention.candidates) < 2 {
 		t.Fatalf("mention candidates = %+v", harness.ui.mention.candidates)
 	}
-	if err := harness.driver.Key(ui.KeyDown, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyDown, 0); err != nil {
 		t.Fatal(err)
 	}
 	if harness.ui.mention.selected != 1 {
 		t.Fatalf("selected mention = %d, want 1", harness.ui.mention.selected)
 	}
-	if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got := harness.ui.chatEditor.String(); got != "@Alice @Bob " {
@@ -190,7 +190,7 @@ func TestMentionAutocompleteSupportsTypingKeyboardSelectionAndEscape(t *testing.
 	if !harness.ui.mention.open {
 		t.Fatal("typing @ did not reopen mention suggestions")
 	}
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	if harness.ui.mention.open {
@@ -206,7 +206,7 @@ func TestMentionAutocompleteSupportsTypingKeyboardSelectionAndEscape(t *testing.
 	if !harness.ui.mention.open {
 		t.Fatal("typing a mention query did not reopen suggestions")
 	}
-	if err := harness.driver.Key(ui.KeyEnter, ui.ModifierShift); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnter, gfx.ModifierShift); err != nil {
 		t.Fatal(err)
 	}
 	if got := harness.ui.chatEditor.String(); got != "@Alice @Bob @A\n" {
@@ -225,7 +225,7 @@ func TestMentionAutocompleteSupportsTypingKeyboardSelectionAndEscape(t *testing.
 	if err := harness.driver.Compose("ni"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got := harness.ui.chatEditor.String(); got != beforeComposition+"ni" {
@@ -486,14 +486,14 @@ func TestConfiguredApplicationShortcutReplacesHardcodedDefault(t *testing.T) {
 	}
 	harness := newShellTestHarness(t, state)
 
-	handled, err := harness.driver.ShortcutChord(ui.ModifierControl, ',')
+	handled, err := harness.driver.ShortcutChord(gfx.ModifierControl, ',')
 	if err != nil {
 		t.Fatal(err)
 	}
 	if handled || harness.ui.section == sectionSettings {
 		t.Fatal("the replaced Ctrl+, default still opened settings")
 	}
-	handled, err = harness.driver.ShortcutChord(ui.ModifierControl|ui.ModifierShift, ',')
+	handled, err = harness.driver.ShortcutChord(gfx.ModifierControl|gfx.ModifierShift, ',')
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,24 +508,24 @@ func TestNewInteractionOverlaysRemainCleanAtMinimumWindow(t *testing.T) {
 	harness.clickID(harness.ui.ids.profileAvatar)
 	harness.settle()
 	requireShellLayout(t, harness.snapshot())
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 
 	harness.clickID(harness.ui.ids.chatEmoji)
 	harness.settle()
 	requireShellLayout(t, harness.snapshot())
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 
-	harness.clickID(harness.ui.ids.chatEditor)
+	harness.clickLabel("消息输入框")
 	if err := harness.driver.Type("@"); err != nil {
 		t.Fatal(err)
 	}
 	harness.settle()
 	requireShellLayout(t, harness.snapshot())
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 

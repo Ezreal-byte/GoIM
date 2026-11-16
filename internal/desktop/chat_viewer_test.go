@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"image"
 	"image/color"
 	"image/png"
@@ -9,8 +10,6 @@ import (
 	"slices"
 	"testing"
 	"time"
-
-	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
 )
@@ -78,11 +77,11 @@ func TestImageViewerNavigatesWithKeyboardAndButtons(t *testing.T) {
 		t.Fatalf("viewer took focus %v on open, want missing close control %v",
 			focused, surface.ids.viewerClose)
 	}
-	if err := harness.driver.Key(ui.KeyTab, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyTab, 0); err != nil {
 		t.Fatal(err)
 	}
 	focused := harness.snapshot().Focused
-	viewerControls := []ui.ID{
+	viewerControls := []gfx.ID{
 		surface.ids.viewerClose, surface.ids.viewerPrevious, surface.ids.viewerNext,
 		surface.ids.viewerFit, surface.ids.viewerActual, surface.ids.viewerZoomOut,
 		surface.ids.viewerZoomIn, surface.ids.viewerRotate,
@@ -96,7 +95,7 @@ func TestImageViewerNavigatesWithKeyboardAndButtons(t *testing.T) {
 		t.Fatalf("first image navigation state = previous %v, next %v", previous.Disabled, next.Disabled)
 	}
 
-	if err := harness.driver.Key(ui.KeyRight, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyRight, 0); err != nil {
 		t.Fatal(err)
 	}
 	if surface.viewer.fileID != "file-image-2" || !harness.hasText("2 / 2") {
@@ -108,13 +107,13 @@ func TestImageViewerNavigatesWithKeyboardAndButtons(t *testing.T) {
 		t.Fatalf("last image navigation state = previous %v, next %v", previous.Disabled, next.Disabled)
 	}
 
-	if err := harness.driver.Key(ui.KeyHome, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyHome, 0); err != nil {
 		t.Fatal(err)
 	}
 	if surface.viewer.fileID != "file-image-1" {
 		t.Fatal("Home did not return to the first image")
 	}
-	if err := harness.driver.Key(ui.KeyEnd, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnd, 0); err != nil {
 		t.Fatal(err)
 	}
 	if surface.viewer.fileID != "file-image-2" {
@@ -132,7 +131,7 @@ func TestImageViewerNavigatesWithKeyboardAndButtons(t *testing.T) {
 		t.Fatal("next button did not navigate")
 	}
 
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	if harness.ui.imageViewerOpen() {
@@ -144,7 +143,7 @@ func TestImageViewerNavigatesWithKeyboardAndButtons(t *testing.T) {
 
 	harness.clickID(harness.ui.fileButtonIDs["file-image-1"])
 	harness.settle()
-	if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if harness.ui.imageViewerOpen() {
@@ -166,27 +165,27 @@ func TestImageViewerZoomFitActualRotateAndWheel(t *testing.T) {
 		t.Fatal("viewer did not start fitted to the stage")
 	}
 
-	if err := harness.driver.KeyDown(ui.KeyUnknown, "1"); err != nil {
+	if err := harness.driver.KeyDown(gfx.KeyUnknown, "1"); err != nil {
 		t.Fatal(err)
 	}
 	if stateViewer.fit || stateViewer.zoom != 1 {
 		t.Fatalf("1:1 did not leave fit and set 100%%: fit %v zoom %.3f", stateViewer.fit, stateViewer.zoom)
 	}
-	if err := harness.driver.KeyDown(ui.KeyUnknown, "0"); err != nil {
+	if err := harness.driver.KeyDown(gfx.KeyUnknown, "0"); err != nil {
 		t.Fatal(err)
 	}
 	if !stateViewer.fit {
 		t.Fatal("0 did not restore fit")
 	}
 
-	if err := harness.driver.KeyDown(ui.KeyUnknown, "+"); err != nil {
+	if err := harness.driver.KeyDown(gfx.KeyUnknown, "+"); err != nil {
 		t.Fatal(err)
 	}
 	if stateViewer.fit || stateViewer.zoom <= stateViewer.fitScale {
 		t.Fatalf("zoom in did not exceed the fit scale: %.3f vs %.3f", stateViewer.zoom, stateViewer.fitScale)
 	}
 	zoomed := stateViewer.zoom
-	if err := harness.driver.KeyDown(ui.KeyUnknown, "-"); err != nil {
+	if err := harness.driver.KeyDown(gfx.KeyUnknown, "-"); err != nil {
 		t.Fatal(err)
 	}
 	if stateViewer.zoom >= zoomed {
@@ -209,7 +208,7 @@ func TestImageViewerZoomFitActualRotateAndWheel(t *testing.T) {
 	if !ok {
 		t.Fatal("viewer stage is missing")
 	}
-	if err := harness.driver.Scroll(ui.ScrollEvent{
+	if err := harness.driver.Scroll(gfx.ScrollEvent{
 		X:      stage.Bounds.X + stage.Bounds.Width/2,
 		Y:      stage.Bounds.Y + stage.Bounds.Height/2,
 		DeltaY: -120,
@@ -220,20 +219,20 @@ func TestImageViewerZoomFitActualRotateAndWheel(t *testing.T) {
 		t.Fatalf("wheel up did not zoom in: %.3f -> %.3f", beforeWheel, stateViewer.zoom)
 	}
 
-	if err := harness.driver.KeyDown(ui.KeyUnknown, "r"); err != nil {
+	if err := harness.driver.KeyDown(gfx.KeyUnknown, "r"); err != nil {
 		t.Fatal(err)
 	}
 	if stateViewer.rotation != 1 || stateViewer.cachedSourceID != harness.ui.fileBitmap(path).ID {
 		t.Fatalf("rotate did not cache a clockwise bitmap: rotation %d source %d",
 			stateViewer.rotation, stateViewer.cachedSourceID)
 	}
-	if err := harness.driver.KeyDown(ui.KeyShiftLeft, ""); err != nil {
+	if err := harness.driver.KeyDown(gfx.KeyShiftLeft, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.driver.KeyDown(ui.KeyUnknown, "r"); err != nil {
+	if err := harness.driver.KeyDown(gfx.KeyUnknown, "r"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.driver.KeyUp(ui.KeyShiftLeft, ""); err != nil {
+	if err := harness.driver.KeyUp(gfx.KeyShiftLeft, ""); err != nil {
 		t.Fatal(err)
 	}
 	if stateViewer.rotation != 0 {
@@ -252,7 +251,7 @@ func TestImageViewerPanClampsAndDoubleClickTogglesFit(t *testing.T) {
 	surface := harness.ui.chatSurface()
 	stateViewer := &surface.viewer
 	for range 10 {
-		if err := harness.driver.KeyDown(ui.KeyUnknown, "+"); err != nil {
+		if err := harness.driver.KeyDown(gfx.KeyUnknown, "+"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -265,13 +264,13 @@ func TestImageViewerPanClampsAndDoubleClickTogglesFit(t *testing.T) {
 	}
 	centerX := stage.Bounds.X + stage.Bounds.Width/2
 	centerY := stage.Bounds.Y + stage.Bounds.Height/2
-	if err := harness.driver.Press(centerX, centerY, ui.PointerButtonPrimary); err != nil {
+	if err := harness.driver.Press(centerX, centerY, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.driver.Move(centerX+140, centerY+90); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.driver.Release(centerX+140, centerY+90, ui.PointerButtonPrimary); err != nil {
+	if err := harness.driver.Release(centerX+140, centerY+90, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	if stateViewer.panX <= 0 || stateViewer.panY <= 0 {

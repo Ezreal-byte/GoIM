@@ -29,14 +29,18 @@ func freeCompatibilityPort(t *testing.T) int {
 }
 
 func TestCompatibilityPortsRollBackAndWaitForIPMSGTransfer(t *testing.T) {
-	n, err := New(Options{DataDir: t.TempDir(), Listen: "127.0.0.1:0", DisableDiscovery: true})
+	n, err := New(Options{
+		DataDir: t.TempDir(), Listen: "127.0.0.1:0",
+		DisableDiscovery: true, DisableCompatibility: true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer n.Close()
 	initial := n.Snapshot()
-	if initial.Settings.IPMSG.Enabled || initial.Settings.Neiwangtong.Enabled || initial.IPMSGStatus.Active {
-		t.Fatal("fresh install started a compatibility service")
+	if !initial.Settings.IPMSG.Enabled || !initial.Settings.Neiwangtong.Enabled ||
+		initial.IPMSGStatus.Active || initial.NeiwangtongStatus.Active {
+		t.Fatalf("defaults or test isolation are wrong: %+v", initial.Settings)
 	}
 	first := domain.CompatibilityConfig{Enabled: true, Port: freeCompatibilityPort(t)}
 	if err := n.setCompatibility(domain.TransportIPMSG, first); err != nil {
@@ -98,7 +102,10 @@ func TestCompatibilityPortsRollBackAndWaitForIPMSGTransfer(t *testing.T) {
 
 func TestGoIMConnectUsesTLSWithIPMSGActive(t *testing.T) {
 	start := func() *Node {
-		n, err := New(Options{DataDir: t.TempDir(), Listen: "127.0.0.1:0", DisableDiscovery: true})
+		n, err := New(Options{
+			DataDir: t.TempDir(), Listen: "127.0.0.1:0",
+			DisableDiscovery: true, DisableCompatibility: true,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -130,16 +137,21 @@ func TestGoIMConnectUsesTLSWithIPMSGActive(t *testing.T) {
 	t.Fatal("GoIM TLS peer did not connect with the separate IPMSG adapter running")
 }
 
-func TestCompatibilityMigrationKeepsIPMSGPreferenceAndChatData(t *testing.T) {
+func TestCompatibilityMigrationEnablesBothAdaptersAndKeepsChatData(t *testing.T) {
 	dir := t.TempDir()
-	opts := Options{DataDir: dir, Listen: "127.0.0.1:0", DisableDiscovery: true, DisableIPMSG: true}
+	opts := Options{
+		DataDir: dir, Listen: "127.0.0.1:0",
+		DisableDiscovery: true, DisableCompatibility: true,
+	}
 	n, err := New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := n.change(func(s *domain.State) {
 		s.Settings.CompatibilityConfigured = false
+		s.Settings.CompatibilityDefaultsVersion = 0
 		s.Settings.IPMSG = domain.CompatibilityConfig{}
+		s.Settings.Neiwangtong = domain.CompatibilityConfig{}
 		s.Conversations = []domain.Conversation{
 			{ID: "discovered", Kind: "direct"},
 			{ID: "draft", Kind: "direct", Draft: "retain"},
@@ -159,8 +171,10 @@ func TestCompatibilityMigrationKeepsIPMSGPreferenceAndChatData(t *testing.T) {
 	}
 	defer n.Close()
 	s := n.Snapshot()
-	if !s.Settings.IPMSG.Enabled || s.Settings.IPMSG.Port != domain.IPMSGPort || s.IPMSGStatus.Active || !s.IPMSGStatus.Unavailable {
-		t.Fatalf("legacy preference or override lost: %+v %+v", s.Settings.IPMSG, s.IPMSGStatus)
+	if !s.Settings.IPMSG.Enabled || s.Settings.IPMSG.Port != domain.IPMSGPort ||
+		!s.Settings.Neiwangtong.Enabled || s.Settings.Neiwangtong.Port != domain.NeiwangtongDiscoveryPort ||
+		s.Settings.CompatibilityDefaultsVersion != 1 {
+		t.Fatalf("compatibility migration did not enable both defaults: %+v", s.Settings)
 	}
 	if !s.Conversation("discovered").Hidden || s.Conversation("draft").Hidden ||
 		s.Conversation("opened").Hidden || s.Conversation("history").Hidden || len(s.Messages) != 1 {

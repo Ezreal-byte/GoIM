@@ -3,6 +3,12 @@ package core
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"fmt"
+	"image"
+	"image/color"
+	"image/png"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -14,170 +20,202 @@ import (
 )
 
 func TestNeiwangtongCompatibilitySettingsAndLifecycle(t *testing.T) {
-	n, err := New(Options{DataDir: t.TempDir(), Listen: "127.0.0.1:0", DisableDiscovery: true})
+	n := testNode(t, "local")
+	initial := n.Snapshot()
+	if !initial.Settings.Neiwangtong.Enabled || initial.NeiwangtongStatus.Active {
+		t.Fatal("default or test isolation is wrong")
+	}
+	cfg := domain.CompatibilityConfig{Enabled: true, Port: freeCompatibilityPort(t)}
+	if err := n.setCompatibility(transportNWT, cfg); err != nil {
+		t.Fatal(err)
+	}
+	n.mu.Lock()
+	service := n.neiwangtong
+	n.mu.Unlock()
+	blocker, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer n.Close()
-
-	initial := n.Snapshot()
-	if initial.Settings.Neiwangtong.Enabled || initial.NeiwangtongStatus.Active {
-		t.Fatal("fresh install started Neiwangtong unexpectedly")
+	defer blocker.Close()
+	if err := n.setCompatibility(transportNWT, domain.CompatibilityConfig{Enabled: true, Port: blocker.LocalAddr().(*net.UDPAddr).Port}); err == nil {
+		t.Fatal("saved an unavailable discovery port")
 	}
-
-	discPort := freeCompatibilityPort(t)
-	cfg := domain.CompatibilityConfig{Enabled: true, Port: discPort}
-	if err := n.setCompatibility(domain.TransportNeiwangtong, cfg); err != nil {
-		t.Fatalf("setCompatibility error: %v", err)
+	if s := n.Snapshot(); s.Settings.Neiwangtong != cfg || !s.NeiwangtongStatus.Active || s.NeiwangtongStatus.Problem == "" {
+		t.Fatalf("working config was lost: %+v", s.NeiwangtongStatus)
 	}
-
-	s := n.Snapshot()
-	if !s.Settings.Neiwangtong.Enabled || !s.NeiwangtongStatus.Active {
-		t.Fatalf("Neiwangtong not active: %+v", s.NeiwangtongStatus)
+	cfg.Port = freeCompatibilityPort(t)
+	if err := n.setCompatibility(transportNWT, cfg); err != nil {
+		t.Fatal(err)
 	}
-
-	// Disable
+	n.mu.Lock()
+	same := n.neiwangtong == service
+	n.mu.Unlock()
+	if !same || n.Snapshot().Settings.Neiwangtong != cfg {
+		t.Fatal("changing discovery restarted the control and TCP listeners")
+	}
 	cfg.Enabled = false
-	if err := n.setCompatibility(domain.TransportNeiwangtong, cfg); err != nil {
-		t.Fatalf("disable error: %v", err)
+	if err := n.setCompatibility(transportNWT, cfg); err != nil {
+		t.Fatal(err)
 	}
-	s = n.Snapshot()
-	if s.Settings.Neiwangtong.Enabled || s.NeiwangtongStatus.Active {
-		t.Fatalf("Neiwangtong still active after disable: %+v", s.NeiwangtongStatus)
+	if s := n.Snapshot(); s.Settings.Neiwangtong.Enabled || s.NeiwangtongStatus.Active {
+		t.Fatal("failed to stop only the native adapter")
 	}
 }
 
-func TestNeiwangtongDirectCommunication(t *testing.T) {
-	nodeDir := t.TempDir()
-	discPort := freeCompatibilityPort(t)
+func TestNeiwangtongOutgoingFileIDsAreStableAndDistinct(t *testing.T) {
+	transfer := domain.Transfer{ID: "0123456789abcdef0123456789abcdef", LegacyTransport: transportNWT}
+	taskID, fileID := neiwangtongOutgoingIDs(transfer)
+	if taskID == 0 || fileID == 0 || taskID == fileID || taskID > 0xffffffff || fileID > 0xffffffff {
+		t.Fatalf("invalid native transfer IDs: task=%d file=%d", taskID, fileID)
+	}
+	transfer.RemotePacket, transfer.RemoteFile = fmt.Sprint(taskID), fmt.Sprint(fileID)
+	nextTask, nextFile := neiwangtongOutgoingIDs(transfer)
+	if nextTask != taskID || nextFile != fileID {
+		t.Fatalf("retry changed IDs: before=%d/%d after=%d/%d", taskID, fileID, nextTask, nextFile)
+	}
+	legacy := domain.Transfer{ID: transfer.ID, RemotePacket: "70000", RemoteFile: "70000", LegacyTransport: transportNWT}
+	legacyTask, legacyFile := neiwangtongOutgoingIDs(legacy)
+	if legacyTask != 70000 || legacyFile == legacyTask {
+		t.Fatalf("legacy same-ID transfer was not migrated: task=%d file=%d", legacyTask, legacyFile)
+	}
+}
 
-	n, err := New(Options{DataDir: nodeDir, Listen: "127.0.0.1:0", DisableDiscovery: true})
+func TestNeiwangtongStatusValuesMatchNativeMenu(t *testing.T) {
+	n := testNode(t, "status mapping")
+	cases := []struct {
+		status uint32
+		want   domain.Presence
+	}{
+		{neiwangtong.StatusOnline, domain.PresenceOnline},
+		{neiwangtong.StatusBusy, domain.PresenceBusy},
+		{neiwangtong.StatusRightBack, domain.PresenceAway},
+		{neiwangtong.StatusAway, domain.PresenceAway},
+	}
+	for i, tc := range cases {
+		id := fmt.Sprintf("status-%d", i)
+		n.receiveNeiwangtongPeer(neiwangtong.Peer{
+			ID: id, Name: id, Address: "192.0.2.10:9012", Online: true, Status: tc.status,
+		})
+		if got := n.Snapshot().Peer(id).Presence; got != tc.want {
+			t.Fatalf("native status %d mapped to %q, want %q", tc.status, got, tc.want)
+		}
+	}
+}
+
+func nativeTestAvatar(t *testing.T, blue uint8) []byte {
+	t.Helper()
+	p := image.NewRGBA(image.Rect(0, 0, 24, 24))
+	p.SetRGBA(12, 12, color.RGBA{B: blue, A: 255})
+	var b bytes.Buffer
+	if err := png.Encode(&b, p); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+func TestNeiwangtongDirectCommunication(t *testing.T) {
+	n := testNode(t, "GoIM core")
+	port := freeCompatibilityPort(t)
+	if err := n.setCompatibility(transportNWT, domain.CompatibilityConfig{Enabled: true, Port: port}); err != nil {
+		t.Fatal(err)
+	}
+	remoteID := [16]byte{10}
+	localIP := netip.MustParseAddr("127.0.0.1")
+	remoteIP := netip.MustParseAddr("127.0.0.2")
+	outgoing := make(chan string, 2)
+	profile := neiwangtong.Peer{Name: "Peer", Sign: "签名", Company: "测试组"}
+	remoteCfg := neiwangtong.Config{
+		ID: remoteID, Profile: profile, AvatarPNG: nativeTestAvatar(t, 30), BindIP: remoteIP, DisableBroadcast: true,
+		DiscoveryPort: freeCompatibilityPort(t), ControlPort: 9012, RemoteControlPort: 9012, TransferPort: 9013,
+		Callbacks: neiwangtong.Callbacks{Text: func(_ string, _ uint64, text string) { outgoing <- text }},
+	}
+	remote, err := neiwangtong.Start(remoteCfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer n.Close()
-
-	if err := n.setCompatibility(domain.TransportNeiwangtong, domain.CompatibilityConfig{Enabled: true, Port: discPort}); err != nil {
-		t.Fatalf("setCompatibility error: %v", err)
-	}
-
-	textCh := make(chan string, 1)
-	localIP := netip.AddrFrom4([4]byte{127, 0, 0, 1})
-	peerDiscPort := freeCompatibilityPort(t)
-	peerCtrlPort := freeCompatibilityPort(t)
-	peerTranPort := freeCompatibilityPort(t)
-
-	// Standalone native peer
-	peerSrv, err := neiwangtong.Start(neiwangtong.Config{
-		Name:             "RemoteNWT",
-		Group:            "Marketing",
-		DiscoveryPort:    peerDiscPort,
-		ControlPort:      peerCtrlPort,
-		TransferPort:     peerTranPort,
-		BindIP:           localIP,
-		DisableBroadcast: true,
-		Callbacks: neiwangtong.Callbacks{
-			Text: func(pID string, packetID uint64, text string) {
-				textCh <- text
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Start peer error: %v", err)
-	}
-	defer peerSrv.Close()
-
-	// Probe from peer to GoIM Node
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer remote.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	if err := peerSrv.Probe(ctx, netip.AddrPortFrom(localIP, uint16(discPort)), 9012, 9013); err != nil {
-		t.Fatalf("Probe error: %v", err)
+	if err := remote.Probe(ctx, netip.AddrPortFrom(localIP, uint16(port)), 9012, 9013); err != nil {
+		t.Fatal(err)
 	}
-
-	// Wait for GoIM to see peer
-	deadline := time.Now().Add(3 * time.Second)
-	var foundPeerID string
-	for time.Now().Before(deadline) {
-		s := n.Snapshot()
-		for _, p := range s.Peers {
-			if p.Transport == domain.TransportNeiwangtong && p.Online {
-				foundPeerID = p.ID
-				break
+	// Remote uses a separate loopback control port, so explicitly complete
+	// the reverse query just as two real clients query one another.
+	n.mu.Lock()
+	local := n.neiwangtong
+	n.mu.Unlock()
+	if err := local.Probe(ctx, netip.AddrPortFrom(remoteIP, uint16(remoteCfg.DiscoveryPort)), remoteCfg.ControlPort, remoteCfg.TransferPort); err != nil {
+		t.Fatal(err)
+	}
+	nativeID := keyIDFromNative(remoteID)
+	eventually(t, "native profile", func() bool {
+		p := n.Snapshot().Peer(nativeID)
+		return p.Online && p.Transport == transportNWT && p.Signature == "签名"
+	})
+	eventually(t, "first avatar", func() bool { return n.Snapshot().Peer(nativeID).Avatar != "" })
+	first := n.Snapshot().Peer(nativeID).Avatar
+	selfID := keyIDFromNative(nativeIDForGoIM(n.Snapshot().Self.ID))
+	if err := remote.SendText(selfID, "原生文本 & 😀"); err != nil {
+		t.Fatal(err)
+	}
+	conv := directID(n.Snapshot().Self.ID, nativeID)
+	eventually(t, "native message", func() bool {
+		msgs := n.Snapshot().ChatMessages(conv)
+		return len(msgs) == 1 && msgs[0].Text == "原生文本 & 😀"
+	})
+	if err := n.sendText(conv, "回复 & 中文"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case reply := <-outgoing:
+		if reply != "回复 & 中文" {
+			t.Fatalf("reply: %q", reply)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	path := filepath.Join(t.TempDir(), "原生文件.txt")
+	content := []byte("independent loopback file")
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.SendFileOffer(selfID, 777, filepath.Base(path), int64(len(content)), time.Now().Unix(), path); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "file offer", func() bool { return len(n.Snapshot().Transfers) == 1 })
+	task := n.Snapshot().Transfers[0]
+	if task.LegacyTransport != transportNWT || task.Status != "offered" || task.RemotePeerID != nativeID {
+		t.Fatalf("offer: %+v", task)
+	}
+	eventually(t, "file card in chat", func() bool {
+		for _, message := range n.Snapshot().ChatMessages(conv) {
+			if message.Kind == "file" && message.FileID == task.FileID {
+				return true
 			}
 		}
-		if foundPeerID != "" {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if foundPeerID == "" {
-		t.Fatal("GoIM did not discover Neiwangtong peer")
-	}
-
-	// 1. Peer sends text to GoIM
-	goimNodeID := n.Snapshot().Self.ID
-	_ = goimNodeID
-	// In native protocol, sending text to any connected peer
-	peerSrv.Probe(ctx, netip.AddrPortFrom(localIP, uint16(discPort)), 9012, 9013)
-	time.Sleep(100 * time.Millisecond)
-	for id := range n.Snapshot().Peers {
-		_ = id
-	}
-
-	// 2. Test receiving text in GoIM via Node's receive callback
-	n.receiveNeiwangtongText(foundPeerID, 12345, "Hello from Neiwangtong native!")
-	s := n.Snapshot()
-	var foundMsg bool
-	for _, m := range s.Messages {
-		if m.Text == "Hello from Neiwangtong native!" {
-			foundMsg = true
-			break
-		}
-	}
-	if !foundMsg {
-		t.Fatal("GoIM state did not record native text message")
-	}
-
-	// 3. Test receiving file offer in GoIM
-	tmpDir := t.TempDir()
-	testPayload := []byte("neiwangtong test file payload 999")
-	srcPath := filepath.Join(tmpDir, "nwt-offer.txt")
-	_ = os.WriteFile(srcPath, testPayload, 0644)
-	taskID := uint64(777)
-	peerSrv.RegisterFile(taskID, srcPath, int64(len(testPayload)))
-
-	n.receiveNeiwangtongFiles(foundPeerID, taskID, "nwt-offer.txt", int64(len(testPayload)))
-	s = n.Snapshot()
-	var foundTransfer domain.Transfer
-	for _, tr := range s.Transfers {
-		if tr.Name == "nwt-offer.txt" && tr.LegacyTransport == domain.TransportNeiwangtong {
-			foundTransfer = tr
-			break
-		}
-	}
-	if foundTransfer.ID == "" {
-		t.Fatal("GoIM did not create transfer for Neiwangtong file offer")
-	}
-
-	// 4. Test download in GoIM
-	destPath := filepath.Join(tmpDir, "downloaded-nwt.txt")
-	n.mu.Lock()
-	srv := n.neiwangtong
-	n.mu.Unlock()
-	if srv != nil {
-		// Mock peer in srv with peerTranPort
-		srv.SetPeerTransferPort(foundPeerID, netip.AddrPortFrom(localIP, uint16(peerTranPort)))
-	}
-
-	if err := n.downloadNeiwangtong(context.Background(), foundTransfer, s.File(foundTransfer.FileID), destPath); err != nil {
-		t.Fatalf("downloadNeiwangtong error: %v", err)
-	}
-
-	content, err := os.ReadFile(destPath)
-	if err != nil {
+		return false
+	})
+	dest := filepath.Join(t.TempDir(), "received.txt")
+	if err := n.execute(domain.Command{Kind: domain.AcceptTransfer, TransferID: task.ID, Paths: []string{dest}}); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(content, testPayload) {
-		t.Fatalf("Downloaded file mismatch: got %s, want %s", string(content), string(testPayload))
+	deadline := time.Now().Add(6 * time.Second)
+	for n.Snapshot().Transfers[0].Status != "completed" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
 	}
+	if completed := n.Snapshot().Transfers[0]; completed.Status != "completed" {
+		t.Fatalf("complete native file: %+v", completed)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || sha256.Sum256(got) != sha256.Sum256(content) {
+		t.Fatalf("file verification: %v", err)
+	}
+	profile.Name = "Updated"
+	remote.UpdateProfile(profile, nativeTestAvatar(t, 90))
+	eventually(t, "changed avatar and profile", func() bool {
+		p := n.Snapshot().Peer(nativeID)
+		return p.Avatar != "" && p.Avatar != first && p.Name == "Updated"
+	})
+	remote.UpdateProfile(profile, nil)
+	eventually(t, "removed avatar", func() bool { return n.Snapshot().Peer(nativeID).Avatar == "" })
 }

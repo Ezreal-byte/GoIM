@@ -1,13 +1,14 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -79,7 +80,7 @@ func (u *UI) openSidebarMenu(x, y float32) {
 	u.openShellMenu(shellMenuSidebar, "", x, y)
 }
 
-func (u *UI) drawShellMenu(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawShellMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 	if !u.shellMenu.open {
 		return
 	}
@@ -103,7 +104,7 @@ func (u *UI) drawShellMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) beginShellMenu(canvas *ui.Canvas, viewport ui.Rect, items int, separators int) components.ContextMenu {
+func (u *UI) beginShellMenu(canvas *gfx.Canvas, viewport ui.Rect, items int, separators int) components.ContextMenu {
 	height := float32(12 + items*32 + separators*9)
 	return components.BeginContextMenu(canvas, u.theme,
 		ui.Rect{X: u.shellMenu.x, Y: u.shellMenu.y, Width: 220, Height: height},
@@ -113,7 +114,7 @@ func (u *UI) beginShellMenu(canvas *ui.Canvas, viewport ui.Rect, items int, sepa
 		})
 }
 
-func (u *UI) drawConversationContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawConversationContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 	conversation := u.state.Conversation(u.shellMenu.target)
 	if conversation.ID == "" {
 		u.closeShellMenu()
@@ -157,7 +158,7 @@ func (u *UI) drawConversationContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) drawContactContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawContactContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 	peer := u.state.Peer(u.shellMenu.target)
 	if peer.ID == "" {
 		u.closeShellMenu()
@@ -203,7 +204,7 @@ func (u *UI) drawContactContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) drawSelfContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawSelfContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 	menu := u.beginShellMenu(canvas, viewport, 1, 0)
 	menu.AddItem(components.ContextMenuItem{
 		ID: u.ids.shellMenuProfile, Label: i18n.T("编辑个人资料"), Icon: u.iconPencil,
@@ -218,7 +219,7 @@ func (u *UI) drawSelfContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) drawSidebarContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawSidebarContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 	items := 2
 	if u.section == sectionContacts {
 		items = 5
@@ -268,7 +269,7 @@ func (u *UI) drawSidebarContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	}
 }
 
-func (u *UI) drawContactGroupContextMenu(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawContactGroupContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 	name := u.shellMenu.target
 	menu := u.beginShellMenu(canvas, viewport, 2, 0)
 	menu.AddItem(components.ContextMenuItem{ID: u.ids.shellMenuRenameContactGroup, Label: i18n.T("重命名分组…"), Icon: u.iconPencil})
@@ -367,7 +368,7 @@ func (u *UI) saveOrganize() {
 	u.closeOrganize()
 }
 
-func (u *UI) drawOrganizeDialog(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawOrganizeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 	peer := u.state.Peer(u.organize.peerID)
 	mode := u.organize.mode
 	if mode == "" && peer.ID == "" {
@@ -395,7 +396,7 @@ func (u *UI) drawOrganizeDialog(canvas *ui.Canvas, viewport ui.Rect) {
 				f.Row().Items(flex.Center).Gap(9).Children(func() {
 					u.avatarStatus(f, peer.Name, peer.Avatar, 28, peer.Online)
 					f.Column().Grow(1).Gap(2).Children(func() {
-						f.Text(peer.Name).FontSize(12.5).Weight(ui.WeightMedium).Ellipsis()
+						f.Text(peer.Name).FontSize(12.5).Weight(gfx.WeightMedium).Ellipsis()
 						current := strings.TrimSpace(peer.ContactGroup)
 						if current == "" {
 							current = "未分组"

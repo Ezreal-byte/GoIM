@@ -2,12 +2,12 @@ package desktop
 
 import (
 	"errors"
+	"github.com/vivaui/viva/gfx"
 	"os"
 	"strings"
 	"sync"
 
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
 )
@@ -53,7 +53,7 @@ type mediaImageResult struct {
 	path       string
 	generation uint64
 	stamp      imageStamp
-	bitmap     ui.Bitmap
+	bitmap     gfx.Bitmap
 	decoded    bool
 	unchanged  bool
 }

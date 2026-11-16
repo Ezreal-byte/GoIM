@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"strconv"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
 	"goim/internal/domain"
 )
 
@@ -120,7 +120,7 @@ func Run(backend domain.Backend) error {
 			}
 			allow()
 		}
-		var canvas ui.Canvas
+		var canvas gfx.Canvas
 		window, err := application.OpenWindow(config, &canvas)
 		if err != nil {
 			return err
@@ -253,13 +253,13 @@ func parseGlobal(keys string) (app.GlobalShortcut, error) {
 	for _, part := range parts {
 		switch strings.ToLower(strings.TrimSpace(part)) {
 		case "ctrl", "control":
-			s.Modifiers |= ui.ModifierControl
+			s.Modifiers |= gfx.ModifierControl
 		case "alt", "option":
-			s.Modifiers |= ui.ModifierAlt
+			s.Modifiers |= gfx.ModifierAlt
 		case "shift":
-			s.Modifiers |= ui.ModifierShift
+			s.Modifiers |= gfx.ModifierShift
 		case "cmd", "command", "meta", "win", "super":
-			s.Modifiers |= ui.ModifierMeta
+			s.Modifiers |= gfx.ModifierMeta
 		default:
 			if s.Key != "" {
 				return s, errors.New(i18n.T("无效的快捷键组合"))

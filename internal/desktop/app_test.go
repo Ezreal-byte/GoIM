@@ -3,6 +3,7 @@ package desktop
 import (
 	"encoding/binary"
 	"errors"
+	"github.com/vivaui/viva/gfx"
 	"hash/crc32"
 	"image"
 	"image/color"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/vivaui/viva/app"
 	vivaheadless "github.com/vivaui/viva/headless"
-	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
 )
@@ -179,17 +179,56 @@ func (harness *shellTestHarness) snapshot() app.Snapshot {
 	return harness.driver.Snapshot()
 }
 
-func (harness *shellTestHarness) findHit(id ui.ID) (ui.Hit, bool) {
+func (harness *shellTestHarness) findHit(id gfx.ID) (gfx.Hit, bool) {
 	harness.t.Helper()
 	for _, hit := range harness.snapshot().Hits {
 		if hit.ID == id {
 			return hit, true
 		}
 	}
-	return ui.Hit{}, false
+	return gfx.Hit{}, false
 }
 
-func (harness *shellTestHarness) clickID(id ui.ID) {
+func (harness *shellTestHarness) findHitLabel(label string) (gfx.Hit, bool) {
+	harness.t.Helper()
+	for _, hit := range harness.snapshot().Hits {
+		if hit.Label == label {
+			return hit, true
+		}
+	}
+	return gfx.Hit{}, false
+}
+
+func (harness *shellTestHarness) clickHit(hit gfx.Hit) {
+	harness.t.Helper()
+	if err := harness.driver.Click(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
+		harness.t.Fatal(err)
+	}
+}
+
+func (harness *shellTestHarness) clickLabel(label string) {
+	harness.t.Helper()
+	hit, ok := harness.findHitLabel(label)
+	if !ok {
+		harness.t.Fatalf("control %q is not on screen", label)
+	}
+	harness.clickHit(hit)
+}
+
+func (harness *shellTestHarness) typeIntoLabel(label, value string) {
+	harness.t.Helper()
+	harness.clickLabel(label)
+	if err := harness.driver.Type(value); err != nil {
+		harness.t.Fatal(err)
+	}
+}
+
+func (harness *shellTestHarness) chatEditorHit() (gfx.Hit, bool) {
+	harness.t.Helper()
+	return harness.findHitLabel("消息输入框")
+}
+
+func (harness *shellTestHarness) clickID(id gfx.ID) {
 	harness.t.Helper()
 	hit, ok := harness.findHit(id)
 	if !ok {
@@ -200,7 +239,7 @@ func (harness *shellTestHarness) clickID(id ui.ID) {
 	}
 }
 
-func (harness *shellTestHarness) typeInto(id ui.ID, value string) {
+func (harness *shellTestHarness) typeInto(id gfx.ID, value string) {
 	harness.t.Helper()
 	harness.clickID(id)
 	if err := harness.driver.Type(value); err != nil {
@@ -218,7 +257,7 @@ func (harness *shellTestHarness) hasText(value string) bool {
 	return false
 }
 
-func (harness *shellTestHarness) hasHit(id ui.ID) bool {
+func (harness *shellTestHarness) hasHit(id gfx.ID) bool {
 	harness.t.Helper()
 	_, ok := harness.findHit(id)
 	return ok
@@ -329,21 +368,21 @@ func TestMinimumWindowLayoutsRemainClean(t *testing.T) {
 	harness.clickID(harness.ui.ids.chatHeaderSearch)
 	harness.settle()
 	requireShellLayout(t, harness.snapshot())
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 
 	harness.clickID(harness.ui.ids.chatHeaderMembers)
 	harness.settle()
 	requireShellLayout(t, harness.snapshot())
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 
 	harness.clickID(harness.ui.ids.sidebarCreate)
 	harness.settle()
 	requireShellLayout(t, harness.snapshot())
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	if harness.ui.confirm.open {
@@ -358,7 +397,7 @@ func TestMinimumWindowLayoutsRemainClean(t *testing.T) {
 
 func TestSettingsRoundTripPreservesSelectedConversationAndDraft(t *testing.T) {
 	harness := newShellTestHarness(t, shellTestState(t))
-	harness.typeInto(harness.ui.ids.chatEditor, "保留的草稿")
+	harness.typeIntoLabel("消息输入框", "保留的草稿")
 	if got := harness.ui.chatEditor.String(); got != "保留的草稿" {
 		t.Fatalf("editor = %q", got)
 	}
@@ -441,7 +480,7 @@ func TestDirectChatHidesGroupMemberControl(t *testing.T) {
 	if harness.hasHit(harness.ui.ids.chatHeaderMembers) {
 		t.Fatal("direct chat exposed the group-member control")
 	}
-	if !harness.hasHit(harness.ui.ids.chatEditor) {
+	if _, ok := harness.chatEditorHit(); !ok {
 		t.Fatal("direct chat did not expose its message editor")
 	}
 	requireShellLayout(t, harness.snapshot())
@@ -507,13 +546,13 @@ func TestChatIMEConfirmationDoesNotSendAndEnterSendsText(t *testing.T) {
 	state.Conversations = state.Conversations[:1]
 	state.Messages = state.Messages[:1]
 	harness := newShellTestHarness(t, state)
-	harness.clickID(harness.ui.ids.chatEditor)
+	harness.clickLabel("消息输入框")
 
 	// The Driver commits the current candidate on Return, like the native IME.
 	if err := harness.driver.Compose("你"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if commands := harness.backend.commandLog(); hasCommandKind(commands, domain.SendText) {
@@ -522,7 +561,7 @@ func TestChatIMEConfirmationDoesNotSendAndEnterSendsText(t *testing.T) {
 	if got := harness.ui.chatEditor.String(); got != "你" {
 		t.Fatalf("committed editor text = %q", got)
 	}
-	if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	command := harness.lastCommand()
@@ -540,12 +579,12 @@ func TestChatSendKeyModes(t *testing.T) {
 	state.Messages = state.Messages[:1]
 	state.Settings.SendKey = "Ctrl+Enter"
 	harness := newShellTestHarness(t, state)
-	harness.clickID(harness.ui.ids.chatEditor)
+	harness.clickLabel("消息输入框")
 
 	if err := harness.driver.Type("第一行"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if commands := harness.backend.commandLog(); hasCommandKind(commands, domain.SendText) {
@@ -557,7 +596,7 @@ func TestChatSendKeyModes(t *testing.T) {
 	if got := harness.ui.chatEditor.String(); got != "第一行\n第二行" {
 		t.Fatalf("Ctrl+Enter mode editor = %q", got)
 	}
-	if err := harness.driver.Key(ui.KeyEnter, ui.ModifierControl); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnter, gfx.ModifierControl); err != nil {
 		t.Fatal(err)
 	}
 	command := harness.lastCommand()
@@ -570,11 +609,11 @@ func TestChatSendKeyModes(t *testing.T) {
 	enterState.Messages = enterState.Messages[:1]
 	enterState.Settings.SendKey = "Enter"
 	enterHarness := newShellTestHarness(t, enterState)
-	enterHarness.clickID(enterHarness.ui.ids.chatEditor)
+	enterHarness.clickLabel("消息输入框")
 	if err := enterHarness.driver.Type("第一行"); err != nil {
 		t.Fatal(err)
 	}
-	if err := enterHarness.driver.Key(ui.KeyEnter, ui.ModifierShift); err != nil {
+	if err := enterHarness.driver.Key(gfx.KeyEnter, gfx.ModifierShift); err != nil {
 		t.Fatal(err)
 	}
 	if commands := enterHarness.backend.commandLog(); hasCommandKind(commands, domain.SendText) {
@@ -793,15 +832,15 @@ func TestFileDropSendsPathsToTheVisibleConversation(t *testing.T) {
 		t.Fatal("chat header is missing")
 	}
 	x, y := anchor.Bounds.X+anchor.Bounds.Width/2, anchor.Bounds.Y+anchor.Bounds.Height/2
-	accepted, err := harness.driver.Drop(ui.FileDropEvent{Phase: ui.FileDropOver, X: x, Y: y})
+	accepted, err := harness.driver.Drop(gfx.FileDropEvent{Phase: gfx.FileDropOver, X: x, Y: y})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !accepted || !harness.ui.dragging {
 		t.Fatal("dragging files over the chat was not accepted")
 	}
-	accepted, err = harness.driver.Drop(ui.FileDropEvent{
-		Phase: ui.FileDropDrop, X: x, Y: y, Paths: []string{path},
+	accepted, err = harness.driver.Drop(gfx.FileDropEvent{
+		Phase: gfx.FileDropDrop, X: x, Y: y, Paths: []string{path},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -839,15 +878,15 @@ func TestDissolvedGroupKeepsHistoryButCannotSend(t *testing.T) {
 	if !harness.hasText("看一下最新预览") {
 		t.Fatal("dissolved group lost its local message history")
 	}
-	if harness.hasHit(harness.ui.ids.chatEditor) || harness.hasHit(harness.ui.ids.chatSend) {
+	if _, ok := harness.chatEditorHit(); ok || harness.hasHit(harness.ui.ids.chatSend) {
 		t.Fatal("dissolved group still exposed a message editor")
 	}
 	anchor, ok := harness.findHit(harness.ui.ids.chatHeaderFile)
 	if !ok {
 		t.Fatal("chat header is missing")
 	}
-	accepted, err := harness.driver.Drop(ui.FileDropEvent{
-		Phase: ui.FileDropDrop,
+	accepted, err := harness.driver.Drop(gfx.FileDropEvent{
+		Phase: gfx.FileDropDrop,
 		X:     anchor.Bounds.X + anchor.Bounds.Width/2,
 		Y:     anchor.Bounds.Y + anchor.Bounds.Height/2,
 		Paths: []string{filepath.Join(t.TempDir(), "closed.txt")},
@@ -1196,8 +1235,8 @@ func TestFileDropIsRejectedUnderEveryModalOverlay(t *testing.T) {
 				t.Fatal("test setup did not open a modal")
 			}
 			chat := harness.ui.lastChat
-			accepted, err := harness.driver.Drop(ui.FileDropEvent{
-				Phase: ui.FileDropDrop,
+			accepted, err := harness.driver.Drop(gfx.FileDropEvent{
+				Phase: gfx.FileDropDrop,
 				X:     chat.X + chat.Width/2,
 				Y:     chat.Y + chat.Height/2,
 				Paths: []string{filepath.Join(t.TempDir(), "modal.txt")},
@@ -1219,7 +1258,7 @@ func TestShortcutsRespectModalsAndWorkFromSettings(t *testing.T) {
 		harness.settle()
 		harness.typeInto(harness.ui.ids.composeName, "未提交群名")
 		section := harness.ui.section
-		if _, err := harness.driver.ShortcutChord(ui.ModifierControl, ','); err != nil {
+		if _, err := harness.driver.ShortcutChord(gfx.ModifierControl, ','); err != nil {
 			t.Fatal(err)
 		}
 		if !harness.ui.compose.open || harness.ui.confirm.open || harness.ui.section != section {
@@ -1266,12 +1305,12 @@ func TestShortcutsRespectModalsAndWorkFromSettings(t *testing.T) {
 				test.setup(harness)
 				section, selected := harness.ui.section, harness.ui.selected
 				for _, chord := range []struct {
-					modifiers ui.Modifiers
+					modifiers gfx.Modifiers
 					key       rune
 				}{
-					{ui.ModifierControl, ','},
-					{ui.ModifierControl, 'k'},
-					{ui.ModifierControl | ui.ModifierShift, 'n'},
+					{gfx.ModifierControl, ','},
+					{gfx.ModifierControl, 'k'},
+					{gfx.ModifierControl | gfx.ModifierShift, 'n'},
 				} {
 					if _, err := harness.driver.ShortcutChord(chord.modifiers, chord.key); err != nil {
 						t.Fatal(err)
@@ -1289,7 +1328,7 @@ func TestShortcutsRespectModalsAndWorkFromSettings(t *testing.T) {
 		harness := newShellTestHarness(t, shellTestState(t))
 		harness.clickID(harness.ui.ids.navSettings)
 		harness.settle()
-		handled, err := harness.driver.ShortcutChord(ui.ModifierControl, 'k')
+		handled, err := harness.driver.ShortcutChord(gfx.ModifierControl, 'k')
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1300,7 +1339,7 @@ func TestShortcutsRespectModalsAndWorkFromSettings(t *testing.T) {
 
 		harness.clickID(harness.ui.ids.navSettings)
 		harness.settle()
-		handled, err = harness.driver.ShortcutChord(ui.ModifierControl|ui.ModifierShift, 'n')
+		handled, err = harness.driver.ShortcutChord(gfx.ModifierControl|gfx.ModifierShift, 'n')
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1315,14 +1354,14 @@ func TestCtrlEnterDoesNotSendDuringIMEComposition(t *testing.T) {
 	state := shellTestState(t)
 	state.Settings.SendKey = "Ctrl+Enter"
 	harness := newShellTestHarness(t, state)
-	harness.clickID(harness.ui.ids.chatEditor)
+	harness.clickLabel("消息输入框")
 	if err := harness.driver.Type("第一行"); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.driver.Compose("ni"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.driver.Key(ui.KeyEnter, ui.ModifierControl); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnter, gfx.ModifierControl); err != nil {
 		t.Fatal(err)
 	}
 	if hasCommandKind(harness.backend.commandLog(), domain.SendText) {
@@ -1334,7 +1373,7 @@ func TestCtrlEnterDoesNotSendDuringIMEComposition(t *testing.T) {
 	if got := harness.ui.chatEditor.String(); got != "第一行你" {
 		t.Fatalf("committed editor text = %q", got)
 	}
-	if err := harness.driver.Key(ui.KeyEnter, ui.ModifierControl); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnter, gfx.ModifierControl); err != nil {
 		t.Fatal(err)
 	}
 	command := harness.lastCommand()
@@ -1356,7 +1395,7 @@ func TestUnreadStaysWhileScrolledAwayOrSearching(t *testing.T) {
 		}
 		harness := newShellTestHarness(t, state)
 		chat := harness.ui.lastChat
-		if err := harness.driver.Scroll(ui.ScrollEvent{
+		if err := harness.driver.Scroll(gfx.ScrollEvent{
 			X: chat.X + chat.Width/2, Y: chat.Y + 300, DeltaY: -600, Precise: true,
 		}); err != nil {
 			t.Fatal(err)
@@ -1372,7 +1411,7 @@ func TestUnreadStaysWhileScrolledAwayOrSearching(t *testing.T) {
 			t.Fatalf("a scrolled-away conversation was marked read: %+v", commands)
 		}
 
-		if err := harness.driver.Scroll(ui.ScrollEvent{
+		if err := harness.driver.Scroll(gfx.ScrollEvent{
 			X: chat.X + chat.Width/2, Y: chat.Y + 300, DeltaY: 5000, Precise: true,
 		}); err != nil {
 			t.Fatal(err)
@@ -1385,7 +1424,7 @@ func TestUnreadStaysWhileScrolledAwayOrSearching(t *testing.T) {
 	t.Run("active search", func(t *testing.T) {
 		state := shellStateWithReadConversation(t)
 		harness := newShellTestHarness(t, state)
-		if _, err := harness.driver.ShortcutChord(ui.ModifierControl, 'f'); err != nil {
+		if _, err := harness.driver.ShortcutChord(gfx.ModifierControl, 'f'); err != nil {
 			t.Fatal(err)
 		}
 		if err := harness.driver.Type("核对"); err != nil {
@@ -1446,8 +1485,8 @@ func TestClipboardImagePasteReportsFailuresAndSendsSuccess(t *testing.T) {
 		}
 		cache := t.TempDir()
 		harness.ui.clipboardCacheDir = func() (string, error) { return cache, nil }
-		harness.clickID(harness.ui.ids.chatEditor)
-		if _, err := harness.driver.ShortcutChord(ui.ModifierControl, 'v'); err != nil {
+		harness.clickLabel("消息输入框")
+		if _, err := harness.driver.ShortcutChord(gfx.ModifierControl, 'v'); err != nil {
 			t.Fatal(err)
 		}
 		command := harness.lastCommand()
@@ -1464,8 +1503,8 @@ func TestClipboardImagePasteReportsFailuresAndSendsSuccess(t *testing.T) {
 		harness.ui.clipboardImage = func() ([]byte, error) {
 			return nil, errors.New("unsupported clipboard image")
 		}
-		harness.clickID(harness.ui.ids.chatEditor)
-		if _, err := harness.driver.ShortcutChord(ui.ModifierControl, 'v'); err != nil {
+		harness.clickLabel("消息输入框")
+		if _, err := harness.driver.ShortcutChord(gfx.ModifierControl, 'v'); err != nil {
 			t.Fatal(err)
 		}
 		command := harness.lastCommand()
@@ -1487,8 +1526,8 @@ func TestClipboardImagePasteReportsFailuresAndSendsSuccess(t *testing.T) {
 		}
 		harness.ui.clipboardImage = func() ([]byte, error) { return data, nil }
 		harness.ui.clipboardCacheDir = func() (string, error) { return notDirectory, nil }
-		harness.clickID(harness.ui.ids.chatEditor)
-		if _, err := harness.driver.ShortcutChord(ui.ModifierControl, 'v'); err != nil {
+		harness.clickLabel("消息输入框")
+		if _, err := harness.driver.ShortcutChord(gfx.ModifierControl, 'v'); err != nil {
 			t.Fatal(err)
 		}
 		command := harness.lastCommand()
@@ -1604,7 +1643,7 @@ func TestShellScreenshotQA(t *testing.T) {
 	}
 	t.Cleanup(session.Close)
 
-	click := func(id ui.ID) {
+	click := func(id gfx.ID) {
 		t.Helper()
 		for _, hit := range session.Snapshot().Hits {
 			if hit.ID == id {
@@ -1615,6 +1654,18 @@ func TestShellScreenshotQA(t *testing.T) {
 			}
 		}
 		t.Fatalf("control %v is not on screen", id)
+	}
+	clickLabel := func(label string) {
+		t.Helper()
+		for _, hit := range session.Snapshot().Hits {
+			if hit.Label == label {
+				if err := session.Click(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+		}
+		t.Fatalf("control %q is not on screen", label)
 	}
 	shot := func(name string) {
 		t.Helper()
@@ -1634,25 +1685,25 @@ func TestShellScreenshotQA(t *testing.T) {
 	}
 	click(shell.ids.sidebarSearch)
 	shot("chat-search.png")
-	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+	if err := session.Driver().Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	click(shell.ids.profileAvatar)
 	shot("profile-editor.png")
-	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+	if err := session.Driver().Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	click(shell.ids.chatEmoji)
 	shot("emoji-picker.png")
-	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+	if err := session.Driver().Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
-	click(shell.ids.chatEditor)
+	clickLabel("消息输入框")
 	if err := session.Driver().Type("@"); err != nil {
 		t.Fatal(err)
 	}
 	shot("mention-autocomplete.png")
-	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+	if err := session.Driver().Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	click(shell.ids.chatHeaderMembers)
@@ -1661,10 +1712,10 @@ func TestShellScreenshotQA(t *testing.T) {
 	shot("member-menu.png")
 	click(shell.memberInfoIDs["peer-a"])
 	shot("member-profile.png")
-	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+	if err := session.Driver().Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+	if err := session.Driver().Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	click(shell.ids.chatHeaderFile)
@@ -1674,7 +1725,7 @@ func TestShellScreenshotQA(t *testing.T) {
 	click(shell.ids.fileClose)
 	click(shell.ids.sidebarCreate)
 	shot("create-group.png")
-	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+	if err := session.Driver().Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	click(shell.ids.navSettings)
@@ -1709,7 +1760,7 @@ func TestShellScreenshotQA(t *testing.T) {
 	}
 	t.Cleanup(minimumSession.Close)
 	t.Cleanup(minimumShell.Close)
-	clickMinimum := func(id ui.ID) {
+	clickMinimum := func(id gfx.ID) {
 		t.Helper()
 		for _, hit := range minimumSession.Snapshot().Hits {
 			if hit.ID == id {

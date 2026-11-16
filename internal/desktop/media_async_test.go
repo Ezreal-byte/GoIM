@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"image"
 	"image/color"
 	"image/png"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
 )
@@ -376,7 +376,7 @@ func TestMediaBatchRejectsStaleResults(t *testing.T) {
 	shell.mediaDesiredImages[oldPath] = false
 	shell.applyMediaBatch(mediaResultBatch{images: []mediaImageResult{{
 		path: oldPath, generation: 4, decoded: true,
-		bitmap: ui.Bitmap{Pix: []byte{1, 2, 3, 4}, Width: 1, Height: 1, Stride: 4},
+		bitmap: gfx.Bitmap{Pix: []byte{1, 2, 3, 4}, Width: 1, Height: 1, Stride: 4},
 	}}})
 	if _, ok := shell.imageCache[oldPath]; ok {
 		t.Fatal("an image result was applied after its snapshot stopped wanting it")
@@ -385,13 +385,13 @@ func TestMediaBatchRejectsStaleResults(t *testing.T) {
 		t.Fatal("the rejected image request stayed queued")
 	}
 
-	cached := ui.Bitmap{Pix: []byte{4, 3, 2, 1}, Width: 1, Height: 1, Stride: 4, ID: 99, Version: 1}
+	cached := gfx.Bitmap{Pix: []byte{4, 3, 2, 1}, Width: 1, Height: 1, Stride: 4, ID: 99, Version: 1}
 	shell.imageCache[newPath] = cached
 	shell.mediaDesiredImages[newPath] = true
 	shell.mediaImageQueued[newPath] = 6
 	shell.applyMediaBatch(mediaResultBatch{images: []mediaImageResult{{
 		path: newPath, generation: 5, decoded: true,
-		bitmap: ui.Bitmap{Pix: []byte{9, 9, 9, 9}, Width: 1, Height: 1, Stride: 4},
+		bitmap: gfx.Bitmap{Pix: []byte{9, 9, 9, 9}, Width: 1, Height: 1, Stride: 4},
 	}}})
 	if got := shell.imageCache[newPath]; got.ID != cached.ID || got.Pix[0] != cached.Pix[0] {
 		t.Fatal("an older image generation replaced the current cached bitmap")

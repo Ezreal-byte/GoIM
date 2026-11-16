@@ -2,23 +2,24 @@ package desktop
 
 import (
 	"errors"
+	"github.com/vivaui/viva/gfx"
 	"path/filepath"
 	"strings"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 	"goim/internal/i18n"
 )
 
-func (u *UI) messageContextPointer(c *ui.Canvas, id ui.ID, m domain.Message) {
+func (u *UI) messageContextPointer(c *gfx.Canvas, id gfx.ID, m domain.Message) {
 	if id.IsZero() || m.ID == "" || m.Kind == "system" {
 		return
 	}
-	if event, ok := c.PointerOn(id); ok && event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+	if event, ok := c.PointerOn(id); ok && event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 		u.openShellMenu(shellMenuMessage, m.ID, event.X, event.Y)
 		c.Consume()
 		c.RequestFrame()
@@ -33,14 +34,14 @@ func (u *UI) drawRecalledMessage(f *flex.Frame, c domain.Conversation, m domain.
 	}
 	f.Row().FillWidth().Justify(flex.Center).Children(func() {
 		f.Row().PadSides(6, 10, 6, 10).Radius(7).Background(u.palette.mutedAvatar).
-			HitWith(id, label, ui.HitOptions{Role: ui.RoleGroup, SkipFocus: true}).Children(func() {
+			HitWith(id, label, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).Children(func() {
 			f.Text(label).FontSize(11).Muted()
 		})
 	})
 	u.messageContextPointer(f.Canvas(), id, m)
 }
 
-func (u *UI) drawMessageContextMenu(c *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawMessageContextMenu(c *gfx.Canvas, viewport ui.Rect) {
 	var m domain.Message
 	for _, candidate := range u.messages {
 		if candidate.ID == u.shellMenu.target {

@@ -2,12 +2,13 @@ package desktop
 
 import (
 	"errors"
+	"github.com/vivaui/viva/gfx"
 	"strings"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 	"goim/internal/i18n"
@@ -24,7 +25,7 @@ func panelPageInset(width float32) float32 {
 
 func drawPanelPageHeading(f *flex.Frame, width float32, title, description string) {
 	f.Column().Grow(1).MinWidth(112).Gap(6).Children(func() {
-		f.Text(title).FontSize(29).Weight(ui.WeightSemibold).Ellipsis()
+		f.Text(title).FontSize(29).Weight(gfx.WeightSemibold).Ellipsis()
 		if width >= 760 {
 			f.Text(description).Muted().FontSize(15).Ellipsis()
 		}
@@ -32,10 +33,10 @@ func drawPanelPageHeading(f *flex.Frame, width float32, title, description strin
 }
 
 type transferActionIDs struct {
-	more, accept, saveAs, reject, cancel, retry, open, reveal ui.ID
+	more, accept, saveAs, reject, cancel, retry, open, reveal gfx.ID
 }
 
-func newTransferActionIDs(tree *ui.Tree, scope ui.Scope, entry panelTransferEntry) (ids transferActionIDs) {
+func newTransferActionIDs(tree *gfx.Tree, scope gfx.Scope, entry panelTransferEntry) (ids transferActionIDs) {
 	ids.more = tree.ID(scope, "more")
 	if entry.accept {
 		ids.accept = tree.ID(scope, "accept")
@@ -104,7 +105,7 @@ func (p *Panels) drawTransferTabs(f *flex.Frame, compact bool) {
 	const size = 16
 	var widest float32
 	for _, label := range p.transferLabels {
-		widest = max(widest, f.Canvas().TextWidthWeight(label, size, ui.WeightMedium))
+		widest = max(widest, f.Canvas().TextWidthWeight(label, size, gfx.WeightMedium))
 	}
 	f.Row().FillWidth().PadSides(top, 0, 0, 0).Children(func() {
 		tabs := f.Tabs(p.ids.transferFilters, p.transferLabels[:], p.transferFilter).Line().FontSize(size).Width(2*max(104, widest+24) + 4)
@@ -126,10 +127,10 @@ func (p *Panels) drawTransferHeader(f *flex.Frame, theme ui.Theme, width float32
 		}
 		button := f.Row().Height(height).PadX(14).Gap(9).Items(flex.Center).Radius(8).
 			Border(1, theme.Border).Hover(flex.Look{}.Background(theme.Hover)).
-			HitWith(p.ids.transferDirectory, label, ui.HitOptions{Role: ui.RoleButton, Disabled: directory == ""})
+			HitWith(p.ids.transferDirectory, label, gfx.HitOptions{Role: gfx.RoleButton, Disabled: directory == ""})
 		button.Children(func() {
 			f.Icon(FolderOpen).Size(18, 18).Color(theme.MutedForeground)
-			f.Text(label).FontSize(size).Weight(ui.WeightMedium)
+			f.Text(label).FontSize(size).Weight(gfx.WeightMedium)
 		})
 		if button.Clicked() {
 			p.queueLocalAction(mediaJob{path: directory, reveal: true, directory: true, ensureDirectory: true})
@@ -152,7 +153,7 @@ func (p *Panels) drawIncomingTransfers(f *flex.Frame, theme ui.Theme, bounds ui.
 			tint = panelAccentSurface(theme)
 		}
 		f.Column().FillWidth().Radius(8).Background(tint).PadSides(14, side, 11, side).Gap(12).Children(func() {
-			f.Text(p.transferIncomingLabel).FontSize(19).Weight(ui.WeightSemibold)
+			f.Text(p.transferIncomingLabel).FontSize(19).Weight(gfx.WeightSemibold)
 			drawRows := func() {
 				for i := range p.transferIncoming {
 					entry := &p.transferIncoming[i]
@@ -191,13 +192,13 @@ func drawTransferIdentity(f *flex.Frame, theme ui.Theme, entry *panelTransferEnt
 			f.Icon(icon).Size(23, 23).Color(ink)
 		})
 		f.Column().Grow(1).MinWidth(0).Gap(3).Children(func() {
-			f.Text(entry.name).FontSize(18).Weight(ui.WeightSemibold).Ellipsis()
+			f.Text(entry.name).FontSize(18).Weight(gfx.WeightSemibold).Ellipsis()
 			f.Text(entry.meta).FontSize(15).Muted().Ellipsis()
 		})
 	})
 }
 
-func transferFileIcon(theme ui.Theme, kind string) (ui.Icon, ui.Color, ui.Color) {
+func transferFileIcon(theme ui.Theme, kind string) (gfx.Icon, ui.Color, ui.Color) {
 	switch kind {
 	case "archive":
 		ink := ui.RGB(181, 121, 16)
@@ -273,7 +274,7 @@ func (p *Panels) drawTransferMore(f *flex.Frame, theme ui.Theme, entry *panelTra
 	label := i18n.T("更多传输操作")
 	open := p.transferMenu == entry.transfer.ID
 	more := panelActionIcon(f, theme, entry.ids.more, MoreHorizontal, label, open, false).
-		HitWith(entry.ids.more, label, ui.HitOptions{Role: ui.RoleButton, Hint: label, Expandable: true, Expanded: open})
+		HitWith(entry.ids.more, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: label, Expandable: true, Expanded: open})
 	if bordered && !open && f.Canvas().FocusVisible() != entry.ids.more {
 		more.Size(41, 37).Background(theme.Background).Stroke(1, theme.Border)
 	} else if bordered {
@@ -291,7 +292,7 @@ func (p *Panels) drawTransferMore(f *flex.Frame, theme ui.Theme, entry *panelTra
 	}
 }
 
-func (p *Panels) drawTransferMenu(c *ui.Canvas, theme ui.Theme, viewport ui.Rect, submit func(domain.Command)) {
+func (p *Panels) drawTransferMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rect, submit func(domain.Command)) {
 	if p.transferMenu == "" {
 		return
 	}
@@ -343,7 +344,7 @@ func (p *Panels) drawTransferMenu(c *ui.Canvas, theme ui.Theme, viewport ui.Rect
 	c.RequestFrame()
 }
 
-func (p *Panels) saveTransferAs(canvas *ui.Canvas, submit func(domain.Command), transfer domain.Transfer) {
+func (p *Panels) saveTransferAs(canvas *gfx.Canvas, submit func(domain.Command), transfer domain.Transfer) {
 	if p.transferPickerOpen {
 		return
 	}

@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 
 	"goim/internal/capture"
 	"goim/internal/i18n"
@@ -76,7 +76,7 @@ func run(args []string, stderr io.Writer) int {
 	stopAppearance := app.WatchSystemAppearance(invalidator.Invalidate)
 	defer stopAppearance()
 
-	var canvas ui.Canvas
+	var canvas gfx.Canvas
 	runErr := app.RunApplication(func(application *app.Application) error {
 		var window *app.Window
 		editor.closeWindow = func() {

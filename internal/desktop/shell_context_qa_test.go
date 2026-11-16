@@ -1,13 +1,13 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/gfx"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	vivaheadless "github.com/vivaui/viva/headless"
-	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
 )
@@ -38,7 +38,7 @@ func shellQAShot(t *testing.T, session *vivaheadless.Session, directory, name st
 	}
 }
 
-func shellQAHit(t *testing.T, session *vivaheadless.Session, id ui.ID) ui.Hit {
+func shellQAHit(t *testing.T, session *vivaheadless.Session, id gfx.ID) gfx.Hit {
 	t.Helper()
 	for _, hit := range session.Snapshot().Hits {
 		if hit.ID == id {
@@ -46,10 +46,10 @@ func shellQAHit(t *testing.T, session *vivaheadless.Session, id ui.ID) ui.Hit {
 		}
 	}
 	t.Fatalf("control %v is not on screen", id)
-	return ui.Hit{}
+	return gfx.Hit{}
 }
 
-func shellQAClick(t *testing.T, session *vivaheadless.Session, id ui.ID) {
+func shellQAClick(t *testing.T, session *vivaheadless.Session, id gfx.ID) {
 	t.Helper()
 	hit := shellQAHit(t, session, id)
 	if err := session.Click(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
@@ -57,7 +57,7 @@ func shellQAClick(t *testing.T, session *vivaheadless.Session, id ui.ID) {
 	}
 }
 
-func shellQARightClick(t *testing.T, session *vivaheadless.Session, id ui.ID) {
+func shellQARightClick(t *testing.T, session *vivaheadless.Session, id gfx.ID) {
 	t.Helper()
 	hit := shellQAHit(t, session, id)
 	if err := session.RightClick(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
@@ -67,7 +67,7 @@ func shellQARightClick(t *testing.T, session *vivaheadless.Session, id ui.ID) {
 
 func shellQAEscape(t *testing.T, session *vivaheadless.Session) {
 	t.Helper()
-	if err := session.Driver().Key(ui.KeyEscape, 0); err != nil {
+	if err := session.Driver().Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 }

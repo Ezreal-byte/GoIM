@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"errors"
+	"github.com/vivaui/viva/gfx"
 	"testing"
 	"time"
 
@@ -35,7 +36,7 @@ func (window *testWindowGeometry) SetSize(width, height int) error {
 // outside these component tests.
 func chatSurfaceConfig(shell *UI) app.Config {
 	config := shell.Config()
-	config.Paint = func(canvas *ui.Canvas, size ui.Size) {
+	config.Paint = func(canvas *gfx.Canvas, size ui.Size) {
 		shell.theme = themeForName(shell.state.Settings.Theme)
 		shell.palette = paletteFor(shell.theme)
 		bounds := ui.Rect{Width: size.Width, Height: size.Height}
@@ -53,23 +54,23 @@ func chatSurfaceConfig(shell *UI) app.Config {
 		shell.drawOverlays(canvas, bounds)
 		shell.drawChatImageViewer(canvas)
 	}
-	config.OnKey = func(event ui.KeyEvent) ui.EventResult {
+	config.OnKey = func(event gfx.KeyEvent) gfx.EventResult {
 		if result, handled := shell.chatOverlayKey(event); handled {
 			return result
 		}
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
-	config.OnShortcut = func(event ui.KeyEvent) ui.EventResult {
+	config.OnShortcut = func(event gfx.KeyEvent) gfx.EventResult {
 		if result, handled := shell.chatOverlayShortcut(event); handled {
 			return result
 		}
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
-	config.OnScroll = func(event ui.ScrollEvent) ui.EventResult {
+	config.OnScroll = func(event gfx.ScrollEvent) gfx.EventResult {
 		if result, handled := shell.chatOverlayWheel(event); handled {
 			return result
 		}
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	config.OnMaximize = shell.setWindowMaximized
 	return config
@@ -93,7 +94,7 @@ func newChatSurfaceHarness(t *testing.T, state domain.State, width, height int) 
 	return harness
 }
 
-func (harness *shellTestHarness) dragID(id ui.ID, dx, dy float32) {
+func (harness *shellTestHarness) dragID(id gfx.ID, dx, dy float32) {
 	harness.t.Helper()
 	hit, ok := harness.findHit(id)
 	if !ok {
@@ -101,13 +102,32 @@ func (harness *shellTestHarness) dragID(id ui.ID, dx, dy float32) {
 	}
 	x := hit.Bounds.X + hit.Bounds.Width/2
 	y := hit.Bounds.Y + hit.Bounds.Height/2
-	if err := harness.driver.Press(x, y, ui.PointerButtonPrimary); err != nil {
+	if err := harness.driver.Press(x, y, gfx.PointerButtonPrimary); err != nil {
 		harness.t.Fatal(err)
 	}
 	if err := harness.driver.Move(x+dx, y+dy); err != nil {
 		harness.t.Fatal(err)
 	}
-	if err := harness.driver.Release(x+dx, y+dy, ui.PointerButtonPrimary); err != nil {
+	if err := harness.driver.Release(x+dx, y+dy, gfx.PointerButtonPrimary); err != nil {
+		harness.t.Fatal(err)
+	}
+}
+
+func (harness *shellTestHarness) dragLabel(label string, dx, dy float32) {
+	harness.t.Helper()
+	hit, ok := harness.findHitLabel(label)
+	if !ok {
+		harness.t.Fatalf("control %q is not on screen", label)
+	}
+	x := hit.Bounds.X + hit.Bounds.Width/2
+	y := hit.Bounds.Y + hit.Bounds.Height/2
+	if err := harness.driver.Press(x, y, gfx.PointerButtonPrimary); err != nil {
+		harness.t.Fatal(err)
+	}
+	if err := harness.driver.Move(x+dx, y+dy); err != nil {
+		harness.t.Fatal(err)
+	}
+	if err := harness.driver.Release(x+dx, y+dy, gfx.PointerButtonPrimary); err != nil {
 		harness.t.Fatal(err)
 	}
 }
@@ -115,7 +135,7 @@ func (harness *shellTestHarness) dragID(id ui.ID, dx, dy float32) {
 func TestChatSidebarSplitterDragsAndMovesWithKeyboard(t *testing.T) {
 	harness := newChatSurfaceHarness(t, shellTestState(t), 1440, 960)
 	surface := harness.ui.chatSurface()
-	hit, ok := harness.findHit(surface.ids.sidebarSplitter)
+	hit, ok := harness.findHitLabel("调整联系人和聊天区域宽度")
 	if !ok {
 		t.Fatal("sidebar splitter is missing")
 	}
@@ -124,7 +144,7 @@ func TestChatSidebarSplitterDragsAndMovesWithKeyboard(t *testing.T) {
 	}
 
 	before := surface.sidebar.Pos
-	harness.dragID(surface.ids.sidebarSplitter, 64, 0)
+	harness.dragLabel("调整联系人和聊天区域宽度", 64, 0)
 	if surface.sidebar.Pos <= before+40 {
 		t.Fatalf("sidebar drag moved %.1fpx, want about 64px", surface.sidebar.Pos-before)
 	}
@@ -142,21 +162,21 @@ func TestChatSidebarSplitterDragsAndMovesWithKeyboard(t *testing.T) {
 		t.Fatalf("chat controls did not follow the sidebar: %+v, boundary %.1f", header.Bounds, boundary)
 	}
 
-	harness.clickID(surface.ids.sidebarSplitter)
+	harness.clickLabel("调整联系人和聊天区域宽度")
 	before = surface.sidebar.Pos
-	if err := harness.driver.Key(ui.KeyLeft, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyLeft, 0); err != nil {
 		t.Fatal(err)
 	}
 	if surface.sidebar.Pos != before-16 {
 		t.Fatalf("sidebar keyboard step moved %.1fpx, want 16", surface.sidebar.Pos-before)
 	}
 
-	harness.dragID(surface.ids.sidebarSplitter, chatSidebarMinWidth-surface.sidebar.Pos-40, 0)
+	harness.dragLabel("调整联系人和聊天区域宽度", chatSidebarMinWidth-surface.sidebar.Pos-40, 0)
 	if surface.sidebar.Pos != chatSidebarMinWidth {
 		t.Fatalf("sidebar did not clamp at its minimum: %.1f", surface.sidebar.Pos)
 	}
 	requireShellLayout(t, harness.snapshot())
-	harness.dragID(surface.ids.sidebarSplitter, chatSidebarMaxWidth-surface.sidebar.Pos+40, 0)
+	harness.dragLabel("调整联系人和聊天区域宽度", chatSidebarMaxWidth-surface.sidebar.Pos+40, 0)
 	if surface.sidebar.Pos != chatSidebarMaxWidth {
 		t.Fatalf("sidebar did not clamp at its maximum: %.1f", surface.sidebar.Pos)
 	}
@@ -227,7 +247,7 @@ func TestFilesPaneSizeFailureLeavesTheWindowAlone(t *testing.T) {
 func TestChatHistorySplitterKeepsBothPanesUsable(t *testing.T) {
 	harness := newChatSurfaceHarness(t, shellTestState(t), 1440, 960)
 	surface := harness.ui.chatSurface()
-	if _, ok := harness.findHit(surface.ids.historySplitter); !ok {
+	if _, ok := harness.findHitLabel("调整聊天记录和输入框高度"); !ok {
 		t.Fatal("history/composer splitter is missing")
 	}
 	initial := surface.history.Pos
@@ -235,31 +255,31 @@ func TestChatHistorySplitterKeepsBothPanesUsable(t *testing.T) {
 		t.Fatalf("initial history pane is %.1fpx, want above the minimum", initial)
 	}
 
-	harness.dragID(surface.ids.historySplitter, 0, -120)
+	harness.dragLabel("调整聊天记录和输入框高度", 0, -120)
 	if surface.history.Pos > initial-100 {
 		t.Fatalf("history pane moved %.1fpx, want about -120px", surface.history.Pos-initial)
 	}
 
-	harness.dragID(surface.ids.historySplitter, 0, -10000)
+	harness.dragLabel("调整聊天记录和输入框高度", 0, -10000)
 	if surface.history.Pos != chatHistoryMinHeight {
 		t.Fatalf("history pane minimum is %.1f, want %.0f", surface.history.Pos, chatHistoryMinHeight)
 	}
 
-	harness.dragID(surface.ids.historySplitter, 0, 10000)
+	harness.dragLabel("调整聊天记录和输入框高度", 0, 10000)
 	maxHistory := float32(960-titlebarHeight) - (chatHeaderExtent + chatDividerExtent) -
 		chatSplitterExtent - chatComposerMinHeight
 	if surface.history.Pos != maxHistory {
 		t.Fatalf("history pane maximum is %.1f, want %.0f", surface.history.Pos, maxHistory)
 	}
 
-	harness.clickID(surface.ids.historySplitter)
-	if err := harness.driver.Key(ui.KeyHome, 0); err != nil {
+	harness.clickLabel("调整聊天记录和输入框高度")
+	if err := harness.driver.Key(gfx.KeyHome, 0); err != nil {
 		t.Fatal(err)
 	}
 	if surface.history.Pos != chatHistoryMinHeight {
 		t.Fatalf("Home did not reach the history minimum: %.1f", surface.history.Pos)
 	}
-	if err := harness.driver.Key(ui.KeyEnd, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEnd, 0); err != nil {
 		t.Fatal(err)
 	}
 	if surface.history.Pos != maxHistory {
@@ -282,7 +302,7 @@ func TestChatHistorySplitterKeepsBothPanesUsable(t *testing.T) {
 			surface.historyClamp, surface.historyBefore, surface.searchOpen)
 	}
 
-	editor, ok := harness.findHit(harness.ui.ids.chatEditor)
+	editor, ok := harness.chatEditorHit()
 	if !ok || editor.Bounds.Height < 40 {
 		t.Fatalf("composer editor is not usable at the splitter limit: %+v", editor.Bounds)
 	}
@@ -309,7 +329,7 @@ func TestChatFilesPaneDocksClosesAndCompressesChat(t *testing.T) {
 	if !ok || header.Bounds.X+header.Bounds.Width > pane.X {
 		t.Fatalf("chat header did not compress beside the pane: %+v vs %+v", header.Bounds, pane)
 	}
-	editor, ok := harness.findHit(harness.ui.ids.chatEditor)
+	editor, ok := harness.chatEditorHit()
 	if !ok || editor.Bounds.X+editor.Bounds.Width > pane.X+0.01 {
 		t.Fatalf("chat composer did not compress beside the pane: %+v vs %+v", editor.Bounds, pane)
 	}
@@ -323,7 +343,7 @@ func TestChatFilesPaneDocksClosesAndCompressesChat(t *testing.T) {
 	if harness.ui.activeFileID != "file-1" || !harness.hasText("文件详情") {
 		t.Fatal("docked pane did not show the selected file detail")
 	}
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	harness.settle()
@@ -338,7 +358,7 @@ func TestChatFilesPaneDocksClosesAndCompressesChat(t *testing.T) {
 		t.Fatal("the file detail back button did not return to the list")
 	}
 
-	if err := harness.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := harness.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	harness.settle()
@@ -389,10 +409,10 @@ func TestChatLayoutDarkThemeKeepsPaneAndSplitterHits(t *testing.T) {
 	if surface.filesPane.Width <= 0 {
 		t.Fatal("dark theme did not dock the files pane")
 	}
-	if _, ok := harness.findHit(surface.ids.sidebarSplitter); !ok {
+	if _, ok := harness.findHitLabel("调整联系人和聊天区域宽度"); !ok {
 		t.Fatal("dark theme lost the sidebar splitter")
 	}
-	if _, ok := harness.findHit(surface.ids.historySplitter); !ok {
+	if _, ok := harness.findHitLabel("调整聊天记录和输入框高度"); !ok {
 		t.Fatal("dark theme lost the history splitter")
 	}
 	if !harness.ui.isDark() {

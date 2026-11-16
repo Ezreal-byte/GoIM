@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"errors"
+	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"slices"
 	"strings"
@@ -10,9 +11,9 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 )
@@ -100,7 +101,8 @@ func (u *UI) saveProfile() {
 	}
 	details := &domain.ProfileDetails{Gender: profileGenderValues[u.profile.gender],
 		Company: values[0], Department: values[1], Phone: values[2], Mobile: values[3], Email: values[4]}
-	cmd := domain.Command{Kind: domain.SetProfile, Name: name, Value: avatar, Signature: signature, Presence: u.profile.presence, ProfileDetails: details}
+	cmd := domain.Command{Kind: domain.SetProfile, Name: name, Value: avatar, Signature: signature, Presence: u.profile.presence, ProfileDetails: details,
+		RemoveAvatar: avatar == "" && u.selfAvatarPath() != ""}
 	if avatar != "" && avatar != u.selfAvatarPath() {
 		bitmap, ok := u.avatarUploadBitmap(avatar)
 		if !ok {
@@ -115,14 +117,14 @@ func (u *UI) saveProfile() {
 	u.closeProfile()
 }
 
-func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
 		Layer: 74, Scope: u.ids.profileScope, DismissID: u.ids.profileDismiss,
 		CloseID: u.ids.profileClose, InitialFocusID: u.ids.profileField,
 		ContentSize: ui.Size{Width: 584}, FitBody: true, BodyHeight: 484,
 		ButtonSize: components.ButtonSizeSmall,
 	})
-	layout := dialog.Begin(i18n.T("个人资料"), i18n.T("已填写的资料对已连接的 GoIM 联系人可见。"))
+	layout := dialog.Begin(i18n.T("个人资料"), i18n.T("已填写的资料对已连接的 GoIM 和内网通联系人可见。"))
 	var chooseClicked, submitted bool
 	u.dialogView.Draw(canvas, u.theme, layout.Body, func(f *flex.Frame) {
 		f.Column().Fill().Gap(8).Children(func() {
@@ -133,9 +135,14 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 				}
 				u.avatarStatus(f, avatarName, u.profile.avatar, 64, true)
 				f.Column().Grow(1).Gap(6).Children(func() {
-					f.Text(i18n.T("头像")).FontSize(12).Weight(ui.WeightMedium)
-					choose := f.Button(u.ids.profileChooseImage, i18n.T("选择图片")).XSmall().Outline()
-					chooseClicked = choose.Clicked()
+					f.Text(i18n.T("头像")).FontSize(12).Weight(gfx.WeightMedium)
+					f.Row().Gap(6).Children(func() {
+						chooseClicked = f.Button(u.ids.profileChooseImage, i18n.T("选择图片")).XSmall().Outline().Clicked()
+						if u.profile.avatar != "" && f.Button(u.ids.profileRemoveImage, i18n.T("移除头像")).XSmall().Ghost().Clicked() {
+							u.profile.avatar = ""
+							u.profile.err = ""
+						}
+					})
 					f.Text(i18n.T("支持 PNG、JPEG 和 GIF。")).FontSize(10.5).Muted()
 				})
 			})
@@ -150,7 +157,7 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 				})
 			})
 			f.Row().Items(flex.Center).Gap(8).Children(func() {
-				f.Text(i18n.T("状态")).FontSize(12).Weight(ui.WeightMedium)
+				f.Text(i18n.T("状态")).FontSize(12).Weight(gfx.WeightMedium)
 				f.Text(i18n.T(profilePresenceName(u.profile.presence))).FontSize(11).Muted()
 			})
 			f.Row().FillWidth().Gap(8).Children(func() {
@@ -163,7 +170,7 @@ func (u *UI) drawProfileDialog(canvas *ui.Canvas, viewport ui.Rect) {
 					label := i18n.T(presence.label)
 					button := f.Row().Size(42, 36).Radius(8).Items(flex.Center).Justify(flex.Center).
 						Hover(flex.Look{}.Background(u.palette.hover)).
-						HitWith(u.ids.profilePresence.At(index), label, ui.HitOptions{Role: ui.RoleButton, Selected: active, Hint: label})
+						HitWith(u.ids.profilePresence.At(index), label, gfx.HitOptions{Role: gfx.RoleButton, Selected: active, Hint: label})
 					if active {
 						button.Background(u.palette.selected).Stroke(1, u.palette.selectedText)
 					}
@@ -215,7 +222,7 @@ func profileDetailValues(details domain.ProfileDetails) [5]string {
 
 func profileFormColumn(f *flex.Frame, label string, control func()) {
 	f.Column().Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
-		f.Text(label).FontSize(12).Weight(ui.WeightMedium)
+		f.Text(label).FontSize(12).Weight(gfx.WeightMedium)
 		control()
 	})
 }
@@ -251,7 +258,7 @@ func (u *UI) drawProfileDetails(f *flex.Frame) {
 var profilePresences = [...]struct {
 	value domain.Presence
 	label string
-	icon  ui.Icon
+	icon  gfx.Icon
 	color ui.Color
 }{
 	{domain.PresenceOnline, "在线", CircleCheck, ui.RGB(31, 139, 83)},
@@ -270,13 +277,13 @@ func profilePresenceName(value domain.Presence) string {
 }
 
 var presenceBriefcase = viewerLineIcon(
-	ui.MoveTo(3, 7), ui.LineTo(21, 7), ui.LineTo(21, 20), ui.LineTo(3, 20), ui.ClosePath(),
-	ui.MoveTo(8, 7), ui.LineTo(8, 4), ui.LineTo(16, 4), ui.LineTo(16, 7), ui.MoveTo(3, 12), ui.LineTo(21, 12),
+	gfx.MoveTo(3, 7), gfx.LineTo(21, 7), gfx.LineTo(21, 20), gfx.LineTo(3, 20), gfx.ClosePath(),
+	gfx.MoveTo(8, 7), gfx.LineTo(8, 4), gfx.LineTo(16, 4), gfx.LineTo(16, 7), gfx.MoveTo(3, 12), gfx.LineTo(21, 12),
 )
 var presenceHidden = viewerLineIcon(
-	ui.MoveTo(3, 3), ui.LineTo(21, 21),
-	ui.MoveTo(10, 5.5), ui.CubicTo(15, 3, 20, 8, 22, 12), ui.QuadTo(20, 15, 18, 16.5),
-	ui.MoveTo(6, 7), ui.QuadTo(3, 9, 2, 12), ui.CubicTo(6, 18, 12, 21, 16, 18),
+	gfx.MoveTo(3, 3), gfx.LineTo(21, 21),
+	gfx.MoveTo(10, 5.5), gfx.CubicTo(15, 3, 20, 8, 22, 12), gfx.QuadTo(20, 15, 18, 16.5),
+	gfx.MoveTo(6, 7), gfx.QuadTo(3, 9, 2, 12), gfx.CubicTo(6, 18, 12, 21, 16, 18),
 )
 
 func peerPresenceLabel(peer domain.Peer) string {
@@ -415,7 +422,7 @@ func (u *UI) insertMention() bool {
 	return true
 }
 
-func (u *UI) drawMentionPicker(canvas *ui.Canvas, viewport ui.Rect) {
+func (u *UI) drawMentionPicker(canvas *gfx.Canvas, viewport ui.Rect) {
 	if !u.mention.open {
 		return
 	}
@@ -452,10 +459,10 @@ func (u *UI) drawMentionPicker(canvas *ui.Canvas, viewport ui.Rect) {
 				row := f.Row().FillWidth().Height(36).PadSides(7, 8, 7, 8).Radius(7).
 					Background(background).Hover(flex.Look{}.Background(u.palette.hover)).
 					HitWith(u.mentionCandidateIDs[candidate.peerID], i18n.T("提及 ")+candidate.name,
-						ui.HitOptions{Role: ui.RoleButton, Selected: index == u.mention.selected}).
+						gfx.HitOptions{Role: gfx.RoleButton, Selected: index == u.mention.selected}).
 					Children(func() {
 						u.avatarStatus(f, candidate.name, candidate.avatar, 26, candidate.online)
-						f.Text(candidate.name).FontSize(12.5).Weight(ui.WeightMedium).Grow(1).Ellipsis()
+						f.Text(candidate.name).FontSize(12.5).Weight(gfx.WeightMedium).Grow(1).Ellipsis()
 						f.Text("@" + candidate.name).FontSize(10.5).Muted().Ellipsis()
 					})
 				if row.Clicked() {
@@ -493,7 +500,7 @@ func (u *UI) avatarWithPresence(f *flex.Frame, name, path string, size float32, 
 				return
 			}
 			f.Row().Fill().Items(flex.Center).Justify(flex.Center).Children(func() {
-				f.Text(initialOf(name)).FontSize(max(11, size*0.36)).Weight(ui.WeightSemibold).
+				f.Text(initialOf(name)).FontSize(max(11, size*0.36)).Weight(gfx.WeightSemibold).
 					Color(u.palette.avatarText).TextCenter()
 			})
 		})
@@ -644,7 +651,7 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 	}
 	if pending > 0 {
 		f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-			f.Text(i18n.T("待确认邀请")).FontSize(12).Weight(ui.WeightSemibold)
+			f.Text(i18n.T("待确认邀请")).FontSize(12).Weight(gfx.WeightSemibold)
 			u.badgeText(f, intString(pending), false)
 		})
 		for _, peerID := range group.Pending {
@@ -684,7 +691,7 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 	}
 	if failed > 0 {
 		f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-			f.Text(i18n.T("发送失败的邀请")).FontSize(12).Weight(ui.WeightSemibold)
+			f.Text(i18n.T("发送失败的邀请")).FontSize(12).Weight(gfx.WeightSemibold)
 			u.badgeText(f, intString(failed), false)
 		})
 		for _, peerID := range group.Pending {
@@ -714,7 +721,7 @@ func (u *UI) drawGroupInvitations(f *flex.Frame, group domain.Group, owner bool)
 	}
 	if rejected > 0 {
 		f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-			f.Text(i18n.T("已拒绝邀请")).FontSize(12).Weight(ui.WeightSemibold)
+			f.Text(i18n.T("已拒绝邀请")).FontSize(12).Weight(gfx.WeightSemibold)
 			u.badgeText(f, intString(rejected), false)
 		})
 		for _, invitation := range u.outgoingInvites {
@@ -740,7 +747,7 @@ func (u *UI) drawOutgoingOwnershipInvites(f *flex.Frame, group domain.Group, own
 		return
 	}
 	f.Row().Height(30).Items(flex.Center).Gap(8).Children(func() {
-		f.Text(i18n.T("群主转让")).FontSize(12).Weight(ui.WeightSemibold)
+		f.Text(i18n.T("群主转让")).FontSize(12).Weight(gfx.WeightSemibold)
 		u.badgeText(f, intString(count), false)
 	})
 	for _, invitation := range u.ownershipInvites {
@@ -764,7 +771,7 @@ func (u *UI) drawOutgoingOwnershipInvites(f *flex.Frame, group domain.Group, own
 		f.Row().FillWidth().MinHeight(42).PadX(8).Items(flex.Center).Gap(9).Children(func() {
 			u.avatarStatus(f, peer.Name, peer.Avatar, 26, peerOnline(u, peer.ID))
 			f.Column().Grow(1).Gap(2).Children(func() {
-				f.Text(i18n.T("群主转让给 ") + peer.Name).FontSize(12).Weight(ui.WeightMedium).Ellipsis()
+				f.Text(i18n.T("群主转让给 ") + peer.Name).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
 				f.Text(status).FontSize(10.5).Muted().Ellipsis()
 			})
 		})
@@ -778,7 +785,7 @@ func (u *UI) drawOutgoingInviteRow(f *flex.Frame, group domain.Group, peerID str
 	f.Row().Height(42).PadX(8).Items(flex.Center).Gap(9).Children(func() {
 		u.avatarStatus(f, peer.Name, peer.Avatar, 26, peerOnline(u, peer.ID))
 		f.Column().Grow(1).Gap(2).Children(func() {
-			f.Text(peer.Name).FontSize(12).Weight(ui.WeightMedium).Ellipsis()
+			f.Text(peer.Name).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
 			f.Text(status).FontSize(10.5).Muted().Ellipsis()
 		})
 		if !owner {
@@ -818,7 +825,7 @@ func (u *UI) configuredShortcut(action string) (string, bool) {
 	return "", false
 }
 
-func (u *UI) shortcutTriggered(action, fallback string, event ui.KeyEvent) bool {
+func (u *UI) shortcutTriggered(action, fallback string, event gfx.KeyEvent) bool {
 	keys, found := u.configuredShortcut(action)
 	if !found {
 		keys = fallback
@@ -826,7 +833,7 @@ func (u *UI) shortcutTriggered(action, fallback string, event ui.KeyEvent) bool 
 	return shortcutMatches(keys, event)
 }
 
-func shortcutMatches(keys string, event ui.KeyEvent) bool {
+func shortcutMatches(keys string, event gfx.KeyEvent) bool {
 	if event.Release {
 		return false
 	}
@@ -838,36 +845,36 @@ func shortcutMatches(keys string, event ui.KeyEvent) bool {
 	return ok && configured == actual
 }
 
-func canonicalEventShortcut(event ui.KeyEvent) (string, bool) {
+func canonicalEventShortcut(event gfx.KeyEvent) (string, bool) {
 	name := ""
 	switch event.Key {
-	case ui.KeyEnter:
+	case gfx.KeyEnter:
 		name = "ENTER"
-	case ui.KeySpace:
+	case gfx.KeySpace:
 		name = "SPACE"
-	case ui.KeyTab:
+	case gfx.KeyTab:
 		name = "TAB"
-	case ui.KeyBackspace:
+	case gfx.KeyBackspace:
 		name = "BACKSPACE"
-	case ui.KeyDelete:
+	case gfx.KeyDelete:
 		name = "DELETE"
-	case ui.KeyHome:
+	case gfx.KeyHome:
 		name = "HOME"
-	case ui.KeyEnd:
+	case gfx.KeyEnd:
 		name = "END"
-	case ui.KeyPageUp:
+	case gfx.KeyPageUp:
 		name = "PAGEUP"
-	case ui.KeyPageDown:
+	case gfx.KeyPageDown:
 		name = "PAGEDOWN"
-	case ui.KeyInsert:
+	case gfx.KeyInsert:
 		name = "INSERT"
-	case ui.KeyLeft, ui.KeyRight, ui.KeyUp, ui.KeyDown:
-		name = map[ui.Key]string{
-			ui.KeyLeft: "LEFT", ui.KeyRight: "RIGHT", ui.KeyUp: "UP", ui.KeyDown: "DOWN",
+	case gfx.KeyLeft, gfx.KeyRight, gfx.KeyUp, gfx.KeyDown:
+		name = map[gfx.Key]string{
+			gfx.KeyLeft: "LEFT", gfx.KeyRight: "RIGHT", gfx.KeyUp: "UP", gfx.KeyDown: "DOWN",
 		}[event.Key]
-	case ui.KeyF1, ui.KeyF2, ui.KeyF3, ui.KeyF4, ui.KeyF5, ui.KeyF6,
-		ui.KeyF7, ui.KeyF8, ui.KeyF9, ui.KeyF10, ui.KeyF11, ui.KeyF12:
-		name = "F" + intString(int(event.Key-ui.KeyF1)+1)
+	case gfx.KeyF1, gfx.KeyF2, gfx.KeyF3, gfx.KeyF4, gfx.KeyF5, gfx.KeyF6,
+		gfx.KeyF7, gfx.KeyF8, gfx.KeyF9, gfx.KeyF10, gfx.KeyF11, gfx.KeyF12:
+		name = "F" + intString(int(event.Key-gfx.KeyF1)+1)
 	default:
 		name = strings.ToUpper(strings.TrimSpace(event.Text))
 		if utf8.RuneCountInString(name) == 1 {
@@ -878,16 +885,16 @@ func canonicalEventShortcut(event ui.KeyEvent) (string, bool) {
 		return "", false
 	}
 	var parts []string
-	if event.Modifiers&ui.ModifierControl != 0 {
+	if event.Modifiers&gfx.ModifierControl != 0 {
 		parts = append(parts, "CTRL")
 	}
-	if event.Modifiers&ui.ModifierAlt != 0 {
+	if event.Modifiers&gfx.ModifierAlt != 0 {
 		parts = append(parts, "ALT")
 	}
-	if event.Modifiers&ui.ModifierShift != 0 {
+	if event.Modifiers&gfx.ModifierShift != 0 {
 		parts = append(parts, "SHIFT")
 	}
-	if event.Modifiers&ui.ModifierMeta != 0 {
+	if event.Modifiers&gfx.ModifierMeta != 0 {
 		parts = append(parts, "META")
 	}
 	parts = append(parts, name)

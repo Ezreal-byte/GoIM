@@ -10,7 +10,7 @@ func TestPendingGroupDoesNotPretendToSendWithoutRecipients(t *testing.T) {
 		}
 	}
 	h := newShellTestHarness(t, state)
-	if h.hasHit(h.ui.ids.chatEditor) || !h.hasText("正在等待成员加入") {
+	if _, editorVisible := h.chatEditorHit(); editorVisible || !h.hasText("正在等待成员加入") {
 		t.Fatal("unconfirmed group exposed an unusable sender")
 	}
 }

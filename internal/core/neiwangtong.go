@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"mime"
@@ -34,9 +33,6 @@ func (n *Node) connectNeiwangtong(address string) error {
 		return errors.New("内网通互通服务未开启，请先在设置中启用")
 	}
 	if err := service.Probe(n.ctx, target, 9012, 9013); err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("内网通设备 %s 未回复发现探测，请检查网络设置", target)
-		}
 		return fmt.Errorf("连接内网通设备 %s 失败: %w", target, err)
 	}
 	n.notice("已连接内网通设备")
@@ -59,27 +55,34 @@ func (n *Node) newNeiwangtong(port int, live *atomic.Bool) (*neiwangtong.Service
 
 	var avatarBytes []byte
 	if s.Self.Avatar != "" {
-		if b, err := os.ReadFile(s.Self.Avatar); err == nil && len(b) > 0 {
+		if b, err := readAvatar(s.Self.Avatar); err == nil && len(b) <= 1<<20 {
 			avatarBytes = b
 		}
 	}
 
-	var nodeID [16]byte
-	if hash := sha256.Sum256([]byte(s.Self.ID)); len(hash) >= 16 {
-		copy(nodeID[:], hash[:16])
-	}
-
-	return neiwangtong.Start(neiwangtong.Config{
-		ID:               nodeID,
-		Name:             name,
-		Group:            s.Self.ContactGroup,
-		Sign:             s.Self.Signature,
+	var service *neiwangtong.Service
+	service, err := neiwangtong.Start(neiwangtong.Config{
+		ID:               nativeIDForGoIM(s.Self.ID),
+		GoIM:             true,
+		Profile:          nativeLocalProfile(s.Self, name),
 		DiscoveryPort:    port,
 		ControlPort:      9012,
 		TransferPort:     9013,
 		BindIP:           bind,
 		AvatarPNG:        avatarBytes,
-		DisableBroadcast: s.Settings.DisableAutoDiscovery,
+		DisableBroadcast: true,
+		AllowRemote: func(remote netip.AddrPort) bool {
+			return n.allowedRemote(net.UDPAddrFromAddrPort(remote))
+		},
+		Interface: func() string {
+			n.mu.Lock()
+			defer n.mu.Unlock()
+			name := n.data.State.Settings.Network
+			if name == "auto" {
+				return ""
+			}
+			return name
+		},
 		Callbacks: neiwangtong.Callbacks{
 			Peer: func(p neiwangtong.Peer) {
 				if live.Load() {
@@ -91,70 +94,59 @@ func (n *Node) newNeiwangtong(port int, live *atomic.Bool) (*neiwangtong.Service
 					n.receiveNeiwangtongText(peerID, packetID, text)
 				}
 			},
-			Files: func(peerID string, taskID uint64, name string, size int64) {
+			Files: func(peerID string, offer neiwangtong.XMLSendFile) {
 				if live.Load() {
-					n.receiveNeiwangtongFiles(peerID, taskID, name, size)
+					n.receiveNeiwangtongFiles(peerID, offer.TaskID, offer.FileID, offer.Name, offer.Size)
 				}
 			},
-			FileProgress: func(taskID uint64, done, total int64, complete bool, err error) {
+			FileProgress: func(peerID string, taskID uint64, done, total int64, complete bool, err error) {
 				if live.Load() {
-					n.receiveNeiwangtongProgress(taskID, done, total, complete, err)
+					n.receiveNeiwangtongProgress(peerID, taskID, done, total, complete, err)
 				}
 			},
-			AvatarUpdated: func(peerID string, png []byte) {
+			AvatarUpdated: func(peerID string, revision uint64, png []byte) {
 				if live.Load() {
-					n.receiveNeiwangtongAvatar(peerID, png)
-				}
-			},
-			Error: func(err error) {
-				if err != nil && live.Load() {
-					n.report(fmt.Errorf("内网通互通: %w", err))
+					n.receiveNeiwangtongAvatar(service, peerID, revision, png)
 				}
 			},
 		},
 	})
+	return service, err
+}
+
+func nativeLocalProfile(p domain.Peer, name string) neiwangtong.Peer {
+	info := neiwangtong.Peer{Name: name, Sign: p.Signature, Group: p.ContactGroup,
+		Gender: p.Details.Gender, Company: p.Details.Company, Department: p.Details.Department,
+		Phone: p.Details.Phone, Mobile: p.Details.Mobile, Email: p.Details.Email}
+	switch p.Presence {
+	case domain.PresenceAway:
+		info.Status = neiwangtong.StatusAway
+	case domain.PresenceBusy:
+		info.Status = neiwangtong.StatusBusy
+	case domain.PresenceInvisible:
+		info.Status = neiwangtong.StatusInvisible
+	}
+	return info
 }
 
 func (n *Node) receiveNeiwangtongPeer(peer neiwangtong.Peer) {
-	if peer.ID == "" || !utf8.ValidString(peer.Name) {
-		return
-	}
 	name := strings.TrimSpace(peer.Name)
-	if name == "" || len(peer.Name) > 160 {
+	if peer.ID == "" || name == "" || len(peer.Name) > 160 || !utf8.ValidString(peer.Name) || peer.GoIM {
 		return
 	}
-	_ = n.change(func(s *domain.State) {
-		i := peerIndex(s, peer.ID)
-		group := peer.Group
-		avatar := ""
-		if i >= 0 {
-			if group == "" {
-				group = s.Peers[i].ContactGroup
-			}
-			avatar = s.Peers[i].Avatar
-		}
-		value := domain.Peer{
-			ID:           peer.ID,
-			Name:         name,
-			Address:      peer.Address,
-			ContactGroup: group,
-			Signature:    peer.Sign,
-			Avatar:       avatar,
-			Online:       peer.Online,
-			LastSeen:     time.Now(),
-			Presence:     domain.PresenceOnline,
-			Transport:    transportNWT,
-			ClientType:   domain.ClientNeiwangtong,
-		}
-		if i < 0 {
-			s.Peers = append(s.Peers, value)
-		} else {
-			s.Peers[i] = value
-		}
-	})
-	if peer.Online {
-		n.async(func() { n.flushPeer(peer.ID) })
+	presence := domain.PresenceOnline
+	switch peer.Status {
+	case neiwangtong.StatusBusy:
+		presence = domain.PresenceBusy
+	case neiwangtong.StatusRightBack, neiwangtong.StatusAway:
+		presence = domain.PresenceAway
 	}
+	n.observeCompatibilityPeer(domain.Peer{
+		ID: peer.ID, Name: name, Address: peer.Address, Online: peer.Online,
+		Signature: peer.Sign, Presence: presence, Version: peer.Version,
+		Details:   domain.ProfileDetails{Gender: peer.Gender, Company: peer.Company, Department: peer.Department, Phone: peer.Phone, Mobile: peer.Mobile, Email: peer.Email},
+		Transport: transportNWT, ClientType: domain.ClientNeiwangtong,
+	})
 }
 
 func (n *Node) receiveNeiwangtongText(peerID string, packetID uint64, text string) {
@@ -162,8 +154,8 @@ func (n *Node) receiveNeiwangtongText(peerID string, packetID uint64, text strin
 		return
 	}
 	_ = n.change(func(s *domain.State) {
-		peer := s.Peer(peerID)
-		if peer.ID != peerID || peer.Transport != transportNWT {
+		peer := n.compatibilitySenderLocked(transportNWT, peerID)
+		if peer.ID == "" {
 			return
 		}
 		conversationID := ensureDirect(s, peer)
@@ -176,7 +168,7 @@ func (n *Node) receiveNeiwangtongText(peerID string, packetID uint64, text strin
 		addMessageState(s, domain.Message{
 			ID:             messageID,
 			ConversationID: conversationID,
-			SenderID:       peerID,
+			SenderID:       peer.ID,
 			Kind:           "text",
 			Text:           text,
 			CreatedAt:      time.Now(),
@@ -185,19 +177,20 @@ func (n *Node) receiveNeiwangtongText(peerID string, packetID uint64, text strin
 	})
 }
 
-func (n *Node) receiveNeiwangtongFiles(peerID string, taskID uint64, name string, size int64) {
+func (n *Node) receiveNeiwangtongFiles(peerID string, taskID, remoteFileID uint64, name string, size int64) {
 	if size < 0 || strings.TrimSpace(name) == "" {
 		return
 	}
 	_ = n.change(func(s *domain.State) {
-		peer := s.Peer(peerID)
-		if peer.ID != peerID || peer.Transport != transportNWT {
+		peer := n.compatibilitySenderLocked(transportNWT, peerID)
+		if peer.ID == "" {
 			return
 		}
 		conversationID := ensureDirect(s, peer)
 		taskHex := fmt.Sprint(taskID)
-		fileID := legacyStableID("nwt-file", peerID, taskHex, name)
-		transferID := legacyStableID("nwt-transfer", peerID, taskHex, name)
+		fileNumber := fmt.Sprint(remoteFileID)
+		fileID := legacyStableID("nwt-file", peerID, taskHex, fileNumber)
+		transferID := legacyStableID("nwt-transfer", peerID, taskHex, fileNumber)
 		if fileIndex(s, fileID) >= 0 || transferIndex(s, transferID) >= 0 {
 			return
 		}
@@ -209,7 +202,7 @@ func (n *Node) receiveNeiwangtongFiles(peerID string, taskID uint64, name string
 			Size:           size,
 			Hash:           strings.Repeat("0", 64),
 			MIME:           mediaType,
-			SenderID:       peerID,
+			SenderID:       peer.ID,
 			ConversationID: conversationID,
 			CreatedAt:      receivedAt,
 		}
@@ -221,7 +214,7 @@ func (n *Node) receiveNeiwangtongFiles(peerID string, taskID uint64, name string
 			ID:              transferID,
 			FileID:          fileID,
 			ConversationID:  conversationID,
-			PeerID:          peerID,
+			PeerID:          peer.ID,
 			Direction:       "receive",
 			Status:          "offered",
 			Name:            file.Name,
@@ -229,12 +222,13 @@ func (n *Node) receiveNeiwangtongFiles(peerID string, taskID uint64, name string
 			UpdatedAt:       receivedAt,
 			LegacyTransport: transportNWT,
 			RemotePacket:    taskHex,
-			RemoteFile:      taskHex,
+			RemoteFile:      fileNumber,
+			RemotePeerID:    peerID,
 		})
 		addMessageState(s, domain.Message{
 			ID:             fileID,
 			ConversationID: conversationID,
-			SenderID:       peerID,
+			SenderID:       peer.ID,
 			Kind:           "file",
 			FileID:         fileID,
 			Text:           name,
@@ -244,7 +238,7 @@ func (n *Node) receiveNeiwangtongFiles(peerID string, taskID uint64, name string
 	})
 }
 
-func (n *Node) receiveNeiwangtongProgress(taskID uint64, done, total int64, complete bool, failure error) {
+func (n *Node) receiveNeiwangtongProgress(peerID string, taskID uint64, done, total int64, complete bool, failure error) {
 	taskHex := fmt.Sprint(taskID)
 	status := "transferring"
 	if complete {
@@ -253,11 +247,15 @@ func (n *Node) receiveNeiwangtongProgress(taskID uint64, done, total int64, comp
 	problem := ""
 	if failure != nil {
 		status, problem = "failed", failure.Error()
+		if errors.Is(failure, neiwangtong.ErrFileRejected) {
+			status = "rejected"
+		}
 	}
 	_ = n.change(func(s *domain.State) {
 		for i := range s.Transfers {
 			t := &s.Transfers[i]
-			if t.LegacyTransport != transportNWT || t.RemotePacket != taskHex {
+			if t.LegacyTransport != transportNWT || t.RemotePacket != taskHex ||
+				t.RemotePeerID != peerID || t.Direction != "send" || total != t.Size || done < 0 || done > total {
 				continue
 			}
 			if terminalTransfer(t.Status) {
@@ -272,22 +270,43 @@ func (n *Node) receiveNeiwangtongProgress(taskID uint64, done, total int64, comp
 	})
 }
 
-func (n *Node) receiveNeiwangtongAvatar(peerID string, png []byte) {
-	if len(png) == 0 {
-		return
-	}
-	avatarDir := filepath.Join(n.dir, "avatars")
-	_ = os.MkdirAll(avatarDir, 0755)
-	avatarPath := filepath.Join(avatarDir, "nwt-"+peerID+".png")
-	if err := os.WriteFile(avatarPath, png, 0644); err != nil {
-		return
-	}
-	_ = n.change(func(s *domain.State) {
-		i := peerIndex(s, peerID)
-		if i >= 0 {
-			s.Peers[i].Avatar = avatarPath
+func (n *Node) receiveNeiwangtongAvatar(service *neiwangtong.Service, peerID string, revision uint64, png []byte) {
+	n.async(func() {
+		if !service.AvatarCurrent(peerID, revision) {
+			return
 		}
+		path, err := n.cacheAvatar(peerID, png)
+		if err != nil {
+			return
+		}
+		_ = n.durable(func(data *persisted) []pending {
+			if n.neiwangtong != service || !service.AvatarCurrent(peerID, revision) {
+				return nil
+			}
+			canonical := n.compatibilitySenderLocked(transportNWT, peerID)
+			if canonical.ID == "" {
+				return nil
+			}
+			for i := range data.State.Peers {
+				p := &data.State.Peers[i]
+				if p.ID == canonical.ID || p.CompatibilityAliasOf == canonical.ID {
+					p.Avatar = path
+				}
+			}
+			return nil
+		})
 	})
+}
+
+func (n *Node) refreshNeiwangtongAvatar(peerID string) error {
+	n.mu.Lock()
+	service := n.neiwangtong
+	wireID := wireCompatibilityID(&n.data, peerID, transportNWT)
+	n.mu.Unlock()
+	if service == nil || wireID == "" {
+		return errors.New("刷新头像需要内网通原生连接")
+	}
+	return service.FetchAvatar(wireID)
 }
 
 func (n *Node) neiwangtongPending(peer string, value pending) error {
@@ -295,12 +314,13 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 	service := n.neiwangtong
 	n.mu.Unlock()
 	if service == nil {
-		return errors.New("内网通互通服务未开启")
+		return neiwangtong.ErrNotConnected
 	}
 	e := value.Envelope
 	switch e.Type {
 	case "message":
-		return service.SendText(peer, e.Message.Text)
+		packet, _ := strconv.ParseUint(e.ID[:min(len(e.ID), 16)], 16, 64)
+		return service.SendTextWithID(peer, max(packet, 1), e.Message.Text)
 	case "file_offer", "file_retry":
 		s := n.snapshot(false)
 		index := transferIndex(&s, e.TransferID)
@@ -316,31 +336,88 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 			n.setTransfer(t.ID, "failed", t.Done, 0, "源文件不可用")
 			return nil
 		}
-		taskID := uint64(time.Now().UnixNano())
-		_ = n.change(func(st *domain.State) {
+		taskID, fileID := neiwangtongOutgoingIDs(t)
+		if err := n.change(func(st *domain.State) {
 			if idx := transferIndex(st, t.ID); idx >= 0 {
 				st.Transfers[idx].RemotePacket = fmt.Sprint(taskID)
-				st.Transfers[idx].RemoteFile = fmt.Sprint(taskID)
+				st.Transfers[idx].RemoteFile = fmt.Sprint(fileID)
 				st.Transfers[idx].Status = "offered"
 				st.Transfers[idx].LegacyTransport = transportNWT
+				st.Transfers[idx].RemotePeerID = peer
 			}
-		})
-		return service.SendFileOffer(peer, taskID, f.Name, f.Size, time.Now().Unix(), f.SourcePath)
+		}); err != nil {
+			return err
+		}
+		return service.SendFileOfferWithIDs(peer, taskID, fileID, f.Name, f.Size, time.Now().Unix(), f.SourcePath)
+	case "file_status":
+		if e.Status != "rejected" && e.Status != "cancelled" {
+			return nil
+		}
+		s := n.snapshot(false)
+		i := transferIndex(&s, e.TransferID)
+		if i < 0 {
+			return nil
+		}
+		t := s.Transfers[i]
+		task, err := strconv.ParseUint(t.RemotePacket, 10, 64)
+		if err != nil || t.LegacyTransport != transportNWT {
+			return nil
+		}
+		if t.Direction == "send" {
+			service.CancelSend(task)
+			return nil
+		}
+		return service.RejectFile(peer, task)
 	default:
 		return nil
 	}
 }
 
+func neiwangtongOutgoingIDs(t domain.Transfer) (taskID, fileID uint64) {
+	parse := func(value string) uint64 {
+		id, err := strconv.ParseUint(value, 10, 32)
+		if err != nil || id == 0 {
+			return 0
+		}
+		return id
+	}
+	taskID, fileID = parse(t.RemotePacket), parse(t.RemoteFile)
+	if taskID == 0 {
+		taskID = neiwangtongSelector("nwt-task", t.ID)
+	}
+	if fileID == 0 || fileID == taskID {
+		fileID = neiwangtongSelector("nwt-file", t.ID)
+		if fileID == taskID {
+			fileID = fileID%0x3fffffff + 65536
+		}
+	}
+	return taskID, fileID
+}
+
+func neiwangtongSelector(kind, transferID string) uint64 {
+	value, _ := strconv.ParseUint(legacyStableID(kind, transferID)[:8], 16, 32)
+	value &= 0x3fffffff
+	if value < 65536 {
+		value += 65536
+	}
+	return value
+}
+
 func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f domain.File, destination string) error {
 	n.mu.Lock()
 	service := n.neiwangtong
+	wireID := transferWireID(&n.data, t)
 	n.mu.Unlock()
-	if service == nil {
+	if service == nil || wireID == "" {
 		return errors.New("内网通互通服务未开启")
 	}
 	taskID, err := strconv.ParseUint(t.RemotePacket, 10, 64)
 	if err != nil {
 		return fmt.Errorf("无效的内网通任务编号: %s", t.RemotePacket)
+	}
+	fileID, err := strconv.ParseUint(t.RemoteFile, 10, 32)
+	if err != nil || fileID == 0 {
+		return errors.New("内网通文件编号无效")
 	}
 
 	s := n.snapshot(false)
@@ -365,10 +442,31 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 		}
 	}
 
-	n.setTransfer(t.ID, "transferring", 0, 0, "")
-	err = service.AcceptFile(ctx, t.PeerID, taskID, t.Size, destination)
+	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
+		return err
+	}
+	temp, err := os.MkdirTemp(filepath.Dir(destination), ".goim-nwt-")
 	if err != nil {
-		n.setTransfer(t.ID, "failed", 0, 0, err.Error())
+		return err
+	}
+	defer os.Remove(temp)
+	partial := filepath.Join(temp, "incoming")
+	defer os.Remove(partial)
+	n.setTransfer(t.ID, "transferring", 0, 0, "")
+	lastProgress := time.Now()
+	err = service.AcceptFile(ctx, wireID, taskID, fileID, t.Size, partial, func(done int64) {
+		if done == t.Size || time.Since(lastProgress) >= 150*time.Millisecond {
+			n.setTransfer(t.ID, "transferring", done, 0, "")
+			lastProgress = time.Now()
+		}
+	})
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := installFile(partial, destination); err != nil {
 		return err
 	}
 	return n.completeReceive(t, destination)

@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"github.com/vivaui/viva/gfx"
 	"net"
 	"os"
 	"path/filepath"
@@ -19,7 +20,7 @@ import (
 type panelTestHarness struct {
 	t        *testing.T
 	panels   *Panels
-	tree     ui.Tree
+	tree     gfx.Tree
 	driver   *app.Driver
 	wake     app.Invalidator
 	module   string
@@ -68,7 +69,7 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 		Width:  int(bounds.X + bounds.Width),
 		Height: int(bounds.Y + bounds.Height),
 		Tree:   &h.tree,
-		Paint: func(canvas *ui.Canvas, _ ui.Size) {
+		Paint: func(canvas *gfx.Canvas, _ ui.Size) {
 			h.panels.Draw(canvas, h.theme, h.bounds, h.module, h.state, h.submit)
 		},
 		OnKey:       h.panels.Key,
@@ -161,21 +162,50 @@ func (h *panelTestHarness) showModule(module string) {
 	}
 }
 
-func (h *panelTestHarness) findHit(id ui.ID) (ui.Hit, bool) {
+func (h *panelTestHarness) findHit(id gfx.ID) (gfx.Hit, bool) {
 	for _, hit := range h.driver.Snapshot().Hits {
 		if hit.ID == id {
 			return hit, true
 		}
 	}
-	return ui.Hit{}, false
+	return gfx.Hit{}, false
 }
 
-func (h *panelTestHarness) click(id ui.ID) {
+func (h *panelTestHarness) findHitLabelRole(label string, role gfx.Role) (gfx.Hit, bool) {
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == label && hit.Role == role {
+			return hit, true
+		}
+	}
+	return gfx.Hit{}, false
+}
+
+func (h *panelTestHarness) clickLabelRole(label string, role gfx.Role) {
+	h.t.Helper()
+	hit, ok := h.findHitLabelRole(label, role)
+	if !ok {
+		h.t.Fatalf("control %q with role %s is not on screen", label, role)
+	}
+	h.clickHit(hit)
+}
+
+func (h *panelTestHarness) chooseSelect(trigger, option string) {
+	h.t.Helper()
+	h.clickLabelRole(trigger, gfx.RoleCombobox)
+	h.clickLabelRole(option, gfx.RoleOption)
+}
+
+func (h *panelTestHarness) click(id gfx.ID) {
 	h.t.Helper()
 	hit, ok := h.findHit(id)
 	if !ok {
 		h.t.Fatalf("control %v is not on screen", id)
 	}
+	h.clickHit(hit)
+}
+
+func (h *panelTestHarness) clickHit(hit gfx.Hit) {
+	h.t.Helper()
 	bounds := hit.Bounds
 	if err := h.driver.Click(bounds.X+bounds.Width/2, bounds.Y+bounds.Height/2); err != nil {
 		h.t.Fatal(err)
@@ -225,7 +255,7 @@ func (h *panelTestHarness) requireLayout() {
 	}
 }
 
-func (h *panelTestHarness) requireDisabled(id ui.ID) {
+func (h *panelTestHarness) requireDisabled(id gfx.ID) {
 	h.t.Helper()
 	hit, ok := h.findHit(id)
 	if !ok {
@@ -282,7 +312,7 @@ func TestPanelSettingsLayoutAndCategorySwitch(t *testing.T) {
 	h.bounds.Height = 420
 	h.publish(state)
 	beforeScroll := h.panels.settingsScroll[panelSettingsGeneral]
-	if err := h.driver.Scroll(ui.ScrollEvent{
+	if err := h.driver.Scroll(gfx.ScrollEvent{
 		X: h.bounds.X + panelSettingsWidth + 400, Y: h.bounds.Y + 300,
 		DeltaY: 240, Precise: true,
 	}); err != nil {
@@ -295,7 +325,7 @@ func TestPanelSettingsLayoutAndCategorySwitch(t *testing.T) {
 	h.publish(state)
 
 	h.click(h.panels.ids.settingsCategories.At(1))
-	if !h.hasText("恢复默认") || !h.hasText("点击更改后录制组合键") {
+	if !h.hasText("恢复默认") || !h.hasText("点击键帽录制组合键") {
 		t.Fatal("shortcuts page did not replace the general page")
 	}
 	if h.hasText("自定义背景") {
@@ -335,7 +365,7 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 		X: 68, Y: 0, Width: 1372, Height: 1500,
 	})
 
-	h.click(h.panels.ids.themeChoice.At(1))
+	h.clickLabelRole("暗黑", gfx.RoleRadio)
 	command := h.requireLastCommand()
 	if command.Kind != domain.SetSetting || command.Setting != "theme" || command.Value != "dark" {
 		t.Fatalf("theme command = %+v", command)
@@ -351,8 +381,7 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 
 	h.clearCommands()
 	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsTransfers)))
-	h.click(h.panels.ids.duplicateChoice.At(len(panelDuplicateLabels)))
-	h.click(h.panels.ids.duplicateChoice.At(1))
+	h.chooseSelect("同名文件", "每次询问")
 	command = h.requireLastCommand()
 	if command.Kind != domain.SetSetting || command.Setting != "duplicate_policy" || command.Value != "ask" {
 		t.Fatalf("duplicate-policy command = %+v", command)
@@ -360,7 +389,7 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 
 	h.clearCommands()
 	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsGeneral)))
-	h.click(h.panels.ids.sendKeyChoice.At(1))
+	h.clickLabelRole("Ctrl+Enter 发送", gfx.RoleRadio)
 	command = h.requireLastCommand()
 	if command.Kind != domain.SetSetting || command.Setting != "send_key" || command.Value != "Ctrl+Enter" {
 		t.Fatalf("send-key command = %+v", command)
@@ -383,20 +412,18 @@ func TestPanelSettingsSubmitsSettingCommands(t *testing.T) {
 	}
 
 	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsNetwork)))
-	networkTrigger := h.panels.ids.networkChoice.At(len(h.panels.networkValues))
-	h.click(networkTrigger)
-	if !h.panels.networkSelect.Open {
+	h.clickLabelRole("使用的网络", gfx.RoleCombobox)
+	if _, open := h.findHitLabelRole("自动选择", gfx.RoleOption); !open {
 		t.Fatal("network select did not open")
 	}
-	if err := h.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
-	if h.panels.networkSelect.Open {
+	if _, open := h.findHitLabelRole("自动选择", gfx.RoleOption); open {
 		t.Fatal("Escape did not close the network select")
 	}
-	h.click(networkTrigger)
 	h.clearCommands()
-	h.click(h.panels.ids.networkChoice.At(0))
+	h.chooseSelect("使用的网络", "自动选择")
 	command = h.requireLastCommand()
 	if command.Kind != domain.SetSetting || command.Setting != "network" || command.Value != "auto" {
 		t.Fatalf("network command = %+v", command)
@@ -474,18 +501,19 @@ func TestPanelSettingsDefersNetworkChangeDuringTransfers(t *testing.T) {
 	choose := func(index int) {
 		t.Helper()
 		h.clearCommands()
-		h.click(h.panels.ids.networkChoice.At(len(h.panels.networkValues)))
-		h.click(h.panels.ids.networkChoice.At(index))
+		h.chooseSelect("使用的网络", h.panels.networkChoices[index].label)
 	}
 	choose(2)
 	if len(h.commands) != 0 {
 		t.Fatalf("an active transfer allowed an immediate network command: %+v", h.commands)
 	}
-	if h.panels.networkChange.value != "Beta" ||
-		!h.hasText("有 2 个传输正在进行") ||
-		!h.hasText("如需立即切换请先取消相关传输") ||
-		!h.hasText("传输结束后切换") {
-		t.Fatalf("network mediation prompt is incomplete: %+v", h.panels.networkChange)
+	if h.panels.networkChange.value != "Beta" {
+		t.Fatalf("network mediation state = %+v", h.panels.networkChange)
+	}
+	for _, text := range []string{"有 2 个传输正在进行", "如需立即切换请先取消相关传输", "传输结束后切换"} {
+		if !h.hasText(text) {
+			t.Fatalf("network mediation prompt is missing %q: %+v", text, h.panels.networkChange)
+		}
 	}
 	h.requireLayout()
 
@@ -517,8 +545,7 @@ func TestPanelSettingsDefersNetworkChangeDuringTransfers(t *testing.T) {
 	state.Revision++
 	h.publish(state)
 	h.clearCommands()
-	h.click(h.panels.ids.networkChoice.At(len(h.panels.networkValues)))
-	h.click(h.panels.ids.networkChoice.At(1))
+	h.chooseSelect("使用的网络", h.panels.networkChoices[1].label)
 	command = h.requireLastCommand()
 	if command.Kind != domain.SetSetting || command.Setting != "network" || command.Value != "Alpha" {
 		t.Fatalf("idle network command = %+v", command)
@@ -573,7 +600,7 @@ func TestPanelShortcutRecordingConflictAndDefaults(t *testing.T) {
 	if h.panels.shortcutEdit != 1 {
 		t.Fatalf("recording did not start on the chosen row: index %d", h.panels.shortcutEdit)
 	}
-	handled, err := h.driver.ShortcutChord(ui.ModifierControl, 'f')
+	handled, err := h.driver.ShortcutChord(gfx.ModifierControl, 'f')
 	if err != nil || !handled {
 		t.Fatalf("recording Ctrl+F: handled=%v err=%v", handled, err)
 	}
@@ -588,13 +615,19 @@ func TestPanelShortcutRecordingConflictAndDefaults(t *testing.T) {
 	if _, ok := h.findHit(h.panels.ids.shortcutSave.At(1)); ok {
 		h.click(h.panels.ids.shortcutSave.At(1))
 	}
+	if h.panels.shortcutEdit != 1 {
+		t.Fatalf("a conflicted shortcut closed the recording dialog: index %d", h.panels.shortcutEdit)
+	}
 	if len(h.commands) != 0 {
 		t.Fatalf("conflicting shortcut was saved: %+v", h.commands)
 	}
 
-	handled, err = h.driver.ShortcutChord(ui.ModifierControl|ui.ModifierShift, 'x')
+	handled, err = h.driver.ShortcutChord(gfx.ModifierControl|gfx.ModifierShift, 'x')
 	if err != nil || !handled {
 		t.Fatalf("recording Ctrl+Shift+X: handled=%v err=%v", handled, err)
+	}
+	if h.panels.shortcutEdit != 1 || h.panels.shortcutKeys != "Ctrl+Shift+X" {
+		t.Fatalf("second recording closed or missed the dialog: index=%d keys=%q", h.panels.shortcutEdit, h.panels.shortcutKeys)
 	}
 	h.clearCommands()
 	h.click(h.panels.ids.shortcutSave.At(1))
@@ -705,7 +738,7 @@ func TestPanelTransfersSubmitActionsAndOpenCompletedFiles(t *testing.T) {
 		t.Fatalf("cancel command = %+v", command)
 	}
 
-	h.click(h.panels.ids.transferFilters.At(panelTransferFinished))
+	h.clickLabelRole(h.panels.transferLabels[panelTransferFinished], gfx.RoleTab)
 	if h.panels.transferFilter != panelTransferFinished {
 		t.Fatal("completed transfer filter did not change")
 	}
@@ -774,7 +807,7 @@ func TestPanelSharesAddFilterGetRemoveAndOpen(t *testing.T) {
 		t.Fatal("shared file rows are missing")
 	}
 
-	h.click(h.panels.ids.sharesFilters.At(panelSharesMine))
+	h.clickLabelRole(h.panels.shareLabels[panelSharesMine], gfx.RoleTab)
 	if h.panels.shareFilter != panelSharesMine {
 		t.Fatal("own-shares filter did not change")
 	}
@@ -801,7 +834,7 @@ func TestPanelSharesAddFilterGetRemoveAndOpen(t *testing.T) {
 		t.Fatalf("remove-share command = %+v", command)
 	}
 
-	h.click(h.panels.ids.sharesFilters.At(panelSharesRemote))
+	h.clickLabelRole(h.panels.shareLabels[panelSharesRemote], gfx.RoleTab)
 	if _, ok := h.findHit(h.panels.ids.shareMenuUnshare); ok {
 		t.Fatal("remote share was rendered with a Remove action")
 	}
@@ -872,7 +905,7 @@ func TestPanelSharesUseWakeCachedTransferPathsAndUnavailableOwnFiles(t *testing.
 		t.Fatalf("deleted own share availability = %+v", own)
 	}
 
-	h.click(h.panels.ids.sharesFilters.At(panelSharesRemote))
+	h.clickLabelRole(h.panels.shareLabels[panelSharesRemote], gfx.RoleTab)
 	h.click(h.panels.shareEntriesForTest()[0].moreID)
 	h.click(h.panels.ids.shareMenuOpen)
 	h.waitMedia()
@@ -880,14 +913,14 @@ func TestPanelSharesUseWakeCachedTransferPathsAndUnavailableOwnFiles(t *testing.
 		t.Fatalf("opened remote share = %q, observed %v", path, ok)
 	}
 
-	h.click(h.panels.ids.sharesFilters.At(panelSharesMine))
+	h.clickLabelRole(h.panels.shareLabels[panelSharesMine], gfx.RoleTab)
 	h.click(h.panels.sharesMine[0].moreID)
 	if _, ok := h.findHit(h.panels.ids.shareMenuOpen); ok {
 		t.Fatal("unavailable source still offered a local action")
 	}
-	_ = h.driver.Key(ui.KeyEscape, 0)
+	_ = h.driver.Key(gfx.KeyEscape, 0)
 
-	h.click(h.panels.ids.sharesFilters.At(panelSharesRemote))
+	h.clickLabelRole(h.panels.shareLabels[panelSharesRemote], gfx.RoleTab)
 	if err := os.Remove(latestPath); err != nil {
 		t.Fatal(err)
 	}
@@ -907,7 +940,7 @@ func TestPanelSharesUseWakeCachedTransferPathsAndUnavailableOwnFiles(t *testing.
 	if _, ok := h.findHit(h.panels.ids.shareMenuOpen); ok {
 		t.Fatal("deleted received file was not marked unavailable on wake")
 	}
-	_ = h.driver.Key(ui.KeyEscape, 0)
+	_ = h.driver.Key(gfx.KeyEscape, 0)
 	if err := h.driver.Advance(300 * time.Millisecond); err != nil {
 		t.Fatal(err)
 	}

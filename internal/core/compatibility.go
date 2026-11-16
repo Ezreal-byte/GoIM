@@ -15,13 +15,18 @@ import (
 )
 
 func (n *Node) initializeCompatibility() {
+	if n.compatibilityDisabled {
+		return
+	}
+	settings := n.data.State.Settings
 	if n.ipmsgOverride {
 		n.ipmsgStatus = domain.CompatibilityStatus{Unavailable: true, Problem: "本次运行已通过 --no-ipmsg 禁用飞鸽／飞秋互通"}
-	} else if cfg := n.data.State.Settings.IPMSG; cfg.Enabled {
-		_ = n.applyIPMSG(cfg)
 	}
-	if cfg := n.data.State.Settings.Neiwangtong; cfg.Enabled {
+	if cfg := settings.Neiwangtong; cfg.Enabled {
 		_ = n.applyNeiwangtong(cfg)
+	}
+	if cfg := settings.IPMSG; cfg.Enabled && !n.ipmsgOverride {
+		_ = n.applyIPMSG(cfg)
 	}
 }
 
@@ -31,6 +36,25 @@ func (n *Node) connectVia(transport, raw string) error {
 		return errors.New("请输入 IP 或 IP:端口")
 	}
 	switch transport {
+	case domain.TransportAuto:
+		endpoint, err := parseAutoEndpoint(address)
+		if err != nil {
+			return err
+		}
+		key := "auto:" + endpoint.String()
+		n.mu.Lock()
+		if n.closing || n.dialing[key] {
+			n.mu.Unlock()
+			return nil
+		}
+		n.dialing[key] = true
+		n.mu.Unlock()
+		n.async(func() {
+			defer func() { n.mu.Lock(); delete(n.dialing, key); n.mu.Unlock() }()
+			if err := n.connectAuto(endpoint); err != nil && n.ctx.Err() == nil {
+				n.report(err)
+			}
+		})
 	case domain.TransportGoIM:
 		n.dialTo(address, "", false)
 	case domain.TransportIPMSG:
@@ -57,6 +81,57 @@ func (n *Node) connectVia(transport, raw string) error {
 		return errors.New("未知连接方式")
 	}
 	return nil
+}
+
+func parseAutoEndpoint(raw string) (netip.AddrPort, error) {
+	if address, err := netip.ParseAddr(strings.Trim(raw, "[]")); err == nil && !address.IsUnspecified() && !address.IsMulticast() {
+		return netip.AddrPortFrom(address.Unmap(), 47842), nil
+	}
+	if endpoint, err := netip.ParseAddrPort(raw); err == nil && endpoint.Port() != 0 &&
+		!endpoint.Addr().IsUnspecified() && !endpoint.Addr().IsMulticast() {
+		return netip.AddrPortFrom(endpoint.Addr().Unmap(), endpoint.Port()), nil
+	}
+	return netip.AddrPort{}, errors.New("自动连接需要 IP 或 IP:GoIM 端口")
+}
+
+func (n *Node) connectAuto(endpoint netip.AddrPort) error {
+	n.mu.Lock()
+	var knownGoIM string
+	for _, peer := range n.data.State.Peers {
+		if peer.Transport == domain.TransportGoIM && len(peer.PublicKey) != 0 && peer.Address == endpoint.String() {
+			knownGoIM = peer.ID
+			break
+		}
+	}
+	nwt, legacy := n.neiwangtong != nil, n.legacy != nil
+	settings := n.data.State.Settings
+	n.mu.Unlock()
+	tlsErr := n.connectGoIM(endpoint.String(), knownGoIM)
+	if tlsErr == nil {
+		n.notice("已连接 GoIM 设备")
+		return nil
+	}
+	if knownGoIM != "" || !endpoint.Addr().Is4() || (!nwt && !legacy) {
+		return fmt.Errorf("无法连接 GoIM %s: %w", endpoint, tlsErr)
+	}
+	var attempts []error
+	if nwt && n.ctx.Err() == nil {
+		address := netip.AddrPortFrom(endpoint.Addr(), uint16(settings.Neiwangtong.Port))
+		if err := n.connectNeiwangtong(address.String()); err == nil {
+			return nil
+		} else {
+			attempts = append(attempts, err)
+		}
+	}
+	if legacy && n.ctx.Err() == nil {
+		address := netip.AddrPortFrom(endpoint.Addr(), uint16(settings.IPMSG.Port))
+		if err := n.connectLegacy(address.String()); err == nil {
+			return nil
+		} else {
+			attempts = append(attempts, err)
+		}
+	}
+	return fmt.Errorf("自动连接 %s 失败（GoIM: %v）: %w", endpoint.Addr(), tlsErr, errors.Join(attempts...))
 }
 
 func (n *Node) setCompatibility(transport string, cfg domain.CompatibilityConfig) error {
@@ -223,11 +298,7 @@ func (n *Node) applyIPMSG(cfg domain.CompatibilityConfig) error {
 	}
 	n.legacy, n.legacyLive = service, live
 	n.ipmsgStatus = domain.CompatibilityStatus{Active: service != nil}
-	for i := range n.data.State.Peers {
-		if n.data.State.Peers[i].Transport == domain.TransportIPMSG {
-			n.data.State.Peers[i].Online = false
-		}
-	}
+	n.clearCompatibilityRoutesLocked(legacyIPMSG)
 	n.data.State.Revision++
 	n.data.State.Error = ""
 	broadcast := n.discovery && !n.data.State.Settings.DisableAutoDiscovery
@@ -240,6 +311,7 @@ func (n *Node) applyIPMSG(cfg domain.CompatibilityConfig) error {
 	if service != nil {
 		service.SetBroadcastEnabled(broadcast)
 	}
+	n.replayAvailableCompatibility()
 	return nil
 }
 
@@ -259,6 +331,12 @@ func (n *Node) applyNeiwangtong(cfg domain.CompatibilityConfig) error {
 		port := strconv.Itoa(cfg.Port)
 		if _, goPort, _ := net.SplitHostPort(n.listener.Addr().String()); port == goPort || cfg.Port == discoveryPort {
 			return n.compatNwtFailure(fmt.Errorf("端口 %d 已用于 GoIM 通信", cfg.Port))
+		}
+		n.mu.Lock()
+		current := n.neiwangtong
+		n.mu.Unlock()
+		if current != nil {
+			return n.rebindNeiwangtongDiscovery(current, cfg)
 		}
 		var err error
 		service, err = n.newNeiwangtong(cfg.Port, live)
@@ -292,11 +370,7 @@ func (n *Node) applyNeiwangtong(cfg domain.CompatibilityConfig) error {
 	}
 	n.neiwangtong, n.neiwangtongLive = service, live
 	n.neiwangtongStatus = domain.CompatibilityStatus{Active: service != nil}
-	for i := range n.data.State.Peers {
-		if n.data.State.Peers[i].Transport == domain.TransportNeiwangtong {
-			n.data.State.Peers[i].Online = false
-		}
-	}
+	n.clearCompatibilityRoutesLocked(transportNWT)
 	n.data.State.Revision++
 	n.data.State.Error = ""
 	broadcast := n.discovery && !n.data.State.Settings.DisableAutoDiscovery
@@ -309,7 +383,52 @@ func (n *Node) applyNeiwangtong(cfg domain.CompatibilityConfig) error {
 	if service != nil {
 		service.SetBroadcastEnabled(broadcast)
 	}
+	n.replayAvailableCompatibility()
 	return nil
+}
+
+func (n *Node) rebindNeiwangtongDiscovery(service *neiwangtong.Service, cfg domain.CompatibilityConfig) error {
+	next, err := service.PrepareDiscovery(cfg.Port)
+	if err != nil {
+		return n.compatNwtFailure(err)
+	}
+	n.mu.Lock()
+	if n.neiwangtongTransfersActiveLocked() {
+		n.neiwangtongStatus.Pending = &cfg
+		n.mu.Unlock()
+		_ = next.Close()
+		n.signal()
+		return nil
+	}
+	old := n.data.State.Settings.Neiwangtong
+	n.data.State.Settings.Neiwangtong = cfg
+	if err := saveStore(n.db, &n.data); err != nil {
+		n.data.State.Settings.Neiwangtong = old
+		n.mu.Unlock()
+		_ = next.Close()
+		return n.compatNwtFailure(err)
+	}
+	n.neiwangtongStatus = domain.CompatibilityStatus{Active: true}
+	n.data.State.Error = ""
+	n.data.State.Revision++
+	service.AdoptDiscovery(next)
+	n.mu.Unlock()
+	n.signal()
+	return nil
+}
+
+func (n *Node) replayAvailableCompatibility() {
+	n.mu.Lock()
+	var ids []string
+	for _, peer := range n.data.State.Peers {
+		if peer.Online && peer.Transport != domain.TransportGoIM {
+			ids = append(ids, peer.ID)
+		}
+	}
+	n.mu.Unlock()
+	for _, id := range ids {
+		n.async(func() { n.replay(id) })
+	}
 }
 
 func (n *Node) compatNwtFailure(err error) error {

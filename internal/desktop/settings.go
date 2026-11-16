@@ -3,12 +3,13 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"github.com/vivaui/viva/gfx"
 	"os"
 	"strings"
 
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+	"goim/internal/flex"
 
 	"goim/internal/domain"
 	"goim/internal/i18n"
@@ -21,48 +22,95 @@ var (
 	panelSendKeyValues = []string{"Enter", "Ctrl+Enter"}
 )
 
+const (
+	panelSettingsContentMax = float32(760)
+	panelSettingsNarrowAt   = float32(620)
+	panelSettingsControlH   = float32(38)
+)
+
 func (p *Panels) drawSettings(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+	available := f.Bounds().Width - panelSettingsWidth - 1 - 32 - 32
+	p.settingsWidth = min(max(available, 0), panelSettingsContentMax)
+	p.settingsNarrow = p.settingsWidth > 0 && p.settingsWidth < panelSettingsNarrowAt
+	contentTheme := theme.WithControlHeight(panelSettingsControlH)
 	f.Row().Fill().Children(func() {
 		p.drawSettingsCategories(f, theme)
 		f.Divider().FillHeight()
-		f.Column().Grow(1).FillHeight().PadSides(24, 32, 10, 32).Gap(14).Children(func() {
-			p.drawSettingsHeader(f, theme, state)
-			feedback := state
-			if feedback.Notice != "锁定密码已保存" && feedback.Notice != "已切换局域网接口" {
-				feedback.Notice = ""
-			}
-			p.panelFeedback(f, theme, feedback, submit, p.ids.settingsDismissLocal, p.ids.settingsClearError)
-			scroll := p.settingsScrollArea(f, p.settingsTab)
-			scroll.Grow(1).FillWidth().Children(func() {
-				f.Column().FillWidth().PadSides(0, 0, 22, 0).Children(func() {
-					switch p.settingsTab {
-					case panelSettingsGeneral:
-						p.drawSettingsGeneral(f, theme, state, submit)
-					case panelSettingsShortcuts:
-						p.drawSettingsShortcuts(f, theme, state, submit)
-					case panelSettingsAbout:
-						p.drawSettingsAbout(f, theme, state, submit)
-					case panelSettingsProfile:
-						p.drawSettingsProfile(f, theme, state, submit)
-					case panelSettingsNotifications:
-						p.drawSettingsNotifications(f, theme, state, submit)
-					case panelSettingsNetwork:
-						p.drawSettingsNetwork(f, theme, state, submit)
-					case panelSettingsTransfers:
-						p.drawSettingsTransfers(f, theme, state, submit)
-					case panelSettingsSecurity:
-						p.drawSettingsSecurity(f, theme, state, submit)
-					}
+		f.Column().Grow(1).FillHeight().PadSides(24, 32, 10, 32).
+			Items(flex.Center).Children(func() {
+			f.Column().FillWidth().MaxWidth(panelSettingsContentMax).FillHeight().Gap(14).Children(func() {
+				p.drawSettingsHeader(f, contentTheme, state)
+				feedback := state
+				if feedback.Notice != "锁定密码已保存" && feedback.Notice != "已切换局域网接口" {
+					feedback.Notice = ""
+				}
+				p.panelFeedback(f, contentTheme, feedback, submit, p.ids.settingsDismissLocal, p.ids.settingsClearError)
+				scroll := p.settingsScrollArea(f, p.settingsTab)
+				scroll.Grow(1).FillWidth().Children(func() {
+					f.Column().FillWidth().PadSides(0, 0, 22, 0).Children(func() {
+						switch p.settingsTab {
+						case panelSettingsGeneral:
+							p.drawSettingsGeneral(f, contentTheme, state, submit)
+						case panelSettingsShortcuts:
+							p.drawSettingsShortcuts(f, contentTheme, state, submit)
+						case panelSettingsAbout:
+							p.drawSettingsAbout(f, theme, state, submit)
+						case panelSettingsProfile:
+							p.drawSettingsProfile(f, contentTheme, state, submit)
+						case panelSettingsNotifications:
+							p.drawSettingsNotifications(f, contentTheme, state, submit)
+						case panelSettingsNetwork:
+							p.drawSettingsNetwork(f, contentTheme, state, submit)
+						case panelSettingsTransfers:
+							p.drawSettingsTransfers(f, contentTheme, state, submit)
+						case panelSettingsSecurity:
+							p.drawSettingsSecurity(f, contentTheme, state, submit)
+						}
+					})
 				})
+				panelScrollFooter(f, contentTheme, "", p.settingsFooterText())
 			})
-			panelScrollFooter(f, theme, "", p.settingsFooterText())
 		})
 	})
 }
 
+func (p *Panels) settingsRow(f *flex.Frame, theme ui.Theme, title, description string, control func()) {
+	labels := func() {
+		f.Column().Gap(3).Children(func() {
+			f.Text(title).FontSize(theme.Metrics.FontSizeM + 1).Weight(gfx.WeightMedium)
+			if description != "" {
+				f.Paragraph(description, 3).Muted().FontSize(theme.Metrics.FontSizeS)
+			}
+		})
+	}
+	if p.settingsNarrow {
+		f.Column().FillWidth().Gap(9).PadY(13).Children(func() {
+			f.Column().FillWidth().Children(labels)
+			if control != nil {
+				f.Row().FillWidth().Justify(flex.End).Children(control)
+			}
+		})
+	} else {
+		f.Row().FillWidth().Gap(24).PadY(13).Items(flex.Center).Children(func() {
+			f.Column().Grow(1).Children(labels)
+			if control != nil {
+				control()
+			}
+		})
+	}
+	f.Divider().FillWidth()
+}
+
+func (p *Panels) settingsControl(f *flex.Frame, width float32, body func()) {
+	if p.settingsWidth > 0 {
+		width = min(width, p.settingsWidth)
+	}
+	f.Column().Width(width).Shrink(0).Items(flex.End).Justify(flex.Center).Children(body)
+}
+
 func (p *Panels) drawSettingsCategories(f *flex.Frame, theme ui.Theme) {
 	f.Column().Width(panelSettingsWidth).FillHeight().PadSides(22, 20, 14, 20).Gap(3).Children(func() {
-		f.Text(i18n.T("设置")).FontSize(26).Weight(ui.WeightSemibold)
+		f.Text(i18n.T("设置")).FontSize(26).Weight(gfx.WeightSemibold)
 		f.Slot().Height(18)
 		for _, tab := range panelSettingsOrder {
 			label := i18n.T(panelSettingsLabels[tab])
@@ -90,7 +138,7 @@ func (p *Panels) drawSettingsCategories(f *flex.Frame, theme ui.Theme) {
 				foreground = panelAccentText(theme)
 			}
 			row := f.Row().FillWidth().Height(44).PadX(12).Gap(12).Radius(theme.Metrics.RadiusControl).
-				Items(flex.Center).HitWith(id, label, ui.HitOptions{Role: ui.RoleTab, Selected: active})
+				Items(flex.Center).HitWith(id, label, gfx.HitOptions{Role: gfx.RoleTab, Selected: active})
 			if active {
 				row = row.Background(panelAccentSurface(theme)).
 					Hover(flex.Look{}.Background(theme.Background.Mix(panelAccentText(theme), 0.12)))
@@ -102,7 +150,7 @@ func (p *Panels) drawSettingsCategories(f *flex.Frame, theme ui.Theme) {
 			}
 			if row.Children(func() {
 				f.Icon(icon).Size(18, 18).Color(foreground)
-				f.Text(label).FontSize(15).Weight(ui.WeightMedium).Color(foreground)
+				f.Text(label).FontSize(15).Weight(gfx.WeightMedium).Color(foreground)
 			}).Clicked() {
 				if p.settingsTab != tab {
 					p.cancelShortcutEdit()
@@ -172,12 +220,13 @@ func (p *Panels) drawSettingsSaveStatus(f *flex.Frame, theme ui.Theme) {
 
 func (p *Panels) settingsScrollArea(f *flex.Frame, tab panelSettingsTab) flex.Box {
 	id := p.settingsScrollID(tab)
+	area := f.ScrollArea(id)
 	if !p.scrollTabSet || p.scrollTab != tab {
 		p.view.ScrollState(id).ScrollTo(p.settingsScroll[tab])
 		p.scrollTab = tab
 		p.scrollTabSet = true
 	}
-	return f.ScrollArea(id)
+	return area
 }
 
 func (p *Panels) settingsFooterText() string {
@@ -196,7 +245,7 @@ func (p *Panels) settingsFooterText() string {
 func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	settings := state.Settings
 	panelSection(f, i18n.T("外观"), "", func() {
-		panelSettingRow(f, theme, i18n.T("主题"), i18n.T("仅提供明亮与暗黑两种外观"), func() {
+		p.settingsRow(f, theme, i18n.T("主题"), i18n.T("仅提供明亮与暗黑两种外观"), func() {
 			selected := -1
 			for index, value := range panelThemeValues {
 				if settings.Theme == value {
@@ -204,21 +253,21 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 					break
 				}
 			}
-			panelControlColumn(f, 260, func() {
-				choice := f.Choice(p.ids.themeChoice, i18n.Labels(panelThemeLabels), selected)
+			p.settingsControl(f, 260, func() {
+				choice := f.Choice(p.ids.themeChoice, i18n.Labels(panelThemeLabels), selected).FillWidth()
 				if index, ok := choice.ChosenIndex(); ok {
 					p.submitString(submit, state, "theme", panelThemeValues[index])
 				}
 			})
 		})
 	})
-	panelSettingRow(f, theme, i18n.T("界面语言"), i18n.T("立即切换 GoIM 的界面语言"), func() {
+	p.settingsRow(f, theme, i18n.T("界面语言"), i18n.T("立即切换 GoIM 的界面语言"), func() {
 		selected := 0
 		if i18n.Normalize(settings.Language) == i18n.English {
 			selected = 1
 		}
-		panelControlColumn(f, 260, func() {
-			if index, ok := f.Choice(p.ids.languageChoice, []string{"简体中文", "English"}, selected).ChosenIndex(); ok {
+		p.settingsControl(f, 260, func() {
+			if index, ok := f.Choice(p.ids.languageChoice, []string{"简体中文", "English"}, selected).FillWidth().ChosenIndex(); ok {
 				p.submitString(submit, state, "language", [...]string{i18n.Chinese, i18n.English}[index])
 			}
 		})
@@ -226,7 +275,7 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 	p.drawBackgroundSettings(f, theme, state, submit)
 	panelSectionGap(f)
 	panelSection(f, i18n.T("发送"), "", func() {
-		panelSettingRow(f, theme, i18n.T("发送消息"), i18n.T("Shift+Enter 始终换行"), func() {
+		p.settingsRow(f, theme, i18n.T("发送消息"), i18n.T("Shift+Enter 始终换行"), func() {
 			selected := 0
 			for index, value := range panelSendKeyValues {
 				if settings.SendKey == value {
@@ -234,8 +283,8 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 					break
 				}
 			}
-			panelControlColumn(f, 250, func() {
-				choice := f.Choice(p.ids.sendKeyChoice, i18n.Labels(panelSendKeyLabels), selected)
+			p.settingsControl(f, 250, func() {
+				choice := f.Choice(p.ids.sendKeyChoice, i18n.Labels(panelSendKeyLabels), selected).FillWidth()
 				if index, ok := choice.ChosenIndex(); ok {
 					p.submitString(submit, state, "send_key", panelSendKeyValues[index])
 				}
@@ -248,8 +297,8 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 		if settings.CloseToTray {
 			description = i18n.T("关闭主窗口后继续在托盘接收消息")
 		}
-		panelSettingRow(f, theme, i18n.T("关闭主窗口"), description, func() {
-			panelControlColumn(f, 80, func() {
+		p.settingsRow(f, theme, i18n.T("关闭主窗口"), description, func() {
+			p.settingsControl(f, 80, func() {
 				if f.Switch(p.ids.settingsCloseToTray, settings.CloseToTray).
 					Label(i18n.T("关闭主窗口时最小化到托盘")).Clicked() {
 					p.submitBool(submit, state, "close_to_tray", !settings.CloseToTray)
@@ -262,23 +311,23 @@ func (p *Panels) drawSettingsGeneral(f *flex.Frame, theme ui.Theme, state domain
 func (p *Panels) drawSettingsNotifications(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	settings := state.Settings
 	panelSection(f, i18n.T("消息通知"), "", func() {
-		panelSettingRow(f, theme, i18n.T("桌面通知"), i18n.T("收到新消息时提醒"), func() {
-			panelControlColumn(f, 80, func() {
+		p.settingsRow(f, theme, i18n.T("桌面通知"), i18n.T("收到新消息时提醒"), func() {
+			p.settingsControl(f, 80, func() {
 				if f.Switch(p.ids.settingsNotification, settings.DesktopNotifications).
 					Label(i18n.T("桌面通知")).Clicked() {
 					p.submitBool(submit, state, "desktop_notifications", !settings.DesktopNotifications)
 				}
 			})
 		})
-		panelSettingRow(f, theme, i18n.T("提示音"), i18n.T("消息免打扰的会话不播放提示音"), func() {
-			panelControlColumn(f, 80, func() {
+		p.settingsRow(f, theme, i18n.T("提示音"), i18n.T("消息免打扰的会话不播放提示音"), func() {
+			p.settingsControl(f, 80, func() {
 				if f.Switch(p.ids.settingsSound, settings.Sound).Label(i18n.T("提示音")).Clicked() {
 					p.submitBool(submit, state, "sound", !settings.Sound)
 				}
 			})
 		})
-		panelSettingRow(f, theme, i18n.T("隐藏消息预览"), i18n.T("通知仅提示收到新消息"), func() {
-			panelControlColumn(f, 80, func() {
+		p.settingsRow(f, theme, i18n.T("隐藏消息预览"), i18n.T("通知仅提示收到新消息"), func() {
+			p.settingsControl(f, 80, func() {
 				if f.Switch(p.settingsExtra.notificationPrivacy, settings.HideNotificationText).Label(i18n.T("隐藏消息预览")).Clicked() {
 					p.submitBool(submit, state, "hide_notification_text", !settings.HideNotificationText)
 				}
@@ -291,8 +340,8 @@ func (p *Panels) drawSettingsTransfers(f *flex.Frame, theme ui.Theme, state doma
 	settings := state.Settings
 	panelSection(f, i18n.T("文件传输"), "", func() {
 		description := i18n.T("仅影响之后接收的文件；正在进行的传输继续使用原目录")
-		panelSettingRow(f, theme, i18n.T("默认保存位置"), description, func() {
-			panelControlColumn(f, 420, func() {
+		p.settingsRow(f, theme, i18n.T("默认保存位置"), description, func() {
+			p.settingsControl(f, 420, func() {
 				path := settings.DownloadDir
 				f.Row().FillWidth().Gap(8).Children(func() {
 					display := path
@@ -315,7 +364,7 @@ func (p *Panels) drawSettingsTransfers(f *flex.Frame, theme ui.Theme, state doma
 				}
 			})
 		})
-		panelSettingRow(f, theme, i18n.T("同名文件"), i18n.T("不覆盖已有文件"), func() {
+		p.settingsRow(f, theme, i18n.T("同名文件"), i18n.T("不覆盖已有文件"), func() {
 			selected := -1
 			for index, value := range panelDuplicateValues {
 				if settings.DuplicatePolicy == value {
@@ -323,15 +372,16 @@ func (p *Panels) drawSettingsTransfers(f *flex.Frame, theme ui.Theme, state doma
 					break
 				}
 			}
-			panelControlColumn(f, 250, func() {
+			p.settingsControl(f, 250, func() {
 				selectBox := f.Select(p.ids.duplicateChoice, &p.duplicateSelect, i18n.Labels(panelDuplicateLabels), selected).
+					FillWidth().
 					Label(i18n.T("同名文件"))
 				if index, ok := selectBox.Picked(); ok && index < len(panelDuplicateValues) {
 					p.submitString(submit, state, "duplicate_policy", panelDuplicateValues[index])
 				}
 			})
 		})
-		panelSettingRow(f, theme, i18n.T("接收方式"), i18n.T("聊天图片自动显示；其他文件在你确认后才下载"), func() {
+		p.settingsRow(f, theme, i18n.T("接收方式"), i18n.T("聊天图片自动显示；其他文件在你确认后才下载"), func() {
 			f.Text(i18n.T("文件需确认")).FontSize(12).Muted()
 		})
 	})
@@ -350,9 +400,10 @@ func (p *Panels) drawSettingsNetwork(f *flex.Frame, theme ui.Theme, state domain
 			description += i18n.T("；当前监听 ") + state.ListenAddress
 		}
 		labels, values, selected := p.networkChoicesFor(settings.Network)
-		panelSettingRow(f, theme, i18n.T("使用的网络"), description, func() {
-			panelControlColumn(f, 280, func() {
+		p.settingsRow(f, theme, i18n.T("使用的网络"), description, func() {
+			p.settingsControl(f, 280, func() {
 				selectBox := f.Select(p.ids.networkChoice, &p.networkSelect, labels, selected).
+					FillWidth().
 					Label(i18n.T("使用的网络"))
 				if index, ok := selectBox.Picked(); ok && index < len(values) {
 					value := values[index]
@@ -382,6 +433,25 @@ func (p *Panels) drawNetworkChangeConfirmation(f *flex.Frame, theme ui.Theme, su
 		i18n.T("有 %d 个传输正在进行。切换到“%s”将等待这些传输结束后生效；首期不中断当前任务，如需立即切换请先取消相关传输。"),
 		change.active, change.label,
 	)
+	if p.settingsNarrow {
+		f.Column().FillWidth().PadSides(10, 12, 10, 12).Gap(10).
+			Background(panelTint(theme.Primary, 0.06, theme.Background)).
+			Border(1, panelTint(theme.Primary, 0.20, theme.Background)).Radius(8).Children(func() {
+			f.Paragraph(text, 6).FontSize(theme.Metrics.FontSizeS + 1).
+				Width(max(p.settingsWidth-24, 160))
+			f.Row().FillWidth().Gap(8).Justify(flex.End).Children(func() {
+				if f.Button(p.ids.networkCancel, i18n.T("取消更改")).Small().Ghost().Clicked() {
+					p.networkChange = panelNetworkChange{}
+				}
+				if f.Button(p.ids.networkDefer, i18n.T("传输结束后切换")).Small().Clicked() {
+					value := change.value
+					p.networkChange = panelNetworkChange{}
+					p.submitString(submit, state, "network", value)
+				}
+			})
+		})
+		return
+	}
 	f.Row().FillWidth().PadSides(10, 12, 10, 12).Gap(12).Items(flex.Center).
 		Background(panelTint(theme.Primary, 0.06, theme.Background)).
 		Border(1, panelTint(theme.Primary, 0.20, theme.Background)).Radius(8).Children(func() {
@@ -417,117 +487,182 @@ func (p *Panels) drawSettingsShortcuts(f *flex.Frame, theme ui.Theme, state doma
 			})
 	}
 	f.Divider().FillWidth()
-	f.Row().FillWidth().PadY(8).Gap(12).Items(flex.Center).Children(func() {
-		f.Text(i18n.T("操作")).Muted().FontSize(theme.Metrics.FontSizeS).Grow(1)
-		f.Text(i18n.T("按键")).Muted().FontSize(theme.Metrics.FontSizeS).Width(190)
-		f.Text(i18n.T("作用范围")).Muted().FontSize(theme.Metrics.FontSizeS).Width(80)
-		f.Slot().Width(64)
-	})
-	f.Divider().FillWidth()
-
-	for index, shortcut := range state.Settings.Shortcuts {
-		editing := p.shortcutEdit == index
-		keys := shortcut.Keys
-		conflict := ""
-		problem := ""
-		if editing {
-			keys = p.shortcutKeys
-			conflict = panelShortcutConflict(state.Settings.Shortcuts, index, keys)
-			switch {
-			case p.shortcutError != "":
-				problem = p.shortcutError
-			case keys != "" && !panelShortcutValid(keys):
-				problem = i18n.T("快捷键需要 Ctrl、Alt、Meta 或功能键")
-			case conflict != "":
-				problem = conflict
+	groups := [...]struct {
+		title, description, scope string
+	}{
+		{title: "应用内", description: "仅在 GoIM 获得焦点时生效", scope: "应用内"},
+		{title: "全局", description: "在系统中全局注册，可显示或隐藏 GoIM", scope: "全局"},
+		{title: "其他", description: "由现有用户设置保留", scope: ""},
+	}
+	inGroup := func(shortcut domain.Shortcut, group int) bool {
+		if group < len(groups)-1 {
+			return shortcut.Scope == groups[group].scope
+		}
+		return shortcut.Scope != groups[0].scope && shortcut.Scope != groups[1].scope
+	}
+	for groupIndex, group := range groups {
+		count := 0
+		for _, shortcut := range state.Settings.Shortcuts {
+			if inGroup(shortcut, groupIndex) {
+				count++
 			}
 		}
-		f.Column().FillWidth().PadY(11).Gap(8).Children(func() {
-			f.Row().FillWidth().Gap(12).Items(flex.Center).Children(func() {
-				f.Column().Grow(1).Gap(2).Children(func() {
-					f.Text(i18n.T(shortcut.Action)).FontSize(theme.Metrics.FontSizeM).Weight(ui.WeightMedium)
-					if !editing {
-						f.Text(i18n.T("点击更改后录制组合键")).Muted().FontSize(theme.Metrics.FontSizeS)
-					}
-				})
-				panelKeycap(f, theme, keys, 190, editing)
-				f.Text(i18n.T(shortcut.Scope)).Muted().FontSize(theme.Metrics.FontSizeS).Width(80)
-				if editing {
-					f.Slot().Width(64)
-				} else if f.Button(p.ids.shortcutRecord.At(index), i18n.T("更改")).Small().Outline().Clicked() {
-					p.cancelShortcutEdit()
-					p.shortcutEdit = index
-					p.shortcutKeys = ""
-					p.shortcutError = ""
+		if count == 0 {
+			continue
+		}
+		f.Column().FillWidth().PadY(10).Gap(2).Children(func() {
+			f.Text(i18n.T(group.title)).FontSize(theme.Metrics.FontSizeM + 1).Weight(gfx.WeightSemibold)
+			f.Text(i18n.T(group.description)).Muted().FontSize(theme.Metrics.FontSizeS)
+		})
+		if !p.settingsNarrow {
+			f.Row().FillWidth().PadY(6).Gap(12).Items(flex.Center).Children(func() {
+				f.Text(i18n.T("操作")).Muted().FontSize(theme.Metrics.FontSizeS).Grow(1)
+				f.Text(i18n.T("点击键帽录制")).Muted().FontSize(theme.Metrics.FontSizeS).Width(220)
+			})
+		}
+		for index, shortcut := range state.Settings.Shortcuts {
+			if !inGroup(shortcut, groupIndex) {
+				continue
+			}
+			f.Column().FillWidth().PadY(11).Gap(7).Children(func() {
+				if p.settingsNarrow {
+					f.Column().FillWidth().Gap(2).Children(func() {
+						f.Text(i18n.T(shortcut.Action)).FontSize(theme.Metrics.FontSizeM).Weight(gfx.WeightMedium)
+						f.Text(i18n.T("点击键帽录制组合键")).Muted().FontSize(theme.Metrics.FontSizeS)
+					})
+					f.Row().FillWidth().Justify(flex.End).Children(func() {
+						if panelShortcutKeycap(f, p.ids.shortcutRecord.At(index), shortcut.Keys, min(240, p.settingsWidth)) {
+							p.beginShortcutEdit(index)
+						}
+					})
+				} else {
+					f.Row().FillWidth().Gap(12).Items(flex.Center).Children(func() {
+						f.Column().Grow(1).Gap(2).Children(func() {
+							f.Text(i18n.T(shortcut.Action)).FontSize(theme.Metrics.FontSizeM).Weight(gfx.WeightMedium)
+							f.Text(i18n.T("点击键帽录制组合键")).Muted().FontSize(theme.Metrics.FontSizeS)
+						})
+						if panelShortcutKeycap(f, p.ids.shortcutRecord.At(index), shortcut.Keys, 220) {
+							p.beginShortcutEdit(index)
+						}
+					})
 				}
 			})
-			if editing {
-				f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
-					message := problem
-					if message == "" && keys == "" {
-						message = i18n.T("请按下组合键")
-					}
-					if message != "" {
-						tone := theme.MutedForeground
-						if problem != "" {
-							tone = theme.Danger
-						}
-						f.Text(message).FontSize(theme.Metrics.FontSizeS).Color(tone).Grow(1)
-					} else {
-						f.Spacer()
-					}
-					if f.Button(p.ids.shortcutCancel.At(index), i18n.T("取消")).Small().Ghost().Clicked() {
-						p.cancelShortcutEdit()
-					}
-					if f.Button(p.ids.shortcutRecord.At(index), i18n.T("清除")).Small().Ghost().Clicked() {
-						p.shortcutKeys = ""
-						p.shortcutError = ""
-					}
-					save := f.Button(p.ids.shortcutSave.At(index), i18n.T("保存")).Small()
-					if problem != "" {
-						save = save.Disabled(true)
-					}
-					if save.Clicked() {
-						shortcuts := append([]domain.Shortcut(nil), state.Settings.Shortcuts...)
-						shortcuts[index].Keys = p.shortcutKeys
-						p.submitShortcuts(submit, state, shortcuts)
-						p.cancelShortcutEdit()
-					}
-				})
-			}
-		})
-		f.Divider().FillWidth()
+			f.Divider().FillWidth()
+		}
 	}
 	f.Text(i18n.T("发送消息使用 Enter 或 Ctrl+Enter，可在“常规”中修改。")).Muted().
 		FontSize(theme.Metrics.FontSizeS).PadY(12)
+	p.drawShortcutDialog(f, theme, state, submit)
 }
 
-func panelKeycap(f *flex.Frame, theme ui.Theme, keys string, width float32, active bool) {
+func (p *Panels) beginShortcutEdit(index int) {
+	p.cancelShortcutEdit()
+	p.shortcutEdit = index
+	p.shortcutKeys = ""
+	p.shortcutError = ""
+}
+
+func (p *Panels) drawShortcutDialog(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+	index := p.shortcutEdit
+	if index < 0 || index >= len(state.Settings.Shortcuts) {
+		if index >= 0 {
+			p.cancelShortcutEdit()
+		}
+		return
+	}
+	shortcut := state.Settings.Shortcuts[index]
+	problem := panelShortcutProblem(state.Settings.Shortcuts, index, p.shortcutKeys, p.shortcutError)
+	dialog := f.Dialog(flex.DialogSpec{
+		Title:       i18n.T("录制快捷键"),
+		Description: fmt.Sprintf(i18n.T("为“%s”按下组合键。Tab 在弹窗内移动焦点，Esc 取消。"), i18n.T(shortcut.Action)),
+		Width:       460, Scope: p.ids.shortcutDialog,
+		DismissID: p.ids.shortcutDialogDismiss, CloseID: p.ids.shortcutDialogClose,
+		InitialFocusID: p.ids.shortcutDialogSave.At(index),
+	})
+	dialog.Body(func() {
+		f.Column().Fill().Gap(10).Children(func() {
+			f.Text(i18n.T(shortcut.Action)).FontSize(theme.Metrics.FontSizeM).Weight(gfx.WeightMedium)
+			panelShortcutChord(f, theme, p.shortcutKeys)
+			message := problem
+			tone := theme.Danger
+			if message == "" && strings.TrimSpace(p.shortcutKeys) == "" {
+				message, tone = i18n.T("请按下组合键…"), theme.MutedForeground
+			}
+			if message != "" {
+				f.Text(message).FontSize(theme.Metrics.FontSizeS).Color(tone)
+			}
+		})
+	})
+	dialog.Footer(func() {
+		if f.Button(p.ids.shortcutDialogReset.At(index), i18n.T("使用默认")).Small().Outline().Clicked() {
+			p.shortcutKeys = panelShortcutDefaultKeys(state.Settings, shortcut.Action)
+			p.shortcutError = ""
+		}
+		if f.Button(p.ids.shortcutDialogClear.At(index), i18n.T("清除")).Small().Ghost().Clicked() {
+			p.shortcutKeys = ""
+			p.shortcutError = ""
+		}
+		if f.Button(p.ids.shortcutDialogCancel.At(index), i18n.T("取消")).Small().Ghost().Clicked() {
+			p.cancelShortcutEdit()
+			return
+		}
+		save := f.Button(p.ids.shortcutDialogSave.At(index), i18n.T("保存")).Small()
+		if problem != "" {
+			save = save.Disabled(true)
+		}
+		if save.Clicked() && problem == "" {
+			shortcuts := append([]domain.Shortcut(nil), state.Settings.Shortcuts...)
+			shortcuts[index].Keys = p.shortcutKeys
+			p.submitShortcuts(submit, state, shortcuts)
+			p.cancelShortcutEdit()
+		}
+	})
+	if dialog.Dismissed() {
+		p.cancelShortcutEdit()
+	}
+}
+
+func panelShortcutProblem(shortcuts []domain.Shortcut, index int, keys, recordingError string) string {
+	switch {
+	case recordingError != "":
+		return recordingError
+	case keys != "" && !panelShortcutValid(keys):
+		return i18n.T("快捷键需要 Ctrl、Alt、Meta 或功能键")
+	default:
+		return panelShortcutConflict(shortcuts, index, keys)
+	}
+}
+
+func panelShortcutDefaultKeys(settings domain.Settings, action string) string {
+	for _, shortcut := range domain.DefaultSettings(settings.DownloadDir).Shortcuts {
+		if shortcut.Action == action {
+			return shortcut.Keys
+		}
+	}
+	return ""
+}
+
+func panelShortcutKeycap(f *flex.Frame, id gfx.ID, keys string, width float32) bool {
 	display := keys
 	if strings.TrimSpace(display) == "" {
 		display = i18n.T("未设置")
 	}
-	foreground := theme.Foreground
-	border := theme.Border
-	background := theme.Background
-	if strings.TrimSpace(keys) == "" {
-		foreground = theme.MutedForeground
+	return f.Button(id, display).Small().Outline().Width(width).Clicked()
+}
+
+func panelShortcutChord(f *flex.Frame, theme ui.Theme, keys string) {
+	display := keys
+	if strings.TrimSpace(display) == "" {
+		display = i18n.T("请按下组合键…")
 	}
-	if active {
-		border = panelAccentText(theme)
-		background = panelAccentSurface(theme)
-		foreground = panelAccentText(theme)
-		if strings.TrimSpace(keys) == "" {
-			display = i18n.T("请按下组合键…")
-		}
-	}
-	f.Row().Width(width).Height(28).PadX(9).Border(1, border).Background(background).
-		Radius(6).Items(flex.Center).Children(func() {
-		f.Text(display).Grow(1).FontSize(theme.Metrics.FontSizeS + 1).Color(foreground).Ellipsis()
+	f.Row().FillWidth().Height(38).PadX(12).Border(1, panelAccentText(theme)).
+		Background(panelAccentSurface(theme)).
+		Radius(theme.Metrics.RadiusControl).Items(flex.Center).Children(func() {
+		f.Text(display).Grow(1).FontSize(theme.Metrics.FontSizeM).Weight(gfx.WeightMedium).Ellipsis()
 	})
 }
 
-func panelKeyboardConfirm(f *flex.Frame, theme ui.Theme, text string, cancelID, confirmID ui.ID, cancel, confirm func()) {
+func panelKeyboardConfirm(f *flex.Frame, theme ui.Theme, text string, cancelID, confirmID gfx.ID, cancel, confirm func()) {
 	f.Row().FillWidth().PadSides(10, 12, 10, 12).Gap(12).Items(flex.Center).
 		Background(panelTint(theme.Primary, 0.06, theme.Background)).
 		Border(1, panelTint(theme.Primary, 0.20, theme.Background)).Radius(8).Children(func() {
@@ -541,96 +676,7 @@ func panelKeyboardConfirm(f *flex.Frame, theme ui.Theme, text string, cancelID, 
 	})
 }
 
-func (p *Panels) drawSettingsAbout(f *flex.Frame, theme ui.Theme, state domain.State, submit func(domain.Command)) {
-	if p.aboutLicense {
-		p.drawLicense(f, theme)
-		return
-	}
-	f.Row().FillWidth().Gap(16).PadY(12).Items(flex.Center).Children(func() {
-		f.Row().Width(54).Height(54).Radius(13).Background(theme.Primary).Items(flex.Center).
-			Justify(flex.Center).Children(func() {
-			f.Icon(panelIconInfo).Size(26, 26).Color(theme.PrimaryForeground)
-		})
-		f.Column().Grow(1).Gap(3).Children(func() {
-			f.Text("GoIM").FontSize(22).Weight(ui.WeightSemibold)
-			f.Paragraph(i18n.T("局域网内的原生即时通讯与文件传输工具。"), 2).Muted().
-				FontSize(theme.Metrics.FontSizeS + 1)
-		})
-	})
-
-	panelSectionGap(f)
-	panelSection(f, i18n.T("构建"), "", func() {
-		version := state.Version
-		if strings.TrimSpace(version) == "" {
-			version = i18n.T("未提供")
-		}
-		build := p.build.revision
-		if build == "" {
-			build = i18n.T("未提供")
-		}
-		if p.build.buildTime != "" {
-			build += " · " + p.build.buildTime
-		}
-		panelInfoRow(f, theme, i18n.T("应用版本"), version)
-		panelInfoRow(f, theme, i18n.T("构建"), build)
-		panelInfoRow(f, theme, "Go", p.build.goVersion)
-		panelInfoRow(f, theme, "Viva", p.build.vivaVersion)
-	})
-	f.Row().FillWidth().PadY(16).Gap(10).Items(flex.Center).Children(func() {
-		if f.Button(p.ids.aboutCopyVersion, i18n.T("复制版本信息")).Small().Outline().Clicked() {
-			panelCopy(f.Canvas(), p, panelVersionReport(state, p.build))
-		}
-		if f.Button(p.ids.aboutLicense, i18n.T("开源许可")).Small().Outline().Clicked() {
-			p.aboutLicense = true
-			p.localError = ""
-			p.localNotice = ""
-		}
-	})
-	f.Paragraph(i18n.T("复制的内容只包含版本与构建信息，不包含聊天内容、联系人、文件路径或本机地址。"), 3).
-		Muted().FontSize(theme.Metrics.FontSizeS)
-}
-
-func panelInfoRow(f *flex.Frame, theme ui.Theme, label, value string) {
-	f.Row().FillWidth().PadY(11).Gap(20).Items(flex.Start).Children(func() {
-		f.Text(label).Muted().FontSize(theme.Metrics.FontSizeS + 1).Width(130)
-		f.Paragraph(value, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1)
-	})
-	f.Divider().FillWidth()
-}
-
-func (p *Panels) drawLicense(f *flex.Frame, theme ui.Theme) {
-	f.Row().FillWidth().Gap(8).PadY(8).Items(flex.Center).Children(func() {
-		if f.Button(p.ids.aboutBack, i18n.T("返回关于")).Small().Ghost().Clicked() {
-			p.aboutLicense = false
-		}
-		f.Spacer()
-		if f.Button(p.ids.aboutCopyLicense, i18n.T("复制许可摘要")).Small().Outline().Clicked() {
-			panelCopy(f.Canvas(), p, panelLicenseText)
-		}
-	})
-	f.Divider().FillWidth()
-	for _, paragraph := range strings.Split(panelLicenseText, "\n\n") {
-		f.Paragraph(paragraph, 40).FontSize(theme.Metrics.FontSizeS + 1).PadY(10)
-	}
-}
-
-func panelVersionReport(state domain.State, build panelBuildInfo) string {
-	version := state.Version
-	if strings.TrimSpace(version) == "" {
-		version = i18n.T("未提供")
-	}
-	revision := build.revision
-	if revision == "" {
-		revision = i18n.T("未提供")
-	}
-	line := fmt.Sprintf(i18n.T("GoIM %s\nGo %s\nViva %s\n构建 %s"), version, build.goVersion, build.vivaVersion, revision)
-	if build.buildTime != "" {
-		line += i18n.T("\n构建时间 ") + build.buildTime
-	}
-	return line
-}
-
-func (p *Panels) chooseDownloadDirectory(canvas *ui.Canvas, submit func(domain.Command), state domain.State) {
+func (p *Panels) chooseDownloadDirectory(canvas *gfx.Canvas, submit func(domain.Command), state domain.State) {
 	canvas.AfterPaint(func() {
 		path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: i18n.T("选择默认保存位置")})
 		switch {
