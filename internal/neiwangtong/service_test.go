@@ -191,6 +191,11 @@ func TestProfileBootstrapPromotesToMainControlConnection(t *testing.T) {
 
 func TestServiceLocalLoopback(t *testing.T) {
 	texts := make(chan string, 4)
+	type receipt struct {
+		peer   string
+		packet uint64
+	}
+	receipts := make(chan receipt, 1)
 	offers := make(chan XMLSendFile, 4)
 	avatars := make(chan []byte, 8)
 	peers := make(chan Peer, 16)
@@ -208,6 +213,9 @@ func TestServiceLocalLoopback(t *testing.T) {
 		Name: "Sender", BindIP: loopback, DisableBroadcast: true, ID: [16]byte{2},
 		DiscoveryPort: freePort(t, "udp"), ControlPort: freePort(t, "udp"), TransferPort: freePort(t, "tcp"),
 		AvatarPNG: createTestPNG(),
+		Callbacks: Callbacks{
+			TextAcknowledged: func(peerID string, packetID uint64) { receipts <- receipt{peerID, packetID} },
+		},
 	}
 	aCfg.RemoteControlPort = bCfg.ControlPort
 	bCfg.RemoteControlPort = aCfg.ControlPort
@@ -238,11 +246,15 @@ func TestServiceLocalLoopback(t *testing.T) {
 		t.Fatal(err)
 	}
 	message := "本机消息 & <文本> 😀 " + string(bytes.Repeat([]byte("a"), 3000))
-	if err := b.SendText(a.selfID, message); err != nil {
+	const packetID = 751
+	if err := b.SendTextWithID(a.selfID, packetID, message); err != nil {
 		t.Fatal(err)
 	}
 	if got := waitEvent(t, texts); got != message {
 		t.Fatal("reassembled message differs")
+	}
+	if got := waitEvent(t, receipts); got != (receipt{a.selfID, packetID}) {
+		t.Fatalf("application receipt = %+v", got)
 	}
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.txt")

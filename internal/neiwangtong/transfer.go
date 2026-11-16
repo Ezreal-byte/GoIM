@@ -447,11 +447,7 @@ func openReverseFileChannel(ctx context.Context, bind netip.Addr, target netip.A
 	if fileID == 0 || fileID > maxFileSelector || !validUnicast(target) {
 		return nil, errors.New("invalid native reverse file request")
 	}
-	d := net.Dialer{Timeout: 5 * time.Second}
-	if bind.IsValid() && bind.Is4() && !bind.IsUnspecified() {
-		d.LocalAddr = &net.TCPAddr{IP: net.IP(bind.AsSlice())}
-	}
-	conn, err := d.DialContext(ctx, "tcp4", target.String())
+	conn, err := dialTransfer(ctx, bind, target)
 	if err != nil {
 		return nil, err
 	}
@@ -468,13 +464,21 @@ func openReverseFileChannel(ctx context.Context, bind netip.Addr, target netip.A
 	return conn, nil
 }
 
-// DownloadFile connects to remote TCP 9013, requests the file by taskID, and writes to destPath.
-func DownloadFile(ctx context.Context, target netip.AddrPort, taskID uint64, totalSize int64, destPath string, onProgress func(done, total int64)) error {
-	if taskID == 0 || taskID > maxFileSelector || !validFileSize(totalSize) || !validUnicast(target) {
+// dialTransfer uses the same local address as the control session. The sender
+// checks that the download comes from the peer it offered the file to.
+func dialTransfer(ctx context.Context, bind netip.Addr, target netip.AddrPort) (net.Conn, error) {
+	d := net.Dialer{Timeout: 5 * time.Second}
+	if bind.Is4() && !bind.IsUnspecified() {
+		d.LocalAddr = net.TCPAddrFromAddrPort(netip.AddrPortFrom(bind, 0))
+	}
+	return d.DialContext(ctx, "tcp4", target.String())
+}
+
+func downloadFile(ctx context.Context, bind netip.Addr, target netip.AddrPort, fileID uint64, totalSize int64, destPath string, onProgress func(done, total int64)) error {
+	if fileID == 0 || fileID > maxFileSelector || !validFileSize(totalSize) || !validUnicast(target) {
 		return errors.New("invalid native file transfer")
 	}
-	d := net.Dialer{Timeout: 5 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp4", target.String())
+	conn, err := dialTransfer(ctx, bind, target)
 	if err != nil {
 		return err
 	}
@@ -484,7 +488,7 @@ func DownloadFile(ctx context.Context, target netip.AddrPort, taskID uint64, tot
 	_ = conn.SetDeadline(time.Now().Add(12 * time.Second))
 
 	// Send Command 3 (108 bytes)
-	if _, err := conn.Write(nativeFileRequest(uint32(taskID))); err != nil {
+	if _, err := conn.Write(nativeFileRequest(uint32(fileID))); err != nil {
 		return err
 	}
 
@@ -496,7 +500,7 @@ func DownloadFile(ctx context.Context, target netip.AddrPort, taskID uint64, tot
 	ver := binary.BigEndian.Uint32(header[4:8])
 	cmd := binary.BigEndian.Uint32(header[8:12])
 	if ver != 1 || cmd != 4 || binary.BigEndian.Uint32(header[:]) != uint32(100+totalSize) ||
-		binary.BigEndian.Uint32(header[56:]) != uint32(taskID) {
+		binary.BigEndian.Uint32(header[56:]) != uint32(fileID) {
 		return errors.New("invalid file response command from native peer")
 	}
 

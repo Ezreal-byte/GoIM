@@ -133,18 +133,22 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	}
 	_ = transferProbe.Close()
 	outgoing := make(chan string, 2)
+	offers := make(chan neiwangtong.XMLSendFile, 2)
 	profile := neiwangtong.Peer{Name: "Peer", Sign: "签名", Company: "测试组"}
 	remoteCfg := neiwangtong.Config{
 		ID: remoteID, Profile: profile, AvatarPNG: nativeTestAvatar(t, 30), BindIP: remoteIP, DisableBroadcast: true,
 		DiscoveryPort: freeCompatibilityPort(t), ControlPort: 9012, RemoteControlPort: 9012, TransferPort: 9013,
-		Callbacks: neiwangtong.Callbacks{Text: func(_ string, _ uint64, text string) { outgoing <- text }},
+		Callbacks: neiwangtong.Callbacks{
+			Text:  func(_ string, _ uint64, text string) { outgoing <- text },
+			Files: func(_ string, offer neiwangtong.XMLSendFile) { offers <- offer },
+		},
 	}
 	remote, err := neiwangtong.Start(remoteCfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer remote.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := remote.Probe(ctx, netip.AddrPortFrom(localIP, uint16(port)), 9012, 9013); err != nil {
 		t.Fatal(err)
@@ -220,6 +224,61 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	if err != nil || sha256.Sum256(got) != sha256.Sum256(content) {
 		t.Fatalf("file verification: %v", err)
 	}
+	outgoingFile := filepath.Join(t.TempDir(), "GoIM 发出的文件.txt")
+	outgoingBytes := []byte("GoIM 至内网通的文件内容")
+	if err := os.WriteFile(outgoingFile, outgoingBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	nextOffer := func() neiwangtong.XMLSendFile {
+		t.Helper()
+		if err := n.execute(domain.Command{Kind: domain.SendFiles, ConversationID: conv, Paths: []string{outgoingFile}}); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case offer := <-offers:
+			if offer.Name != filepath.Base(outgoingFile) || offer.Size != int64(len(outgoingBytes)) ||
+				offer.TaskID == 0 || offer.FileID == 0 || offer.TaskID == offer.FileID {
+				t.Fatalf("GoIM file offer: %+v", offer)
+			}
+			return offer
+		case <-ctx.Done():
+			t.Fatalf("GoIM file offer: %v", ctx.Err())
+			return neiwangtong.XMLSendFile{}
+		}
+	}
+	awaitSentTransfer := func(offer neiwangtong.XMLSendFile, status string) {
+		t.Helper()
+		eventually(t, "GoIM outgoing native transfer "+status, func() bool {
+			for _, transfer := range n.Snapshot().Transfers {
+				if transfer.Direction == "send" && transfer.LegacyTransport == transportNWT &&
+					transfer.RemotePacket == fmt.Sprint(offer.TaskID) && transfer.RemoteFile == fmt.Sprint(offer.FileID) &&
+					transfer.Status == status {
+					return status != "completed" || transfer.Done == transfer.Size
+				}
+			}
+			return false
+		})
+	}
+	offer := nextOffer()
+	awaitSentTransfer(offer, "offered")
+	peerDest := filepath.Join(t.TempDir(), offer.Name)
+	if err := remote.AcceptFile(ctx, selfID, offer.TaskID, offer.FileID, offer.Size, peerDest, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(peerDest); err != nil || sha256.Sum256(got) != sha256.Sum256(outgoingBytes) {
+		t.Fatalf("peer file SHA-256 mismatch: %v", err)
+	}
+	awaitSentTransfer(offer, "completed")
+
+	rejected := nextOffer()
+	if rejected.TaskID == offer.TaskID || rejected.FileID == offer.FileID {
+		t.Fatalf("new offer reused selectors: %+v", rejected)
+	}
+	if err := remote.RejectFile(selfID, rejected.TaskID); err != nil {
+		t.Fatal(err)
+	}
+	awaitSentTransfer(rejected, "rejected")
+
 	profile.Name = "Updated"
 	remote.UpdateProfile(profile, nativeTestAvatar(t, 90))
 	eventually(t, "changed avatar and profile", func() bool {

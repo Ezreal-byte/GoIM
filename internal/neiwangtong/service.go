@@ -26,11 +26,14 @@ type Peer struct {
 }
 
 type Callbacks struct {
-	Peer          func(Peer)
-	Text          func(peerID string, packetID uint64, text string)
-	Files         func(peerID string, offer XMLSendFile)
-	FileProgress  func(peerID string, taskID uint64, done, total int64, complete bool, err error)
-	AvatarUpdated func(peerID string, revision uint64, png []byte)
+	Peer func(Peer)
+	Text func(peerID string, packetID uint64, text string)
+	// TextAcknowledged reports the application's receipt from an established peer.
+	// An ENet acknowledgement alone only confirms transport delivery.
+	TextAcknowledged func(peerID string, packetID uint64)
+	Files            func(peerID string, offer XMLSendFile)
+	FileProgress     func(peerID string, taskID uint64, done, total int64, complete bool, err error)
+	AvatarUpdated    func(peerID string, revision uint64, png []byte)
 }
 
 type Config struct {
@@ -629,6 +632,12 @@ func (s *Service) onENetCommand(remote netip.AddrPort, kind uint32, plain []byte
 				s.cfg.Callbacks.Text(id, msgID, text)
 			}
 		}
+	case CmdSendMsgAck:
+		if notify := s.cfg.Callbacks.TextAcknowledged; notify != nil {
+			if packetID, err := ParseSendMsgAck(plain); err == nil && packetID != 0 {
+				notify(id, packetID)
+			}
+		}
 	case CmdSendFile:
 		offer, err := ParseSendFile(plain)
 		if err == nil && offer.TaskID != 0 && offer.FileID != 0 && offer.Pwd == "" && validFileSize(offer.Size) &&
@@ -1026,7 +1035,7 @@ func (s *Service) AcceptFile(ctx context.Context, peerID string, taskID, fileID 
 	case <-s.ctx.Done():
 		return s.ctx.Err()
 	}
-	err = DownloadFile(ctx, tcp, fileID, total, destPath, func(done, total int64) {
+	err = downloadFile(ctx, s.cfg.BindIP, tcp, fileID, total, destPath, func(done, total int64) {
 		if progress != nil {
 			progress(done)
 		}

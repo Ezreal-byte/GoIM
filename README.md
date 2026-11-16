@@ -73,6 +73,8 @@ Native chat uses TCP 47842 and IPv4 multicast at `239.192.77.77:47841` for disco
 
 GoIM peers use the native TLS protocol. New profiles enable **Neiwangtong** (UDP 9011 discovery, ENet 9012 control, and TCP 9013 avatar/file streaming) and **IP Messenger / FeiQ** (port 2425). Manage the adapters independently under **Settings → Network**, or start GoIM with `--no-compatibility` for a GoIM-only run.
 
+See the [Neiwangtong test guide](docs/neiwangtong-testing.md) for automated loopback regression and checks against the original client.
+
 ## Build from source
 
 Use the Go version pinned by CI (currently 1.27.3). Go downloads the exact Viva revision from [`go.mod`](go.mod). When working on Viva itself, you can make a local Go workspace that includes both repositories.

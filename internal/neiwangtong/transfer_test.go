@@ -63,7 +63,7 @@ func TestTransferServerAvatarAndFile(t *testing.T) {
 
 	destFile := filepath.Join(tmpDir, "dest.txt")
 	var lastDone, lastTotal int64
-	err = DownloadFile(context.Background(), target, taskID, int64(len(testData)), destFile, func(done, total int64) {
+	err = downloadFile(context.Background(), loopback, target, taskID, int64(len(testData)), destFile, func(done, total int64) {
 		lastDone, lastTotal = done, total
 	})
 	if err != nil {
