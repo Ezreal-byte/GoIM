@@ -32,7 +32,7 @@ func TestProbeDiscoversClassicDialectsFromTheServicePort(t *testing.T) {
 			defer remote.Close()
 			peers := make(chan Peer, 4)
 			port := freeIPMSGPort(t)
-			service, err := Start(Config{Host: "goim-host", Name: "小明", Port: port, Callbacks: Callbacks{Peer: func(peer Peer) {
+			service, err := Start(Config{Host: "goim-host", Name: "小明", Port: port, RequireFiles: true, Callbacks: Callbacks{Peer: func(peer Peer) {
 				peers <- peer
 			}}})
 			if err != nil {
@@ -293,12 +293,12 @@ func TestDownloadFromClassicFileSender(t *testing.T) {
 func freeIPMSGPort(t *testing.T) int {
 	t.Helper()
 	for range 16 {
-		packet, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		packet, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero})
 		if err != nil {
 			t.Fatal(err)
 		}
 		port := packet.LocalAddr().(*net.UDPAddr).Port
-		listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+		listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4zero, Port: port})
 		_ = packet.Close()
 		if err == nil {
 			_ = listener.Close()
