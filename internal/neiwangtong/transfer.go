@@ -29,11 +29,12 @@ const maxFileSelector = math.MaxUint32
 const (
 	nativeReverseFileCommand = 100
 	nativeReverseFileFrame   = 560
+	nativeFileHeader         = 100
 )
 
 var ErrFileRejected = errors.New("对方拒绝了文件")
 
-func validFileSize(size int64) bool { return size >= 0 && size <= math.MaxUint32-100 }
+func validFileSize(size int64) bool { return size >= 0 && size <= math.MaxUint32-nativeFileHeader }
 
 type TransferServer struct {
 	listener      net.Listener
@@ -47,26 +48,28 @@ type TransferServer struct {
 	filesMu       sync.RWMutex
 	files         map[uint64]OutgoingFile
 	onProgress    func(taskID uint64, done, total int64)
-	onReverse     func(fileID uint64, remote netip.Addr)
-	reverseWaitMu sync.Mutex
-	reverseWait   map[uint64]chan reverseSignal
 	reverseMu     sync.Mutex
-	reverseActive map[uint64]net.Conn
+	reverseWait   map[reverseKey]*incomingReverse
 	avatarAllowed func(netip.Addr) bool
 	active        sync.Map
 	slots         chan struct{}
 }
 
-type reverseSignal struct {
-	remote netip.Addr
-	err    error
+type reverseKey struct {
+	remote   netip.Addr
+	selector uint64
+}
+
+type incomingReverse struct {
+	ready chan struct{}
+	conn  net.Conn
 }
 
 func StartTransferServer(bind netip.Addr, port int, onProgress func(taskID uint64, done, total int64)) (*TransferServer, error) {
-	return startTransferServer(bind, port, onProgress, nil, nil)
+	return startTransferServer(bind, port, onProgress, nil)
 }
 
-func startTransferServer(bind netip.Addr, port int, onProgress func(taskID uint64, done, total int64), avatarAllowed func(netip.Addr) bool, onReverse func(fileID uint64, remote netip.Addr)) (*TransferServer, error) {
+func startTransferServer(bind netip.Addr, port int, onProgress func(taskID uint64, done, total int64), avatarAllowed func(netip.Addr) bool) (*TransferServer, error) {
 	bindStr := fmt.Sprintf(":%d", port)
 	if bind.IsValid() && bind.Is4() {
 		bindStr = fmt.Sprintf("%s:%d", bind.String(), port)
@@ -92,9 +95,7 @@ func startTransferServer(bind netip.Addr, port int, onProgress func(taskID uint6
 		reversePort:   reverse.Addr().(*net.TCPAddr).Port,
 		files:         make(map[uint64]OutgoingFile),
 		onProgress:    onProgress,
-		onReverse:     onReverse,
-		reverseWait:   make(map[uint64]chan reverseSignal),
-		reverseActive: make(map[uint64]net.Conn),
+		reverseWait:   make(map[reverseKey]*incomingReverse),
 		avatarAllowed: avatarAllowed,
 		slots:         make(chan struct{}, 16),
 	}
@@ -158,21 +159,15 @@ func (s *TransferServer) UnregisterFile(fileID uint64) {
 	delete(s.files, fileID)
 }
 
-func (s *TransferServer) expectReverse(fileID uint64) <-chan reverseSignal {
-	s.reverseWaitMu.Lock()
-	defer s.reverseWaitMu.Unlock()
-	if existing := s.reverseWait[fileID]; existing != nil {
-		return existing
+func (s *TransferServer) expectReverse(key reverseKey) (<-chan struct{}, error) {
+	s.reverseMu.Lock()
+	defer s.reverseMu.Unlock()
+	if s.reverseWait[key] != nil {
+		return nil, errors.New("native file transfer is already pending")
 	}
-	ready := make(chan reverseSignal, 1)
-	s.reverseWait[fileID] = ready
-	return ready
-}
-
-func (s *TransferServer) clearReverse(fileID uint64) {
-	s.reverseWaitMu.Lock()
-	delete(s.reverseWait, fileID)
-	s.reverseWaitMu.Unlock()
+	ready := make(chan struct{})
+	s.reverseWait[key] = &incomingReverse{ready: ready}
+	return ready, nil
 }
 
 func (s *TransferServer) acceptLoop() {
@@ -245,13 +240,19 @@ func (s *TransferServer) handleConnection(conn net.Conn) {
 		// reconnecting.
 		switch cmd {
 		case 1:
-			if selector != avatarSelector {
-				return
+			if selector == avatarSelector {
+				if addr, ok := conn.RemoteAddr().(*net.TCPAddr); !ok || s.avatarAllowed != nil && !s.avatarAllowed(addr.AddrPort().Addr().Unmap()) {
+					return
+				}
+				s.serveAvatar(conn)
+			} else {
+				if _, ok := s.fileForRequest(conn, selector); !ok {
+					return
+				}
+				if err := writeTransferConfirmation(conn, selector); err != nil {
+					return
+				}
 			}
-			if addr, ok := conn.RemoteAddr().(*net.TCPAddr); !ok || s.avatarAllowed != nil && !s.avatarAllowed(addr.AddrPort().Addr().Unmap()) {
-				return
-			}
-			s.serveAvatar(conn)
 		case 3:
 			s.serveFile(conn, selector)
 			return
@@ -275,46 +276,31 @@ func (s *TransferServer) handleReverseConnection(conn net.Conn) {
 	if !ok {
 		return
 	}
-	remote := remoteAddr.AddrPort().Addr().Unmap()
+	key := reverseKey{remote: remoteAddr.AddrPort().Addr().Unmap(), selector: selector}
 	s.reverseMu.Lock()
-	if previous := s.reverseActive[selector]; previous != nil && previous != conn {
-		_ = previous.Close()
-	}
-	s.reverseActive[selector] = conn
-	s.reverseMu.Unlock()
-	defer func() {
-		s.reverseMu.Lock()
-		if s.reverseActive[selector] == conn {
-			delete(s.reverseActive, selector)
-		}
+	waiter := s.reverseWait[key]
+	if waiter == nil || waiter.conn != nil {
 		s.reverseMu.Unlock()
-	}()
-	if s.onReverse != nil {
-		s.onReverse(selector, remote)
+		return
 	}
-	s.reverseWaitMu.Lock()
-	ready := s.reverseWait[selector]
-	s.reverseWaitMu.Unlock()
-	if ready != nil {
-		select {
-		case ready <- reverseSignal{remote: remote}:
-		default:
-		}
-	}
+	waiter.conn = conn
+	close(waiter.ready)
+	s.reverseMu.Unlock()
 	// The native sender keeps this bootstrap connection open until the
 	// separate cmd=3 transfer finishes. Closing it immediately after cmd=100
 	// makes the original client cancel the pending transfer.
 	_ = conn.SetDeadline(time.Time{})
-	_, _ = io.Copy(io.Discard, conn)
+	var unexpected [1]byte
+	_, _ = io.ReadFull(conn, unexpected[:])
 }
 
-func (s *TransferServer) finishReverse(fileID uint64) {
+func (s *TransferServer) finishReverse(key reverseKey) {
 	s.reverseMu.Lock()
-	conn := s.reverseActive[fileID]
-	delete(s.reverseActive, fileID)
+	waiter := s.reverseWait[key]
+	delete(s.reverseWait, key)
 	s.reverseMu.Unlock()
-	if conn != nil {
-		_ = conn.Close()
+	if waiter != nil && waiter.conn != nil {
+		_ = waiter.conn.Close()
 	}
 }
 
@@ -352,13 +338,7 @@ func (s *TransferServer) serveAvatar(conn net.Conn) {
 		return
 	}
 
-	// 1. Send Command 2 confirmation (108 bytes)
-	confirm := make([]byte, 108)
-	binary.BigEndian.PutUint32(confirm[0:4], 108)
-	binary.BigEndian.PutUint32(confirm[4:8], 1)
-	binary.BigEndian.PutUint32(confirm[8:12], 2) // cmd 2
-	binary.BigEndian.PutUint32(confirm[56:60], avatarSelector)
-	if _, err := conn.Write(confirm); err != nil {
+	if err := writeTransferConfirmation(conn, avatarSelector); err != nil {
 		return
 	}
 
@@ -373,14 +353,27 @@ func (s *TransferServer) serveAvatar(conn net.Conn) {
 	_, _ = conn.Write(frame)
 }
 
-func (s *TransferServer) serveFile(conn net.Conn, taskID uint64) {
+func writeTransferConfirmation(w io.Writer, selector uint64) error {
+	confirm := make([]byte, 108)
+	binary.BigEndian.PutUint32(confirm[0:4], 108)
+	binary.BigEndian.PutUint32(confirm[4:8], 1)
+	binary.BigEndian.PutUint32(confirm[8:12], 2) // cmd 2
+	binary.BigEndian.PutUint32(confirm[56:60], uint32(selector))
+	_, err := w.Write(confirm)
+	return err
+}
+
+func (s *TransferServer) fileForRequest(conn net.Conn, selector uint64) (OutgoingFile, bool) {
 	s.filesMu.RLock()
-	file, ok := s.files[taskID]
+	file, ok := s.files[selector]
 	s.filesMu.RUnlock()
+	addr, isTCP := conn.RemoteAddr().(*net.TCPAddr)
+	return file, ok && isTCP && (!file.Recipient.IsValid() || file.Recipient == addr.AddrPort().Addr().Unmap())
+}
+
+func (s *TransferServer) serveFile(conn net.Conn, selector uint64) {
+	file, ok := s.fileForRequest(conn, selector)
 	if !ok {
-		return
-	}
-	if addr, ok := conn.RemoteAddr().(*net.TCPAddr); !ok || file.Recipient.IsValid() && file.Recipient != addr.AddrPort().Addr().Unmap() {
 		return
 	}
 
@@ -395,13 +388,14 @@ func (s *TransferServer) serveFile(conn net.Conn, taskID uint64) {
 		return
 	}
 
-	totalLen := 100 + file.Size
-	// Send 100-byte Command 4 header
-	header := make([]byte, 100)
+	totalLen := nativeFileHeader + file.Size
+	header := make([]byte, nativeFileHeader)
 	binary.BigEndian.PutUint32(header[0:4], uint32(totalLen))
 	binary.BigEndian.PutUint32(header[4:8], 1)
 	binary.BigEndian.PutUint32(header[8:12], 4) // cmd 4
-	binary.BigEndian.PutUint32(header[56:60], uint32(taskID))
+	binary.BigEndian.PutUint32(header[56:60], uint32(selector))
+	binary.BigEndian.PutUint32(header[64:68], uint32(file.Size))
+	binary.BigEndian.PutUint32(header[76:80], uint32(file.Size))
 	if _, err := conn.Write(header); err != nil {
 		return
 	}
@@ -411,7 +405,7 @@ func (s *TransferServer) serveFile(conn net.Conn, taskID uint64) {
 	buf := make([]byte, 32*1024)
 	for done < file.Size {
 		s.filesMu.RLock()
-		_, allowed := s.files[taskID]
+		_, allowed := s.files[selector]
 		s.filesMu.RUnlock()
 		if !allowed || s.closing.Load() {
 			return
@@ -474,7 +468,7 @@ func dialTransfer(ctx context.Context, bind netip.Addr, target netip.AddrPort) (
 	return d.DialContext(ctx, "tcp4", target.String())
 }
 
-func downloadFile(ctx context.Context, bind netip.Addr, target netip.AddrPort, fileID uint64, totalSize int64, destPath string, onProgress func(done, total int64)) error {
+func downloadFile(ctx context.Context, bind netip.Addr, target netip.AddrPort, fileID uint64, totalSize int64, destPath string, confirm bool, onProgress func(done, total int64)) error {
 	if fileID == 0 || fileID > maxFileSelector || !validFileSize(totalSize) || !validUnicast(target) {
 		return errors.New("invalid native file transfer")
 	}
@@ -487,21 +481,23 @@ func downloadFile(ctx context.Context, bind netip.Addr, target netip.AddrPort, f
 	defer stop()
 	_ = conn.SetDeadline(time.Now().Add(12 * time.Second))
 
+	if confirm {
+		if _, err := conn.Write(transferOpenRequest(uint32(fileID))); err != nil {
+			return err
+		}
+		confirmation, err := readNativeTCPFrame(conn, 108)
+		if err != nil {
+			return fmt.Errorf("failed to read native file confirmation: %w", err)
+		}
+		if len(confirmation) != 108 || binary.BigEndian.Uint32(confirmation[8:12]) != 2 ||
+			binary.BigEndian.Uint32(confirmation[56:60]) != uint32(fileID) {
+			return errors.New("invalid native file confirmation")
+		}
+	}
+
 	// Send Command 3 (108 bytes)
 	if _, err := conn.Write(nativeFileRequest(uint32(fileID))); err != nil {
 		return err
-	}
-
-	// Read Command 4 header (100 bytes)
-	var header [100]byte
-	if _, err := io.ReadFull(conn, header[:]); err != nil {
-		return fmt.Errorf("failed to read response header: %w", err)
-	}
-	ver := binary.BigEndian.Uint32(header[4:8])
-	cmd := binary.BigEndian.Uint32(header[8:12])
-	if ver != 1 || cmd != 4 || binary.BigEndian.Uint32(header[:]) != uint32(100+totalSize) ||
-		binary.BigEndian.Uint32(header[56:]) != uint32(fileID) {
-		return errors.New("invalid file response command from native peer")
 	}
 
 	out, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
@@ -516,35 +512,11 @@ func downloadFile(ctx context.Context, bind netip.Addr, target netip.AddrPort, f
 		}
 	}()
 
-	var done int64
-	buf := make([]byte, 32*1024)
-	for done < totalSize {
-		select {
-		case <-ctx.Done():
+	if err := receiveFileFrames(conn, out, uint32(fileID), totalSize, onProgress); err != nil {
+		if ctx.Err() != nil {
 			return ctx.Err()
-		default:
 		}
-		_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
-		n, err := conn.Read(buf[:min(int64(len(buf)), totalSize-done)])
-		if n > 0 {
-			if _, werr := out.Write(buf[:n]); werr != nil {
-				return werr
-			}
-			done += int64(n)
-			if onProgress != nil {
-				onProgress(done, totalSize)
-			}
-		}
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return err
-		}
-	}
-
-	if done < totalSize {
-		return fmt.Errorf("incomplete file: got %d of %d bytes", done, totalSize)
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -556,6 +528,50 @@ func downloadFile(ctx context.Context, bind netip.Addr, target netip.AddrPort, f
 		return err
 	}
 	complete = true
+	return nil
+}
+
+// Native clients send successive Command 4 records with a total length,
+// byte offset and block size. Older GoIM sends one record with those fields
+// unset. Neither format can write beyond the size announced in the offer.
+func receiveFileFrames(conn net.Conn, out io.Writer, selector uint32, total int64, progress func(int64, int64)) error {
+	var header [nativeFileHeader]byte
+	var done int64
+	buf := make([]byte, 32*1024)
+	for first := true; first || done < total; first = false {
+		_ = conn.SetReadDeadline(time.Now().Add(12 * time.Second))
+		if _, err := io.ReadFull(conn, header[:]); err != nil {
+			return fmt.Errorf("read native file frame after %d bytes: %w", done, err)
+		}
+		block := int64(binary.BigEndian.Uint32(header[:4])) - nativeFileHeader
+		if binary.BigEndian.Uint32(header[4:8]) != 1 || binary.BigEndian.Uint32(header[8:12]) != 4 ||
+			binary.BigEndian.Uint32(header[56:60]) != selector || block < 0 || block > total-done ||
+			block == 0 && done < total {
+			return errors.New("invalid native file data frame")
+		}
+		size := binary.BigEndian.Uint64(header[60:68])
+		offset := binary.BigEndian.Uint64(header[68:76])
+		count := binary.BigEndian.Uint32(header[76:80])
+		legacy := first && block == total && size == 0 && offset == 0 && count == 0
+		if !legacy && (size != uint64(total) || offset != uint64(done) || int64(count) != block) {
+			return errors.New("native file frame does not match the offered size or stream position")
+		}
+		for remaining := block; remaining > 0; {
+			_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			n, err := io.ReadFull(conn, buf[:min(remaining, int64(len(buf)))])
+			if err != nil {
+				return fmt.Errorf("read native file block after %d bytes: %w", done, err)
+			}
+			if _, err := out.Write(buf[:n]); err != nil {
+				return err
+			}
+			done += int64(n)
+			remaining -= int64(n)
+			if progress != nil {
+				progress(done, total)
+			}
+		}
+	}
 	return nil
 }
 

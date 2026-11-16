@@ -25,10 +25,10 @@ const (
 var ErrNoAvatarOffer = errors.New("native peer did not send an avatar after confirming the request")
 
 func avatarRequest() []byte {
-	return avatarRequestFor(avatarSelector)
+	return transferOpenRequest(avatarSelector)
 }
 
-func avatarRequestFor(selector uint32) []byte {
+func transferOpenRequest(selector uint32) []byte {
 	p := make([]byte, 500)
 	binary.BigEndian.PutUint32(p, uint32(len(p)))
 	binary.BigEndian.PutUint32(p[4:], 1)
@@ -125,7 +125,7 @@ func fetchOfferedAvatar(ctx context.Context, bind netip.Addr, target netip.AddrP
 	_ = conn.SetDeadline(deadline)
 	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
 	defer stop()
-	if _, err := io.Copy(conn, bytes.NewReader(avatarRequestFor(selector))); err != nil {
+	if _, err := io.Copy(conn, bytes.NewReader(transferOpenRequest(selector))); err != nil {
 		return nil, err
 	}
 	reader := bufio.NewReader(conn)

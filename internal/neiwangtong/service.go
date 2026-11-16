@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"math/bits"
 	"net"
 	"net/netip"
@@ -63,6 +64,7 @@ type nativePeer struct {
 	discovery      netip.AddrPort
 	tcp            netip.AddrPort
 	reverseTCP     netip.AddrPort
+	reverse        map[uint64]*reverseChannel
 	ready          chan struct{}
 	avatar         wireAvatar
 	avatarRevision uint64
@@ -94,8 +96,9 @@ type Service struct {
 	handshakes map[netip.AddrPort]bool
 	profileAck map[netip.AddrPort]bool
 	files      map[uint64]fileOffer
-	reverse    map[uint64]net.Conn
 }
+
+type reverseChannel struct{ cancel context.CancelFunc }
 
 type fileOffer struct {
 	peerID string
@@ -133,7 +136,6 @@ func Start(cfg Config) (*Service, error) {
 		verified:   make(map[netip.AddrPort]string),
 		handshakes: make(map[netip.AddrPort]bool), profileAck: make(map[netip.AddrPort]bool),
 		files:     make(map[uint64]fileOffer),
-		reverse:   make(map[uint64]net.Conn),
 		broadcast: !cfg.DisableBroadcast}
 	s.selfDisc = Discovery{Kind: Announce, ID: cfg.ID, Broadcast: netip.AddrFrom4([4]byte{255, 255, 255, 255}), Trailer: uint16(cfg.ControlPort)}
 	interfaceName := ""
@@ -150,7 +152,7 @@ func Start(cfg Config) (*Service, error) {
 	}
 	s.local = localWireProfile(profile, cfg.AvatarPNG)
 	var err error
-	s.transfer, err = startTransferServer(cfg.BindIP, cfg.TransferPort, s.onFileSent, s.avatarAllowed, s.onReverseReady)
+	s.transfer, err = startTransferServer(cfg.BindIP, cfg.TransferPort, s.onFileSent, s.avatarAllowed)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("内网通 TCP 文件端口: %w", err)
@@ -186,12 +188,6 @@ func keyForDiscovery(id [16]byte) string { return hex.EncodeToString(id[:]) }
 func (s *Service) Close() error {
 	s.closeOnce.Do(func() {
 		s.cancel()
-		s.mu.Lock()
-		for fileID, conn := range s.reverse {
-			delete(s.reverse, fileID)
-			_ = conn.Close()
-		}
-		s.mu.Unlock()
 		s.discMu.Lock()
 		if s.discConn != nil {
 			_ = s.discConn.Close()
@@ -645,25 +641,8 @@ func (s *Service) onENetCommand(remote netip.AddrPort, kind uint32, plain []byte
 			s.cfg.Callbacks.Files(id, offer)
 		}
 	case CmdFileReverseReq:
-		selector, err := ParseReverseFileReq(plain)
-		if err == nil {
-			s.mu.Lock()
-			matched := false
-			for _, candidate := range s.files {
-				if candidate.peerID == id && candidate.fileID == selector {
-					matched = true
-					break
-				}
-			}
-			s.mu.Unlock()
-			if !matched && s.cfg.Trace != nil {
-				s.cfg.Trace(fmt.Sprintf("native reverse file selector %d does not match peer %s", selector, id))
-			} else if matched {
-				// The native receiver is waiting for a reverse-channel
-				// bootstrap before it requests the file on the sender's normal
-				// TCP service. Do not block this ENet callback while dialing.
-				go s.openReverseChannel(id, selector)
-			}
+		if selector, err := ParseReverseFileReq(plain); err == nil {
+			s.startReverseChannel(id, selector)
 		}
 	case CmdOperateSendFile:
 		taskID, op, err := ParseOperateSendFile(plain)
@@ -793,6 +772,7 @@ func (s *Service) onLost(remote netip.AddrPort) {
 		return
 	}
 	p.peer.Online = false
+	stopReverseChannels(p)
 	p.ready = make(chan struct{})
 	value := p.peer
 	s.mu.Unlock()
@@ -916,63 +896,80 @@ func (s *Service) dropFile(task uint64) {
 	s.mu.Lock()
 	offer := s.files[task]
 	delete(s.files, task)
-	conn := s.reverse[task]
-	delete(s.reverse, task)
-	s.mu.Unlock()
-	if conn != nil {
-		_ = conn.Close()
+	if p := s.peers[offer.peerID]; p != nil && s.offerCountLocked(offer.peerID) == 0 {
+		stopReverseChannels(p)
 	}
+	s.mu.Unlock()
 	if offer.fileID != 0 {
 		s.transfer.UnregisterFile(offer.fileID)
 	}
 }
 
-func (s *Service) openReverseChannel(peerID string, fileID uint64) {
-	s.mu.Lock()
-	p := s.peers[peerID]
-	var target netip.AddrPort
-	var task uint64
-	if p != nil {
-		target = p.reverseTCP
-	}
-	for candidateTask, offer := range s.files {
-		if offer.peerID == peerID && offer.fileID == fileID {
-			task = candidateTask
-			break
+func (s *Service) offerCountLocked(peerID string) int {
+	count := 0
+	for _, offer := range s.files {
+		if offer.peerID == peerID {
+			count++
 		}
 	}
-	s.mu.Unlock()
-	if task == 0 {
-		return
+	return count
+}
+
+func stopReverseChannels(p *nativePeer) {
+	for selector, channel := range p.reverse {
+		delete(p.reverse, selector)
+		channel.cancel()
 	}
-	if !validUnicast(target) {
-		s.reportFile(peerID, task, 0, 0, false, errors.New("对方未提供内网通反向文件端口"))
-		return
-	}
-	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
-	defer cancel()
-	conn, err := openReverseFileChannel(ctx, s.transfer.bindIP, target, fileID)
-	if err != nil {
-		s.reportFile(peerID, task, 0, 0, false, fmt.Errorf("建立内网通反向文件通道: %w", err))
+}
+
+// The receiver chooses the reverse selector independently of TASK_ID and
+// FILE_ID. The bootstrap precedes the receiver's separate TCP file request.
+// Keep it scoped to a peer with outstanding offers and leave file access
+// checks to the normal transfer listener.
+func (s *Service) startReverseChannel(peerID string, selector uint64) {
+	if selector == 0 || selector > maxFileSelector {
 		return
 	}
 	s.mu.Lock()
-	if offer, ok := s.files[task]; !ok || offer.peerID != peerID || offer.fileID != fileID {
+	p := s.peers[peerID]
+	if p == nil || !p.peer.Online || !validUnicast(p.reverseTCP) ||
+		p.reverse[selector] != nil || len(p.reverse) >= min(8, s.offerCountLocked(peerID)) {
 		s.mu.Unlock()
-		_ = conn.Close()
 		return
 	}
-	if old := s.reverse[task]; old != nil {
-		_ = old.Close()
+	ctx, cancel := context.WithCancel(s.ctx)
+	channel := &reverseChannel{cancel: cancel}
+	if p.reverse == nil {
+		p.reverse = make(map[uint64]*reverseChannel)
 	}
-	s.reverse[task] = conn
+	p.reverse[selector] = channel
+	target := p.reverseTCP
 	s.mu.Unlock()
-}
 
-func (s *Service) onReverseReady(fileID uint64, remote netip.Addr) {
-	if remote.IsValid() && s.cfg.Trace != nil {
-		s.cfg.Trace(fmt.Sprintf("native reverse file %d ready from %s", fileID, remote))
-	}
+	go func() {
+		defer func() {
+			cancel()
+			s.mu.Lock()
+			if p.reverse[selector] == channel {
+				delete(p.reverse, selector)
+			}
+			s.mu.Unlock()
+		}()
+		conn, err := openReverseFileChannel(ctx, s.cfg.BindIP, target, selector)
+		if err != nil {
+			if s.cfg.Trace != nil && ctx.Err() == nil {
+				s.cfg.Trace("open native file reverse channel: " + err.Error())
+			}
+			return
+		}
+		defer conn.Close()
+		stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+		defer stop()
+		// No file data uses this connection. Hold it until the peer
+		// disconnects or we no longer have outstanding offers for it.
+		var unexpected [1]byte
+		_, _ = io.ReadFull(conn, unexpected[:])
+	}()
 }
 
 func (s *Service) onFileSent(task uint64, done, total int64) {
@@ -1008,12 +1005,24 @@ func (s *Service) AcceptFile(ctx context.Context, peerID string, taskID, fileID 
 	if err != nil {
 		return err
 	}
-	reverseReady := s.transfer.expectReverse(fileID)
-	defer s.transfer.clearReverse(fileID)
-	defer s.transfer.finishReverse(fileID)
-	// Native 3.4 first asks the sender to expose the advertised FILE_ID as a
-	// TCP selector, then accepts the TASK_ID. Both names use TASK_ID on wire.
-	if err = s.enet.SendAppCommand(control, CmdFileReverseReq, FormatReverseFileReq(fileID)); err != nil {
+	if fileID == 0 || fileID > maxFileSelector || !validFileSize(total) {
+		return errors.New("invalid native file transfer")
+	}
+	s.mu.Lock()
+	p := s.peers[peerID]
+	stockClient := p != nil && !p.peer.GoIM
+	s.mu.Unlock()
+	selector := fileID // Older GoIM peers expect their offered file ID.
+	if stockClient {
+		selector = uint64(max(1, s.messageSeq.Add(1)))
+	}
+	key := reverseKey{remote: tcp.Addr(), selector: selector}
+	reverseReady, err := s.transfer.expectReverse(key)
+	if err != nil {
+		return err
+	}
+	defer s.transfer.finishReverse(key)
+	if err = s.enet.SendAppCommand(control, CmdFileReverseReq, FormatReverseFileReq(selector)); err != nil {
 		return err
 	}
 	if err = s.enet.SendAppCommand(control, CmdOperateRecvFile, FormatOperateRecvFile(taskID, 2)); err != nil {
@@ -1025,17 +1034,14 @@ func (s *Service) AcceptFile(ctx context.Context, peerID string, taskID, fileID 
 	timer := time.NewTimer(2 * time.Second)
 	defer timer.Stop()
 	select {
-	case ready := <-reverseReady:
-		if ready.err == nil && ready.remote.IsValid() && ready.remote != tcp.Addr() {
-			return errors.New("内网通反向文件连接来源与联系人地址不一致")
-		}
+	case <-reverseReady:
 	case <-timer.C:
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-s.ctx.Done():
 		return s.ctx.Err()
 	}
-	err = downloadFile(ctx, s.cfg.BindIP, tcp, fileID, total, destPath, func(done, total int64) {
+	err = downloadFile(ctx, s.cfg.BindIP, tcp, fileID, total, destPath, stockClient, func(done, total int64) {
 		if progress != nil {
 			progress(done)
 		}

@@ -193,17 +193,19 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	if err := os.WriteFile(path, content, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := remote.SendFileOffer(selfID, 777, filepath.Base(path), int64(len(content)), time.Now().Unix(), path); err != nil {
+	// The original 3.4 client can advertise the full Windows path, even
+	// when the receiver is running on a different OS.
+	if err := remote.SendFileOffer(selfID, 777, `C:\goim-qa\原生文件.txt`, int64(len(content)), time.Now().Unix(), path); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "file offer", func() bool { return len(n.Snapshot().Transfers) == 1 })
 	task := n.Snapshot().Transfers[0]
-	if task.LegacyTransport != transportNWT || task.Status != "offered" || task.RemotePeerID != nativeID {
+	if task.LegacyTransport != transportNWT || task.Status != "offered" || task.RemotePeerID != nativeID || task.Name != filepath.Base(path) {
 		t.Fatalf("offer: %+v", task)
 	}
 	eventually(t, "file card in chat", func() bool {
 		for _, message := range n.Snapshot().ChatMessages(conv) {
-			if message.Kind == "file" && message.FileID == task.FileID {
+			if message.Kind == "file" && message.FileID == task.FileID && message.Text == filepath.Base(path) {
 				return true
 			}
 		}

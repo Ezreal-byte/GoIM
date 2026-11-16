@@ -63,7 +63,7 @@ func TestTransferServerAvatarAndFile(t *testing.T) {
 
 	destFile := filepath.Join(tmpDir, "dest.txt")
 	var lastDone, lastTotal int64
-	err = downloadFile(context.Background(), loopback, target, taskID, int64(len(testData)), destFile, func(done, total int64) {
+	err = downloadFile(context.Background(), loopback, target, taskID, int64(len(testData)), destFile, true, func(done, total int64) {
 		lastDone, lastTotal = done, total
 	})
 	if err != nil {
@@ -143,32 +143,74 @@ func TestTransferServerMultiplexesAvatarAndFileOnOneConnection(t *testing.T) {
 	}
 }
 
+func TestReceiveStockFileFrames(t *testing.T) {
+	const selector = 27926
+	payload := bytes.Repeat([]byte("stock file block stream"), 4000)
+	for _, badOffset := range []bool{false, true} {
+		name := "complete"
+		if badOffset {
+			name = "invalid offset"
+		}
+		t.Run(name, func(t *testing.T) {
+			local, remote := net.Pipe()
+			defer local.Close()
+			go func() {
+				defer remote.Close()
+				for offset := 0; offset < len(payload); {
+					chunk := payload[offset:min(len(payload), offset+32768)]
+					var h [100]byte
+					binary.BigEndian.PutUint32(h[:4], uint32(100+len(chunk)))
+					binary.BigEndian.PutUint32(h[4:8], 1)
+					binary.BigEndian.PutUint32(h[8:12], 4)
+					binary.BigEndian.PutUint32(h[56:60], selector)
+					binary.BigEndian.PutUint64(h[60:68], uint64(len(payload)))
+					wireOffset := offset
+					if badOffset && offset > 0 {
+						wireOffset--
+					}
+					binary.BigEndian.PutUint64(h[68:76], uint64(wireOffset))
+					binary.BigEndian.PutUint32(h[76:80], uint32(len(chunk)))
+					if _, err := remote.Write(h[:]); err != nil {
+						return
+					}
+					if _, err := remote.Write(chunk); err != nil {
+						return
+					}
+					offset += len(chunk)
+				}
+			}()
+			var got bytes.Buffer
+			err := receiveFileFrames(local, &got, selector, int64(len(payload)), nil)
+			if badOffset {
+				if err == nil || got.Len() != 32768 {
+					t.Fatalf("expected rejection before writing the second block: %v, got %d bytes", err, got.Len())
+				}
+			} else if err != nil || !bytes.Equal(got.Bytes(), payload) {
+				t.Fatalf("complete download mismatch: %v, got %d bytes", err, got.Len())
+			}
+		})
+	}
+}
+
 func TestReverseFileChannel(t *testing.T) {
-	ready := make(chan struct {
-		fileID uint64
-		remote netip.Addr
-	}, 1)
-	srv, err := startTransferServer(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 0, nil, nil, func(fileID uint64, remote netip.Addr) {
-		ready <- struct {
-			fileID uint64
-			remote netip.Addr
-		}{fileID, remote}
-	})
+	srv, err := StartTransferServer(loopback, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer srv.Close()
-	target := netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(srv.ReversePort()))
+	key := reverseKey{remote: loopback, selector: 424242}
+	ready, err := srv.expectReverse(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := netip.AddrPortFrom(loopback, uint16(srv.ReversePort()))
 	conn, err := OpenReverseFileChannel(context.Background(), target, 424242)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer conn.Close()
 	select {
-	case event := <-ready:
-		if event.fileID != 424242 || event.remote != netip.AddrFrom4([4]byte{127, 0, 0, 1}) {
-			t.Fatalf("unexpected reverse event: %+v", event)
-		}
+	case <-ready:
 	case <-time.After(time.Second):
 		t.Fatal("reverse file callback was not received")
 	}
@@ -181,7 +223,7 @@ func TestReverseFileChannel(t *testing.T) {
 	} else if !errors.Is(err, os.ErrDeadlineExceeded) && !strings.Contains(err.Error(), "timeout") {
 		t.Fatalf("reverse bootstrap channel closed before transfer completion: %v", err)
 	}
-	srv.finishReverse(424242)
+	srv.finishReverse(key)
 	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	if _, err := conn.Read(probe[:]); !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("reverse bootstrap channel was not closed after completion: %v", err)

@@ -196,8 +196,13 @@ func FormatSendFile(taskID, fileID uint64, name string, size, lastMod int64) []b
 
 func ParseSendFile(data []byte) (XMLSendFile, error) {
 	var x XMLSendFile
-	err := decodeNativeXML(data, "X_SEND_FILE", &x)
-	return x, err
+	if err := decodeNativeXML(data, "X_SEND_FILE", &x); err != nil {
+		return XMLSendFile{}, err
+	}
+	// The original client sends its local Windows path. Only the last
+	// component belongs in the offer, even on receivers running on Unix.
+	x.Name = x.Name[strings.LastIndexAny(x.Name, "/\\")+1:]
+	return x, nil
 }
 
 type XMLOperateRecvFile struct {

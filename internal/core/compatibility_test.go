@@ -1,6 +1,7 @@
 package core
 
 import (
+	"math/rand/v2"
 	"net"
 	"net/netip"
 	"testing"
@@ -11,12 +12,14 @@ import (
 
 func freeCompatibilityPort(t *testing.T) int {
 	t.Helper()
-	for range 16 {
-		packet, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	// An ephemeral port granted by Windows for UDP may sit in a range
+	// reserved for TCP by its virtual network adapters.
+	for range 32 {
+		port := 20000 + rand.IntN(12000)
+		packet, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 		if err != nil {
-			t.Fatal(err)
+			continue
 		}
-		port := packet.LocalAddr().(*net.UDPAddr).Port
 		listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 		_ = packet.Close()
 		if err == nil {
