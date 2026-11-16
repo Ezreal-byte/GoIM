@@ -32,7 +32,7 @@ func TestProbeDiscoversClassicDialectsFromTheServicePort(t *testing.T) {
 			defer remote.Close()
 			peers := make(chan Peer, 4)
 			port := freeIPMSGPort(t)
-			service, err := Start(Config{Host: "goim-host", Name: "小明", Port: port, RequireFiles: true, Callbacks: Callbacks{Peer: func(peer Peer) {
+			service, err := Start(Config{Host: "goim-host", Name: "小明", Port: port, BindIP: netip.MustParseAddr("127.0.0.1"), RequireFiles: true, Callbacks: Callbacks{Peer: func(peer Peer) {
 				peers <- peer
 			}}})
 			if err != nil {
@@ -98,7 +98,7 @@ func TestServiceReceivesLegacyText(t *testing.T) {
 	var gotNumber uint64
 	var gotText string
 	service, err := Start(Config{
-		Host: "receiver-host", Name: "receiver", Port: port,
+		Host: "receiver-host", Name: "receiver", Port: port, BindIP: netip.MustParseAddr("127.0.0.1"),
 		Callbacks: Callbacks{
 			Peer: func(peer Peer) { gotPeer = peer },
 			Text: func(peerID string, packetNumber uint64, text string) {
@@ -134,7 +134,7 @@ func TestServiceOffersAndServesResumableFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer remote.Close()
-	service, err := Start(Config{Host: "file-host", Name: "file-sender", Port: port})
+	service, err := Start(Config{Host: "file-host", Name: "file-sender", Port: port, BindIP: netip.MustParseAddr("127.0.0.1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestDownloadFromClassicFileSender(t *testing.T) {
 	var files []Attachment
 	var texts int
 	service, err := Start(Config{
-		Host: "goim-host", Name: "GoIM", Port: freeIPMSGPort(t), DisableBroadcast: true,
+		Host: "goim-host", Name: "GoIM", Port: freeIPMSGPort(t), BindIP: netip.MustParseAddr("127.0.0.1"), DisableBroadcast: true,
 		Callbacks: Callbacks{
 			Files: func(peer string, number uint64, _ string, attachments []Attachment) {
 				offerPeer, offerNumber, files = peer, number, attachments
@@ -293,13 +293,13 @@ func TestDownloadFromClassicFileSender(t *testing.T) {
 func freeIPMSGPort(t *testing.T) int {
 	t.Helper()
 	for range 16 {
-		packet, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero})
+		packet, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 		if err != nil {
 			t.Fatal(err)
 		}
 		port := packet.LocalAddr().(*net.UDPAddr).Port
-		listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4zero, Port: port})
 		_ = packet.Close()
+		listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 		if err == nil {
 			_ = listener.Close()
 			return port
