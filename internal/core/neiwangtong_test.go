@@ -122,6 +122,16 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	remoteID := [16]byte{10}
 	localIP := netip.MustParseAddr("127.0.0.1")
 	remoteIP := netip.MustParseAddr("127.0.0.2")
+	controlProbe, err := net.ListenUDP("udp4", net.UDPAddrFromAddrPort(netip.AddrPortFrom(remoteIP, 9012)))
+	if err != nil {
+		t.Skipf("platform does not provide a second loopback IPv4 address: %v", err)
+	}
+	_ = controlProbe.Close()
+	transferProbe, err := net.Listen("tcp4", net.TCPAddrFromAddrPort(netip.AddrPortFrom(remoteIP, 9013)).String())
+	if err != nil {
+		t.Skipf("secondary loopback file port is unavailable: %v", err)
+	}
+	_ = transferProbe.Close()
 	outgoing := make(chan string, 2)
 	profile := neiwangtong.Peer{Name: "Peer", Sign: "签名", Company: "测试组"}
 	remoteCfg := neiwangtong.Config{

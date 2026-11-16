@@ -69,7 +69,7 @@ try {
     Send-Command $taskAlice 'expect text "用户类型"'
     Send-Command $taskAlice 'click "button:发消息"'
     Send-Command $taskAlice 'waitfor "发送" 10000'
-    Send-Command $taskAlice 'click id:goim/chat/editor'
+    Send-Command $taskAlice 'click "消息输入框"'
     Send-Command $taskAlice 'type 双端真实消息：你好，局域网！'
     Send-Command $taskAlice 'key enter'
     Send-Command $taskBob 'waitfor "双端真实消息：你好，局域网！" 10000'
@@ -172,7 +172,7 @@ try {
     foreach($taskGuest in @($taskBob,$taskCharlie)){Send-Command $taskGuest 'waitfor "加入" 10000';Send-Command $taskGuest 'click "加入"'}
     Send-Command $taskAlice 'waitfor "三端验证群" 10000'
     Send-Command $taskAlice 'waitfor "3 人在线" 15000'
-    Send-Command $taskAlice 'click id:goim/chat/editor'
+    Send-Command $taskAlice 'click "消息输入框"'
     Send-Command $taskAlice 'type 三个独立进程通过真实群聊通信。'
     Send-Command $taskAlice 'key enter'
     foreach($taskGuest in @($taskBob,$taskCharlie)){Wait-Control $taskGuest '三端验证群';Send-Command $taskGuest 'click "三端验证群"';Send-Command $taskGuest 'waitfor "三个独立进程通过真实群聊通信。" 10000'}

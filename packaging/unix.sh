@@ -31,7 +31,10 @@ case "$platform" in
         install -m 644 "$payload/LICENSE" "$doc/copyright"
         install -m 644 "$payload/README.md" "$payload/THIRD_PARTY_NOTICES.md" "$payload/build-info.json" "$doc/"
         # Debian uses a tilde so pre-release packages sort below the final version.
-        deb_version=${version/-/~}
+        deb_version=$version
+        if [[ $version == *-* ]]; then
+            deb_version="${version%%-*}~${version#*-}"
+        fi
         cat > "$root/DEBIAN/control" <<EOF
 Package: goim
 Version: $deb_version
