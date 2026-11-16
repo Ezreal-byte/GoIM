@@ -573,13 +573,20 @@ func (t *ENetTransport) Connect(ctx context.Context, target netip.AddrPort) erro
 }
 
 func (t *ENetTransport) connected(target netip.AddrPort) bool {
+	return t.activeSession(target) != nil
+}
+
+func (t *ENetTransport) activeSession(target netip.AddrPort) *enetSession {
 	s := t.session(target, false)
 	if s == nil {
-		return false
+		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.active
+	if !s.active {
+		return nil
+	}
+	return s
 }
 
 func (t *ENetTransport) SendAppCommand(target netip.AddrPort, kind uint32, payload []byte) error {

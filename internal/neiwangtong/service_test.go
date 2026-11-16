@@ -127,6 +127,7 @@ func TestNativeDiscoveryReplyUsesRequestInterface(t *testing.T) {
 func TestProfileBootstrapPromotesToMainControlConnection(t *testing.T) {
 	peers := make(chan Peer, 16)
 	trace := make(chan string, 256)
+	profiles := make(chan struct{}, 4)
 	callbacks := Callbacks{Peer: func(p Peer) { peers <- p }}
 	traceLine := func(line string) {
 		select {
@@ -143,6 +144,14 @@ func TestProfileBootstrapPromotesToMainControlConnection(t *testing.T) {
 		Name: "Second", BindIP: loopback, DisableBroadcast: true, ID: [16]byte{22},
 		DiscoveryPort: freePort(t, "udp"), ControlPort: freePort(t, "udp"), TransferPort: freePort(t, "tcp"),
 		Callbacks: callbacks, Trace: traceLine,
+		TraceEvent: func(kind uint32, _ []byte) {
+			if kind == CmdHandshark {
+				select {
+				case profiles <- struct{}{}:
+				default:
+				}
+			}
+		},
 	}
 	first.RemoteControlPort = second.ControlPort
 	second.RemoteControlPort = first.ControlPort
@@ -186,6 +195,19 @@ func TestProfileBootstrapPromotesToMainControlConnection(t *testing.T) {
 	}
 	if !secondService.profileENet.connected(profileTarget) {
 		t.Fatal("profile bootstrap did not use the advertised temporary ENet endpoint")
+	}
+	waitEvent(t, profiles)
+	retry, err := secondService.profileControlPacket(netip.Addr{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := secondService.profileENet.SendAppCommand(profileTarget, uint32(ControlProfile), retry); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-profiles:
+		t.Fatal("temporary profile retry replayed the initial profile on the established main connection")
+	case <-time.After(300 * time.Millisecond):
 	}
 }
 

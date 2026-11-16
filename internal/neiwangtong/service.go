@@ -86,16 +86,16 @@ type Service struct {
 	discConn  *net.UDPConn
 	closeOnce sync.Once
 
-	mu         sync.Mutex
-	broadcast  bool
-	local      wireProfile
-	selfDisc   Discovery
-	peers      map[string]*nativePeer
-	byControl  map[netip.AddrPort]string
-	verified   map[netip.AddrPort]string
-	handshakes map[netip.AddrPort]bool
-	profileAck map[netip.AddrPort]bool
-	files      map[uint64]fileOffer
+	mu          sync.Mutex
+	broadcast   bool
+	local       wireProfile
+	selfDisc    Discovery
+	peers       map[string]*nativePeer
+	byControl   map[netip.AddrPort]string
+	verified    map[netip.AddrPort]string
+	handshakes  map[netip.AddrPort]bool
+	profileSent map[netip.AddrPort]*enetSession
+	files       map[uint64]fileOffer
 }
 
 type reverseChannel struct{ cancel context.CancelFunc }
@@ -134,7 +134,7 @@ func Start(cfg Config) (*Service, error) {
 	s := &Service{cfg: cfg, ctx: ctx, cancel: cancel, selfID: keyForDiscovery(cfg.ID),
 		peers: make(map[string]*nativePeer), byControl: make(map[netip.AddrPort]string),
 		verified:   make(map[netip.AddrPort]string),
-		handshakes: make(map[netip.AddrPort]bool), profileAck: make(map[netip.AddrPort]bool),
+		handshakes: make(map[netip.AddrPort]bool), profileSent: make(map[netip.AddrPort]*enetSession),
 		files:     make(map[uint64]fileOffer),
 		broadcast: !cfg.DisableBroadcast}
 	s.selfDisc = Discovery{Kind: Announce, ID: cfg.ID, Broadcast: netip.AddrFrom4([4]byte{255, 255, 255, 255}), Trailer: uint16(cfg.ControlPort)}
@@ -464,15 +464,37 @@ func (s *Service) profileControlPacket(broadcast netip.Addr) ([]byte, error) {
 	return record.MarshalBinary()
 }
 
-func (s *Service) sendProfile(transport *ENetTransport, target netip.AddrPort) error {
-	s.mu.Lock()
-	profile := s.local
-	s.mu.Unlock()
-	if profile.Status == StatusInvisible {
+func (s *Service) sendInitialProfile(target netip.AddrPort, includeDiscovery bool) error {
+	session := s.enet.activeSession(target)
+	if session == nil {
 		return ErrNotConnected
 	}
+	s.mu.Lock()
+	profile := s.local
+	if profile.Status == StatusInvisible {
+		s.mu.Unlock()
+		return ErrNotConnected
+	}
+	if s.profileSent[target] == session {
+		s.mu.Unlock()
+		return nil
+	}
+	// Both the main and temporary ports can see discovery retries for the
+	// same contact. Replaying the full handshake on an established main
+	// connection causes the original client to disconnect it.
+	s.profileSent[target] = session
+	s.mu.Unlock()
+	if includeDiscovery {
+		packet, err := s.profileControlPacket(netip.Addr{})
+		if err != nil {
+			return err
+		}
+		if err := s.enet.SendAppCommand(target, uint32(ControlProfile), packet); err != nil {
+			return err
+		}
+	}
 	payload := formatProfileWithReverse(profile, uint16(s.transfer.Port()), uint16(s.transfer.ReversePort()), 0, s.cfg.GoIM)
-	return transport.SendAppCommand(target, CmdHandshark, payload)
+	return s.enet.SendAppCommand(target, CmdHandshark, payload)
 }
 
 func (s *Service) onProfileControl(remote netip.AddrPort, kind uint32, plain []byte) {
@@ -506,16 +528,7 @@ func (s *Service) onProfileControl(remote netip.AddrPort, kind uint32, plain []b
 			}
 			return
 		}
-		s.mu.Lock()
-		respondWithControl := !s.profileAck[remote]
-		s.profileAck[remote] = true
-		s.mu.Unlock()
-		if respondWithControl {
-			if packet, err := s.profileControlPacket(netip.Addr{}); err == nil {
-				_ = s.enet.SendAppCommand(target, uint32(ControlProfile), packet)
-			}
-		}
-		err := s.sendProfile(s.enet, target)
+		err := s.sendInitialProfile(target, true)
 		if s.cfg.Trace != nil {
 			s.cfg.Trace(fmt.Sprintf("profile response %s: %v", remote, err))
 		}
@@ -554,7 +567,7 @@ func (s *Service) onENetCommand(remote netip.AddrPort, kind uint32, plain []byte
 						return
 					}
 					if _, ok := s.recordDiscovery(d, netip.AddrPort{}, control, AvatarPort); ok {
-						_ = s.sendProfile(s.enet, control)
+						_ = s.sendInitialProfile(control, false)
 					}
 				}()
 				return
@@ -562,7 +575,7 @@ func (s *Service) onENetCommand(remote netip.AddrPort, kind uint32, plain []byte
 		}
 		_, ok := s.recordDiscovery(d, netip.AddrPort{}, control, AvatarPort)
 		if ok {
-			go func() { _ = s.sendProfile(s.enet, control) }()
+			go func() { _ = s.sendInitialProfile(control, false) }()
 		}
 		return
 	}
@@ -765,7 +778,7 @@ func (s *Service) onLost(remote netip.AddrPort) {
 	id := s.byControl[remote]
 	delete(s.byControl, remote)
 	delete(s.verified, remote)
-	delete(s.profileAck, remote)
+	delete(s.profileSent, remote)
 	p := s.peers[id]
 	if p == nil || !p.peer.Online || p.control != remote {
 		s.mu.Unlock()
