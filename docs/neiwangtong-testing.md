@@ -1,11 +1,12 @@
 # 内网通互通验证
 
-测试分为本地回环和原版实机两套。两套都直接判断通信结果，不依赖 Wireshark 或手工读包。
+测试直接判断通信结果，不依赖抓包或手工判读。日常 CI 跑回环；需要验证原版的行为时，运行隔离沙箱或检查现有参考实例。
 
 | 模式 | 验证内容 | 结果 |
 | --- | --- | --- |
 | 回环 | GoIM 后端和使用 GoIM 协议实现的测试对端双向发现、中文文字、文件收发和 SHA-256、拒收状态、头像变更和清除。协议测试另检查 ENet 分片及应用层回执。 | 测试退出码与 `wire.jsonl`、`core.jsonl`。CI 会随普通 Go 测试运行。 |
-| 原版 | 对指定的隔离测试地址验证 UDP 发现、控制连接和资料握手，并核对原版报告的版本。可要求核验真实头像，或向指定测试昵称发送一条样例并等待匹配的应用层回执。 | `reference.json` 给出每项结果和失败原因。回执只证明原版协议端已回应，不代表界面显示正确或用户已读。 |
+| 原版沙箱 | 自动启动原版 3.4.3055，验证资料握手、双向中文文字及应用回执、双向文件传输。核对原版通告的中文文件名、两端实际落盘的文件大小和 SHA-256。 | `sandbox.json` 给出逐项结果。不需要登录来宾桌面。 |
+| 原版参考实例 | 对指定的隔离测试地址验证 UDP 发现、控制连接和资料握手，并核对原版报告的版本。可要求核验真实头像，或向指定测试昵称发送一条样例并等待匹配的应用层回执。 | `reference.json` 给出逐项结果。回执证明原版协议端已回应，不代表用户已读。 |
 
 在 Windows PowerShell 7.2 或更新版本中运行本地回归：
 
@@ -13,7 +14,42 @@
 pwsh -File scripts/test-neiwangtong.ps1
 ```
 
-原版测试需要运行中的内网通测试实例，默认版本为 `3.4.3055`。指定运行中的 VMware 测试机即可由 VMware Tools 解析来宾 IP；默认用 VMnet8，使用其他测试网卡时给出 `-Adapter` 或 `-Bind`。
+## 原版沙箱
+
+```powershell
+pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox
+```
+
+每次运行都创建独立的 Wine 档案和两个 Linux 网络命名空间。两端只连一对虚拟网卡，没有通往宿主机或外网的路由。原版在 Xvfb 私有显示中运行；测试夹具只向本次启动的原版窗口投递操作。脚本结束后清理进程、虚拟网卡和临时文件。原版程序与测试数据无需进 Git。
+
+在新机器上只需准备一次：使用 x64 WSL 2 导入一个专用的 Debian 12 发行版，命名为 `GoIM-Neiwangtong-Lab`。在该发行版以 root 安装依赖和创建普通用户：
+
+```sh
+dpkg --add-architecture i386
+apt-get update
+apt-get install wine wine32:i386 wine64 xvfb xauth openbox fonts-noto-cjk iproute2 gcc-mingw-w64-i686-posix
+useradd --create-home nwtlab
+```
+
+在这个专用发行版的 `/etc/wsl.conf` 关闭 Windows 驱动器挂载及互操作，然后执行 `wsl --terminate GoIM-Neiwangtong-Lab` 使设置生效：
+
+```ini
+[automount]
+enabled=false
+
+[interop]
+enabled=false
+appendWindowsPath=false
+
+[user]
+default=nwtlab
+```
+
+将原版 3.4.3055 的完整程序目录复制到发行版的 `/opt/goim-lab/original`，确保 `nwtlab` 可以读取；只需程序文件，无需复制 Windows 用户档案。可以通过 `\\wsl.localhost\GoIM-Neiwangtong-Lab` 访问发行版文件。目录不同时，用 `-SandboxOriginalDir` 传入 Linux 路径。夹具使用该版本在 96 dpi 的默认布局；版本或布局不符会让检查失败。沙箱使用空白头像，原版头像验证使用下方参考实例模式。
+
+## 现有原版参考实例
+
+指定运行中的 VMware 测试机即可由 VMware Tools 解析来宾 IP；默认用 VMnet8，使用其他测试网卡时给出 `-Adapter` 或 `-Bind`。
 
 ```powershell
 pwsh -File scripts/test-neiwangtong.ps1 -Mode Reference -Vmx 'D:\VMs\Windows Test.vmx' -Vmrun 'D:\VMware\vmrun.exe' -Avatar
@@ -29,5 +65,3 @@ pwsh -File scripts/test-neiwangtong.ps1 -Mode Reference -Bind 192.168.100.1 -Tar
 - `-TextReceipt -Peer '原版测试机昵称'` 会发送一条自动生成的测试文字。只有握手、版本和昵称都匹配才发送。ENet 传输回执和应用回执分别检查，缺少应用回执时会判失败。
 - 原版测试绑定指定本地地址，只联系指定对端，关闭广播，不启用 IPMSG。若原生端口已被占用，测试会在绑定阶段失败，已有实例继续运行。
 - 本地报告默认保存在忽略的 `artifacts/neiwangtong/` 下，不包含原始报文、聊天正文、头像文件或数据库。
-
-原版主动发消息、发送文件和点击接收需要一个能操作其已登录测试桌面的来宾端测试入口。当前参考命令只验证表中列出的协议行为；它不会把回环结果算作原版双向收发通过。

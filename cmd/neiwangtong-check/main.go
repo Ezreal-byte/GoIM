@@ -18,6 +18,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"time"
 
 	"goim/internal/neiwangtong"
@@ -28,6 +29,8 @@ type options struct {
 	target          netip.AddrPort
 	expectedVersion string
 	expectedName    string
+	labDriver       string
+	labDir          string
 	text, avatar    bool
 	timeout         time.Duration
 }
@@ -72,6 +75,8 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opt.expectedName, "peer", "", "Exact reference client's test nickname; required to send text")
 	flags.BoolVar(&opt.text, "text-receipt", false, "Send one generated message to the named lab peer and wait for an application receipt")
 	flags.BoolVar(&opt.avatar, "avatar", false, "Require a nonempty, valid PNG avatar from the reference client")
+	flags.StringVar(&opt.labDriver, "lab-driver", "", "Local driver for the disposable reference sandbox")
+	flags.StringVar(&opt.labDir, "lab-dir", "", "Scratch directory of the disposable reference sandbox")
 	flags.DurationVar(&opt.timeout, "timeout", 15*time.Second, "Timeout for each requested check")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
@@ -87,6 +92,11 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	}
 	if opt.text && opt.expectedName == "" {
 		return options{}, errors.New("-text-receipt requires -peer with the exact test client's nickname")
+	}
+	if opt.labDriver != "" || opt.labDir != "" {
+		if !opt.text || !filepath.IsAbs(opt.labDriver) || !filepath.IsAbs(opt.labDir) {
+			return options{}, errors.New("sandbox checks require absolute -lab-driver and -lab-dir paths, plus -text-receipt and -peer")
+		}
 	}
 	return opt, nil
 }
@@ -131,9 +141,10 @@ func verify(ctx context.Context, opt options) report {
 	avatars := make(chan avatar, 8)
 	var runID [8]byte
 	_, _ = rand.Read(runID[:])
+	qaName := "GoIM QA " + hex.EncodeToString(runID[:4])
 	cfg := neiwangtong.Config{
 		BindIP:           opt.bind,
-		Profile:          neiwangtong.Peer{Name: "GoIM QA " + hex.EncodeToString(runID[:4])},
+		Profile:          neiwangtong.Peer{Name: qaName},
 		GoIM:             true,
 		DisableBroadcast: true,
 		AllowRemote:      func(addr netip.AddrPort) bool { return addr.Addr() == opt.target.Addr() },
@@ -142,6 +153,12 @@ func verify(ctx context.Context, opt options) report {
 			TextAcknowledged: func(id string, packet uint64) { publish(receipts, receipt{id, packet}) },
 			AvatarUpdated:    func(id string, _ uint64, png []byte) { publish(avatars, avatar{id, png}) },
 		},
+	}
+	var lab *labChecks
+	if opt.labDriver != "" {
+		r.Mode = "sandbox"
+		lab = newLabChecks(opt, qaName, hex.EncodeToString(runID[:]))
+		lab.attach(&cfg)
 	}
 	var service *neiwangtong.Service
 	if !r.run("bind", func() (string, error) {
@@ -217,6 +234,10 @@ func verify(ctx context.Context, opt options) report {
 			})
 		}
 		passed = passed && sent
+		if sent && lab != nil {
+			labPassed := lab.run(ctx, &r, service, reference)
+			passed = passed && labPassed
+		}
 	} else {
 		r.skip("text_application_receipt")
 	}

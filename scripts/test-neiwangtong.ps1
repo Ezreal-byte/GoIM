@@ -1,6 +1,6 @@
 #Requires -Version 7.2
 param(
-    [ValidateSet('Loopback', 'Reference')][string]$Mode = 'Loopback',
+    [ValidateSet('Loopback', 'Reference', 'Sandbox')][string]$Mode = 'Loopback',
     [string]$OutputDir,
     [string]$Bind,
     [string]$Target,
@@ -9,6 +9,7 @@ param(
     [string]$Adapter = 'VMware Network Adapter VMnet8',
     [string]$Version = '3.4.3055',
     [string]$Peer,
+    [string]$SandboxOriginalDir = '/opt/goim-lab/original',
     [switch]$Avatar,
     [switch]$TextReceipt
 )
@@ -39,12 +40,58 @@ function Invoke-GoTests([string]$FileName, [string[]]$TestArguments, [string]$Re
     Write-Host "PASS: $FileName"
 }
 
+function Invoke-ReferenceSandbox {
+    if ($Bind -or $Target -or $Vmx -or $Peer -or $Avatar -or $Version -ne '3.4.3055') {
+        throw 'Sandbox mode uses the stock 3.4.3055 client, a fresh profile, and fixed isolated addresses.'
+    }
+    $distro = 'GoIM-Neiwangtong-Lab'
+    $linux = @('-d', $distro, '-u', 'nwtlab', '--exec')
+    $stage = (& wsl.exe @linux mktemp -d /tmp/goim-nwt-tools.XXXXXXXX | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $stage -cnotmatch '^/tmp/goim-nwt-tools\.[A-Za-z0-9]{8}$') {
+        throw "The dedicated WSL distro $distro is unavailable. See docs/neiwangtong-testing.md."
+    }
+    $hostStage = "\\wsl.localhost\$distro" + $stage.Replace('/', '\')
+    $binary = New-TemporaryFile
+    $buildEnv = @{ GOOS = 'linux'; GOARCH = 'amd64'; CGO_ENABLED = '0' }
+    $savedEnv = @{}
+    try {
+        foreach ($name in $buildEnv.Keys) {
+            $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name)
+            [Environment]::SetEnvironmentVariable($name, $buildEnv[$name])
+        }
+        & go build -o $binary.FullName ./cmd/neiwangtong-check
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to build the Linux reference checker.' }
+        Copy-Item -LiteralPath $binary.FullName -Destination (Join-Path $hostStage 'check')
+        $driverSource = Join-Path $PSScriptRoot 'neiwangtong-lab'
+        Copy-Item -LiteralPath (Join-Path $driverSource 'drive.c') -Destination $hostStage
+        $launcher = Get-Content -LiteralPath (Join-Path $driverSource 'run.sh') -Raw
+        $launcher.Replace("`r`n", "`n") | Set-Content -LiteralPath (Join-Path $hostStage 'run.sh') -Encoding utf8NoBOM -NoNewline
+        & wsl.exe @linux chmod +x "$stage/run.sh" "$stage/check"
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to stage the Linux reference checker.' }
+        & wsl.exe @linux i686-w64-mingw32-gcc -municode -O2 -Wall -Wextra -Werror -o "$stage/drive.exe" "$stage/drive.c"
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to build the reference fixture. Install the dependencies listed in docs/neiwangtong-testing.md.' }
+        $report = Join-Path $OutputDir 'sandbox.json'
+        & wsl.exe -d $distro -u root --exec "$stage/run.sh" $SandboxOriginalDir | Tee-Object -FilePath $report
+        if ($LASTEXITCODE -ne 0) { throw "Reference sandbox check failed. See $report and the console output." }
+        Write-Host "Sandbox report: $report"
+    } finally {
+        foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name]) }
+        Remove-Item -LiteralPath $binary.FullName -ErrorAction SilentlyContinue
+        & wsl.exe @linux rm -f -- "$stage/run.sh" "$stage/check" "$stage/drive.c" "$stage/drive.exe"
+        & wsl.exe @linux rmdir -- "$stage"
+    }
+}
+
 Push-Location $root
 try {
     if ($Mode -eq 'Loopback') {
         Invoke-GoTests 'wire.jsonl' @('./internal/neiwangtong') 'TestServiceLocalLoopback'
         Invoke-GoTests 'core.jsonl' @('./internal/core', '-run', '^TestNeiwangtong') 'TestNeiwangtongDirectCommunication'
         Write-Host "Loopback reports: $OutputDir"
+        return
+    }
+    if ($Mode -eq 'Sandbox') {
+        Invoke-ReferenceSandbox
         return
     }
 
