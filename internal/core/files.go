@@ -131,9 +131,6 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 	if !shared {
 		c := s.Conversation(convID)
 		nativeGroup := c.Kind == "group" && n.isNativeGroup(c.GroupID)
-		if nativeGroup && f.Folder {
-			return errors.New("内网通群暂不支持发送文件夹")
-		}
 		for _, id := range targets {
 			p := s.Peer(id)
 			if p.Transport == legacyIPMSG || p.Transport == domain.TransportNeiwangtong {

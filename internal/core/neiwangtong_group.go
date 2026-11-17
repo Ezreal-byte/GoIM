@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"goim/internal/domain"
@@ -370,4 +371,64 @@ func (n *Node) canServeNativeGroupFile(wirePeer, wireGroup string) bool {
 	group := n.data.State.Group(id)
 	return !n.closing && n.data.NativeGroups[id].WireID == wireGroup && !group.Left && !group.Dissolved &&
 		sender != "" && contains(group.Members, sender) && contains(group.Members, n.data.State.Self.ID)
+}
+
+func (n *Node) restoreNativeGroupFiles(peer string) {
+	n.mu.Lock()
+	service := n.neiwangtong
+	wire := wireCompatibilityID(&n.data, peer, transportNWT)
+	n.mu.Unlock()
+	if service == nil || wire == "" {
+		return
+	}
+	state := n.snapshot(false)
+	if state.Peer(peer).Transport != transportNWT {
+		return
+	}
+	for _, task := range state.Transfers {
+		if task.PeerID != peer || task.Direction != "send" || task.Revoked || terminalTransfer(task.Status) ||
+			task.LegacyTransport != transportNWT || task.RemotePacket == "" {
+			continue
+		}
+		groupID, group := strings.CutPrefix(task.ConversationID, "group:")
+		if !group {
+			continue
+		}
+		room, err := n.activeNativeGroup(groupID, peer)
+		if err != nil {
+			continue
+		}
+		file := state.File(task.FileID)
+		if file.InlineImage || file.SourcePath == "" {
+			continue
+		}
+		if file.Folder {
+			ref := legacyStableID("nwt-group-folder", file.ID)
+			if service.HasGroupFolderOffer(wire, ref) {
+				continue
+			}
+			dir, err := neiwangtong.InspectDirectory(file.SourcePath)
+			if err != nil || dir.Stamp != file.Hash {
+				n.setTransfer(task.ID, "failed", task.Done, 0, "源文件夹已变化，请重新发送")
+				continue
+			}
+			if err := service.RememberGroupFolder(wire, room, ref, task.RemotePacket, dir); err != nil {
+				n.setTransfer(task.ID, "failed", task.Done, 0, err.Error())
+			}
+			continue
+		}
+		ref := neiwangtong.GroupFileRef{ID: legacyStableID("nwt-group-file", file.ID), Name: file.Name, Size: file.Size}
+		if service.HasGroupFileOffer(wire, ref.ID) {
+			continue
+		}
+		digest, err := fileHashContext(n.ctx, file.SourcePath)
+		if err != nil || digest != file.Hash {
+			n.setTransfer(task.ID, "failed", task.Done, 0, "源文件已变化，请重新发送")
+			continue
+		}
+		id, selector := neiwangtongOutgoingIDs(task)
+		if err := service.RememberGroupFile(wire, room, ref, id, selector, file.SourcePath); err != nil {
+			n.setTransfer(task.ID, "failed", task.Done, 0, err.Error())
+		}
+	}
 }

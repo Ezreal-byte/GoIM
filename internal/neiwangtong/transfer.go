@@ -446,6 +446,9 @@ func (s *TransferServer) serveFile(conn net.Conn, selector uint64, position int6
 		if file.ctx.Err() != nil || s.closing.Load() {
 			return nil
 		}
+		if file.allowed != nil && !file.allowed() {
+			return errors.New("群成员权限已变更")
+		}
 		_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
 		count := min(file.Size-done, nativeFileBlock)
 		start := nativeFileHeader

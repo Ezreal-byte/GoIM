@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/netip"
 	"path/filepath"
 	"slices"
@@ -25,7 +26,7 @@ func verifyCoreChat(ctx context.Context, opt options) report {
 	name := profile
 	lab := newLabChecks(opt, profile, runID)
 	label, driver, reply := "text", "chat-recall-", "reply"
-	if opt.labGroupRecall || opt.labGroupFile {
+	if opt.labGroupRecall || opt.labGroupFile || opt.labGroupFolder {
 		name = "GoIM QA 群聊 " + runID
 		label, driver, reply = "group_text", "group-recall-", "group-reply"
 	}
@@ -34,7 +35,7 @@ func verifyCoreChat(ctx context.Context, opt options) report {
 	if !r.run("starts_goim", func() (string, error) { return "started the production GoIM backend", err }) {
 		return r
 	}
-	defer node.Close()
+	defer func() { _ = node.Close() }()
 
 	var peer, chat string
 	if !r.run("opens_stock_chat", func() (string, error) {
@@ -52,7 +53,7 @@ func verifyCoreChat(ctx context.Context, opt options) report {
 		if err != nil {
 			return "", err
 		}
-		if opt.labGroupRecall || opt.labGroupFile {
+		if opt.labGroupRecall || opt.labGroupFile || opt.labGroupFolder {
 			node.Submit(domain.Command{Kind: domain.CreateGroup, Name: name, IDs: []string{peer}})
 			if _, err := waitCoreState(ctx, node, 4*time.Second, func(s domain.State) bool {
 				for _, group := range s.Groups {
@@ -82,7 +83,17 @@ func verifyCoreChat(ctx context.Context, opt options) report {
 		return r
 	}
 	if opt.labGroupFile {
-		r.Passed = lab.checkGroupFiles(ctx, &r, node, peer, chat, name)
+		r.Passed = lab.checkGroupFiles(ctx, &r, &node, peer, chat, name)
+		return r
+	}
+	if opt.labGroupFolder {
+		outbound := r.run("group_folder_to_original", func() (string, error) {
+			return lab.checkGroupFolderToOriginal(ctx, node, peer, chat, name)
+		})
+		inbound := r.run("group_folder_from_original", func() (string, error) {
+			return lab.checkGroupFolder(ctx, node, peer, chat, name)
+		})
+		r.Passed = outbound && inbound
 		return r
 	}
 	waitMessage := func(match func(domain.Message) bool) (domain.Message, error) {
@@ -101,6 +112,44 @@ func verifyCoreChat(ctx context.Context, opt options) report {
 	send := func(text string) (domain.Message, error) {
 		node.Submit(domain.Command{Kind: domain.SendText, ConversationID: chat, Text: text})
 		return waitMessage(func(m domain.Message) bool { return m.Text == text && m.Status == "sent" })
+	}
+	if opt.labEmoticons {
+		control := "GoIM 表情 " + runID
+		in := r.run("stock_emoticon_received", func() (string, error) {
+			if _, err := send(control); err != nil {
+				return "", err
+			}
+			if err := lab.drive(ctx, "chat-emoticon"); err != nil {
+				return "", err
+			}
+			_, err := waitMessage(func(m domain.Message) bool { return m.SenderID == peer && strings.TrimSpace(m.Text) == "🙂" })
+			if err != nil {
+				var symbols []rune
+				for _, m := range node.Snapshot().ChatMessages(chat) {
+					if m.SenderID == peer {
+						for _, value := range m.Text {
+							if value > 0xffff {
+								symbols = append(symbols, value)
+							}
+						}
+					}
+				}
+				return "", fmt.Errorf("%w; received stock emoji code points: %U", err, symbols)
+			}
+			return "GoIM interpreted the stock 1251 smile as its own emoji", err
+		})
+		if !in {
+			return r
+		}
+		out := r.run("stock_emoticon_in_mixed_message", func() (string, error) {
+			if _, err := send(control + " 前🙂后"); err != nil {
+				return "", err
+			}
+			return "the original acknowledged and recorded the mixed native text and emoticon",
+				lab.drive(ctx, "chat-emoticon-check", runID)
+		})
+		r.Passed = in && out
+		return r
 	}
 	control := "原文保留 " + runID
 	if !r.run(label+"_recall_from_original", func() (string, error) {

@@ -24,16 +24,20 @@ type directoryReceive struct {
 	offer    FolderOffer
 	dest     string
 	progress func(int64)
+	dynamic  bool
+	metadata func(int64)
 	result   chan error
 	active   bool
 }
 
 type directorySend struct {
-	peer      string
-	directory Directory
-	ctx       context.Context
-	cancel    context.CancelFunc
-	active    bool
+	peer       string
+	directory  Directory
+	ctx        context.Context
+	cancel     context.CancelFunc
+	active     bool
+	reportTask string
+	allowed    func() bool
 }
 
 type directoryTransport struct {
@@ -95,16 +99,36 @@ func (d *directoryTransport) receive(conn *net.TCPConn) {
 	}
 	in.active = true
 	d.mu.Unlock()
+	if in.dynamic {
+		size := int64(binary.BigEndian.Uint64(init[636:644]))
+		count := binary.BigEndian.Uint32(init[632:636])
+		if size < 0 || count == 0 || count > maxFolderItems {
+			in.result <- errors.New("内网通群文件夹大小无效")
+			return
+		}
+		in.offer.Size, in.offer.MaxItemSize = size, size
+		in.offer.MaxItemPath = maxFolderPathUnits
+		if in.metadata != nil {
+			in.metadata(size)
+		}
+	}
 	in.result <- receiveDirectory(in.ctx, conn, init, in.offer, in.dest, in.progress)
 }
 
 func (s *Service) ReceiveDirectory(ctx context.Context, peerID string, offer FolderOffer, destination string, progress func(int64)) error {
+	_, err := s.receiveDirectoryOffer(ctx, peerID, offer, destination, false, nil, progress,
+		func() error { return s.AcceptFolderOffer(peerID, offer.TaskID) })
+	return err
+}
+
+func (s *Service) receiveDirectoryOffer(ctx context.Context, peerID string, offer FolderOffer, destination string,
+	dynamic bool, metadata, progress func(int64), request func() error) (int64, error) {
 	if s.directories == nil || !validFolderOffer(offer) {
-		return errors.New("内网通文件夹接收未就绪")
+		return 0, errors.New("内网通文件夹接收未就绪")
 	}
 	control, _, err := s.control(peerID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	offer.TaskID = strings.ToLower(offer.TaskID)
 	ctx, cancel := context.WithCancel(ctx)
@@ -112,12 +136,13 @@ func (s *Service) ReceiveDirectory(ctx context.Context, peerID string, offer Fol
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer stop()
 	d := s.directories
-	in := &directoryReceive{ctx: ctx, offer: offer, dest: destination, progress: progress, result: make(chan error, 1)}
+	in := &directoryReceive{ctx: ctx, offer: offer, dest: destination, dynamic: dynamic, metadata: metadata,
+		progress: progress, result: make(chan error, 1)}
 	key := directoryKey{control.Addr(), offer.TaskID}
 	d.mu.Lock()
 	if len(d.wait) >= cap(d.slots) || d.wait[key] != nil {
 		d.mu.Unlock()
-		return errors.New("文件夹接收任务已在等待或达到上限")
+		return 0, errors.New("文件夹接收任务已在等待或达到上限")
 	}
 	d.wait[key] = in
 	d.mu.Unlock()
@@ -126,14 +151,24 @@ func (s *Service) ReceiveDirectory(ctx context.Context, peerID string, offer Fol
 		delete(d.wait, key)
 		d.mu.Unlock()
 	}()
-	if err := s.AcceptFolderOffer(peerID, offer.TaskID); err != nil {
-		return err
+	if err := request(); err != nil {
+		// A reply can race the first data frame. Let the worker terminate
+		// before its caller removes the staging directory.
+		cancel()
+		d.mu.Lock()
+		active := in.active
+		delete(d.wait, key)
+		d.mu.Unlock()
+		if active {
+			<-in.result
+		}
+		return 0, err
 	}
 	timeout := time.NewTimer(15 * time.Second)
 	defer timeout.Stop()
 	select {
 	case err := <-in.result:
-		return err
+		return in.offer.Size, err
 	case <-timeout.C:
 		d.mu.Lock()
 		active := in.active
@@ -142,7 +177,7 @@ func (s *Service) ReceiveDirectory(ctx context.Context, peerID string, offer Fol
 		}
 		d.mu.Unlock()
 		if !active {
-			return ErrFolderConnectTimeout
+			return 0, ErrFolderConnectTimeout
 		}
 	case <-ctx.Done():
 	}
@@ -155,9 +190,10 @@ func (s *Service) ReceiveDirectory(ctx context.Context, peerID string, offer Fol
 	}
 	d.mu.Unlock()
 	if !active {
-		return ctx.Err()
+		return 0, ctx.Err()
 	}
-	return <-in.result
+	err = <-in.result
+	return in.offer.Size, err
 }
 
 func (s *Service) SendDirectory(peerID, taskID string, directory Directory) error {
@@ -267,7 +303,14 @@ func (s *Service) onDirectoryOperation(peerID string, kind uint32, data []byte) 
 
 func (s *Service) uploadDirectory(task string, up *directorySend) {
 	defer s.directories.finishSend(task, up)
+	if up.allowed != nil && !up.allowed() {
+		return
+	}
 	target, err := s.directoryRemote(up.peer)
+	reportTask := task
+	if up.reportTask != "" {
+		reportTask = up.reportTask
+	}
 	var done int64
 	if err == nil {
 		var conn net.Conn
@@ -276,10 +319,14 @@ func (s *Service) uploadDirectory(task string, up *directorySend) {
 			defer conn.Close()
 			var last time.Time
 			err = sendDirectory(up.ctx, conn, task, up.directory, func(bytes int64) {
+				if up.allowed != nil && !up.allowed() {
+					up.cancel()
+					return
+				}
 				done = bytes
 				if time.Since(last) >= 150*time.Millisecond {
 					last = time.Now()
-					s.reportDirectory(up.peer, task, done, up.directory.Size, false, nil)
+					s.reportDirectory(up.peer, reportTask, done, up.directory.Size, false, nil)
 				}
 			})
 		}
@@ -290,7 +337,7 @@ func (s *Service) uploadDirectory(task string, up *directorySend) {
 	if err != nil {
 		err = fmt.Errorf("内网通文件夹传输失败: %w", err)
 	}
-	s.reportDirectory(up.peer, task, done, up.directory.Size, err == nil, err)
+	s.reportDirectory(up.peer, reportTask, done, up.directory.Size, err == nil, err)
 }
 
 func (s *Service) reportDirectory(peer, task string, done, total int64, completed bool, err error) {

@@ -279,6 +279,7 @@ func (n *Node) reliable(peer string, e envelope) {
 	_ = n.durable(func(*persisted) []pending { return []pending{{PeerID: peer, Envelope: e}} })
 }
 func (n *Node) replay(peer string) {
+	n.restoreNativeGroupFiles(peer)
 	n.flushPeer(peer)
 	n.mu.Lock()
 	var resume []string

@@ -22,6 +22,7 @@ const (
 type GroupFileRef struct {
 	ID, Name string
 	Size     int64
+	Folder   bool
 }
 
 type chatFileWire struct {
@@ -33,7 +34,7 @@ type chatFileWire struct {
 }
 
 func (f *chatFileWire) reference() (GroupFileRef, bool) {
-	if f == nil || f.Type != "offline_file" || f.Directory != "false" || !validNativeID(f.ID) ||
+	if f == nil || (f.Type != "offline_file" && f.Type != "offline_folder") || f.Directory != "false" || !validNativeID(f.ID) ||
 		f.Name == "" || len(f.Name) > 1024 || !utf8.ValidString(f.Name) {
 		return GroupFileRef{}, false
 	}
@@ -41,7 +42,7 @@ func (f *chatFileWire) reference() (GroupFileRef, bool) {
 	if err != nil || size < 0 {
 		return GroupFileRef{}, false
 	}
-	return GroupFileRef{ID: strings.ToLower(f.ID), Name: f.Name, Size: size}, true
+	return GroupFileRef{ID: strings.ToLower(f.ID), Name: f.Name, Size: size, Folder: f.Type == "offline_folder"}, true
 }
 
 type groupFileKey struct{ peer, id string }
@@ -51,6 +52,13 @@ type groupFileOffer struct {
 	task, file uint64
 	source     string
 	sourceInfo os.FileInfo
+}
+
+func (s *Service) HasGroupFileOffer(peer, id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.groupFiles[groupFileKey{peer, strings.ToLower(id)}]
+	return ok
 }
 
 type groupFileRequest struct {
@@ -79,18 +87,10 @@ type groupFileResponse struct {
 func (s *Service) SendGroupFile(peer, group string, packet uint64, messageID string, ref GroupFileRef, task, file uint64, source string) error {
 	if !validNativeID(messageID) || !validNativeID(ref.ID) || ref.Name == "" || len(ref.Name) > 255 ||
 		strings.ContainsAny(ref.Name, "/\\:\x00") || task == 0 || task > maxFileSelector ||
-		file == 0 || file > maxFileSelector || file == avatarSelector || ref.Size < 0 {
+		file == 0 || file > maxFileSelector || file == avatarSelector || ref.Size < 0 || ref.Folder {
 		return errors.New("invalid native group file")
 	}
-	body, err := encodeChatPayload(MsgJSON{App: "shiyeline", ID: messageID, Type: "0", Ver: "6.0", Font: messageFont{Size: "10"}, Dt: []MsgDataTxt{
-		{Txt: &MsgTxt{T: "compatible", V: "对方给您发送了一个离线文件，当前版本不支持。请升级到最新版本接收此文件。"}},
-		{File: &chatFileWire{Directory: "false", ID: ref.ID, Name: ref.Name,
-			Type: "offline_file", Size: strconv.FormatInt(ref.Size, 10)}},
-	}})
-	if err != nil {
-		return err
-	}
-	payload, err := formatGroupBody(group, packet, body)
+	payload, err := formatGroupAttachment(group, packet, messageID, ref)
 	if err != nil {
 		return err
 	}
@@ -98,12 +98,51 @@ func (s *Service) SendGroupFile(peer, group string, packet uint64, messageID str
 	if err != nil {
 		return err
 	}
+	if err := s.RememberGroupFile(peer, group, ref, task, file, source); err != nil {
+		return err
+	}
+	if err = s.enet.SendAppCommand(control, CmdGroupText, payload); err != nil && !errors.Is(err, ErrDeliveryUncertain) {
+		s.dropFile(task)
+	}
+	return err
+}
+
+func formatGroupAttachment(group string, packet uint64, messageID string, ref GroupFileRef) ([]byte, error) {
+	if !validNativeID(messageID) || !validNativeID(ref.ID) || !validDirectoryComponent(ref.Name) || ref.Size < 0 {
+		return nil, errors.New("invalid native group attachment")
+	}
+	kind, size := "offline_file", ref.Size
+	if ref.Folder {
+		kind, size = "offline_folder", 0
+	}
+	body, err := encodeChatPayload(MsgJSON{App: "shiyeline", ID: messageID, Type: "0", Ver: "6.0", Font: messageFont{Size: "10"}, Dt: []MsgDataTxt{
+		{Txt: &MsgTxt{T: "compatible", V: "对方给您发送了一个离线文件，当前版本不支持。请升级到最新版本接收此文件。"}},
+		{File: &chatFileWire{Directory: "false", ID: ref.ID, Name: ref.Name,
+			Type: kind, Size: strconv.FormatInt(size, 10)}},
+	}})
+	if err != nil {
+		return nil, err
+	}
+	return formatGroupBody(group, packet, body)
+}
+
+// RememberGroupFile restores the chosen file's invitation after a restart.
+// It does not announce a new message or grant access to any other file.
+func (s *Service) RememberGroupFile(peer, group string, ref GroupFileRef, task, file uint64, source string) error {
+	if !validNativeID(peer) || !validNativeID(group) || !validNativeID(ref.ID) || ref.Size < 0 ||
+		task == 0 || task > maxFileSelector || file == 0 || file > maxFileSelector || file == avatarSelector {
+		return errors.New("invalid native group file offer")
+	}
 	info, err := os.Stat(source)
 	if err != nil || !info.Mode().IsRegular() || info.Size() != ref.Size {
 		return errors.New("源文件已变化，请重新发送")
 	}
 	key := groupFileKey{peer, strings.ToLower(ref.ID)}
 	s.mu.Lock()
+	if s.ctx.Err() != nil {
+		s.mu.Unlock()
+		return s.ctx.Err()
+	}
 	if old, ok := s.groupFiles[key]; (ok && (old.task != task || old.file != file || old.source != source || old.group != group)) ||
 		(!ok && len(s.groupFiles) >= 1024) {
 		s.mu.Unlock()
@@ -121,10 +160,7 @@ func (s *Service) SendGroupFile(peer, group string, packet uint64, messageID str
 	}
 	s.groupFiles[key] = groupFileOffer{group: group, task: task, file: file, source: source, sourceInfo: info}
 	s.mu.Unlock()
-	if err = s.enet.SendAppCommand(control, CmdGroupText, payload); err != nil && !errors.Is(err, ErrDeliveryUncertain) {
-		s.dropFile(task)
-	}
-	return err
+	return nil
 }
 
 func (s *Service) onGroupFileRequest(remote netip.AddrPort, peer string, data []byte) {

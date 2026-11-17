@@ -103,9 +103,10 @@ func applyNativeChat(p *persisted, target nativeChatTarget, message neiwangtong.
 		if part.File != nil {
 			name := filepath.Base(strings.ReplaceAll(part.File.Name, "\\", "/"))
 			file := domain.File{ID: id, Name: name, Size: part.File.Size, Hash: strings.Repeat("0", 64),
+				Folder:   part.File.Folder,
 				MIME:     mime.TypeByExtension(strings.ToLower(filepath.Ext(name))),
 				SenderID: target.sender, ConversationID: target.conversation, CreatedAt: entry.CreatedAt}
-			if !validFile(file) || fileIndex(s, id) >= 0 {
+			if !(validFile(file) || file.Folder && validFileName(file.Name)) || fileIndex(s, id) >= 0 {
 				continue
 			}
 			s.Files = append(s.Files, file)

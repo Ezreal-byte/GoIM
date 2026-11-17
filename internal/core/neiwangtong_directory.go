@@ -20,8 +20,24 @@ var errNativeDirectoryResend = errors.New("文件夹传输已中断，请让对�
 func (n *Node) sendNeiwangtongDirectory(conversationID, path, target string) error {
 	s := n.snapshot(false)
 	c := s.Conversation(conversationID)
-	if c.Kind != "direct" || s.Peer(c.PeerID).Transport != transportNWT || target != "" && target != c.PeerID {
-		return errors.New("文件夹直传目前仅支持内网通单聊")
+	nativeGroup := c.Kind == "group" && n.isNativeGroup(c.GroupID)
+	if !nativeGroup && (c.Kind != "direct" || s.Peer(c.PeerID).Transport != transportNWT || target != "" && target != c.PeerID) {
+		return errors.New("文件夹直传目前仅支持内网通会话")
+	}
+	targets, err := recipients(s, c)
+	if err != nil {
+		return err
+	}
+	if target != "" {
+		if !contains(targets, target) {
+			return errors.New("该联系人不在此内网通群中")
+		}
+		targets = []string{target}
+	}
+	for _, id := range targets {
+		if s.Peer(id).Transport != transportNWT {
+			return errors.New("一个群只能选择同一种客户端的联系人")
+		}
 	}
 	dir, err := neiwangtong.InspectDirectory(path)
 	if err != nil {
@@ -35,8 +51,12 @@ func (n *Node) sendNeiwangtongDirectory(conversationID, path, target string) err
 		s.Files = append(s.Files, f)
 		addMessageState(s, domain.Message{ID: f.ID, FileID: f.ID, Kind: "file", Text: attachmentPreview(f),
 			ConversationID: conversationID, SenderID: f.SenderID, CreatedAt: now, Status: "sent"})
-		p.MessageTargets[f.ID] = []string{c.PeerID}
-		return []pending{appendFileOffer(s, c.PeerID, conversationID, f, "")}
+		p.MessageTargets[f.ID] = targets
+		var offers []pending
+		for _, peer := range targets {
+			offers = append(offers, appendFileOffer(s, peer, conversationID, f, ""))
+		}
+		return offers
 	})
 }
 
@@ -68,7 +88,7 @@ func (n *Node) receiveNeiwangtongDirectory(peerID string, offer neiwangtong.Fold
 	})
 }
 
-func (n *Node) neiwangtongDirectoryPending(s *neiwangtong.Service, peerID string, t domain.Transfer, f domain.File) error {
+func (n *Node) neiwangtongDirectoryPending(s *neiwangtong.Service, peerID string, value pending, t domain.Transfer, f domain.File) error {
 	dir, err := neiwangtong.InspectDirectory(f.SourcePath)
 	if err != nil {
 		return err
@@ -81,6 +101,16 @@ func (n *Node) neiwangtongDirectoryPending(s *neiwangtong.Service, peerID string
 		task = t.ID
 	}
 	ready := false
+	share := ""
+	room := ""
+	if group, ok := strings.CutPrefix(t.ConversationID, "group:"); ok {
+		var err error
+		room, err = n.activeNativeGroup(group, t.PeerID)
+		if err != nil {
+			return err
+		}
+		share = legacyStableID("nwt-group-folder", f.ID)
+	}
 	if err := n.change(func(st *domain.State) {
 		if i := transferIndex(st, t.ID); i >= 0 {
 			taskState := &st.Transfers[i]
@@ -88,6 +118,8 @@ func (n *Node) neiwangtongDirectoryPending(s *neiwangtong.Service, peerID string
 				return
 			}
 			taskState.RemotePacket, taskState.RemotePeerID = task, peerID
+			taskState.RemoteShareID = share
+			taskState.Status = "offered"
 			taskState.LegacyTransport = transportNWT
 			ready = true
 		}
@@ -96,6 +128,9 @@ func (n *Node) neiwangtongDirectoryPending(s *neiwangtong.Service, peerID string
 	}
 	if !ready {
 		return nil
+	}
+	if room != "" {
+		return s.SendGroupFolder(peerID, room, nativeMessagePacket(value), f.ID, share, task, dir)
 	}
 	return s.SendDirectory(peerID, task, dir)
 }
@@ -118,7 +153,10 @@ func (n *Node) retryNeiwangtongDirectory(t domain.Transfer) error {
 				delete(p.Outbox, id)
 			}
 		}
-		current.RemotePacket, current.Done, current.Speed = newID(), 0, 0
+		current.Done, current.Speed = 0, 0
+		if current.RemoteShareID == "" {
+			current.RemotePacket = newID()
+		}
 		return []pending{appendFileOffer(&p.State, current.PeerID, current.ConversationID, p.State.File(current.FileID), current.ID)}
 	})
 }
@@ -181,12 +219,37 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 	offer := neiwangtong.FolderOffer{TaskID: t.RemotePacket, Name: f.Name, Size: f.Size,
 		MaxItemPath: t.FolderMaxPath, MaxItemSize: t.FolderMaxItem}
 	last := time.Now()
-	if err := service.ReceiveDirectory(ctx, peerID, offer, stage, func(done int64) {
+	progress := func(done int64) {
 		if done == t.Size || time.Since(last) >= 150*time.Millisecond {
 			n.setTransfer(t.ID, "transferring", done, 0, "")
 			last = time.Now()
 		}
-	}); err != nil {
+	}
+	if t.RemoteShareID != "" {
+		groupID, ok := strings.CutPrefix(t.ConversationID, "group:")
+		if !ok {
+			return errors.New("内网通群文件夹引用无效")
+		}
+		if _, err := n.activeNativeGroup(groupID, t.PeerID); err != nil {
+			return err
+		}
+		_, err = service.ReceiveGroupDirectory(ctx, peerID, t.RemoteShareID, f.Name, stage, func(done, total int64) {
+			if done == 0 {
+				_ = n.change(func(st *domain.State) {
+					if i, j := transferIndex(st, t.ID), fileIndex(st, f.ID); i >= 0 && j >= 0 && !terminalTransfer(st.Transfers[i].Status) {
+						st.Transfers[i].Size, st.Files[j].Size = total, total
+					}
+				})
+			}
+			progress(done)
+		})
+	} else {
+		err = service.ReceiveDirectory(ctx, peerID, offer, stage, progress)
+	}
+	if err != nil {
+		if t.RemoteShareID != "" {
+			return err
+		}
 		// Release the old invitation when the data stream fails. Stock can
 		// send the folder again after this, but did not reopen the old offer.
 		if ctx.Err() == nil && !errors.Is(err, neiwangtong.ErrNotConnected) && service.StopDirectoryReceive(peerID, offer.TaskID) == nil {

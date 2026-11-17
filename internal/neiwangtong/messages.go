@@ -102,7 +102,7 @@ type DirectMessage struct {
 }
 
 func FormatSendMsg(msgID uint64, text string) ([]byte, error) {
-	return formatMessage(msgID, "", []MsgDataTxt{{Txt: &MsgTxt{T: "normal", V: text}}}, time.Time{})
+	return formatMessage(msgID, "", nativeTextParts(text), time.Time{})
 }
 
 func formatMessage(msgID uint64, id string, parts []MsgDataTxt, offlineAt time.Time) ([]byte, error) {
@@ -261,6 +261,8 @@ func parseChatParts(packet uint64, content string, group bool) (DirectMessage, e
 		if dt.Img != nil && dt.Img.T == "feihu" {
 			if ref, ok := parseChatImageRef(dt.Img.V); ok {
 				m.Parts = append(m.Parts, MessagePart{Image: &ref})
+			} else if text, ok := parseStockEmoticon(dt.Img.V); ok {
+				m.Parts = append(m.Parts, MessagePart{Text: text})
 			}
 		}
 		if hasFile {

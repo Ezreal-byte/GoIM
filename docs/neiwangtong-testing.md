@@ -14,6 +14,8 @@
 | 单聊和群聊文字撤回 | 让原版和 GoIM 分别发送并撤回一条文字。检查被撤回的正文消失，且相邻的对照消息仍在。 | 单聊和群聊分别有一份 `sandbox.json`。 |
 | 解散与移出群成员 | 让 GoIM 操作，原版检查对应群窗口关闭；另用全新的原版群验证原版发出的群主操作与群 ID。Go 侧回归检查成员权限和历史记录。 | 三方群、群撤回和两个原版群主操作的报告分别保存。 |
 | 群内普通文件 | GoIM 与原版各从群内发送文件，由对方从同一会话接受。核验原版保存目录和 GoIM 下载文件的长度与 SHA-256。 | `group-file/sandbox.json`，也可单独运行 `-GroupFile`。 |
+| 群内文件夹 | 双向发送含多层中文路径、空子目录和零字节文件的目录，核对结构、长度和 SHA-256。 | `group-folder/sandbox.json`，也可单独运行 `-GroupFolder`。 |
+| 内置表情 | 原版选择并发送“微笑”，GoIM 核对含义；GoIM 发送正文夹带微笑，原版回执并核对其记录中保留前后正文和内联对象。 | `emoticons/sandbox.json`，也可单独运行 `-Emoticons`。 |
 | 原版接收端续传专项 | 让原版真实落盘第一块，再断开并重启 GoIM 服务。复发同一任务，验证原版请求的非零偏移及最终 SHA-256。 | 独立的 `sandbox.json`。 |
 | 原版参考实例 | 对指定的隔离测试地址验证 UDP 发现、控制连接和资料握手，并核对原版报告的版本。可要求核验真实头像，或向指定测试昵称发送一条样例并等待匹配的应用层回执。 | `reference.json` 给出逐项结果。回执证明原版协议端已回应，不代表用户已读。 |
 
@@ -25,7 +27,7 @@ pwsh -File scripts/test-neiwangtong.ps1
 
 ## 原版沙箱
 
-用一个命令串行复验常规互通（含原版忙碌、离开和在线状态）、两个方向的离线补投、三方群聊、普通文件断点续传、头像更新、单聊及群聊文字撤回，以及两个方向的目录重传。每个场景都从全新档案启动，分别输出 `sandbox.json`：
+用一个命令串行复验常规互通（含原版忙碌、离开和在线状态）、两个方向的离线补投、三方群聊、普通文件断点续传、头像更新、单聊及群聊文字撤回、群主操作、群文件、群文件夹、内置表情，以及两个方向的目录重传。每个场景都从全新档案启动，分别输出 `sandbox.json`：
 
 ```powershell
 pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -SandboxSuite
@@ -66,6 +68,12 @@ pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -GroupManagement
 
 ```powershell
 pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -GroupFile
+```
+
+验收群内文件夹，包括多层中文路径、空子目录、零字节文件和内容 SHA-256：
+
+```powershell
+pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -GroupFolder
 ```
 
 单独验收原版作为收件人时的断点续传：

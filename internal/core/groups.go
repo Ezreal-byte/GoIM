@@ -332,7 +332,7 @@ func (n *Node) manageGroup(c domain.Command) error {
 			}
 			return n.renameNativeGroup(g, s.Self.ID, name)
 		}
-		return errors.New("内网通群暂不支持在 GoIM 中管理成员")
+		return errors.New("内网通群不支持这个管理操作")
 	}
 	if c.Kind == domain.LeaveGroup {
 		for _, v := range s.Invitations {
@@ -693,7 +693,7 @@ func (n *Node) setGroupNickname(id, name string) error {
 		return errors.New("你不在此群聊中")
 	}
 	if g.Transport == transportNWT {
-		return errors.New("内网通群暂不支持在 GoIM 中管理成员")
+		return errors.New("内网通群不支持这个管理操作")
 	}
 	if utf8.RuneCountInString(name) > 40 {
 		return errors.New("群昵称最多 40 个字符")

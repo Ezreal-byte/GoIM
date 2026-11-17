@@ -429,7 +429,7 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 			return nil
 		}
 		if f.Folder {
-			return n.neiwangtongDirectoryPending(service, peer, t, f)
+			return n.neiwangtongDirectoryPending(service, peer, value, t, f)
 		}
 		if f.Size >= neiwangtongSendLimit {
 			n.setTransfer(t.ID, "failed", t.Done, 0, "发给内网通的单个文件需小于 4 GiB，请拆分后重发")
@@ -481,6 +481,12 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 			return nil
 		}
 		t := s.Transfers[i]
+		if t.LegacyTransport == transportNWT && t.RemoteShareID != "" && s.File(t.FileID).Folder {
+			if t.Direction == "send" {
+				return service.CancelGroupFolder(peer, t.RemoteShareID)
+			}
+			return nil // the local receive context closes the folder channel
+		}
 		if t.LegacyTransport == transportNWT && t.RemotePacket != "" && s.File(t.FileID).Folder {
 			if t.Direction == "send" {
 				return service.CancelDirectorySend(peer, t.RemotePacket)

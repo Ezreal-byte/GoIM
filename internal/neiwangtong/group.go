@@ -150,7 +150,11 @@ func (s *Service) SendGroupText(peerID, groupID string, packet uint64, id, text 
 	if text == "" {
 		return errors.New("invalid native group message")
 	}
-	payload, err := formatGroupMessage(groupID, packet, id, MsgDataTxt{Txt: &MsgTxt{T: "normal", V: text}})
+	body, err := formatChatPayload(id, nativeTextParts(text))
+	if err != nil {
+		return err
+	}
+	payload, err := formatGroupBody(groupID, packet, body)
 	if err != nil {
 		return err
 	}

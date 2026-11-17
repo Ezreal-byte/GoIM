@@ -444,6 +444,48 @@ int wmain(int argc, wchar_t **argv) {
 
     // Locations come from the stock chat skin at 96 dpi with a new profile.
     const int composer_x = 230, composer_y = 535, button_y = 581;
+    if (!wcscmp(action, L"chat-emoticon") && argc == 4) {
+        dismiss_guide(exe);
+        ShowWindow(chat, SW_RESTORE);
+        if (!SetWindowPos(chat, HWND_TOPMOST, 180, 82, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW) || !focus_chat(chat))
+            return fail("could not reveal the private emoticon conversation");
+        Sleep(450);
+        POINT open = {393, 580};
+        if (!click_fixture_screen(open, chat, FALSE)) return fail("could not open the test emoticon picker");
+        Sleep(450);
+        POINT face = {366, 354};
+        HWND popup = GetAncestor(WindowFromPoint(face), GA_ROOT);
+        DWORD expected = 0, actual = 0;
+        RECT bounds;
+        GetWindowThreadProcessId(chat, &expected);
+        if (!popup || popup == chat || !GetWindowThreadProcessId(popup, &actual) || expected != actual ||
+            !GetWindowRect(popup, &bounds) || bounds.right - bounds.left < 400 || bounds.right - bounds.left > 450)
+            return fail("expected the private stock emoticon palette");
+        // Give the stock popup time to populate and finish its hover layout.
+        // Its custom grid handles screen input rather than parent messages.
+        Sleep(3500);
+        if (!GetWindowRect(popup, &bounds)) return fail("the test emoticon picker closed");
+        face.x = bounds.left + 33;
+        face.y = bounds.top + 62;
+        if (!click_fixture_screen(face, popup, FALSE)) return fail("could not choose the test smile");
+        Sleep(3500);
+        if (!focus_chat(chat)) return fail("could not return to the fixture composer");
+        POINT send = {844, 675};
+        return click_fixture_screen(send, chat, FALSE) ? 0 : fail("could not send the stock smile");
+    }
+    if (!wcscmp(action, L"chat-emoticon-check") && argc == 5) {
+        if (wcslen(argv[4]) != 16 || wcsspn(argv[4], L"0123456789abcdef") != 16)
+            return fail("invalid test emoticon token");
+        wchar_t before[80];
+        swprintf(before, _countof(before), L"GoIM 表情 %ls 前", argv[4]);
+        if (!focus_chat(chat)) return fail("could not read the test emoticon transcript");
+        const int rows[] = {220, 135, 320};
+        for (unsigned i = 0; i < _countof(rows); ++i) {
+            if (copied_transcript_matches(chat, rows[i], before, L"🙂") &&
+                copied_transcript_contains(chat, rows[i], L"后")) return 0;
+        }
+        return fail("the original did not record the expected text around its native image object");
+    }
     if ((group_file_send && argc == 5) || (group_file_receive && argc == 4)) {
         dismiss_guide(exe);
         ShowWindow(chat, SW_RESTORE);

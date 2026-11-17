@@ -90,19 +90,21 @@ type nativePeer struct {
 }
 
 type Service struct {
-	receipts         map[receiptKey]chan struct{} // protected by mu
-	groupFiles       map[groupFileKey]groupFileOffer
-	groupFileReplies map[receiptKey]chan groupFileResponse
-	groupFileWorkers chan struct{}
-	cfg              Config
-	ctx              context.Context
-	cancel           context.CancelFunc
-	enet             *ENetTransport
-	profileENet      *ENetTransport
-	transfer         *TransferServer
-	directories      *directoryTransport
-	selfID           string
-	messageSeq       atomic.Uint32
+	receipts           map[receiptKey]chan struct{} // protected by mu
+	groupFiles         map[groupFileKey]groupFileOffer
+	groupFileReplies   map[receiptKey]chan groupFileResponse
+	groupFolderReplies map[receiptKey]chan groupFolderResponse
+	groupFolders       map[groupFileKey]groupFolderOffer
+	groupFileWorkers   chan struct{}
+	cfg                Config
+	ctx                context.Context
+	cancel             context.CancelFunc
+	enet               *ENetTransport
+	profileENet        *ENetTransport
+	transfer           *TransferServer
+	directories        *directoryTransport
+	selfID             string
+	messageSeq         atomic.Uint32
 
 	discMu    sync.Mutex
 	discConn  *net.UDPConn
@@ -160,8 +162,10 @@ func Start(cfg Config) (*Service, error) {
 		handshakes: make(map[netip.AddrPort]bool), profileSent: make(map[netip.AddrPort]*enetSession),
 		files:      make(map[uint64]fileOffer),
 		groupFiles: make(map[groupFileKey]groupFileOffer), groupFileReplies: make(map[receiptKey]chan groupFileResponse),
-		groupFileWorkers: make(chan struct{}, 16),
-		broadcast:        !cfg.DisableBroadcast}
+		groupFolderReplies: make(map[receiptKey]chan groupFolderResponse),
+		groupFolders:       make(map[groupFileKey]groupFolderOffer),
+		groupFileWorkers:   make(chan struct{}, 16),
+		broadcast:          !cfg.DisableBroadcast}
 	s.selfDisc = Discovery{Kind: Announce, ID: cfg.ID, Broadcast: netip.AddrFrom4([4]byte{255, 255, 255, 255}), Trailer: uint16(cfg.ControlPort)}
 	interfaceName := ""
 	if cfg.Interface != nil {
@@ -695,6 +699,10 @@ func (s *Service) onENetCommand(remote netip.AddrPort, kind uint32, plain []byte
 		s.onGroupFileRequest(remote, id, plain)
 	case cmdGroupFileResponse:
 		s.onGroupFileResponse(id, plain)
+	case cmdGroupFolderResponse:
+		s.onGroupFolderResponse(id, plain)
+	case cmdGroupFolderRequest:
+		s.onGroupFolderRequest(remote, id, plain)
 	case CmdGroupText:
 		if message, err := ParseGroupMessage(plain); err == nil && s.cfg.Callbacks.GroupText != nil {
 			if err := s.cfg.Callbacks.GroupText(id, message); err == nil {
@@ -972,7 +980,7 @@ func (s *Service) SendTextConfirmed(ctx context.Context, peerID string, packetID
 	if err != nil {
 		return err
 	}
-	payload, err := formatMessage(packetID, id, []MsgDataTxt{{Txt: &MsgTxt{T: "normal", V: text}}}, queuedAt)
+	payload, err := formatMessage(packetID, id, nativeTextParts(text), queuedAt)
 	if err != nil {
 		return err
 	}
