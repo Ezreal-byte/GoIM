@@ -25,20 +25,31 @@ func TestProfileAvatarEditorScreenshotQA(t *testing.T) {
 			state := shellTestState(t)
 			state.Settings.Theme = test.theme
 			shell, session := openShellQA(t, state, 1000, 700)
-			avatar := writeShellTestPNG(t, "profile-crop.png", 640, 420)
+			avatar := writeShellTestPNG(t, "profile-crop.png", 2048, 1365)
 			if err := session.Driver().QueueOpenFiles([]string{avatar}, nil); err != nil {
 				t.Fatal(err)
 			}
 			shellQAClick(t, session, shell.ids.profileAvatar)
 			shellQAShot(t, session, directory, filepath.Join("profile-avatar-picker-"+test.name+".png"))
 			shellQAClick(t, session, shell.ids.profileChooseImage)
-			if err := session.Expect("text", "调整头像"); err != nil {
+			if err := session.Expect("text", "裁剪图片"); err != nil {
+				t.Fatal(err)
+			}
+			if err := session.Expect("state", "button:保存", "enabled", "within", "5000"); err != nil {
 				t.Fatal(err)
 			}
 			if err := session.Expect("layout", "clean"); err != nil {
 				t.Fatal(err)
 			}
 			shellQAShot(t, session, directory, filepath.Join("profile-avatar-editor-"+test.name+".png"))
+			shellQAClick(t, session, shell.ids.profileCropConfirm)
+			if err := session.Expect("text", "个人资料", "within", "5000"); err != nil {
+				t.Fatal(err)
+			}
+			if err := session.Expect("layout", "clean"); err != nil {
+				t.Fatal(err)
+			}
+			shellQAShot(t, session, directory, filepath.Join("profile-avatar-round-"+test.name+".png"))
 		})
 	}
 }

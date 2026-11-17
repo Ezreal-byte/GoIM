@@ -98,11 +98,13 @@ type profileState struct {
 	gender    int
 	presence  domain.Presence
 	avatar    string
-	// avatarPreview is the committed square crop. avatar is the source path
-	// until the backend replaces it with its normalized avatar asset.
-	avatarPreview gfx.Bitmap
-	crop          profileAvatarCropState
-	err           string
+	// avatarPreview is the square upload and avatarPreviewRound is its cached
+	// circular presentation. avatar is the source path until the backend
+	// replaces it with its normalized avatar asset.
+	avatarPreview      gfx.Bitmap
+	avatarPreviewRound gfx.Bitmap
+	crop               profileAvatarCropState
+	err                string
 }
 
 type profileAvatarCropState struct {
@@ -2923,7 +2925,9 @@ func (u *UI) queueImage(path string) {
 	}
 	limit := 512
 	if u.profile.crop.open && u.profile.crop.source == path {
-		limit = 1024
+		// Keep enough source pixels for an 8x crop to remain sharp on a
+		// high-DPI display while bounding worker-thread memory.
+		limit = 4096
 	} else if u.avatarImagePaths[path] && path != u.state.Settings.Background {
 		limit = 192
 	} else if path == u.state.Settings.Background {
@@ -3020,25 +3024,49 @@ func squareBitmap(bitmap gfx.Bitmap) (gfx.Bitmap, bool) {
 }
 
 // cropScaledBitmap materializes the source region a preview showed into one
-// square BGRA bitmap. Sampling happens only after confirmation, never in Paint.
+// square BGRA bitmap. It uses the same area-filtered resize as image decoding,
+// so both preview and saved avatar retain detail from high-resolution sources.
+// Sampling happens only after confirmation, never in Paint.
 func cropScaledBitmap(bitmap gfx.Bitmap, crop gfx.Rect, size int) (gfx.Bitmap, bool) {
 	if size <= 0 || bitmap.Width <= 0 || bitmap.Height <= 0 || bitmap.Stride < bitmap.Width*4 ||
 		len(bitmap.Pix) < bitmap.Stride*bitmap.Height || crop.Width <= 0 || crop.Height <= 0 {
 		return gfx.Bitmap{}, false
 	}
-	left := max(0, min(bitmap.Width-1, int(crop.X+.5)))
-	top := max(0, min(bitmap.Height-1, int(crop.Y+.5)))
-	right := max(left+1, min(bitmap.Width, int(crop.X+crop.Width+.5)))
-	bottom := max(top+1, min(bitmap.Height, int(crop.Y+crop.Height+.5)))
+	left := max(float64(0), min(float64(bitmap.Width), float64(crop.X)))
+	top := max(float64(0), min(float64(bitmap.Height), float64(crop.Y)))
+	right := max(left, min(float64(bitmap.Width), float64(crop.X+crop.Width)))
+	bottom := max(top, min(float64(bitmap.Height), float64(crop.Y+crop.Height)))
+	if left >= right || top >= bottom {
+		return gfx.Bitmap{}, false
+	}
 	stride := size * 4
 	pixels := make([]byte, stride*size)
 	for y := 0; y < size; y++ {
-		sourceY := top + y*(bottom-top)/size
+		y0 := top + float64(y)*(bottom-top)/float64(size)
+		y1 := top + float64(y+1)*(bottom-top)/float64(size)
 		for x := 0; x < size; x++ {
-			sourceX := left + x*(right-left)/size
-			source := sourceY*bitmap.Stride + sourceX*4
+			x0 := left + float64(x)*(right-left)/float64(size)
+			x1 := left + float64(x+1)*(right-left)/float64(size)
+			var sums [4]float64
+			var weight float64
+			for sourceY := int(y0); float64(sourceY) < y1; sourceY++ {
+				rowWeight := min(float64(sourceY+1), y1) - max(float64(sourceY), y0)
+				for sourceX := int(x0); float64(sourceX) < x1; sourceX++ {
+					pixelWeight := rowWeight * (min(float64(sourceX+1), x1) - max(float64(sourceX), x0))
+					source := sourceY*bitmap.Stride + sourceX*4
+					for channel := 0; channel < 4; channel++ {
+						sums[channel] += pixelWeight * float64(bitmap.Pix[source+channel])
+					}
+					weight += pixelWeight
+				}
+			}
 			target := y*stride + x*4
-			copy(pixels[target:target+4], bitmap.Pix[source:source+4])
+			if weight == 0 {
+				continue
+			}
+			for channel := 0; channel < 4; channel++ {
+				pixels[target+channel] = uint8(sums[channel]/weight + .5)
+			}
 		}
 	}
 	return gfx.Bitmap{Pix: pixels, Width: size, Height: size, Stride: stride}, true
@@ -3257,20 +3285,48 @@ func decodeBitmap(path string, limit int) (gfx.Bitmap, bool) {
 		}
 		return gfx.Bitmap{Pix: rgba.Pix, Width: width, Height: height, Stride: rgba.Stride}, true
 	}
+	pixels := resamplePremultipliedBGRA(source, width, height)
+	return gfx.Bitmap{Pix: pixels, Width: width, Height: height, Stride: width * 4}, true
+}
+
+// resamplePremultipliedBGRA shrinks an image with a box filter. Each output
+// pixel averages every source pixel it covers, including fractional coverage at
+// the edges. Sampling in premultiplied color keeps transparent edges from
+// acquiring dark fringes when the image later reaches the GPU.
+func resamplePremultipliedBGRA(source image.Image, width, height int) []byte {
+	bounds := source.Bounds()
 	pixels := make([]byte, width*height*4)
+	sourceWidth, sourceHeight := float64(bounds.Dx()), float64(bounds.Dy())
 	for y := 0; y < height; y++ {
-		sourceY := bounds.Min.Y + y*bounds.Dy()/height
+		y0 := float64(y) * sourceHeight / float64(height)
+		y1 := float64(y+1) * sourceHeight / float64(height)
 		for x := 0; x < width; x++ {
-			sourceX := bounds.Min.X + x*bounds.Dx()/width
-			red, green, blue, alpha := source.At(sourceX, sourceY).RGBA()
+			x0 := float64(x) * sourceWidth / float64(width)
+			x1 := float64(x+1) * sourceWidth / float64(width)
+			var sums [4]float64
+			var weight float64
+			for sourceY := int(y0); float64(sourceY) < y1; sourceY++ {
+				rowWeight := min(float64(sourceY+1), y1) - max(float64(sourceY), y0)
+				for sourceX := int(x0); float64(sourceX) < x1; sourceX++ {
+					pixelWeight := rowWeight * (min(float64(sourceX+1), x1) - max(float64(sourceX), x0))
+					red, green, blue, alpha := source.At(bounds.Min.X+sourceX, bounds.Min.Y+sourceY).RGBA()
+					sums[0] += pixelWeight * float64(blue)
+					sums[1] += pixelWeight * float64(green)
+					sums[2] += pixelWeight * float64(red)
+					sums[3] += pixelWeight * float64(alpha)
+					weight += pixelWeight
+				}
+			}
+			if weight == 0 {
+				continue
+			}
 			offset := (y*width + x) * 4
-			pixels[offset+0] = uint8(blue >> 8)
-			pixels[offset+1] = uint8(green >> 8)
-			pixels[offset+2] = uint8(red >> 8)
-			pixels[offset+3] = uint8(alpha >> 8)
+			for channel := range sums {
+				pixels[offset+channel] = uint8(sums[channel]/weight/257 + .5)
+			}
 		}
 	}
-	return gfx.Bitmap{Pix: pixels, Width: width, Height: height, Stride: width * 4}, true
+	return pixels
 }
 
 func initialOf(name string) string {

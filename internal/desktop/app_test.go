@@ -1568,6 +1568,38 @@ func TestDecodeBitmapUsesPremultipliedBGRA(t *testing.T) {
 	}
 }
 
+func TestDecodeBitmapDownsamplesWithAreaFiltering(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "high-resolution.png")
+	source := image.NewNRGBA(image.Rect(0, 0, 4, 1))
+	source.SetNRGBA(0, 0, color.NRGBA{R: 0, G: 10, B: 20, A: 255})
+	source.SetNRGBA(1, 0, color.NRGBA{R: 100, G: 30, B: 60, A: 255})
+	source.SetNRGBA(2, 0, color.NRGBA{R: 200, G: 50, B: 100, A: 255})
+	source.SetNRGBA(3, 0, color.NRGBA{R: 255, G: 70, B: 140, A: 255})
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(file, source); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	bitmap, ok := decodeBitmap(path, 2)
+	if !ok || bitmap.Width != 2 || bitmap.Height != 1 || len(bitmap.Pix) != 8 {
+		t.Fatalf("resized bitmap = %dx%d, ok=%v", bitmap.Width, bitmap.Height, ok)
+	}
+	want := []byte{
+		40, 20, 50, 255, // BGRA average of columns 0 and 1
+		120, 60, 228, 255, // BGRA average of columns 2 and 3
+	}
+	if !slices.Equal(bitmap.Pix, want) {
+		t.Fatalf("area-filtered bitmap = %v, want %v", bitmap.Pix, want)
+	}
+}
+
 func writePNGHeader(t *testing.T, width, height uint32) string {
 	t.Helper()
 	chunk := func(name string, payload []byte) []byte {

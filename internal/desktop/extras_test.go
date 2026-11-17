@@ -96,6 +96,13 @@ func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
 		t.Fatalf("committed avatar crop = path %q, bitmap %dx%d", harness.ui.profile.avatar,
 			harness.ui.profile.avatarPreview.Width, harness.ui.profile.avatarPreview.Height)
 	}
+	round := harness.ui.profile.avatarPreviewRound
+	if !bitmapReady(round) {
+		t.Fatal("committed avatar has no circular display bitmap")
+	}
+	if round.Pix[3] != 0 || round.Pix[(128*round.Stride)+128*4+3] != 255 {
+		t.Fatal("committed avatar corners are not transparent around an opaque center")
+	}
 
 	harness.clickID(harness.ui.ids.profileSave)
 	command := harness.lastCommand()
@@ -134,7 +141,7 @@ func TestProfileAvatarCropCancelKeepsCurrentAvatar(t *testing.T) {
 	}
 	harness.clickID(harness.ui.ids.profileCropCancel)
 	if harness.ui.profile.crop.open || harness.ui.profile.avatar != previous ||
-		bitmapReady(harness.ui.profile.avatarPreview) {
+		bitmapReady(harness.ui.profile.avatarPreview) || bitmapReady(harness.ui.profile.avatarPreviewRound) {
 		t.Fatal("cancelling the crop left staged avatar state")
 	}
 	if !harness.ui.profile.open {
@@ -163,6 +170,9 @@ func TestProfileAvatarCropCanRestageTheCurrentSource(t *testing.T) {
 	harness.waitFor(func() bool {
 		return !harness.ui.profile.crop.open && bitmapReady(harness.ui.profile.avatarPreview)
 	})
+	if !bitmapReady(harness.ui.profile.avatarPreviewRound) {
+		t.Fatal("restaged current avatar has no circular display bitmap")
+	}
 
 	harness.clickID(harness.ui.ids.profileSave)
 	command := harness.lastCommand()

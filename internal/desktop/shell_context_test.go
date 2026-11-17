@@ -501,6 +501,26 @@ func TestAvatarCropBitmapUsesTheConfirmedSourceRegion(t *testing.T) {
 	}
 }
 
+func TestAvatarCropBitmapAveragesHighResolutionPixels(t *testing.T) {
+	source := gfx.Bitmap{
+		Pix: []byte{
+			0, 0, 0, 255, 90, 0, 0, 255, 180, 0, 0, 255, 255, 0, 0, 255,
+		},
+		Width: 4, Height: 1, Stride: 16,
+	}
+	cropped, ok := cropScaledBitmap(source, gfx.Rect{Width: 4, Height: 1}, 2)
+	if !ok || cropped.Width != 2 || cropped.Height != 2 {
+		t.Fatalf("high-resolution crop = %+v, ok=%v", cropped, ok)
+	}
+	for row := 0; row < 2; row++ {
+		left := row * cropped.Stride
+		right := left + 4
+		if cropped.Pix[left] != 45 || cropped.Pix[right] != 218 {
+			t.Fatalf("row %d averaged blue = %d, %d", row, cropped.Pix[left], cropped.Pix[right])
+		}
+	}
+}
+
 func TestAvatarCacheMasksOnceAndKeepsStableIdentity(t *testing.T) {
 	shell := New(nil)
 	defer shell.Close()

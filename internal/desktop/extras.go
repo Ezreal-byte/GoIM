@@ -43,6 +43,7 @@ func (u *UI) openProfile() {
 	}
 	u.profile.avatar = u.selfAvatarPath()
 	u.profile.avatarPreview = gfx.Bitmap{}
+	u.profile.avatarPreviewRound = gfx.Bitmap{}
 	u.profile.crop = profileAvatarCropState{}
 }
 
@@ -50,6 +51,7 @@ func (u *UI) closeProfile() {
 	u.profile.open = false
 	u.profile.err = ""
 	u.profile.avatarPreview = gfx.Bitmap{}
+	u.profile.avatarPreviewRound = gfx.Bitmap{}
 	u.profile.crop = profileAvatarCropState{}
 }
 
@@ -76,6 +78,7 @@ func (u *UI) chooseProfileAvatar() {
 	path := paths[0]
 	u.profile.crop = profileAvatarCropState{open: true, source: path}
 	u.profile.avatarPreview = gfx.Bitmap{}
+	u.profile.avatarPreviewRound = gfx.Bitmap{}
 	u.ensureImage(path)
 	u.profile.err = ""
 	u.syncProfileAvatarCrop(path)
@@ -152,6 +155,7 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 						if u.profile.avatar != "" && namedButton(f, u.ids.profileRemoveImage, i18n.T("移除头像")).XSmall().Ghost().Clicked() {
 							u.profile.avatar = ""
 							u.profile.avatarPreview = gfx.Bitmap{}
+							u.profile.avatarPreviewRound = gfx.Bitmap{}
 							u.profile.err = ""
 						}
 					})
@@ -250,7 +254,7 @@ func (u *UI) drawProfileAvatarEditor(canvas *gfx.Canvas, viewport ui.Rect) {
 			Cancel: u.ids.profileCropCancel, Confirm: u.ids.profileCropConfirm,
 		},
 		Labels: components.AvatarEditorLabels{
-			Title:       i18n.T("调整头像"),
+			Title:       i18n.T("裁剪图片"),
 			Description: i18n.T("拖动图片调整位置，滚轮、滑杆或按钮缩放；方形区域将作为头像。"),
 			Canvas:      i18n.T("头像裁切区域"),
 			Zoom:        i18n.T("缩放"),
@@ -258,21 +262,22 @@ func (u *UI) drawProfileAvatarEditor(canvas *gfx.Canvas, viewport ui.Rect) {
 			ZoomIn:      i18n.T("放大"),
 			Reset:       i18n.T("重置"),
 			Cancel:      i18n.T("取消"),
-			Confirm:     i18n.T("确定"),
+			Confirm:     i18n.T("保存"),
 			Loading:     i18n.T("正在读取图片…"),
 			Unavailable: i18n.T("无法读取这张图片"),
 		},
-		Bitmap:      bitmap,
-		State:       crop.state,
-		AspectRatio: 1,
-		MinZoom:     1,
-		MaxZoom:     8,
-		StageSize:   320,
-		Circular:    true,
-		Loading:     !bitmapReady(bitmap) && crop.err == "",
-		Error:       crop.err,
-		Viewport:    viewport,
-		Layer:       78,
+		Bitmap:          bitmap,
+		State:           crop.state,
+		AspectRatio:     1,
+		MinZoom:         1,
+		MaxZoom:         8,
+		StageSize:       456,
+		Circular:        true,
+		HideDescription: true,
+		Loading:         !bitmapReady(bitmap) && crop.err == "",
+		Error:           crop.err,
+		Viewport:        viewport,
+		Layer:           78,
 	}
 	layout := components.BeginAvatarEditor(canvas, u.theme, viewport, options).Paint()
 	crop.state, crop.layout = layout.State, layout
@@ -300,10 +305,18 @@ func (u *UI) commitProfileAvatarCrop() {
 		crop.err = i18n.T("无法读取这张图片")
 		return
 	}
+	round, ok := circularBitmap(preview)
+	if !ok {
+		crop.err = i18n.T("无法读取这张图片")
+		return
+	}
 	u.nextImageID++
 	preview.ID, preview.Version = u.nextImageID, 1
+	u.nextImageID++
+	round.ID, round.Version = u.nextImageID, 1
 	u.profile.avatar = crop.source
 	u.profile.avatarPreview = preview
+	u.profile.avatarPreviewRound = round
 	u.profile.err = ""
 	u.markAvatarImage(crop.source)
 	u.closeProfileAvatarEditor()
@@ -596,8 +609,8 @@ func (u *UI) avatarWithPresence(f ui.C, name, path string, size float32, online,
 			Background(u.palette.mutedAvatar)
 		avatar.Children(func() {
 			bitmap := u.avatarBitmap(path)
-			if path != "" && path == u.profile.avatar && bitmapReady(u.profile.avatarPreview) {
-				bitmap = u.profile.avatarPreview
+			if path != "" && path == u.profile.avatar && bitmapReady(u.profile.avatarPreviewRound) {
+				bitmap = u.profile.avatarPreviewRound
 			}
 			if bitmapReady(bitmap) {
 				ui.Image(f, bitmap).Fill()

@@ -871,7 +871,7 @@ var en = map[string]string{
 	"选择图片并调整裁切":                 "Choose an image and adjust the crop",
 	"点击头像更换；支持 PNG、JPEG 和 GIF。": "Click the avatar to change it. Supports PNG, JPEG, and GIF.",
 	"请先完成头像裁切":                  "Finish cropping the avatar first",
-	"调整头像":                      "Adjust avatar",
+	"裁剪图片":                      "Crop image",
 	"拖动图片调整位置，滚轮、滑杆或按钮缩放；方形区域将作为头像。": "Drag to reposition. Scroll, drag the slider, or use the buttons to zoom. The square area becomes your avatar.",
 	"头像裁切区域":  "Avatar crop area",
 	"缩放":      "Zoom",
