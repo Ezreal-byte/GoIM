@@ -619,9 +619,7 @@ func (u *UI) avatarWithPresence(f ui.C, name, path string, size float32, online,
 				ui.Image(f, bitmap).Fill()
 				return
 			}
-			ui.Row(f).Fill().Items(ui.Center).Justify(ui.Center).Children(func() {
-				u.avatarInitial(f, name, size)
-			})
+			u.avatarInitial(f, name, size)
 		})
 		if !presence {
 			return

@@ -1934,7 +1934,6 @@ func (u *UI) initialsAvatar(f ui.C, name string, size float32) {
 
 func (u *UI) avatarInitial(f ui.C, name string, size float32) {
 	ui.Text(f, initialOf(name)).
-		Width(max(1, size-6)).
 		FontSize(max(11, size*0.36)).
 		Weight(gfx.WeightSemibold).
 		Color(u.palette.avatarText).
