@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -27,8 +26,10 @@ func verifyOfflineSend(ctx context.Context, opt options) report {
 	lab := newLabChecks(opt, name, runID)
 	data := filepath.Join(opt.labDir, "goim-offline-profile")
 	newNode := func() (*core.Node, error) {
+		// Exercise the same wildcard listeners and automatic discovery as a
+		// normal installation. This mode runs in its own network namespace.
 		return core.New(core.Options{DataDir: data, Name: name, DownloadDir: filepath.Join(data, "downloads"),
-			Listen: net.JoinHostPort(opt.bind.String(), "0"), DisableDiscovery: true, DisableIPMSG: true})
+			Listen: ":0", DisableIPMSG: true})
 	}
 	var node *core.Node
 	defer func() {
@@ -38,17 +39,13 @@ func verifyOfflineSend(ctx context.Context, opt options) report {
 	}()
 	var peer domain.Peer
 	var self, conversation string
-	connect := func() {
-		node.Submit(domain.Command{Kind: domain.Connect, Transport: domain.TransportNeiwangtong, Address: opt.target.String()})
-	}
-	if !r.run("core_session_before_original_exits", func() (string, error) {
+	if !r.run("core_discovers_original_without_address", func() (string, error) {
 		var err error
 		node, err = newNode()
 		if err != nil {
 			return "", err
 		}
-		connect()
-		s, err := waitCoreState(ctx, node, 10*time.Second, func(s domain.State) bool {
+		s, err := waitCoreState(ctx, node, 20*time.Second, func(s domain.State) bool {
 			for _, p := range s.Peers {
 				addr, err := netip.ParseAddrPort(p.Address)
 				if err == nil && addr.Addr() == opt.target.Addr() && p.Transport == domain.TransportNeiwangtong && p.Online {
@@ -75,7 +72,7 @@ func verifyOfflineSend(ctx context.Context, opt options) report {
 			}
 			return false
 		})
-		return "GoIM created the chat with the named original client", err
+		return "GoIM found the original by IPv4 broadcast and opened a chat without a Connect command", err
 	}) {
 		return r
 	}
@@ -104,13 +101,19 @@ func verifyOfflineSend(ctx context.Context, opt options) report {
 		node, err = newNode()
 		return err
 	}
-	if !r.run("queue_and_reopen_goim_while_original_is_closed", func() (string, error) {
+	if !r.run("core_marks_stopped_original_offline", func() (string, error) {
 		if err := requestReferenceState(ctx, opt.labDir, "stop", "stopped"); err != nil {
 			return "", err
 		}
-		if err := reopen(); err != nil {
-			return "", err
-		}
+		_, err := waitCoreState(ctx, node, 100*time.Second, func(s domain.State) bool {
+			p := s.Peer(peer.ID)
+			return p.ID == peer.ID && !p.Online
+		})
+		return "the live GoIM session marked the original offline and retained its contact", err
+	}) {
+		return r
+	}
+	if !r.run("queue_and_reopen_goim_while_original_is_closed", func() (string, error) {
 		var err error
 		if digest, err = makeSample(source, sampleSize); err != nil {
 			return "", err
@@ -130,16 +133,19 @@ func verifyOfflineSend(ctx context.Context, opt options) report {
 	}) {
 		return r
 	}
-	if !r.run("goim_offline_text_acknowledged_by_original", func() (string, error) {
+	if !r.run("core_rediscovers_same_original_after_restart", func() (string, error) {
 		if err := requestReferenceState(ctx, opt.labDir, "start", "started"); err != nil {
 			return "", err
 		}
-		connect()
-		if _, err := waitCoreState(ctx, node, 15*time.Second, func(s domain.State) bool {
-			return s.Peer(peer.ID).Online && s.Peer(peer.ID).Version == peer.Version
-		}); err != nil {
-			return "", err
-		}
+		_, err := waitCoreState(ctx, node, 25*time.Second, func(s domain.State) bool {
+			p := s.Peer(peer.ID)
+			return p.Online && p.Version == peer.Version && p.Name == peer.Name
+		})
+		return "the same original contact came back without manual connection", err
+	}) {
+		return r
+	}
+	if !r.run("goim_offline_text_acknowledged_by_original", func() (string, error) {
 		if _, err := waitCoreState(ctx, node, 8*time.Second, func(s domain.State) bool {
 			for _, m := range s.ChatMessages(conversation) {
 				if m.Text == body && m.Status == "sent" {

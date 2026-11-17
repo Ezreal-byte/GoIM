@@ -88,6 +88,12 @@ func openStore(dir string) (*bolt.DB, persisted, error) {
 	if data.PeerBridges == nil {
 		data.PeerBridges = make(map[string]peerBridge)
 	}
+	for i := range data.State.Groups {
+		g := &data.State.Groups[i]
+		if data.NativeGroups[g.ID].WireID != "" {
+			g.Transport = transportNWT
+		}
+	}
 	if data.OwnerOffers == nil {
 		data.OwnerOffers = make(map[string]ownershipOffer)
 	}

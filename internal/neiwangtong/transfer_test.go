@@ -110,15 +110,16 @@ func TestTransferServerMultiplexesAvatarAndFileOnOneConnection(t *testing.T) {
 	if _, err := io.ReadFull(conn, confirmation[:]); err != nil {
 		t.Fatal(err)
 	}
-	if binary.BigEndian.Uint32(confirmation[8:12]) != 2 {
-		t.Fatal("avatar confirmation was not received")
+	if binary.BigEndian.Uint32(confirmation[8:12]) != 2 || binary.BigEndian.Uint64(confirmation[60:68]) != uint64(len(pngBytes)) {
+		t.Fatal("avatar confirmation did not contain the PNG length")
 	}
 	var imageHead [100]byte
 	if _, err := io.ReadFull(conn, imageHead[:]); err != nil {
 		t.Fatal(err)
 	}
 	imageFrameLength := binary.BigEndian.Uint32(imageHead[:4])
-	if imageFrameLength != uint32(100+len(pngBytes)) || binary.BigEndian.Uint32(imageHead[8:12]) != 4 {
+	if imageFrameLength != uint32(100+len(pngBytes)) || binary.BigEndian.Uint32(imageHead[8:12]) != 4 ||
+		binary.BigEndian.Uint64(imageHead[60:68]) != uint64(len(pngBytes)) || binary.BigEndian.Uint32(imageHead[76:80]) != uint32(len(pngBytes)) {
 		t.Fatal("invalid avatar data frame")
 	}
 	imageBody := make([]byte, imageFrameLength-100)
@@ -146,6 +147,90 @@ func TestTransferServerMultiplexesAvatarAndFileOnOneConnection(t *testing.T) {
 func TestNativeDownloadRemovesInterruptedFileAndCanRetry(t *testing.T) {
 	t.Run("discard ordinary partial", func(t *testing.T) { testInterruptedFile(t, false) })
 	t.Run("resume retained prefix", func(t *testing.T) { testInterruptedFile(t, true) })
+}
+
+func TestNativeUploadReportsDroppedSocketAndKeepsOffer(t *testing.T) {
+	const task, selector = 341, 792
+	paused, resume := make(chan struct{}), make(chan struct{})
+	failed := make(chan int64, 1)
+	srv, err := startTransferServer(loopback, 0, func(id uint64, done, _ int64, failure error) {
+		if id != task {
+			return
+		}
+		if failure != nil {
+			failed <- done
+		} else if done == nativeFileBlock {
+			close(paused)
+			<-resume
+		}
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	defer func() {
+		select {
+		case <-resume:
+		default:
+			close(resume)
+		}
+	}()
+	data := bytes.Repeat([]byte("retained prefix and remaining bytes"), 10240)
+	root := t.TempDir()
+	source, dest := filepath.Join(root, "source"), filepath.Join(root, "partial")
+	if err := os.WriteFile(source, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	size := int64(len(data))
+	if err := srv.registerFile(selector, task, source, size, loopback, true); err != nil {
+		t.Fatal(err)
+	}
+	target := netip.AddrPortFrom(loopback, uint16(srv.Port()))
+	conn, err := net.DialTCP("tcp4", nil, net.TCPAddrFromAddrPort(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	_ = conn.SetDeadline(deadline)
+	if _, err := conn.Write(nativeFileRequest(selector)); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := readNativeTCPFrame(conn, nativeFileHeader+nativeFileBlock)
+	if err != nil || len(frame) != nativeFileHeader+nativeFileBlock {
+		t.Fatalf("first native frame: %d bytes, %v", len(frame), err)
+	}
+	select {
+	case <-paused:
+	case <-ctx.Done():
+		t.Fatal("the sender did not stop after the first block")
+	}
+	if err := conn.SetLinger(0); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	close(resume)
+	select {
+	case done := <-failed:
+		if done != nativeFileBlock {
+			t.Fatalf("failure reported at %d bytes, expected %d", done, nativeFileBlock)
+		}
+	case <-ctx.Done():
+		t.Fatal("the dropped socket did not report a failed upload")
+	}
+	if err := os.WriteFile(dest, frame[nativeFileHeader:], 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := downloadFileTo(ctx, loopback, target, selector, size, dest, true, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(dest); err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("the original offer did not resume: %v", err)
+	}
 }
 
 func testInterruptedFile(t *testing.T, resumable bool) {

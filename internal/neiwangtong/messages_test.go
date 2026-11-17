@@ -7,6 +7,17 @@ import (
 	"time"
 )
 
+func TestStockProfileChangeCarries64BitSystemFace(t *testing.T) {
+	// The original uses a 64-bit identifier even when a separate custom
+	// avatar is present. Rejecting that identifier lost the whole update.
+	raw := []byte(`<X_CHANGE_INFO docver="1"><NAME>Test contact</NAME><SYS_FACE>36028797018963968</SYS_FACE><USER_FACE id="4020">00000000000000000000000000000000</USER_FACE><STATUS>0</STATUS></X_CHANGE_INFO>`)
+	var info profileChange
+	if err := decodeNativeXML(raw, "X_CHANGE_INFO", &info); err != nil || !validWireProfile(info.wireProfile) ||
+		info.SysFace != 1<<55 || info.UserFace.ID != 4020 {
+		t.Fatalf("could not read the original's custom avatar update: %+v, %v", info.wireProfile, err)
+	}
+}
+
 func TestSendMsgFormatAndParse(t *testing.T) {
 	formatted, err := FormatSendMsg(42, "你好，内网通测试")
 	if err != nil {
@@ -48,6 +59,20 @@ func TestSendMsgAckFormatAndParse(t *testing.T) {
 	}
 	if parsed != msgID {
 		t.Fatalf("parsed message ID %d, want %d", parsed, msgID)
+	}
+}
+
+func TestStockTextRecallDecodesAsControl(t *testing.T) {
+	const id = "0123456789abcdef0123456789abcdef"
+	const target = "fedcba9876543210fedcba9876543210"
+	body := `<X_SEND_MSG docver="1"><MSG_ID>2</MSG_ID><MSG>{&quot;app&quot;:&quot;shiyeline&quot;,&quot;dt&quot;:[{&quot;txt&quot;:{&quot;t&quot;:&quot;compatible&quot;,&quot;v&quot;:&quot;请升级&quot;}},{&quot;retrieve&quot;:{&quot;m&quot;:&quot;{}&quot;,&quot;v&quot;:&quot;` + target + `&quot;}}],&quot;id&quot;:&quot;` + id + `&quot;,&quot;type&quot;:&quot;4&quot;}</MSG></X_SEND_MSG>`
+	decoded, err := ParseDirectMessage([]byte(body))
+	if err != nil || decoded.ID != id || decoded.RecallID != target || decoded.PacketID != 2 || len(decoded.Parts) != 0 {
+		t.Fatalf("native recall was not a separate control: %+v, err=%v", decoded, err)
+	}
+	bad := bytes.ReplaceAll([]byte(body), []byte(target), []byte("unrelated"))
+	if _, err := ParseDirectMessage(bad); err == nil {
+		t.Fatal("malformed recall was accepted as chat content")
 	}
 }
 

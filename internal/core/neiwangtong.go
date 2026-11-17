@@ -114,6 +114,11 @@ func (n *Node) newNeiwangtong(port int, live *atomic.Bool) (*neiwangtong.Service
 					n.receiveNeiwangtongGroupRoster(peerID, roster)
 				}
 			},
+			GroupExit: func(peerID, groupID string) {
+				if live.Load() {
+					n.async(func() { n.receiveNeiwangtongGroupExit(peerID, groupID) })
+				}
+			},
 			GroupText: func(peerID string, message neiwangtong.GroupMessage) error {
 				if live.Load() {
 					return n.receiveNeiwangtongGroupText(peerID, message)
@@ -371,16 +376,30 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 	}
 	e := value.Envelope
 	switch e.Type {
+	case nativeGroupExitDelivery:
+		return service.SendGroupExit(peer, e.Target)
+	case "message_recall":
+		if groupID, ok := strings.CutPrefix(e.Message.ConversationID, "group:"); ok {
+			room, err := n.activeNativeGroup(groupID, value.PeerID)
+			if err != nil {
+				return err
+			}
+			return service.SendGroupTextRecall(peer, room, nativeMessagePacket(value), e.ID, e.Message.ID)
+		}
+		return service.SendTextRecall(n.ctx, peer, nativeMessagePacket(value), e.ID, e.Message.ID)
+	case nativeGroupRosterDelivery:
+		roster, err := n.nativeRosterForDelivery(e.Target, value.PeerID)
+		if err != nil {
+			return err
+		}
+		return service.SendGroupRoster(peer, roster)
 	case "message":
 		if groupID, ok := strings.CutPrefix(e.Message.ConversationID, "group:"); ok {
-			n.mu.Lock()
-			room := n.data.NativeGroups[groupID]
-			group := n.data.State.Group(groupID)
-			n.mu.Unlock()
-			if room.WireID == "" || group.Left || group.Dissolved || !contains(group.Members, value.PeerID) {
-				return errors.New("该联系人不在此内网通群中")
+			room, err := n.activeNativeGroup(groupID, value.PeerID)
+			if err != nil {
+				return err
 			}
-			return service.SendGroupText(peer, room.WireID, nativeMessagePacket(value), e.Message.ID, e.Message.Text)
+			return service.SendGroupText(peer, room, nativeMessagePacket(value), e.Message.ID, e.Message.Text)
 		}
 		var queuedAt time.Time
 		if value.QueuedOffline {
@@ -422,7 +441,15 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 			return err
 		}
 		if f.InlineImage {
-			return n.sendNeiwangtongImage(service, peer, value, taskID, fileID, f)
+			var room string
+			if groupID, ok := strings.CutPrefix(t.ConversationID, "group:"); ok {
+				var err error
+				room, err = n.activeNativeGroup(groupID, value.PeerID)
+				if err != nil {
+					return err
+				}
+			}
+			return n.sendNeiwangtongImage(service, peer, room, value, taskID, fileID, f)
 		}
 		info, err := os.Stat(f.SourcePath)
 		if err != nil {

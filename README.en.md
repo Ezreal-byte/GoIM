@@ -80,17 +80,21 @@ The adapter state below is scoped to the original Neiwangtong 3.4.3055 client. �
 
 | Capability | Status | Automated evidence |
 | --- | --- | --- |
-| Discovery, profile exchange, native avatar download | Verified | Original-client handshake and image digest checks |
+| Discovery, online and offline transitions, profile exchange, native avatar download | Verified | No manual address; the same contact was updated after the original exited and restarted. Handshake and image digests checked |
 | Direct text, Chinese text, special characters, delivery receipts | Verified in both directions | Sent and received records matched with application receipts |
+| Direct and group text recall | Verified in both directions | The recalled text disappeared and the neighboring control message remained |
 | Online individual files, reject, recall and cancel | Verified in both directions | Real files compared by SHA-256 |
 | Inline PNG, JPEG and GIF messages | Verified in both directions | Original-client cache and received bytes compared exactly |
 | Directory transfer | Verified in both directions | Nested Chinese paths, empty subdirectories and zero-byte files preserved |
-| Resume | Verified in both directions | Non-zero offsets and final SHA-256 checks |
+| Restarting an interrupted directory transfer | Verified in both directions | A fresh offer restarted the transfer; received files matched by SHA-256 |
+| Busy and away presence, avatar replacement | Original presence → GoIM and avatar replacement in both directions verified | The same contact changed presence in sequence. Both clients received two replacements; GoIM cleared its copy when the original restored its default avatar |
+| Individual file resume | Verified in both directions | Non-zero offsets and final SHA-256 checks; GoIM retries reuse the file's original task ID |
 | Offline text and file replay | Verified in both directions | Both clients restarted with isolated profiles |
-| Original-client-created group chat | Text verified in both directions | GoIM received membership; the reply was read back from the original conversation |
+| Original-client-created group chat | Text and inline PNG, JPEG, and GIF verified in both directions | Text matched the original transcript; the original cache and GoIM downloads matched the image samples |
+| Neiwangtong group created in GoIM | Creation, member addition, renaming, three-client text and original-client exit verified | Two originals and GoIM exchanged messages. Renaming kept the conversation, and when one original left the other stayed in the group |
 | Files larger than 4 GiB | Original → GoIM verified | 4,295,032,849-byte file downloaded and hashed |
 
-Known gaps are tracked explicitly: GoIM → original transfers above 4 GiB, directory-transfer resume, fully empty root directories, GoIM creation or administration of original groups, group files and images, original-client expressions, message recall, native file sharing and remote assistance.
+Known gaps include GoIM → original transfers of 4 GiB or more, resuming directories, fully empty root directories, ordinary files in groups, some group management actions, original-client expressions, native file sharing and remote assistance.
 
 FeiQ automated coverage includes the extended header, Chinese encoding, discovery and the standard IPMSG file path. A real FeiQ desktop client and version-specific extensions still need hands-on verification.
 

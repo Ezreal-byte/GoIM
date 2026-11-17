@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -59,6 +60,34 @@ func TestNeiwangtongCompatibilitySettingsAndLifecycle(t *testing.T) {
 	}
 	if s := n.Snapshot(); s.Settings.Neiwangtong.Enabled || s.NeiwangtongStatus.Active {
 		t.Fatal("failed to stop only the native adapter")
+	}
+}
+
+func TestNeiwangtongRecallScopesSenderAndSuppressesReplay(t *testing.T) {
+	n := testNode(t, "recall fixture")
+	const first = "11111111111111111111111111111111"
+	const second = "22222222222222222222222222222222"
+	const sharedID = "123456789abcdef0123456789abcdef0"
+	for _, id := range []string{first, second} {
+		n.receiveNeiwangtongPeer(neiwangtong.Peer{ID: id, Name: id, Online: true})
+	}
+
+	receive := func(peer string, m neiwangtong.DirectMessage) {
+		t.Helper()
+		if err := n.receiveNeiwangtongMessage(peer, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	message := neiwangtong.DirectMessage{ID: sharedID, Parts: []neiwangtong.MessagePart{{Text: "same ID on separate original clients"}}}
+	receive(first, message)
+	receive(second, message)
+	receive(first, neiwangtong.DirectMessage{RecallID: sharedID})
+	receive(first, message)
+	s := n.Snapshot()
+	chat1, chat2 := s.ChatMessages(directID(s.Self.ID, first)), s.ChatMessages(directID(s.Self.ID, second))
+	if len(chat1) != 1 || !chat1[0].Recalled || chat1[0].Text != "" ||
+		len(chat2) != 1 || chat2[0].Recalled || chat2[0].Text != message.Text() {
+		t.Fatalf("recall or replay affected the wrong messages: %+v; %+v", chat1, chat2)
 	}
 }
 
@@ -135,6 +164,8 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	outgoing := make(chan string, 2)
 	offers := make(chan neiwangtong.XMLSendFile, 2)
 	folders := make(chan neiwangtong.FolderOffer, 2)
+	groupChat := make(chan neiwangtong.GroupMessage, 2)
+	groupRosters := make(chan neiwangtong.GroupRoster, 2)
 	withdrawals := make(chan uint64, 2)
 	profile := neiwangtong.Peer{Name: "Peer", Sign: "签名", Company: "测试组"}
 	remoteCfg := neiwangtong.Config{
@@ -143,6 +174,11 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 		Callbacks: neiwangtong.Callbacks{
 			Text:  func(_ string, _ uint64, text string) { outgoing <- text },
 			Files: func(_ string, offer neiwangtong.XMLSendFile) { offers <- offer },
+			GroupText: func(_ string, message neiwangtong.GroupMessage) error {
+				groupChat <- message
+				return nil
+			},
+			GroupRoster: func(_ string, roster neiwangtong.GroupRoster) { groupRosters <- roster },
 			Folders: func(_ string, offer neiwangtong.FolderOffer) {
 				folders <- offer
 			},
@@ -177,6 +213,7 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	eventually(t, "first avatar", func() bool { return n.Snapshot().Peer(nativeID).Avatar != "" })
 	first := n.Snapshot().Peer(nativeID).Avatar
 	selfID := keyIDFromNative(nativeIDForGoIM(n.Snapshot().Self.ID))
+	testGoIMCreatedNeiwangtongGroup(t, n, remote, selfID, nativeID, groupRosters, groupChat)
 	if err := remote.SendText(selfID, "原生文本 & 😀"); err != nil {
 		t.Fatal(err)
 	}
@@ -280,6 +317,28 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	}
 	awaitSentTransfer(offer, "completed")
 
+	interrupted := nextOffer()
+	n.receiveNeiwangtongProgress(nativeID, interrupted.TaskID, 1, interrupted.Size, false, errors.New("test connection dropped"))
+	awaitSentTransfer(interrupted, "failed")
+	var retryID string
+	for _, transfer := range n.Snapshot().Transfers {
+		if transfer.Direction == "send" && transfer.RemotePacket == fmt.Sprint(interrupted.TaskID) {
+			retryID = transfer.ID
+			break
+		}
+	}
+	if err := n.execute(domain.Command{Kind: domain.RetryTransfer, TransferID: retryID}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case retry := <-offers:
+		if retry.TaskID != interrupted.TaskID || retry.FileID != interrupted.FileID {
+			t.Fatalf("retry issued a new file identity: before=%+v after=%+v", interrupted, retry)
+		}
+	case <-ctx.Done():
+		t.Fatal("the same file offer was not retried")
+	}
+
 	rejected := nextOffer()
 	if rejected.TaskID == offer.TaskID || rejected.FileID == offer.FileID {
 		t.Fatalf("new offer reused selectors: %+v", rejected)
@@ -342,6 +401,7 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	remote.UpdateProfile(profile, nil)
 	eventually(t, "removed avatar", func() bool { return n.Snapshot().Peer(nativeID).Avatar == "" })
 	testNeiwangtongDirectories(t, n, remote, selfID, nativeID, conv, folders)
+	testNeiwangtongGroupImages(t, n, remote, selfID, nativeID, groupChat)
 
 	if err := remote.SendQuit(selfID); err != nil {
 		t.Fatal(err)
@@ -428,7 +488,8 @@ func testNeiwangtongDirectories(t *testing.T, n *Node, remote *neiwangtong.Servi
 	if err := os.MkdirAll(filepath.Join(source, empty), 0700); err != nil {
 		t.Fatal(err)
 	}
-	files := map[string][]byte{"顶层.bin": bytes.Repeat([]byte("root-data"), 4100), "资料/中文.txt": []byte("目录内容"), "资料/空文件.txt": nil}
+	files := map[string][]byte{"顶层.bin": bytes.Repeat([]byte("root-data"), 4100), "资料/0-较大.bin": bytes.Repeat([]byte("resend"), 38000),
+		"资料/中文.txt": []byte("目录内容"), "资料/空文件.txt": nil}
 	for name, body := range files {
 		if err := os.WriteFile(filepath.Join(source, filepath.FromSlash(name)), body, 0600); err != nil {
 			t.Fatal(err)
@@ -485,6 +546,41 @@ func testNeiwangtongDirectories(t *testing.T, n *Node, remote *neiwangtong.Servi
 	case <-ctx.Done():
 		t.Fatal("test peer did not receive the GoIM directory offer", ctx.Err())
 	}
+	partial := filepath.Join(base, "interrupted")
+	if err := os.Mkdir(partial, 0700); err != nil {
+		t.Fatal(err)
+	}
+	interrupted, stop := context.WithCancel(ctx)
+	defer stop()
+	var firstBytes int64
+	if err := remote.ReceiveDirectory(interrupted, selfID, offer, partial, func(done int64) {
+		firstBytes = done
+		stop()
+	}); err == nil || firstBytes == 0 || firstBytes >= dir.Size {
+		t.Fatalf("expected a directory interruption after the first data block, got %d bytes and %v", firstBytes, err)
+	}
+	var transferID string
+	eventually(t, "failed GoIM directory transfer", func() bool {
+		for _, transfer := range n.Snapshot().Transfers {
+			if transfer.Direction == "send" && transfer.RemotePacket == offer.TaskID && transfer.Status == "failed" {
+				transferID = transfer.ID
+				return true
+			}
+		}
+		return false
+	})
+	if err := n.execute(domain.Command{Kind: domain.RetryTransfer, TransferID: transferID}); err != nil {
+		t.Fatal(err)
+	}
+	oldTask := offer.TaskID
+	select {
+	case offer = <-offers:
+		if offer.TaskID == oldTask {
+			t.Fatal("retry reused the interrupted directory invitation")
+		}
+	case <-ctx.Done():
+		t.Fatal("test peer did not receive a fresh directory invitation", ctx.Err())
+	}
 	peerDest := filepath.Join(base, "received-by-peer")
 	if err := os.Mkdir(peerDest, 0700); err != nil {
 		t.Fatal(err)
@@ -495,8 +591,8 @@ func testNeiwangtongDirectories(t *testing.T, n *Node, remote *neiwangtong.Servi
 	verify(peerDest)
 	eventually(t, "completed folder to native peer", func() bool {
 		for _, transfer := range n.Snapshot().Transfers {
-			if transfer.Direction == "send" && transfer.RemotePacket == offer.TaskID {
-				return transfer.Status == "completed" && transfer.Done == dir.Size
+			if transfer.ID == transferID {
+				return transfer.RemotePacket == offer.TaskID && transfer.Status == "completed" && transfer.Done == dir.Size
 			}
 		}
 		return false

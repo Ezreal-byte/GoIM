@@ -85,6 +85,14 @@ func (p Peer) ListedContact() bool {
 	return p.CompatibilityAliasOf == "" && !p.IsLegacyNeiwangtong()
 }
 
+func (p Peer) SupportsGroups() bool {
+	return p.ID != "" && p.ListedContact() && (p.Transport == TransportGoIM || p.Transport == TransportNeiwangtong)
+}
+
+func (p Peer) SupportsNeiwangtongRecall() bool {
+	return p.Transport == TransportNeiwangtong && p.Version == "3.4.3055"
+}
+
 type Conversation struct {
 	ID        string
 	Title     string
@@ -115,6 +123,10 @@ type Message struct {
 	Nickname       string
 }
 
+func (m Message) CanRecallNeiwangtongText(now time.Time) bool {
+	return m.Kind == "text" && m.Status == "sent" && now.Before(m.CreatedAt.Add(2*time.Minute))
+}
+
 type Group struct {
 	ID        string
 	Name      string
@@ -129,6 +141,7 @@ type Group struct {
 	RootKey   []byte
 	Nonce     string
 	Ownership []Ownership
+	Transport string `json:",omitempty"` // empty for signed GoIM groups
 }
 
 type Ownership struct {

@@ -75,6 +75,9 @@ func (n *Node) retryTransfer(t domain.Transfer) error {
 	}
 	s := n.snapshot(false)
 	if t.Direction == "receive" {
+		if t.LegacyTransport == transportNWT && t.Revoked && s.File(t.FileID).Folder {
+			return errNativeDirectoryResend
+		}
 		if t.Status == "cancelled" || t.Status == "rejected" {
 			if t.LegacyTransport == transportNWT {
 				return errors.New("此内网通任务已结束，请让对方重新发送")
@@ -96,7 +99,16 @@ func (n *Node) retryTransfer(t domain.Transfer) error {
 	if f.SourcePath == "" {
 		return errors.New("源文件不可用")
 	}
-	n.offerFile(t.PeerID, t.ConversationID, f, "")
+	if t.LegacyTransport == transportNWT && f.Folder && !t.Revoked && t.RemotePacket != "" &&
+		(t.Status == "failed" || t.Status == "waiting") {
+		return n.retryNeiwangtongDirectory(t)
+	}
+	transferID := ""
+	if t.LegacyTransport == transportNWT && !t.Revoked && !f.Folder && !f.InlineImage &&
+		(t.Status == "failed" || t.Status == "waiting") && t.RemotePacket != "" && t.RemoteFile != "" {
+		transferID = t.ID
+	}
+	n.offerFile(t.PeerID, t.ConversationID, f, transferID)
 	return nil
 }
 func (n *Node) receiveFileRetry(peer string, e envelope) error {

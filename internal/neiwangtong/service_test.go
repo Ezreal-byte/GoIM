@@ -3,6 +3,7 @@ package neiwangtong
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"os"
@@ -208,6 +209,17 @@ func TestProfileBootstrapPromotesToMainControlConnection(t *testing.T) {
 	case <-profiles:
 		t.Fatal("temporary profile retry replayed the initial profile on the established main connection")
 	case <-time.After(300 * time.Millisecond):
+	}
+	otherBootstrap, err := net.ListenUDP("udp4", net.UDPAddrFromAddrPort(netip.AddrPortFrom(loopback, 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer otherBootstrap.Close()
+	secondService.kickHandshake(firstService.selfID, otherBootstrap.LocalAddr().(*net.UDPAddr).AddrPort())
+	_ = otherBootstrap.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	var packet [512]byte
+	if _, _, err := otherBootstrap.ReadFromUDPAddrPort(packet[:]); err == nil || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("an online contact should not be bootstrapped again on its temporary port: %v", err)
 	}
 }
 

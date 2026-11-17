@@ -33,6 +33,7 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.syncFilesWindow()
 		return
 	}
+	native := group.Transport == domain.TransportNeiwangtong
 	owner := u.state.Self.ID != "" && group.OwnerID == u.state.Self.ID
 	extent := min(float32(430), max(viewport.Width-24, 300))
 	drawer := components.BeginDrawer(canvas, u.theme, viewport, components.DrawerOptions{
@@ -58,6 +59,9 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 					note := i18n.T("群主可修改群名")
 					if !owner {
 						note = i18n.T("群成员可查看成员信息")
+					}
+					if native {
+						note = i18n.T("内网通群聊")
 					}
 					ui.Text(f, note).FontSize(11).Muted()
 				})
@@ -89,7 +93,11 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 					Weight(gfx.WeightSemibold)
 				ui.Spacer(f)
 				if owner {
-					invite := namedButton(f, u.ids.memberInvite, i18n.T("邀请成员")).XSmall().Outline()
+					label := i18n.T("邀请成员")
+					if native {
+						label = i18n.T("添加成员")
+					}
+					invite := namedButton(f, u.ids.memberInvite, label).XSmall().Outline()
 					if invite.Clicked() {
 						u.openCompose("invite", group.ID)
 					}
@@ -156,7 +164,9 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 				u.drawGroupInvitations(f, group, owner)
 			})
 			ui.Divider(f)
-			u.drawGroupNicknameEditor(f, group)
+			if !native {
+				u.drawGroupNicknameEditor(f, group)
+			}
 			ui.Row(f).Height(36).Items(ui.Center).Children(func() {
 				ui.Text(f, i18n.T("消息免打扰")).FontSize(13).Grow(1)
 				muted := ui.State[bool](f, "muted")
@@ -176,11 +186,11 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		})
 	})
 
-	if owner {
+	if owner && !native {
 		drawer.Actions(layout, components.ButtonAction{
 			ID: u.ids.memberDissolve, Label: i18n.T("解散群聊"), Variant: components.ButtonDestructiveOutline,
 		})
-	} else {
+	} else if !owner {
 		drawer.Actions(layout, components.ButtonAction{
 			ID: u.ids.memberLeave, Label: i18n.T("退出群聊"), Variant: components.ButtonDestructiveOutline,
 		})
@@ -191,7 +201,7 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.requestCloseDrawer()
 		return
 	}
-	if owner && canvas.Clicked(u.ids.memberDissolve) {
+	if owner && !native && canvas.Clicked(u.ids.memberDissolve) {
 		u.requestDissolve(group)
 		return
 	}
@@ -215,7 +225,7 @@ func (u *UI) drawMemberMenu(canvas *gfx.Canvas, viewport ui.Rect, group domain.G
 		u.memberMenu = ""
 		return
 	}
-	owner := group.OwnerID == u.state.Self.ID
+	owner := group.Transport == domain.TransportGoIM && group.OwnerID == u.state.Self.ID
 	items := 2
 	if owner {
 		items++
@@ -1029,7 +1039,7 @@ func (u *UI) drawChatMenu(canvas *gfx.Canvas) {
 	}
 	group := u.state.Group(conversation.GroupID)
 	items := 3
-	if conversation.Kind == "group" && group.ID != "" && !group.Left && !group.Dissolved {
+	if conversation.Kind == "group" && group.ID != "" && group.Transport == domain.TransportGoIM && !group.Left && !group.Dissolved {
 		items = 4
 	}
 	height := float32(12 + items*32 + 9)
@@ -1143,10 +1153,14 @@ func (u *UI) drawComposeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.compose.open = false
 		return
 	}
-	title, description := i18n.T("创建群聊"), i18n.T("选择至少 2 位在线联系人，邀请确认后加入群聊。")
+	title, description := i18n.T("创建群聊"), i18n.T("选择使用同一种客户端的在线联系人。")
 	if !create {
 		title = i18n.T("邀请成员")
 		description = i18n.T("邀请在线联系人加入「") + group.Name + i18n.T("」，对方确认后计入成员。")
+		if group.Transport == domain.TransportNeiwangtong {
+			title = i18n.T("添加成员")
+			description = i18n.T("请选择在线的内网通联系人")
+		}
 	}
 	initialFocus := u.ids.composeSearch
 	if create {
@@ -1164,12 +1178,17 @@ func (u *UI) drawComposeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.drawComposeBody(f, create, group)
 	})
 	selected := u.selectedPeersForCompose()
-	ready := len(selected) >= 2
+	native := len(selected) > 0 && u.state.Peer(selected[0]).Transport == domain.TransportNeiwangtong
+	ready := u.composeReady(selected)
 	if !create {
 		ready = len(selected) >= 1
 	}
 	label := i18n.T("创建并邀请（") + intString(len(selected)) + "）"
-	if !create {
+	if create && native {
+		label = i18n.T("创建群聊") + "（" + intString(len(selected)) + "）"
+	} else if !create && group.Transport == domain.TransportNeiwangtong {
+		label = i18n.T("添加成员") + "（" + intString(len(selected)) + "）"
+	} else if !create {
 		label = i18n.T("邀请（") + intString(len(selected)) + "）"
 	}
 	if u.compose.pending {
@@ -1265,13 +1284,29 @@ func (u *UI) drawComposeBody(f ui.C, create bool, group domain.Group) {
 			})
 		})
 		ui.Row(f).Height(20).Items(ui.Center).Children(func() {
-			ui.Text(f, i18n.T("邀请尚待确认时仍可进入群聊。")).FontSize(10.5).Muted().Ellipsis()
+			note := i18n.T("邀请尚待确认时仍可进入群聊。")
+			if create {
+				note = i18n.T("内网通群至少选 1 人，GoIM 群至少选 2 人。")
+			} else if group.Transport == domain.TransportNeiwangtong {
+				note = i18n.T("新成员会在内网通看到这个群聊。")
+			}
+			ui.Text(f, note).FontSize(10.5).Muted().Ellipsis()
 		})
 	})
 }
 
 func (u *UI) drawComposeCandidates(f ui.C, create bool, group domain.Group) {
 	query := strings.TrimSpace(u.compose.search.Text())
+	transport, fixedTransport := group.Transport, !create
+	if create {
+		for id, selected := range u.compose.selected {
+			peer := u.state.Peer(id)
+			if selected && peer.Online && peer.SupportsGroups() {
+				transport, fixedTransport = peer.Transport, true
+				break
+			}
+		}
+	}
 	shown := 0
 	for _, contactGroup := range u.contacts {
 		peers := make([]domain.Peer, 0, len(contactGroup.Peers))
@@ -1315,7 +1350,9 @@ func (u *UI) drawComposeCandidates(f ui.C, create bool, group domain.Group) {
 		}
 		for _, peer := range peers {
 			selected := u.compose.selected[peer.ID]
-			available := peer.Online
+			supported := peer.SupportsGroups()
+			matches := !fixedTransport || peer.Transport == transport
+			available := peer.Online && (selected || supported && matches)
 			row := ui.Row(f.Key(peer.ID)).FillWidth().Height(46).PadSides(5, 8, 5, 8).Radius(7).Gap(8).
 				Background(func() ui.Color {
 					if selected {
@@ -1337,6 +1374,12 @@ func (u *UI) drawComposeCandidates(f ui.C, create bool, group domain.Group) {
 						status = i18n.T("离线 · 上线后可邀请")
 					} else if selected {
 						status = i18n.T("已选择")
+					} else if !supported {
+						status = i18n.T("此联系人不支持群聊")
+					} else if !matches {
+						status = i18n.T("此群需要同一种客户端")
+					} else if peer.Transport == domain.TransportNeiwangtong {
+						status = i18n.T("内网通")
 					}
 					ui.Text(f, status).FontSize(10.5).Muted().Ellipsis()
 				})

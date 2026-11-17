@@ -1,6 +1,7 @@
 package neiwangtong
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -53,9 +54,10 @@ type TransferServer struct {
 	closing       atomic.Bool
 	avatarMu      sync.RWMutex
 	avatarPNG     []byte
+	avatarModTime time.Time
 	filesMu       sync.RWMutex
 	files         map[uint64]outgoingFile
-	onProgress    func(taskID uint64, done, total int64)
+	onProgress    func(taskID uint64, done, total int64, failure error)
 	reverseMu     sync.Mutex
 	reverseWait   map[reverseKey]*incomingReverse
 	avatarAllowed func(netip.Addr) bool
@@ -74,10 +76,14 @@ type incomingReverse struct {
 }
 
 func StartTransferServer(bind netip.Addr, port int, onProgress func(taskID uint64, done, total int64)) (*TransferServer, error) {
-	return startTransferServer(bind, port, onProgress, nil)
+	return startTransferServer(bind, port, func(taskID uint64, done, total int64, failure error) {
+		if onProgress != nil && failure == nil {
+			onProgress(taskID, done, total)
+		}
+	}, nil)
 }
 
-func startTransferServer(bind netip.Addr, port int, onProgress func(taskID uint64, done, total int64), avatarAllowed func(netip.Addr) bool) (*TransferServer, error) {
+func startTransferServer(bind netip.Addr, port int, onProgress func(taskID uint64, done, total int64, failure error), avatarAllowed func(netip.Addr) bool) (*TransferServer, error) {
 	bindStr := fmt.Sprintf(":%d", port)
 	if bind.IsValid() && bind.Is4() {
 		bindStr = fmt.Sprintf("%s:%d", bind.String(), port)
@@ -134,7 +140,10 @@ func (s *TransferServer) Close() error {
 func (s *TransferServer) SetAvatar(png []byte) {
 	s.avatarMu.Lock()
 	defer s.avatarMu.Unlock()
-	s.avatarPNG = append([]byte(nil), png...)
+	if !bytes.Equal(s.avatarPNG, png) {
+		s.avatarPNG = bytes.Clone(png)
+		s.avatarModTime = time.Now()
+	}
 }
 
 func (s *TransferServer) RegisterFile(taskID uint64, path string, size int64) {
@@ -267,10 +276,11 @@ func (s *TransferServer) handleConnection(conn net.Conn) {
 				}
 				s.serveAvatar(conn)
 			} else {
-				if _, ok := s.fileForRequest(conn, selector); !ok {
+				file, ok := s.fileForRequest(conn, selector)
+				if !ok {
 					return
 				}
-				if err := writeTransferConfirmation(conn, selector); err != nil {
+				if err := writeTransferConfirmation(conn, selector, file.Size, file.Info.ModTime()); err != nil {
 					return
 				}
 			}
@@ -358,33 +368,30 @@ func nativeFrameSelector(frame []byte) (uint64, error) {
 
 func (s *TransferServer) serveAvatar(conn net.Conn) {
 	s.avatarMu.RLock()
-	png := s.avatarPNG
+	png, modified := s.avatarPNG, s.avatarModTime
 	s.avatarMu.RUnlock()
 	if len(png) == 0 {
 		return
 	}
 
-	if err := writeTransferConfirmation(conn, avatarSelector); err != nil {
+	if err := writeTransferConfirmation(conn, avatarSelector, int64(len(png)), modified); err != nil {
 		return
 	}
 
-	// 2. Send Command 4 image data (100-byte header + png)
-	frameLen := 100 + len(png)
-	frame := make([]byte, frameLen)
-	binary.BigEndian.PutUint32(frame[0:4], uint32(frameLen))
-	binary.BigEndian.PutUint32(frame[4:8], 1)
-	binary.BigEndian.PutUint32(frame[8:12], 4) // cmd 4
-	binary.BigEndian.PutUint32(frame[56:60], avatarSelector)
-	copy(frame[100:], png)
+	frame := make([]byte, nativeFileHeader+len(png))
+	encodeFileHeader(frame, avatarSelector, int64(len(png)), 0, uint32(len(png)))
+	copy(frame[nativeFileHeader:], png)
 	_, _ = conn.Write(frame)
 }
 
-func writeTransferConfirmation(w io.Writer, selector uint64) error {
+func writeTransferConfirmation(w io.Writer, selector uint64, size int64, modified time.Time) error {
 	confirm := make([]byte, 108)
 	binary.BigEndian.PutUint32(confirm[0:4], 108)
 	binary.BigEndian.PutUint32(confirm[4:8], 1)
 	binary.BigEndian.PutUint32(confirm[8:12], 2) // cmd 2
 	binary.BigEndian.PutUint32(confirm[56:60], uint32(selector))
+	binary.BigEndian.PutUint64(confirm[60:68], uint64(size))
+	binary.BigEndian.PutUint64(confirm[68:76], uint64(max(modified.Unix(), 0)))
 	_, err := w.Write(confirm)
 	return err
 }
@@ -397,36 +404,41 @@ func (s *TransferServer) fileForRequest(conn net.Conn, selector uint64) (outgoin
 	return file, ok && isTCP && (!file.Recipient.IsValid() || file.Recipient == addr.AddrPort().Addr().Unmap())
 }
 
-func (s *TransferServer) serveFile(conn net.Conn, selector uint64, position int64) {
+func (s *TransferServer) serveFile(conn net.Conn, selector uint64, position int64) (failure error) {
 	file, ok := s.fileForRequest(conn, selector)
 	if !ok || position < 0 || position > file.Size || position != 0 && !file.chunked {
-		return
+		return nil
 	}
+	done := position
+	defer func() {
+		if failure != nil && s.onProgress != nil && file.ctx.Err() == nil && !s.closing.Load() {
+			s.onProgress(file.TaskID, done, file.Size, failure)
+		}
+	}()
 
 	f, err := os.Open(file.Path)
 	if err != nil {
-		return
+		return err
 	}
 	defer f.Close()
 	current, err := f.Stat()
 	if err != nil || !current.Mode().IsRegular() || !os.SameFile(current, file.Info) ||
 		current.Size() != file.Size || !current.ModTime().Equal(file.Info.ModTime()) {
-		return
+		return errors.New("源文件已变化，请重新发送")
 	}
 	if _, err := f.Seek(position, io.SeekStart); err != nil {
-		return
+		return err
 	}
 
 	stop := context.AfterFunc(file.ctx, func() { _ = conn.Close() })
 	defer stop()
-	done := position
 	var lastProgress time.Time
 	// Native clients use cmd 4 blocks with 64-bit positions. Keep a single
 	// frame only for old GoIM peers using this compatibility transport.
 	frame := make([]byte, nativeFileHeader+nativeFileBlock)
 	for first := true; first || done < file.Size; first = false {
 		if file.ctx.Err() != nil || s.closing.Load() {
-			return
+			return nil
 		}
 		_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
 		count := min(file.Size-done, nativeFileBlock)
@@ -437,22 +449,23 @@ func (s *TransferServer) serveFile(conn net.Conn, selector uint64, position int6
 		} else if first {
 			encodeFileHeader(frame, uint32(selector), file.Size, 0, uint32(file.Size))
 			if _, err := conn.Write(frame[:nativeFileHeader]); err != nil {
-				return
+				return err
 			}
 		}
 		end := nativeFileHeader + int(count)
 		if _, err := io.ReadFull(f, frame[nativeFileHeader:end]); err != nil {
-			return
+			return err
 		}
 		if _, err := conn.Write(frame[start:end]); err != nil {
-			return
+			return err
 		}
 		done += count
 		if s.onProgress != nil && (done == file.Size || time.Since(lastProgress) >= 150*time.Millisecond) {
-			s.onProgress(file.TaskID, done, file.Size)
+			s.onProgress(file.TaskID, done, file.Size, nil)
 			lastProgress = time.Now()
 		}
 	}
+	return nil
 }
 
 func encodeFileHeader(header []byte, selector uint32, total, offset int64, count uint32) {

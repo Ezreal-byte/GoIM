@@ -115,6 +115,8 @@ func (n *Node) recallMessage(conversation, id string) error {
 		if m.Recalled {
 			return nil
 		}
+		conv := s.Conversation(conversation)
+		group := s.Group(conv.GroupID)
 		targets := p.MessageTargets[id]
 		if len(targets) == 0 {
 			for _, t := range s.Transfers {
@@ -124,13 +126,29 @@ func (n *Node) recallMessage(conversation, id string) error {
 			}
 		}
 		if len(targets) == 0 {
-			targets, rejected = recipients(*s, s.Conversation(conversation))
+			targets, rejected = recipients(*s, conv)
 			if rejected != nil {
 				return nil
 			}
 		}
+		if group.Transport == transportNWT {
+			if group.Left || group.Dissolved || !contains(group.Members, s.Self.ID) {
+				rejected = errors.New("群成员身份已失效")
+				return nil
+			}
+			targets = slices.DeleteFunc(slices.Clone(targets), func(id string) bool { return !contains(group.Members, id) })
+		}
 		for _, peer := range targets {
-			if peer == "" || !s.Peer(peer).RecallSupported || s.Peer(peer).Transport == legacyIPMSG {
+			remote := s.Peer(peer)
+			if remote.SupportsNeiwangtongRecall() {
+				sameChat := group.Transport == transportNWT || conv.Kind == "direct" && conv.PeerID == peer
+				if !sameChat || !remote.Online || !m.CanRecallNeiwangtongText(time.Now()) {
+					rejected = errors.New("内网通只能撤回两分钟内已发送的文字，且对方需要在线")
+					return nil
+				}
+				continue
+			}
+			if remote.ID == "" || !remote.RecallSupported || remote.Transport != domain.TransportGoIM || group.Transport == transportNWT {
 				rejected = errors.New("对方客户端不支持撤回，请更新 GoIM 后重试")
 				return nil
 			}
@@ -138,9 +156,14 @@ func (n *Node) recallMessage(conversation, id string) error {
 		cancelIDs = applyMessageRecall(p, m)
 		var deliveries []pending
 		for _, peer := range targets {
-			deliveries = append(deliveries, pending{PeerID: peer, Envelope: envelope{Type: "message_recall", Message: domain.Message{
+			delivery := pending{PeerID: peer, Envelope: envelope{Type: "message_recall", Message: domain.Message{
 				ID: id, SenderID: m.SenderID, ConversationID: conversation,
-			}}})
+			}}}
+			if s.Peer(peer).SupportsNeiwangtongRecall() {
+				delivery.WireTransport = transportNWT
+				delivery.WirePeerID = wireCompatibilityID(p, peer, transportNWT)
+			}
+			deliveries = append(deliveries, delivery)
 		}
 		return deliveries
 	})

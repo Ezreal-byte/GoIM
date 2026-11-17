@@ -15,10 +15,12 @@ import (
 	"fmt"
 	"image/png"
 	"io"
+	"net"
 	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"goim/internal/neiwangtong"
@@ -35,7 +37,14 @@ type options struct {
 	labLargeFile    bool
 	labOffline      bool
 	labOfflineSend  bool
+	labMultiGroup   bool
+	labAvatarUpdate bool
+	labTextRecall   bool
+	labGroupRecall  bool
 	labResume       bool
+	labDirectory    bool
+	labFolderResend bool
+	labDirection    string
 	timeout         time.Duration
 }
 
@@ -81,10 +90,17 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opt.avatar, "avatar", false, "Require a nonempty, valid PNG avatar from the reference client")
 	flags.StringVar(&opt.labDriver, "lab-driver", "", "Local driver for the disposable reference sandbox")
 	flags.StringVar(&opt.labDir, "lab-dir", "", "Scratch directory of the disposable reference sandbox")
-	flags.BoolVar(&opt.labLargeFile, "lab-large-file", false, "Run the bidirectional 4 GiB boundary checks instead of the standard file scenarios")
+	flags.BoolVar(&opt.labLargeFile, "lab-large-file", false, "Run a dedicated 4 GiB boundary check instead of the standard file scenarios")
 	flags.BoolVar(&opt.labOffline, "lab-offline-replay", false, "Check original-client offline replay in the disposable sandbox")
 	flags.BoolVar(&opt.labOfflineSend, "lab-offline-send", false, "Queue data in the GoIM backend until the original returns")
+	flags.BoolVar(&opt.labMultiGroup, "lab-multi-group", false, "Check a GoIM group with two original clients on the isolated LAN")
+	flags.BoolVar(&opt.labAvatarUpdate, "lab-avatar-update", false, "Check whether the original downloads a GoIM avatar after a profile update")
+	flags.BoolVar(&opt.labTextRecall, "lab-text-recall", false, "Verify both directions of direct text recall against the original")
+	flags.BoolVar(&opt.labGroupRecall, "lab-group-recall", false, "Verify both directions of group text recall against the original")
 	flags.BoolVar(&opt.labResume, "lab-resume-receive", false, "Interrupt a real file transfer to the original and verify its resumption offset")
+	flags.BoolVar(&opt.labDirectory, "lab-directory-retry", false, "Measure whether the original can resume a directory after interruption")
+	flags.BoolVar(&opt.labFolderResend, "lab-directory-resend", false, "Verify a fresh directory offer after an interrupted transfer")
+	flags.StringVar(&opt.labDirection, "lab-direction", "", "Direction for a large file or directory retry check: from-reference or to-reference")
 	flags.DurationVar(&opt.timeout, "timeout", 15*time.Second, "Timeout for each requested check")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
@@ -104,7 +120,8 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 		}
 	}
 	special := 0
-	for _, enabled := range []bool{opt.labLargeFile, opt.labOffline, opt.labOfflineSend, opt.labResume} {
+	for _, enabled := range []bool{opt.labLargeFile, opt.labOffline, opt.labOfflineSend, opt.labMultiGroup, opt.labAvatarUpdate,
+		opt.labTextRecall, opt.labGroupRecall, opt.labResume, opt.labDirectory, opt.labFolderResend} {
 		if enabled {
 			special++
 		}
@@ -115,9 +132,18 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	if special != 0 && (opt.labDriver == "" || opt.bind.String() != "10.77.0.1" || opt.target.String() != "10.77.0.2:9011" || opt.expectedName != "GOIM-NWT") {
 		return options{}, errors.New("special lab checks require the fixed endpoints and peer name of the disposable sandbox")
 	}
+	if opt.labLargeFile || opt.labDirectory || opt.labFolderResend {
+		if opt.labDirection != "from-reference" && opt.labDirection != "to-reference" {
+			return options{}, errors.New("choose the direction of the isolated transfer check")
+		}
+	} else if opt.labDirection != "" {
+		return options{}, errors.New("-lab-direction requires a large file or directory retry check")
+	}
 	timeoutLimit := time.Minute
-	if opt.labLargeFile {
-		timeoutLimit = 4 * time.Minute
+	if opt.labOfflineSend {
+		// A hard stop deliberately has no quit packet. Allow the native
+		// session expiry plus time to restart and verify the replay.
+		timeoutLimit = 3 * time.Minute
 	}
 	if opt.timeout <= 0 || opt.timeout > timeoutLimit || opt.expectedVersion == "" {
 		return options{}, fmt.Errorf("a reference version and a positive timeout of at most %s are required", timeoutLimit)
@@ -126,6 +152,42 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 }
 
 func labIPv4(ip netip.Addr) bool { return ip.Is4() && (ip.IsPrivate() || ip.IsLoopback()) }
+
+// Core exercises the app's wildcard listeners and automatic discovery. Refuse
+// those checks without the launcher-created link, or with another active NIC.
+func requireSandboxLink(bind netip.Addr) error {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return err
+	}
+	seen, found := false, false
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		if len(iface.Name) != 10 || !strings.HasPrefix(iface.Name, "ng") || seen {
+			return errors.New("core discovery checks require the disposable sandbox link")
+		}
+		seen = true
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return err
+		}
+		for _, addr := range addrs {
+			if p, err := netip.ParsePrefix(addr.String()); err == nil {
+				if p.Addr() == bind {
+					found = true
+				} else if !p.Addr().IsLinkLocalUnicast() {
+					return errors.New("unexpected address on the disposable sandbox link")
+				}
+			}
+		}
+	}
+	if !found {
+		return errors.New("core discovery checks require the assigned sandbox address")
+	}
+	return nil
+}
 
 func publish[T any](events chan<- T, value T) {
 	select {
@@ -151,8 +213,21 @@ func wait[T any](ctx context.Context, timeout time.Duration, events <-chan T, ma
 }
 
 func verify(ctx context.Context, opt options) report {
+	if opt.labOfflineSend || opt.labMultiGroup || opt.labTextRecall || opt.labGroupRecall {
+		if err := requireSandboxLink(opt.bind); err != nil {
+			r := report{Mode: "sandbox", Target: opt.target.String()}
+			r.run("sandbox_link", func() (string, error) { return "", err })
+			return r
+		}
+	}
 	if opt.labOfflineSend {
 		return verifyOfflineSend(ctx, opt)
+	}
+	if opt.labMultiGroup {
+		return verifyMultiGroup(ctx, opt)
+	}
+	if opt.labTextRecall || opt.labGroupRecall {
+		return verifyTextRecall(ctx, opt)
 	}
 	r := report{Mode: "reference", Target: opt.target.String()}
 	type receipt struct {
@@ -274,6 +349,25 @@ func verify(ctx context.Context, opt options) report {
 				passed = r.run("resumed_by_reference_receiver", func() (string, error) {
 					return lab.checkStockReceiveResume(ctx, service, reference.ID, cfg)
 				}) && passed
+			}
+			if (opt.labDirectory || opt.labFolderResend) && labPassed {
+				if opt.labDirection == "from-reference" {
+					checkName := "original_directory_reaccepts_after_drop"
+					if opt.labFolderResend {
+						checkName = "fresh_directory_offer_from_original_after_drop"
+					}
+					passed = r.run(checkName, func() (string, error) {
+						return lab.checkOriginalDirectoryRetry(ctx, service, reference.ID)
+					}) && passed
+				} else {
+					checkName := "directory_resumed_by_reference_receiver"
+					if opt.labFolderResend {
+						checkName = "fresh_directory_offer_to_original_after_drop"
+					}
+					passed = r.run(checkName, func() (string, error) {
+						return lab.checkStockDirectoryResume(ctx, service, reference.ID, cfg)
+					}) && passed
+				}
 			}
 		}
 	} else {

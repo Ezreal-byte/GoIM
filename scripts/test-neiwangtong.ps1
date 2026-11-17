@@ -14,13 +14,19 @@ param(
     [switch]$TextReceipt,
     [switch]$SandboxSuite,
     [switch]$LargeFile,
+    [switch]$StockLargeFile,
     [switch]$OfflineReplay,
     [switch]$OfflineSend,
-    [switch]$ResumeReceive
+    [switch]$MultiGroup,
+    [switch]$AvatarUpdate,
+    [switch]$TextRecall,
+    [switch]$ResumeReceive,
+    [switch]$DirectoryRetry,
+    [switch]$DirectoryResend
 )
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
-$special = @($LargeFile, $OfflineReplay, $OfflineSend, $ResumeReceive | Where-Object { $_ })
+$special = @($LargeFile, $StockLargeFile, $OfflineReplay, $OfflineSend, $MultiGroup, $AvatarUpdate, $TextRecall, $ResumeReceive, $DirectoryRetry, $DirectoryResend | Where-Object { $_ })
 if ($special.Count -gt 1 -or ($special.Count -gt 0 -and $Mode -ne 'Sandbox')) {
     throw 'Each special check requires a separate Sandbox run.'
 }
@@ -76,8 +82,10 @@ function Invoke-ReferenceSandbox {
         Copy-Item -LiteralPath $binary.FullName -Destination (Join-Path $hostStage 'check')
         $driverSource = Join-Path $PSScriptRoot 'neiwangtong-lab'
         Copy-Item -LiteralPath (Join-Path $driverSource 'drive.c') -Destination $hostStage
-        $launcher = Get-Content -LiteralPath (Join-Path $driverSource 'run.sh') -Raw
-        $launcher.Replace("`r`n", "`n") | Set-Content -LiteralPath (Join-Path $hostStage 'run.sh') -Encoding utf8NoBOM -NoNewline
+        foreach ($script in 'run.sh', 'stock-pair.sh') {
+            $source = Get-Content -LiteralPath (Join-Path $driverSource $script) -Raw
+            $source.Replace("`r`n", "`n") | Set-Content -LiteralPath (Join-Path $hostStage $script) -Encoding utf8NoBOM -NoNewline
+        }
         & wsl.exe @linux chmod +x "$stage/run.sh" "$stage/check"
         if ($LASTEXITCODE -ne 0) { throw 'Failed to stage the Linux reference checker.' }
         & wsl.exe @linux i686-w64-mingw32-gcc -municode -O2 -Wall -Wextra -Werror -o "$stage/drive.exe" "$stage/drive.c"
@@ -87,12 +95,40 @@ function Invoke-ReferenceSandbox {
                 @{ Name = 'standard'; Option = '' },
                 @{ Name = 'offline-from-original'; Option = '--offline-replay' },
                 @{ Name = 'offline-from-goim'; Option = '--offline-send' },
-                @{ Name = 'resume-on-original'; Option = '--resume-receive' }
+                @{ Name = 'three-client-group'; Option = '--multi-group' },
+                @{ Name = 'resume-on-original'; Option = '--resume-receive' },
+                @{ Name = 'avatar-update'; Option = '--avatar-update' },
+                @{ Name = 'text-recall'; Option = '--text-recall' },
+                @{ Name = 'group-recall'; Option = '--group-recall' },
+                @{ Name = 'folder-resend-from-original'; Option = '--directory-resend-from-reference' },
+                @{ Name = 'folder-resend-to-original'; Option = '--directory-resend-to-reference' }
+            )
+        } elseif ($LargeFile) {
+            @(
+                @{ Name = 'from-original'; Option = '--large-from-reference' },
+                @{ Name = 'to-original'; Option = '--large-to-reference' }
+            )
+        } elseif ($StockLargeFile) {
+            @(
+                @{ Name = 'stock-control'; Option = '--large-stock-control' },
+                @{ Name = 'stock-4gib'; Option = '--large-stock-boundary' }
+            )
+        } elseif ($TextRecall) {
+            @(
+                @{ Name = 'text-recall'; Option = '--text-recall' },
+                @{ Name = 'group-recall'; Option = '--group-recall' }
+            )
+        } elseif ($DirectoryRetry -or $DirectoryResend) {
+            $prefix = if ($DirectoryResend) { '--directory-resend' } else { '--directory' }
+            @(
+                @{ Name = 'from-original'; Option = "$prefix-from-reference" },
+                @{ Name = 'to-original'; Option = "$prefix-to-reference" }
             )
         } else {
-            $option = if ($LargeFile) { '--large-file' }
-                      elseif ($OfflineReplay) { '--offline-replay' }
+            $option = if ($OfflineReplay) { '--offline-replay' }
                       elseif ($OfflineSend) { '--offline-send' }
+                      elseif ($MultiGroup) { '--multi-group' }
+                      elseif ($AvatarUpdate) { '--avatar-update' }
                       elseif ($ResumeReceive) { '--resume-receive' }
                       else { '' }
             @(@{ Name = ''; Option = $option })
@@ -111,7 +147,7 @@ function Invoke-ReferenceSandbox {
     } finally {
         foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name]) }
         Remove-Item -LiteralPath $binary.FullName -ErrorAction SilentlyContinue
-        & wsl.exe @linux rm -f -- "$stage/run.sh" "$stage/check" "$stage/drive.c" "$stage/drive.exe"
+        & wsl.exe @linux rm -f -- "$stage/run.sh" "$stage/stock-pair.sh" "$stage/check" "$stage/drive.c" "$stage/drive.exe"
         & wsl.exe @linux rmdir -- "$stage"
     }
 }

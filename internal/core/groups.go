@@ -40,7 +40,7 @@ func proofBody(id string, p domain.Ownership) []byte {
 	return b
 }
 func verifyGroup(g domain.Group) bool {
-	if len(g.RootKey) != ed25519.PublicKeySize || g.ID != groupID(g.RootKey, g.Nonce) || len(g.Members) > 256 || utf8.RuneCountInString(g.Name) > 30 {
+	if g.Transport != domain.TransportGoIM || len(g.RootKey) != ed25519.PublicKeySize || g.ID != groupID(g.RootKey, g.Nonce) || len(g.Members) > 256 || utf8.RuneCountInString(g.Name) > 30 {
 		return false
 	}
 	key := g.RootKey
@@ -162,18 +162,25 @@ func (n *Node) createGroup(name string, ids []string) error {
 	defer n.groupMu.Unlock()
 	s := n.snapshot(false)
 	var selected []string
+	var transport string
 	for _, id := range ids {
-		if id != s.Self.ID && !contains(selected, id) {
-			if !s.Peer(id).Online {
-				return errors.New("建群时请选择在线联系人")
-			}
-			if transport := s.Peer(id).Transport; transport == transportNWT || transport == legacyIPMSG {
-				return errors.New("请在原版内网通创建互通群，再把 GoIM 联系人加入")
-			}
-			selected = append(selected, id)
+		if id == s.Self.ID || contains(selected, id) {
+			continue
 		}
+		peer := s.Peer(id)
+		if !peer.Online {
+			return errors.New("建群时请选择在线联系人")
+		}
+		if !peer.SupportsGroups() {
+			return errors.New("此联系人不支持群聊")
+		}
+		if len(selected) != 0 && transport != peer.Transport {
+			return errors.New("一个群只能选择同一种客户端的联系人")
+		}
+		transport = peer.Transport
+		selected = append(selected, id)
 	}
-	if len(selected) < 2 {
+	if transport == domain.TransportGoIM && len(selected) < 2 {
 		return errors.New("请选择至少两位在线联系人")
 	}
 	if len(selected) > 255 {
@@ -181,11 +188,17 @@ func (n *Node) createGroup(name string, ids []string) error {
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		name = s.Peer(selected[0]).Name + "、" + s.Peer(selected[1]).Name
+		name = s.Peer(selected[0]).Name + "的群聊"
+		if len(selected) > 1 {
+			name = s.Peer(selected[0]).Name + "、" + s.Peer(selected[1]).Name
+		}
 	}
 	r := []rune(name)
 	if len(r) > 30 {
 		name = string(r[:30])
+	}
+	if transport == transportNWT {
+		return n.createNativeGroup(s, name, selected)
 	}
 	root := append([]byte(nil), s.Self.PublicKey...)
 	nonce := newID()
@@ -216,8 +229,11 @@ func (n *Node) inviteMembers(id string, ids []string) error {
 	defer n.groupMu.Unlock()
 	s := n.snapshot(false)
 	g := s.Group(id)
-	if g.ID == "" || g.OwnerID != s.Self.ID || g.Dissolved {
+	if g.ID == "" || g.OwnerID != s.Self.ID || g.Dissolved || g.Left {
 		return errors.New("只有群主可以邀请成员")
+	}
+	if g.Transport == transportNWT {
+		return n.addNativeGroupMembers(g, s, ids)
 	}
 	n.mu.Lock()
 	busy := activeOwnership(n.data, id)
@@ -300,7 +316,17 @@ func (n *Node) manageGroup(c domain.Command) error {
 		return errors.New("群聊已不可用")
 	}
 	if n.isNativeGroup(g.ID) {
-		return errors.New("此群由原版内网通管理，请在原版内网通中操作")
+		if c.Kind == domain.LeaveGroup {
+			return n.leaveNativeGroup(g.ID)
+		}
+		if c.Kind == domain.RenameGroup {
+			name := strings.TrimSpace(c.Name)
+			if name == "" || utf8.RuneCountInString(name) > 30 {
+				return errors.New("群名需为 1 至 30 个字符")
+			}
+			return n.renameNativeGroup(g, s.Self.ID, name)
+		}
+		return errors.New("内网通群暂不支持在 GoIM 中管理成员")
 	}
 	if c.Kind == domain.LeaveGroup {
 		for _, v := range s.Invitations {
@@ -659,6 +685,9 @@ func (n *Node) setGroupNickname(id, name string) error {
 	name = strings.TrimSpace(name)
 	if g.ID == "" || g.Left || g.Dissolved || !contains(g.Members, s.Self.ID) {
 		return errors.New("你不在此群聊中")
+	}
+	if g.Transport == transportNWT {
+		return errors.New("内网通群暂不支持在 GoIM 中管理成员")
 	}
 	if utf8.RuneCountInString(name) > 40 {
 		return errors.New("群昵称最多 40 个字符")

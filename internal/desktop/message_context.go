@@ -5,6 +5,7 @@ import (
 	"github.com/vivaui/viva/gfx"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
@@ -53,7 +54,8 @@ func (u *UI) drawMessageContextMenu(c *gfx.Canvas, viewport ui.Rect) {
 		return
 	}
 	conv := u.state.Conversation(m.ConversationID)
-	canRecall := !m.Recalled && m.SenderID == u.state.Self.ID && u.state.Peer(conv.PeerID).Transport != "ipmsg"
+	peer := u.state.Peer(conv.PeerID)
+	canRecall := !m.Recalled && m.SenderID == u.state.Self.ID && u.canRecallMessage(conv, peer, m)
 	f := u.state.File(m.FileID)
 	isAttachment := !m.Recalled && (m.Kind == "file" || m.Kind == "image")
 	path := u.fileLocalPath[f.ID]
@@ -121,6 +123,31 @@ func (u *UI) drawMessageContextMenu(c *gfx.Canvas, viewport ui.Rect) {
 		}}
 	case c.Clicked(u.ids.shellMenuDismiss):
 		u.closeShellMenu()
+	}
+}
+
+func (u *UI) canRecallMessage(conv domain.Conversation, peer domain.Peer, m domain.Message) bool {
+	if group := u.state.Group(conv.GroupID); group.Transport == domain.TransportNeiwangtong {
+		if group.Left || group.Dissolved || !m.CanRecallNeiwangtongText(time.Now()) {
+			return false
+		}
+		for _, id := range group.Members {
+			if id != u.state.Self.ID {
+				p := u.state.Peer(id)
+				if !p.Online || !p.SupportsNeiwangtongRecall() {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	switch peer.Transport {
+	case domain.TransportIPMSG:
+		return false
+	case domain.TransportNeiwangtong:
+		return peer.Online && peer.SupportsNeiwangtongRecall() && m.CanRecallNeiwangtongText(time.Now())
+	default:
+		return true
 	}
 }
 

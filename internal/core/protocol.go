@@ -387,7 +387,15 @@ func (n *Node) pendingRouteLocked(p pending) (transport, wireID string, online b
 			t := n.data.State.Transfers[i]
 			if t.LegacyTransport != "" && t.RemotePacket != "" {
 				transport, wireID = t.LegacyTransport, transferWireID(&n.data, t)
+			} else if id, ok := strings.CutPrefix(t.ConversationID, "group:"); ok && n.data.NativeGroups[id].WireID != "" {
+				transport = transportNWT
 			}
+		}
+		if id, ok := strings.CutPrefix(p.Envelope.Message.ConversationID, "group:"); ok && n.data.NativeGroups[id].WireID != "" {
+			transport = transportNWT
+		}
+		if p.Envelope.Type == nativeGroupRosterDelivery {
+			transport = transportNWT
 		}
 	}
 	if transport == domain.TransportGoIM {
@@ -402,6 +410,9 @@ func (n *Node) pendingRouteLocked(p pending) (transport, wireID string, online b
 
 func (n *Node) failCompatibilityDelivery(p pending, failure error) {
 	_ = n.durable(func(data *persisted) []pending {
+		if _, exists := data.Outbox[p.Envelope.ID]; !exists {
+			return nil
+		}
 		delete(data.Outbox, p.Envelope.ID)
 		for i := range data.State.Messages {
 			if data.State.Messages[i].ID == p.Envelope.Message.ID {

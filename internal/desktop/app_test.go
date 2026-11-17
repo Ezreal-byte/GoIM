@@ -541,6 +541,31 @@ func TestCreateGroupKeepsSelectionAcrossSearchAndSubmitsCommand(t *testing.T) {
 	}
 }
 
+func TestCreateNeiwangtongGroupPicksTransportFromContact(t *testing.T) {
+	state := shellMinimalState(t)
+	state.Peers = []domain.Peer{
+		{ID: "goim", Name: "Alice", Online: true},
+		{ID: "nwt", Name: "内网通同事", Online: true, Transport: domain.TransportNeiwangtong},
+		{ID: "ipmsg", Name: "飞秋同事", Online: true, Transport: domain.TransportIPMSG},
+	}
+	harness := newShellTestHarness(t, state)
+	harness.clickID(harness.ui.ids.sidebarCreate)
+	if harness.hasHit(harness.ui.groupSelectRows["ipmsg"]) {
+		t.Fatal("a contact with only direct messaging was offered for group chat")
+	}
+	harness.clickID(harness.ui.groupSelectRows["nwt"])
+	harness.settle()
+	if harness.hasHit(harness.ui.groupSelectRows["goim"]) || !harness.hasText("此群需要同一种客户端") {
+		t.Fatal("the group dialog did not disable mixing Neiwangtong and GoIM contacts")
+	}
+	requireShellLayout(t, harness.snapshot())
+	harness.clickID(harness.ui.ids.composeCreate)
+	command := harness.lastCommand()
+	if command.Kind != domain.CreateGroup || !slices.Equal(command.IDs, []string{"nwt"}) {
+		t.Fatalf("did not submit the selected Neiwangtong contact: %+v", command)
+	}
+}
+
 func TestChatIMEConfirmationDoesNotSendAndEnterSendsText(t *testing.T) {
 	state := shellTestState(t)
 	state.Conversations = state.Conversations[:1]

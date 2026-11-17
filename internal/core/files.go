@@ -130,10 +130,14 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 	}
 	if !shared {
 		c := s.Conversation(convID)
+		nativeGroup := c.Kind == "group" && n.isNativeGroup(c.GroupID)
+		if nativeGroup && !f.InlineImage {
+			return errors.New("内网通群暂只支持发送文字和聊天图片")
+		}
 		for _, id := range targets {
 			p := s.Peer(id)
 			if p.Transport == legacyIPMSG || p.Transport == domain.TransportNeiwangtong {
-				if c.Kind == "group" {
+				if c.Kind == "group" && (!nativeGroup || p.Transport != transportNWT) {
 					return errors.New("内网通兼容联系人仅支持单聊发送")
 				}
 				if p.Transport == legacyIPMSG {
@@ -211,6 +215,7 @@ func appendFileOffer(s *domain.State, peer, convID string, f domain.File, tid st
 	} else {
 		s.Transfers[i].Status = "offered"
 		s.Transfers[i].Error = ""
+		s.Transfers[i].UpdatedAt = t.UpdatedAt
 	}
 	f.ConversationID = convID
 	return pending{PeerID: peer, Envelope: envelope{Type: "file_offer", File: publicFile(f), TransferID: tid}}

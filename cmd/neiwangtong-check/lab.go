@@ -20,6 +20,7 @@ import (
 const (
 	sampleSize = 96<<10 + 17
 	largeSize  = 1<<32 + 65553
+	largeTask  = 103
 )
 
 type labMessage struct {
@@ -34,6 +35,12 @@ type labOffer struct {
 type labImage struct {
 	peer string
 	ref  neiwangtong.ChatImageRef
+}
+
+type labAvatar struct {
+	peer     string
+	revision uint64
+	png      []byte
 }
 
 type labDirectory struct {
@@ -82,38 +89,66 @@ type labSendGate struct {
 	waiting         atomic.Bool
 }
 
+type labDirectoryGate struct {
+	task    string
+	started chan int64
+	resume  chan struct{}
+	waiting atomic.Bool
+}
+
 type labChecks struct {
-	opt        options
-	qaName     string
-	runID      string
-	messages   chan labMessage
-	offers     chan labOffer
-	progress   chan labProgress
-	ops        chan labOperation
-	cancelled  chan labCancellation
-	imageRefs  chan labImage
-	folders    chan labDirectory
-	folderDone chan labDirectoryResult
-	rosters    chan labRoster
-	groupTexts chan labRoomMessage
-	gate       atomic.Pointer[labSendGate]
-	textSeen   atomic.Uint32
+	opt         options
+	qaName      string
+	runID       string
+	messages    chan labMessage
+	offers      chan labOffer
+	progress    chan labProgress
+	ops         chan labOperation
+	cancelled   chan labCancellation
+	imageRefs   chan labImage
+	avatars     chan labAvatar
+	folders     chan labDirectory
+	folderDone  chan labDirectoryResult
+	rosters     chan labRoster
+	groupTexts  chan labRoomMessage
+	peerEvents  chan neiwangtong.Peer
+	gate        atomic.Pointer[labSendGate]
+	folderGate  atomic.Pointer[labDirectoryGate]
+	textSeen    atomic.Uint32
+	profileSeen atomic.Uint32
+	largeRecv   atomic.Int64
 }
 
 func newLabChecks(opt options, qaName, runID string) *labChecks {
 	return &labChecks{opt: opt, qaName: qaName, runID: runID,
 		messages: make(chan labMessage, 8), offers: make(chan labOffer, 8),
 		progress: make(chan labProgress, 16), ops: make(chan labOperation, 32),
-		cancelled: make(chan labCancellation, 8), imageRefs: make(chan labImage, 8),
+		cancelled: make(chan labCancellation, 8), imageRefs: make(chan labImage, 8), avatars: make(chan labAvatar, 8),
 		folders: make(chan labDirectory, 8), folderDone: make(chan labDirectoryResult, 4),
-		rosters: make(chan labRoster, 4), groupTexts: make(chan labRoomMessage, 8)}
+		rosters: make(chan labRoster, 4), groupTexts: make(chan labRoomMessage, 8), peerEvents: make(chan neiwangtong.Peer, 16)}
 }
 
 func (l *labChecks) attach(cfg *neiwangtong.Config) {
+	notifyPeer := cfg.Callbacks.Peer
+	cfg.Callbacks.Peer = func(peer neiwangtong.Peer) {
+		if notifyPeer != nil {
+			notifyPeer(peer)
+		}
+		publish(l.peerEvents, peer)
+	}
+	notifyAvatar := cfg.Callbacks.AvatarUpdated
+	cfg.Callbacks.AvatarUpdated = func(peer string, revision uint64, png []byte) {
+		if notifyAvatar != nil {
+			notifyAvatar(peer, revision, png)
+		}
+		publish(l.avatars, labAvatar{peer, revision, png})
+	}
 	cfg.TraceEvent = func(kind uint32, payload []byte) {
 		switch kind {
 		case neiwangtong.CmdSendMsg:
 			l.textSeen.Add(1)
+		case neiwangtong.CmdChangeInfo:
+			l.profileSeen.Add(1)
 		case neiwangtong.CmdOperateRecvFile:
 			if task, op, err := neiwangtong.ParseOperateRecvFile(payload); err == nil {
 				publish(l.ops, labOperation{kind, task, op})
@@ -121,6 +156,13 @@ func (l *labChecks) attach(cfg *neiwangtong.Config) {
 		case neiwangtong.CmdOperateSendFile:
 			if task, op, err := neiwangtong.ParseOperateSendFile(payload); err == nil {
 				publish(l.ops, labOperation{kind, task, op})
+			}
+		case neiwangtong.CmdProgressRecvFile:
+			if l.opt.labLargeFile {
+				progress, err := neiwangtong.ParseProgressRecvFile(payload)
+				if err == nil && progress.TaskID == largeTask {
+					l.largeRecv.Store(progress.RecvdSize)
+				}
 			}
 		}
 	}
@@ -148,9 +190,15 @@ func (l *labChecks) attach(cfg *neiwangtong.Config) {
 	cfg.Callbacks.Folders = func(peer string, offer neiwangtong.FolderOffer) {
 		publish(l.folders, labDirectory{peer, offer})
 	}
-	cfg.Callbacks.FolderProgress = func(peer, task string, done, _ int64, complete bool, err error) {
+	cfg.Callbacks.FolderProgress = func(peer, task string, done, total int64, complete bool, err error) {
 		if complete || err != nil {
 			publish(l.folderDone, labDirectoryResult{peer, task, done, err})
+		} else if gate := l.folderGate.Load(); gate != nil && gate.task == task && done > 0 && done < total &&
+			gate.waiting.CompareAndSwap(false, true) {
+			gate.started <- done
+			if gate.resume != nil {
+				<-gate.resume
+			}
 		}
 	}
 	cfg.Callbacks.FileCancelled = func(peer string, task uint64) {
@@ -171,7 +219,14 @@ func (l *labChecks) drive(ctx context.Context, action string, args ...string) er
 }
 
 func (l *labChecks) driveFor(ctx context.Context, action, title string, args ...string) error {
+	return l.driveWithEnv(ctx, nil, action, title, args...)
+}
+
+func (l *labChecks) driveWithEnv(ctx context.Context, env []string, action, title string, args ...string) error {
 	cmd := exec.CommandContext(ctx, l.opt.labDriver, append([]string{action, title}, args...)...)
+	if len(env) != 0 {
+		cmd.Env = append(cmd.Environ(), env...)
+	}
 	cmd.WaitDelay = time.Second
 	if output, err := cmd.CombinedOutput(); err != nil {
 		if ctx.Err() != nil {
@@ -199,17 +254,27 @@ func (l *labChecks) run(ctx context.Context, r *report, service *neiwangtong.Ser
 		}
 		return "matching peer and UTF-8 contents", nil
 	})
-	if l.opt.labOffline || l.opt.labResume {
+	if l.opt.labAvatarUpdate {
+		out := r.run("goim_avatar_update_in_original", func() (string, error) {
+			return l.checkAvatarToOriginal(ctx, service)
+		})
+		in := r.run("original_avatar_change_and_reset", func() (string, error) {
+			return l.checkAvatarFromOriginal(ctx, reference.ID)
+		})
+		return text && out && in
+	}
+	if l.opt.labOffline || l.opt.labResume || l.opt.labDirectory || l.opt.labFolderResend {
 		return text
 	}
 	if l.opt.labLargeFile {
-		received := r.run("large_file_from_reference", func() (string, error) {
-			return l.receiveFile(ctx, service, reference.ID, largeSize)
-		})
-		sent := r.run("large_file_to_reference", func() (string, error) {
-			return l.sendFile(ctx, service, reference.ID, largeSize, 103, 3513)
-		})
-		return text && sent && received
+		if l.opt.labDirection == "from-reference" {
+			return r.run("large_file_from_reference", func() (string, error) {
+				return l.receiveFile(ctx, service, reference.ID, largeSize)
+			}) && text
+		}
+		return r.run("large_file_to_reference", func() (string, error) {
+			return l.sendFile(ctx, service, reference.ID, largeSize, largeTask, 3513)
+		}) && text
 	}
 	// Offer a file before downloading one so the original has not already
 	// opened a file channel with the test peer.
@@ -239,10 +304,28 @@ func (l *labChecks) run(ctx context.Context, r *report, service *neiwangtong.Ser
 		return l.checkResume(ctx, service, reference.ID)
 	})
 	dirs := l.checkDirectories(ctx, r, service, reference.ID)
-	groups := r.run("native_group_text", func() (string, error) {
-		return l.checkGroup(ctx, service, reference.ID)
+	groups := l.checkGroup(ctx, r, service, reference.ID)
+	presence := r.run("native_presence_from_original", func() (string, error) {
+		return l.checkOriginalPresence(ctx, reference.ID)
 	})
-	return text && sent && received && rejected && cancelled && stopped && withdrawn && declined && images && resumed && dirs && groups
+	return text && sent && received && rejected && cancelled && stopped && withdrawn && declined && images && resumed && dirs && groups && presence
+}
+
+func (l *labChecks) checkOriginalPresence(ctx context.Context, peerID string) (string, error) {
+	for _, check := range []struct {
+		name   string
+		status uint32
+	}{{"busy", neiwangtong.StatusBusy}, {"away", neiwangtong.StatusAway}, {"online", neiwangtong.StatusOnline}} {
+		if err := l.drive(ctx, "stock-presence", check.name); err != nil {
+			return "", err
+		}
+		if _, err := wait(ctx, 5*time.Second, l.peerEvents, func(p neiwangtong.Peer) bool {
+			return p.ID == peerID && p.Online && p.Status == check.status
+		}); err != nil {
+			return "", fmt.Errorf("the original did not publish its %s status: %w", check.name, err)
+		}
+	}
+	return "the same original contact reported Busy, Away, and Online in order", nil
 }
 
 func (l *labChecks) stockDecline(ctx context.Context, service *neiwangtong.Service, peer string) (string, error) {
@@ -434,7 +517,7 @@ func (l *labChecks) checkNoStockDownload(name string) error {
 }
 
 func (l *labChecks) receiveFile(ctx context.Context, service *neiwangtong.Service, peer string, size int64) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, l.opt.timeout)
+	ctx, cancel := context.WithTimeout(ctx, l.fileTimeout(size))
 	defer cancel()
 	name := fmt.Sprintf("原版-%s-%d.bin", l.runID, size)
 	dir := filepath.Join(l.opt.labDir, "wine", "drive_c", "goim-qa")
@@ -461,7 +544,7 @@ func (l *labChecks) receiveFile(ctx context.Context, service *neiwangtong.Servic
 }
 
 func (l *labChecks) sendFile(ctx context.Context, service *neiwangtong.Service, peer string, size int64, taskID, fileID uint64) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, l.opt.timeout)
+	ctx, cancel := context.WithTimeout(ctx, l.fileTimeout(size))
 	defer cancel()
 	name := fmt.Sprintf("GoIM-样例-%s-%d.bin", l.runID, size)
 	source := filepath.Join(l.opt.labDir, name)
@@ -475,19 +558,19 @@ func (l *labChecks) sendFile(ctx context.Context, service *neiwangtong.Service, 
 	if err := l.drive(ctx, "accept-file"); err != nil {
 		return "", err
 	}
-	var streamed int64
-	event, err := wait(ctx, l.opt.timeout, l.progress, func(p labProgress) bool {
-		if p.peer != peer || p.task != taskID {
-			return false
-		}
-		streamed = max(streamed, p.done)
-		return p.complete || p.err != nil
-	})
-	if err != nil {
-		return "", fmt.Errorf("no completion for the offered file (%d of %d bytes reported): %w", streamed, size, err)
+	event, err := l.waitForFileSend(ctx, peer, taskID, size)
+	if err == nil && event.err != nil {
+		err = fmt.Errorf("stream stopped after %d of %d bytes: %w", event.done, size, event.err)
 	}
-	if event.err != nil {
-		return "", event.err
+	if err != nil {
+		if l.opt.labLargeFile && taskID == largeTask {
+			onDisk := int64(-1)
+			if info, statErr := os.Stat(l.stockDownloadPath(name)); statErr == nil {
+				onDisk = info.Size()
+			}
+			err = fmt.Errorf("%w (stock output length %d; last stock progress %d)", err, onDisk, l.largeRecv.Load())
+		}
+		return "", err
 	}
 	if event.done != size || event.total != size {
 		return "", errors.New("unexpected completed byte count")
@@ -505,6 +588,38 @@ func (l *labChecks) sendFile(ctx context.Context, service *neiwangtong.Service, 
 		case <-ctx.Done():
 			return "", fmt.Errorf("reference did not save the expected file: %w", err)
 		case <-tick.C:
+		}
+	}
+}
+
+func (l *labChecks) fileTimeout(size int64) time.Duration {
+	if l.opt.labLargeFile && size >= largeSize {
+		return 18 * time.Minute
+	}
+	return l.opt.timeout
+}
+
+func (l *labChecks) waitForFileSend(ctx context.Context, peer string, taskID uint64, size int64) (labProgress, error) {
+	idle := l.opt.timeout
+	var streamed, logged int64
+	large := l.opt.labLargeFile && size >= largeSize
+	if large {
+		idle = time.Minute
+	}
+	for {
+		event, err := wait(ctx, idle, l.progress, func(p labProgress) bool {
+			return p.peer == peer && p.task == taskID && (p.done > streamed || p.complete || p.err != nil)
+		})
+		if err != nil {
+			return labProgress{}, fmt.Errorf("no completion for the offered file (%d of %d bytes reported): %w", streamed, size, err)
+		}
+		if event.err != nil || event.complete {
+			return event, nil
+		}
+		streamed = event.done
+		if large && streamed-logged >= 512<<20 {
+			fmt.Fprintf(os.Stderr, "Large file send to original: %d of %d bytes reported\n", streamed, size)
+			logged = streamed
 		}
 	}
 }

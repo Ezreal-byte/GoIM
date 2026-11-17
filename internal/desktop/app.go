@@ -2343,7 +2343,7 @@ func (u *UI) submitCompose() {
 	}
 	ids := u.selectedPeersForCompose()
 	if u.compose.mode == "create" {
-		if len(ids) < 2 {
+		if !u.composeReady(ids) {
 			return
 		}
 		name := strings.TrimSpace(u.compose.name.Text())
@@ -2371,12 +2371,25 @@ func (u *UI) selectedPeersForCompose() []string {
 	ids := make([]string, 0, len(u.compose.selected))
 	for _, group := range u.contacts {
 		for _, peer := range group.Peers {
-			if u.compose.selected[peer.ID] && peer.Online {
+			if u.compose.selected[peer.ID] && peer.Online && peer.SupportsGroups() {
 				ids = append(ids, peer.ID)
 			}
 		}
 	}
 	return ids
+}
+
+func (u *UI) composeReady(ids []string) bool {
+	if len(ids) == 0 {
+		return false
+	}
+	transport := u.state.Peer(ids[0]).Transport
+	for _, id := range ids[1:] {
+		if u.state.Peer(id).Transport != transport {
+			return false
+		}
+	}
+	return transport == domain.TransportNeiwangtong || len(ids) >= 2
 }
 
 func (u *UI) composeDirty() bool {

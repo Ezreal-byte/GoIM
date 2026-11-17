@@ -97,6 +97,69 @@ func imageFixtureExtension(format string) string {
 	return format
 }
 
+func (l *labChecks) checkAvatarToOriginal(ctx context.Context, service *neiwangtong.Service) (string, error) {
+	profile := neiwangtong.Peer{Name: l.qaName}
+	cache := filepath.Join(l.opt.labDir, "wine", "drive_c", "users", "Public", "Nwt", "cache")
+	for i, fill := range []color.RGBA{{R: 141, A: 255}, {G: 161, A: 255}} {
+		path := filepath.Join(l.opt.labDir, fmt.Sprintf("profile-%d.png", i))
+		data, err := writeFixtureImage(path, "png", 64, 64, fill)
+		if err != nil {
+			return "", err
+		}
+		service.UpdateProfile(profile, data)
+		if err := waitForCachedImage(ctx, cache, data); err != nil {
+			return "", fmt.Errorf("the original did not cache announced avatar %d: %w", i+1, err)
+		}
+	}
+	return "the original fetched both GoIM PNG avatars, including the replacement, with exactly matching bytes", nil
+}
+
+func (l *labChecks) checkAvatarFromOriginal(ctx context.Context, peer string) (string, error) {
+	dir := filepath.Join(l.opt.labDir, "wine", "drive_c", "goim-qa")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	var latest uint64
+	for _, fixture := range []struct {
+		name string
+		fill color.RGBA
+	}{{"profile-red.png", color.RGBA{R: 216, A: 255}}, {"profile-green.png", color.RGBA{G: 184, A: 255}}} {
+		if _, err := writeFixtureImage(filepath.Join(dir, fixture.name), "png", 128, 128, fixture.fill); err != nil {
+			return "", err
+		}
+		if err := l.drive(ctx, "stock-avatar", `C:\goim-qa\`+fixture.name); err != nil {
+			return "", err
+		}
+		event, err := wait(ctx, 7*time.Second, l.avatars, func(a labAvatar) bool {
+			if a.peer != peer || a.revision <= latest || len(a.png) == 0 {
+				return false
+			}
+			img, err := png.Decode(bytes.NewReader(a.png))
+			if err != nil {
+				return false
+			}
+			b := img.Bounds()
+			r, g, blue, _ := img.At(b.Min.X+b.Dx()/2, b.Min.Y+b.Dy()*3/4).RGBA()
+			// The original can resize or re-encode the selected photo.
+			return fixture.fill.R != 0 && r > 40000 && g < 8000 && blue < 8000 ||
+				fixture.fill.G != 0 && g > 32000 && r < 8000 && blue < 8000
+		})
+		if err != nil {
+			return "", fmt.Errorf("GoIM did not receive stock avatar %s (%d original profile updates): %w", fixture.name, l.profileSeen.Load(), err)
+		}
+		latest = event.revision
+	}
+	if err := l.drive(ctx, "stock-avatar", "default"); err != nil {
+		return "", err
+	}
+	if _, err := wait(ctx, 7*time.Second, l.avatars, func(a labAvatar) bool {
+		return a.peer == peer && a.revision > latest && len(a.png) == 0
+	}); err != nil {
+		return "", fmt.Errorf("the original did not clear its custom avatar: %w", err)
+	}
+	return "GoIM received two different stock photos from the same contact and cleared the cached custom photo when the original returned to its default", nil
+}
+
 func writeFixtureImage(path, format string, width, height int, pixel color.RGBA) ([]byte, error) {
 	rect := image.Rect(0, 0, width, height)
 	img := image.NewRGBA(rect)

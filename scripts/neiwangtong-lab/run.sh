@@ -7,7 +7,7 @@ lab_path=/usr/sbin:/usr/bin:/sbin:/bin
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
 case "${1:-}" in
-    reply|queue-text|send-file|accept-file|cancel-file|send-image|send-folder|probe-group|group-reply|group-check|chat-check)
+    reply|queue-text|send-file|accept-file|cancel-file|send-image|send-folder|probe-group|group-open|group-close|group-reply|group-check|group-image|group-exit|group-exit-seen|chat-check|chat-recall-stock|chat-recall-check|chat-recall-gone|group-recall-stock|group-recall-check|group-recall-gone|stock-open-chat|stock-reply|stock-chat-check|stock-send-file|stock-accept-file|stock-presence|stock-avatar)
         # Launched by the checker as the lab user. Wine and X11 connect to
         # the same private session over local sockets, not over the veth.
         original=$(winepath -w "$GOIM_NWT_ORIGINAL/ShiYeLine.exe")
@@ -15,7 +15,13 @@ case "${1:-}" in
         ;;
     reference)
         printf '%s\n' "$DISPLAY" > "$2/display"
-        printf '%s\n' "$XAUTHORITY" > "$2/xauthority"
+        # Each original can have a different test hostname. Keep the cookie
+        # private, but let its driver present it from another namespace.
+        display_auth="$2/display.auth"
+        (umask 077; : > "$display_auth")
+        xauth -f "$XAUTHORITY" nlist "$DISPLAY" | sed 's/^..../ffff/' | xauth -f "$display_auth" nmerge -
+        [ -s "$display_auth" ] || fail 'Could not prepare the private display cookie.'
+        printf '%s\n' "$display_auth" > "$2/xauthority"
         openbox >/dev/null 2>&1 &
         wm=$!
         trap 'kill "$wm" 2>/dev/null || :' EXIT
@@ -56,8 +62,10 @@ esac
 
 [ "$#" -gt 0 ] && [ "$#" -le 2 ] || fail 'Specify the Linux path to the original client directory and at most one check mode.'
 mode=${2:-}
-[ -z "$mode" ] || [ "$mode" = --large-file ] ||
-    [ "$mode" = --offline-replay ] || [ "$mode" = --offline-send ] || [ "$mode" = --resume-receive ] || fail 'Unknown sandbox option.'
+case "$mode" in
+    ''|--offline-replay|--offline-send|--resume-receive|--large-from-reference|--large-to-reference|--large-stock-control|--large-stock-boundary|--directory-from-reference|--directory-to-reference|--directory-resend-from-reference|--directory-resend-to-reference|--multi-group|--avatar-update|--text-recall|--group-recall) ;;
+    *) fail 'Unknown sandbox option.' ;;
+esac
 [ "$(id -u)" -eq 0 ] || fail 'Use root in the dedicated lab distro to create its isolated links.'
 [ "$(readlink /proc/self/ns/uts)" != "$(readlink /proc/1/ns/uts)" ] || fail 'Missing isolated hostname namespace.'
 [ -z "${WSL_INTEROP:-}" ] || fail 'Disable Windows interop in the dedicated lab distro.'
@@ -76,12 +84,15 @@ chown "$lab_user" "$work"
 tag=${work##*.}
 reference="goim-nwt-ref-$tag"
 client="goim-nwt-go-$tag"
+peer_ns="$client"
 ref_link="nr$tag"
 go_link="ng$tag"
 ref_created=
 go_created=
 link_created=
 launcher=
+peer_launcher=
+peer_created=
 
 as_lab() {
     ns=$1
@@ -92,6 +103,12 @@ as_lab() {
 }
 
 cleanup() {
+    if [ -n "$peer_launcher" ]; then
+        timeout 5s ip netns exec "$peer_ns" runuser -u "$lab_user" -- \
+            env WINEPREFIX="$work/peer/wine" wineserver -k 2>/dev/null || :
+        kill "$peer_launcher" 2>/dev/null || :
+        wait "$peer_launcher" 2>/dev/null || :
+    fi
     if [ -n "$launcher" ]; then
         timeout 5s ip netns exec "$reference" runuser -u "$lab_user" -- \
             env WINEPREFIX="$work/wine" wineserver -k 2>/dev/null || :
@@ -105,6 +122,10 @@ cleanup() {
     if [ -n "$go_created" ]; then
         for pid in $(ip netns pids "$client"); do kill "$pid" 2>/dev/null || :; done
         ip netns del "$client" || :
+    fi
+    if [ -n "$peer_created" ]; then
+        for pid in $(ip netns pids "$peer_ns"); do kill "$pid" 2>/dev/null || :; done
+        ip netns del "$peer_ns" || :
     fi
     if [ -n "$link_created" ]; then ip link del "$ref_link" 2>/dev/null || :; fi
     rm -rf -- "$work"
@@ -122,11 +143,30 @@ ip link set "$ref_link" netns "$reference"
 ip link set "$go_link" netns "$client"
 link_created=
 ip -n "$reference" link set lo up
-ip -n "$reference" addr add 10.77.0.2/30 dev "$ref_link"
 ip -n "$reference" link set "$ref_link" up
 ip -n "$client" link set lo up
-ip -n "$client" addr add 10.77.0.1/30 dev "$go_link"
 ip -n "$client" link set "$go_link" up
+if [ "$mode" = --multi-group ]; then
+    # A private Ethernet segment inside reference joins GoIM and both
+    # originals. Nothing is connected to a host interface.
+    peer_ns="goim-nwt-peer-$tag"
+    ip netns add "$peer_ns"
+    peer_created=1
+    ip -n "$reference" link add nwtlan type bridge
+    ip -n "$reference" link add nwtuplink type veth peer name nwtpeer netns "$peer_ns"
+    ip -n "$reference" link set "$ref_link" master nwtlan
+    ip -n "$reference" link set nwtuplink master nwtlan
+    ip -n "$reference" link set nwtuplink up
+    ip -n "$reference" addr add 10.77.0.2/29 brd + dev nwtlan
+    ip -n "$reference" link set nwtlan up
+    ip -n "$client" addr add 10.77.0.1/29 brd + dev "$go_link"
+    ip -n "$peer_ns" link set lo up
+    ip -n "$peer_ns" addr add 10.77.0.3/29 brd + dev nwtpeer
+    ip -n "$peer_ns" link set nwtpeer up
+else
+    ip -n "$reference" addr add 10.77.0.2/30 brd + dev "$ref_link"
+    ip -n "$client" addr add 10.77.0.1/30 brd + dev "$go_link"
+fi
 
 as_lab "$reference" xvfb-run -a -s '-screen 0 1280x800x24 -dpi 96 -nolisten tcp' \
     "$tools/run.sh" reference "$work" "$mode" > "$work/startup.log" 2>&1 &
@@ -145,19 +185,51 @@ done
 sleep 3
 IFS= read -r display < "$work/display"
 IFS= read -r authority < "$work/xauthority"
+case "$mode" in
+    --large-stock-*)
+        . "$tools/stock-pair.sh"
+        stock_pair "${mode#--large-stock-}"
+        exit
+        ;;
+    --multi-group)
+        . "$tools/stock-pair.sh"
+        start_stock_peer
+        ;;
+esac
 set -- -bind 10.77.0.1 -target 10.77.0.2:9011 -peer GOIM-NWT \
     -text-receipt -lab-driver "$tools/run.sh" -lab-dir "$work"
-if [ "$mode" = --large-file ]; then
-    set -- "$@" -timeout 4m -lab-large-file
-elif [ "$mode" = --offline-replay ]; then
+case "$mode" in
+--large-*)
+    set -- "$@" -timeout 20s -lab-large-file -lab-direction "${mode#--large-}"
+    ;;
+--offline-replay)
     set -- "$@" -timeout 16s -lab-offline-replay
-elif [ "$mode" = --offline-send ]; then
-    set -- "$@" -timeout 55s -lab-offline-send
-elif [ "$mode" = --resume-receive ]; then
+    ;;
+--offline-send)
+    set -- "$@" -timeout 3m -lab-offline-send
+    ;;
+--resume-receive)
     set -- "$@" -timeout 40s -lab-resume-receive
-else
+    ;;
+--directory-resend-*)
+    set -- "$@" -timeout 20s -lab-directory-resend -lab-direction "${mode#--directory-resend-}"
+    ;;
+--directory-*)
+    set -- "$@" -timeout 20s -lab-directory-retry -lab-direction "${mode#--directory-}"
+    ;;
+--multi-group)
+    set -- "$@" -timeout 55s -lab-multi-group
+    ;;
+--avatar-update)
+    set -- "$@" -timeout 20s -lab-avatar-update
+    ;;
+--text-recall|--group-recall)
+    set -- "$@" -timeout 45s "-lab-${mode#--}"
+    ;;
+*)
     set -- "$@" -timeout 20s
-fi
+    ;;
+esac
 as_lab "$client" env DISPLAY="unix$display" XAUTHORITY="$authority" "$tools/check" "$@" || {
     tail -n 18 "$work/startup.log" >&2
     exit 1

@@ -32,6 +32,7 @@ type Callbacks struct {
 	// Message commits received chat content before the application receipt.
 	Message     func(peerID string, message DirectMessage) error
 	GroupRoster func(peerID string, roster GroupRoster)
+	GroupExit   func(peerID, groupID string)
 	GroupText   func(peerID string, message GroupMessage) error
 	// TextAcknowledged reports the application's receipt from an established peer.
 	// An ENet acknowledgement alone only confirms transport delivery.
@@ -170,7 +171,7 @@ func Start(cfg Config) (*Service, error) {
 	}
 	s.local = localWireProfile(profile, cfg.AvatarPNG)
 	var err error
-	s.transfer, err = startTransferServer(cfg.BindIP, cfg.TransferPort, s.onFileSent, s.avatarAllowed)
+	s.transfer, err = startTransferServer(cfg.BindIP, cfg.TransferPort, s.onFileStream, s.avatarAllowed)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("内网通 TCP 文件端口: %w", err)
@@ -451,8 +452,10 @@ func (s *Service) maintain() {
 func (s *Service) kickHandshake(id string, target netip.AddrPort) {
 	s.mu.Lock()
 	p := s.peers[id]
+	// The advertised profile port is temporary. Once the main control
+	// session is online, another discovery reply must not open a second one.
 	if s.ctx.Err() != nil || s.local.Status == StatusInvisible || s.handshakes[target] ||
-		p == nil || (p.peer.Online && p.control == target) {
+		p == nil || p.peer.Online {
 		s.mu.Unlock()
 		return
 	}
@@ -660,7 +663,7 @@ func (s *Service) onENetCommand(remote netip.AddrPort, kind uint32, plain []byte
 		}
 	case CmdSendMsg:
 		message, err := ParseDirectMessage(plain)
-		if err == nil && message.PacketID != 0 && len(message.Parts) != 0 {
+		if err == nil && message.PacketID != 0 && (len(message.Parts) != 0 || message.RecallID != "") {
 			if notify := s.cfg.Callbacks.Message; notify != nil {
 				if err := notify(id, message); err != nil {
 					return
@@ -677,6 +680,10 @@ func (s *Service) onENetCommand(remote netip.AddrPort, kind uint32, plain []byte
 	case CmdGroupRoster:
 		if roster, err := ParseGroupRoster(plain); err == nil && s.cfg.Callbacks.GroupRoster != nil {
 			s.cfg.Callbacks.GroupRoster(id, roster)
+		}
+	case CmdGroupExit:
+		if group, err := parseGroupExit(plain); err == nil && s.cfg.Callbacks.GroupExit != nil {
+			s.cfg.Callbacks.GroupExit(id, group)
 		}
 	case CmdGroupText:
 		if message, err := ParseGroupMessage(plain); err == nil && s.cfg.Callbacks.GroupText != nil {
@@ -962,6 +969,21 @@ func (s *Service) SendTextConfirmed(ctx context.Context, peerID string, packetID
 	return s.sendWithReceipt(ctx, peerID, control, CmdSendMsg, packetID, payload)
 }
 
+func (s *Service) SendTextRecall(ctx context.Context, peerID string, packetID uint64, id, targetID string) error {
+	if packetID == 0 {
+		return errors.New("invalid native recall packet")
+	}
+	body, err := formatRecallPayload(id, targetID)
+	if err != nil {
+		return err
+	}
+	control, _, err := s.control(peerID)
+	if err != nil {
+		return err
+	}
+	return s.sendWithReceipt(ctx, peerID, control, CmdSendMsg, packetID, formatDirectBody(packetID, body, time.Time{}))
+}
+
 func (s *Service) ackChatMessage(remote netip.AddrPort, packetID uint64) {
 	if err := s.enet.SendAppCommand(remote, CmdSendMsgAck, FormatSendMsgAck(packetID)); err != nil && s.cfg.Trace != nil {
 		s.cfg.Trace("send native message acknowledgement: " + err.Error())
@@ -1020,11 +1042,11 @@ func (s *Service) SendFileOfferWithIDs(peerID string, taskID, fileID uint64, nam
 }
 
 func (s *Service) SendChatImage(ctx context.Context, peerID string, packetID uint64, id string, taskID, fileID uint64, size int64, digest [16]byte, path string) error {
-	if size <= 0 || size > MaxChatImageBytes || fileID == avatarSelector {
-		return errors.New("invalid native chat image")
+	part, err := chatImagePart(fileID, size, digest)
+	if err != nil {
+		return err
 	}
-	image := &MsgTxt{T: "feihu", V: fmt.Sprintf("%d|%x", fileID, digest)}
-	payload, err := formatMessage(packetID, id, []MsgDataTxt{{Img: image}}, time.Time{})
+	payload, err := formatMessage(packetID, id, []MsgDataTxt{part}, time.Time{})
 	if err != nil {
 		return err
 	}
@@ -1037,6 +1059,13 @@ func (s *Service) SendChatImage(ctx context.Context, peerID string, packetID uin
 		s.dropFile(taskID)
 	}
 	return err
+}
+
+func chatImagePart(fileID uint64, size int64, digest [16]byte) (MsgDataTxt, error) {
+	if size <= 0 || size > MaxChatImageBytes || fileID == avatarSelector || fileID == 0 || fileID > maxFileSelector {
+		return MsgDataTxt{}, errors.New("invalid native chat image")
+	}
+	return MsgDataTxt{Img: &MsgTxt{T: "feihu", V: fmt.Sprintf("%d|%x", fileID, digest)}}, nil
 }
 
 func (s *Service) prepareFileOffer(peerID string, taskID, fileID uint64, size int64, path string) (netip.AddrPort, error) {
@@ -1178,11 +1207,12 @@ func (s *Service) startReverseChannel(peerID string, selector uint64) {
 	}()
 }
 
-func (s *Service) onFileSent(task uint64, done, total int64) {
+func (s *Service) onFileStream(task uint64, done, total int64, failure error) {
 	s.mu.Lock()
 	offer, ok := s.files[task]
+	complete := failure == nil && done == total
 	if ok {
-		if done == total {
+		if complete {
 			s.dropFileLocked(task)
 		} else if done > 0 && !offer.accepted {
 			offer.accepted = true
@@ -1191,7 +1221,10 @@ func (s *Service) onFileSent(task uint64, done, total int64) {
 	}
 	s.mu.Unlock()
 	if ok {
-		s.reportFile(offer.peerID, task, done, total, done == total, nil)
+		if failure != nil {
+			failure = fmt.Errorf("内网通文件发送中断: %w", failure)
+		}
+		s.reportFile(offer.peerID, task, done, total, complete, failure)
 	}
 }
 

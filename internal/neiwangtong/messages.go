@@ -57,17 +57,23 @@ type MsgJSON struct {
 }
 
 type messageFont struct {
-	Bold      string `json:"b"`
-	Color     string `json:"c"`
-	Italic    string `json:"i"`
-	Name      string `json:"n"`
+	Bold      string `json:"b,omitempty"`
+	Color     string `json:"c,omitempty"`
+	Italic    string `json:"i,omitempty"`
+	Name      string `json:"n,omitempty"`
 	Size      string `json:"s"`
-	Underline string `json:"u"`
+	Underline string `json:"u,omitempty"`
 }
 
 type MsgDataTxt struct {
-	Txt *MsgTxt `json:"txt,omitempty"`
-	Img *MsgTxt `json:"img,omitempty"`
+	Txt      *MsgTxt       `json:"txt,omitempty"`
+	Img      *MsgTxt       `json:"img,omitempty"`
+	Retrieve *recallTarget `json:"retrieve,omitempty"`
+}
+
+type recallTarget struct {
+	Original string `json:"m"`
+	ID       string `json:"v"`
 }
 
 type MsgTxt struct {
@@ -88,6 +94,7 @@ type MessagePart struct {
 type DirectMessage struct {
 	PacketID  uint64
 	ID        string
+	RecallID  string
 	Parts     []MessagePart
 	OfflineAt time.Time
 }
@@ -101,24 +108,32 @@ func formatMessage(msgID uint64, id string, parts []MsgDataTxt, offlineAt time.T
 	if err != nil {
 		return nil, err
 	}
+	return formatDirectBody(msgID, text, offlineAt), nil
+}
+
+func formatDirectBody(msgID uint64, body string, offlineAt time.Time) []byte {
 	stamp, offline := int64(0), 0
 	if !offlineAt.IsZero() && offlineAt.Unix() > 0 {
 		stamp, offline = offlineAt.Unix(), 1
 	}
 	return []byte(fmt.Sprintf(
 		`<X_SEND_MSG docver="1"><MSG_ID>%d</MSG_ID><RECEIPT>0</RECEIPT><MSG>%s</MSG><MSG_TIME>%d</MSG_TIME><OFFLINE>%d</OFFLINE><HIDE_RECORD>0</HIDE_RECORD></X_SEND_MSG>`,
-		msgID, text, stamp, offline,
-	)), nil
+		msgID, body, stamp, offline,
+	))
 }
 
 func formatChatPayload(id string, parts []MsgDataTxt) (string, error) {
+	return encodeChatPayload(newChatPayload(id, parts))
+}
+
+func newChatPayload(id string, parts []MsgDataTxt) MsgJSON {
 	var randomID [16]byte
 	if id == "" {
 		_, _ = rand.Read(randomID[:])
 		id = hex.EncodeToString(randomID[:])
 	}
 
-	mj := MsgJSON{
+	return MsgJSON{
 		App:  "shiyeline",
 		Dt:   parts,
 		Font: messageFont{Name: "微软雅黑", Size: "9", Color: "0x000000", Bold: "0", Italic: "0", Underline: "0"},
@@ -126,7 +141,26 @@ func formatChatPayload(id string, parts []MsgDataTxt) (string, error) {
 		Type: "0",
 		Ver:  "6.0",
 	}
-	jb, err := json.MarshalIndent(mj, "", "   ")
+}
+
+func formatRecallPayload(id, targetID string) (string, error) {
+	if !validNativeID(id) || !validNativeID(targetID) || strings.EqualFold(id, targetID) {
+		return "", fmt.Errorf("invalid native recall ID")
+	}
+	// The original includes a copy of the original JSON in m. Its ID is
+	// sufficient to identify the message without retaining the removed text.
+	original, err := json.Marshal(newChatPayload(targetID, []MsgDataTxt{}))
+	if err != nil {
+		return "", err
+	}
+	return encodeChatPayload(MsgJSON{App: "shiyeline", ID: id, Type: "4", Ver: "6.0", Font: messageFont{Size: "10"}, Dt: []MsgDataTxt{
+		{Txt: &MsgTxt{T: "compatible", V: "对方请求撤回一条消息，当前版本不支持。请升级到最新版本。"}},
+		{Retrieve: &recallTarget{ID: targetID, Original: string(original)}},
+	}})
+}
+
+func encodeChatPayload(payload MsgJSON) (string, error) {
+	jb, err := json.MarshalIndent(payload, "", "   ")
 	if err != nil {
 		return "", err
 	}
@@ -175,8 +209,9 @@ func ParseDirectMessage(data []byte) (DirectMessage, error) {
 func parseChatPayload(packet uint64, content string) (DirectMessage, error) {
 	m := DirectMessage{PacketID: packet}
 	var mj struct {
-		Dt []MsgDataTxt `json:"dt"`
-		ID string       `json:"id"`
+		Dt   []MsgDataTxt `json:"dt"`
+		ID   string       `json:"id"`
+		Type string       `json:"type"`
 	}
 	if err := json.Unmarshal([]byte(content), &mj); err != nil {
 		if strings.HasPrefix(strings.TrimSpace(content), "{") {
@@ -188,6 +223,22 @@ func parseChatPayload(packet uint64, content string) (DirectMessage, error) {
 		return m, nil
 	}
 	m.ID = mj.ID
+	if mj.Type == "4" {
+		for _, dt := range mj.Dt {
+			if dt.Retrieve == nil {
+				continue
+			}
+			target := dt.Retrieve.ID
+			if m.RecallID != "" || !validNativeID(m.ID) || !validNativeID(target) || strings.EqualFold(target, m.ID) {
+				return DirectMessage{}, fmt.Errorf("invalid native recall target")
+			}
+			m.RecallID = strings.ToLower(target)
+		}
+		if m.RecallID == "" {
+			return DirectMessage{}, fmt.Errorf("native recall has no target")
+		}
+		return m, nil // A recall's compatibility notice is not a new chat message.
+	}
 	for _, dt := range mj.Dt {
 		if dt.Txt != nil && dt.Txt.V != "" {
 			m.Parts = append(m.Parts, MessagePart{Text: dt.Txt.V})
@@ -404,7 +455,7 @@ type wireProfile struct {
 	Mobile       string     `xml:"MOBILE"`
 	Email        string     `xml:"EMAIL"`
 	Sign         string     `xml:"SIGN"`
-	SysFace      uint32     `xml:"SYS_FACE"`
+	SysFace      uint64     `xml:"SYS_FACE"`
 	UserFace     wireAvatar `xml:"USER_FACE"`
 	Status       uint32     `xml:"STATUS"`
 	ActiveSend   uint32     `xml:"ACTIVE_SEND"`
@@ -462,7 +513,7 @@ func formatProfileWithReverse(info wireProfile, tcp, reverse, udp uint16, goim b
 	return formatProfileWithFolder(info, tcp, reverse, udp, 0, goim)
 }
 
-func formatProfileWithFolder(info wireProfile, tcp, reverse, udp, folder uint16, goim bool) []byte {
+func profileDefaults(info wireProfile) wireProfile {
 	if info.Group == "" {
 		// Native 3.4.3055 rejects an empty contact group even though the XML
 		// field is optional on the wire.
@@ -474,10 +525,13 @@ func formatProfileWithFolder(info wireProfile, tcp, reverse, udp, folder uint16,
 	if info.ActiveSend == 0 {
 		info.ActiveSend = 1
 	}
-	x := XMLHandshark{DocVer: "1", Info: info, Features: wireFeatures{Major: 3, Minor: 4, Build: 3055,
+	return info
+}
+
+func formatProfileWithFolder(info wireProfile, tcp, reverse, udp, folder uint16, goim bool) []byte {
+	x := XMLHandshark{DocVer: "1", Info: profileDefaults(info), Features: wireFeatures{Major: 3, Minor: 4, Build: 3055,
 		App: "1", Message: "2:1", File: "1", GoIM: goim,
-		Folder: "2:1", Share: "1", Group: "2:1", GroupMsg: "2:1", GroupFile: "", GroupFolder: "",
-		OfflineMsg: "1", OfflineFile: "1", LANUpdate: "1", HideRecord: "1", RemoteAssistance: "1"}}
+		Folder: "2:1", Group: "2:1", GroupMsg: "2:1", OfflineMsg: "1", OfflineFile: "1"}}
 	x.Net.FileTranTCPPort, x.Net.FileTranENetPort = tcp, udp
 	if folder != 0 {
 		x.Net.FolderTranTCPPort = bits.ReverseBytes16(folder)
@@ -513,7 +567,7 @@ type profileChange struct {
 }
 
 func formatProfileChange(profile wireProfile) []byte {
-	out, _ := xml.Marshal(profileChange{DocVer: "1", wireProfile: profile})
+	out, _ := xml.Marshal(profileChange{DocVer: "1", wireProfile: profileDefaults(profile)})
 	return out
 }
 

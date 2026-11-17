@@ -15,6 +15,8 @@ import (
 	"goim/internal/neiwangtong"
 )
 
+var errNativeDirectoryResend = errors.New("文件夹传输已中断，请让对方重新发送")
+
 func (n *Node) sendNeiwangtongDirectory(conversationID, path, target string) error {
 	s := n.snapshot(false)
 	c := s.Conversation(conversationID)
@@ -74,21 +76,58 @@ func (n *Node) neiwangtongDirectoryPending(s *neiwangtong.Service, peerID string
 	if dir.Stamp != f.Hash || dir.Size != f.Size || dir.Name != f.Name {
 		return errors.New("源文件夹已变化，请重新发送")
 	}
-	task := t.ID
+	task := t.RemotePacket
+	if task == "" {
+		task = t.ID
+	}
+	ready := false
 	if err := n.change(func(st *domain.State) {
 		if i := transferIndex(st, t.ID); i >= 0 {
 			taskState := &st.Transfers[i]
+			if taskState.Revoked || terminalTransfer(taskState.Status) || taskState.RemotePacket != t.RemotePacket {
+				return
+			}
 			taskState.RemotePacket, taskState.RemotePeerID = task, peerID
 			taskState.LegacyTransport = transportNWT
+			ready = true
 		}
 	}); err != nil {
 		return err
 	}
+	if !ready {
+		return nil
+	}
 	return s.SendDirectory(peerID, task, dir)
+}
+
+// Stock 3.4 does not resume this transfer at a nonzero offset. Keep the
+// user's transfer and give the recipient a fresh invitation to start over.
+func (n *Node) retryNeiwangtongDirectory(t domain.Transfer) error {
+	return n.durable(func(p *persisted) []pending {
+		i := transferIndex(&p.State, t.ID)
+		if i < 0 {
+			return nil
+		}
+		current := &p.State.Transfers[i]
+		if current.RemotePacket != t.RemotePacket || current.Revoked ||
+			(current.Status != "failed" && current.Status != "waiting") || p.fileMessageRecalled(*current) {
+			return nil
+		}
+		for id, value := range p.Outbox {
+			if value.Envelope.TransferID == current.ID && value.Envelope.Type == "file_offer" {
+				delete(p.Outbox, id)
+			}
+		}
+		current.RemotePacket, current.Done, current.Speed = newID(), 0, 0
+		return []pending{appendFileOffer(&p.State, current.PeerID, current.ConversationID, p.State.File(current.FileID), current.ID)}
+	})
 }
 
 func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwangtong.Service, peerID string,
 	t domain.Transfer, f domain.File, destination string) error {
+	if t.Revoked {
+		return errNativeDirectoryResend
+	}
 	if destination == "" {
 		destination = t.Path
 	}
@@ -110,6 +149,11 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 		}
 	}
 	parent := filepath.Dir(destination)
+	if _, err := os.Lstat(destination); err == nil {
+		return errors.New("同名文件夹已存在，请选择另存为")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	if err := os.MkdirAll(parent, 0700); err != nil {
 		return err
 	}
@@ -118,7 +162,22 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 		return err
 	}
 	defer os.RemoveAll(stage)
-	n.setTransfer(t.ID, "transferring", 0, 0, "")
+	ready := false
+	if err := n.change(func(st *domain.State) {
+		if i := transferIndex(st, t.ID); i >= 0 {
+			transfer := &st.Transfers[i]
+			if !terminalTransfer(transfer.Status) && ctx.Err() == nil {
+				transfer.Path, transfer.Status, transfer.Error = destination, "transferring", ""
+				transfer.Done, transfer.Speed, transfer.UpdatedAt = 0, 0, time.Now()
+				ready = true
+			}
+		}
+	}); err != nil {
+		return err
+	}
+	if !ready {
+		return nil
+	}
 	offer := neiwangtong.FolderOffer{TaskID: t.RemotePacket, Name: f.Name, Size: f.Size,
 		MaxItemPath: t.FolderMaxPath, MaxItemSize: t.FolderMaxItem}
 	last := time.Now()
@@ -128,6 +187,21 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 			last = time.Now()
 		}
 	}); err != nil {
+		// Release the old invitation when the data stream fails. Stock can
+		// send the folder again after this, but did not reopen the old offer.
+		if ctx.Err() == nil && !errors.Is(err, neiwangtong.ErrNotConnected) && service.StopDirectoryReceive(peerID, offer.TaskID) == nil {
+			if saveErr := n.change(func(st *domain.State) {
+				if i := transferIndex(st, t.ID); i >= 0 && st.Transfers[i].RemotePacket == offer.TaskID {
+					st.Transfers[i].Revoked = true
+				}
+			}); saveErr != nil {
+				return saveErr
+			}
+			return errNativeDirectoryResend
+		}
+		if errors.Is(err, neiwangtong.ErrFolderConnectTimeout) {
+			return errNativeDirectoryResend
+		}
 		return err
 	}
 	if err := installNewDirectory(ctx, stage, destination); err != nil {

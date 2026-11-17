@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var ErrFolderConnectTimeout = errors.New("内网通没有建立文件夹连接")
+
 type directoryKey struct {
 	ip   netip.Addr
 	task string
@@ -140,7 +142,7 @@ func (s *Service) ReceiveDirectory(ctx context.Context, peerID string, offer Fol
 		}
 		d.mu.Unlock()
 		if !active {
-			return errors.New("内网通没有建立文件夹连接")
+			return ErrFolderConnectTimeout
 		}
 	case <-ctx.Done():
 	}
