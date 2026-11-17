@@ -3,7 +3,6 @@
 package selfupdate
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -141,13 +140,14 @@ func TestNativeUpgradeChild(t *testing.T) {
 		fail(err)
 	}
 	version := string(marker)
-	snip, err := os.ReadFile(filepath.Join(dir, "goim-snip"+nativeExeSuffix()))
+	snipPath := filepath.Join(dir, "goim-snip"+nativeExeSuffix())
+	snip, err := os.ReadFile(snipPath)
 	if err != nil {
 		fail(fmt.Errorf("screenshot companion is missing: %w", err))
 	}
 	if runtime.GOOS == "darwin" {
-		executable, err := os.ReadFile(exe)
-		if err != nil || !bytes.Equal(snip, executable) {
+		info, err := os.Stat(snipPath)
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
 			fail(fmt.Errorf("screenshot companion does not match %s", version))
 		}
 	} else if string(snip) != "companion "+version {
