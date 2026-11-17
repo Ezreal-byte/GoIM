@@ -42,11 +42,15 @@ func (u *UI) openProfile() {
 		u.profile.presence = domain.PresenceOnline
 	}
 	u.profile.avatar = u.selfAvatarPath()
+	u.profile.avatarPreview = gfx.Bitmap{}
+	u.profile.crop = profileAvatarCropState{}
 }
 
 func (u *UI) closeProfile() {
 	u.profile.open = false
 	u.profile.err = ""
+	u.profile.avatarPreview = gfx.Bitmap{}
+	u.profile.crop = profileAvatarCropState{}
 }
 
 func (u *UI) chooseProfileAvatar() {
@@ -70,10 +74,11 @@ func (u *UI) chooseProfileAvatar() {
 		return
 	}
 	path := paths[0]
-	u.markAvatarImage(path)
+	u.profile.crop = profileAvatarCropState{open: true, source: path}
+	u.profile.avatarPreview = gfx.Bitmap{}
 	u.ensureImage(path)
-	u.profile.avatar = path
 	u.profile.err = ""
+	u.syncProfileAvatarCrop(path)
 }
 
 func (u *UI) saveProfile() {
@@ -102,15 +107,13 @@ func (u *UI) saveProfile() {
 		Company: values[0], Department: values[1], Phone: values[2], Mobile: values[3], Email: values[4]}
 	cmd := domain.Command{Kind: domain.SetProfile, Name: name, Value: avatar, Signature: signature, Presence: u.profile.presence, ProfileDetails: details,
 		RemoveAvatar: avatar == "" && u.selfAvatarPath() != ""}
-	if avatar != "" && avatar != u.selfAvatarPath() {
-		bitmap, ok := u.avatarUploadBitmap(avatar)
-		if !ok {
-			if u.profile.err == "" {
-				u.profile.err = i18n.T("头像还在处理中，请稍候")
-			}
+	if avatar != "" && bitmapReady(u.profile.avatarPreview) {
+		cmd.AvatarBGRA, cmd.AvatarSize = u.profile.avatarPreview.Pix, u.profile.avatarPreview.Width
+	} else if avatar != "" && avatar != u.selfAvatarPath() {
+		if !bitmapReady(u.profile.avatarPreview) {
+			u.profile.err = i18n.T("请先完成头像裁切")
 			return
 		}
-		cmd.AvatarBGRA, cmd.AvatarSize = bitmap.Pix, bitmap.Width
 	}
 	u.submit(cmd)
 	u.closeProfile()
@@ -132,17 +135,27 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 				if avatarName == "" {
 					avatarName = u.state.Self.Name
 				}
-				u.avatarStatus(f, avatarName, u.profile.avatar, 64, true)
+				avatar := ui.Row(f).Size(72, 72).Pad(4).Radius(36).Items(ui.Center).Justify(ui.Center).
+					Hover(ui.Look{}.Background(u.palette.hover)).
+					HitWith(u.ids.profileChooseImage, i18n.T("更换头像"), gfx.HitOptions{
+						Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Hint: i18n.T("选择图片并调整裁切"),
+					})
+				avatar.Children(func() {
+					u.avatarStatus(f, avatarName, u.profile.avatar, 64, true)
+				})
+				if avatar.Clicked() {
+					chooseClicked = true
+				}
 				ui.Column(f).Grow(1).Gap(6).Children(func() {
 					ui.Text(f, i18n.T("头像")).FontSize(12).Weight(gfx.WeightMedium)
 					ui.Row(f).Gap(6).Children(func() {
-						chooseClicked = namedButton(f, u.ids.profileChooseImage, i18n.T("选择图片")).XSmall().Outline().Clicked()
 						if u.profile.avatar != "" && namedButton(f, u.ids.profileRemoveImage, i18n.T("移除头像")).XSmall().Ghost().Clicked() {
 							u.profile.avatar = ""
+							u.profile.avatarPreview = gfx.Bitmap{}
 							u.profile.err = ""
 						}
 					})
-					ui.Text(f, i18n.T("支持 PNG、JPEG 和 GIF。")).FontSize(10.5).Muted()
+					ui.Text(f, i18n.T("点击头像更换；支持 PNG、JPEG 和 GIF。")).FontSize(10.5).Muted()
 				})
 			})
 			ui.Row(f).FillWidth().Gap(16).Children(func() {
@@ -208,6 +221,92 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 	case submitted, canvas.Clicked(u.ids.profileSave):
 		u.saveProfile()
 	}
+}
+
+func (u *UI) syncProfileAvatarCrop(path string) {
+	if !u.profile.crop.open || u.profile.crop.source != path {
+		return
+	}
+	if bitmap, ok := u.imageCache[path]; ok && bitmapReady(bitmap) {
+		u.profile.crop.err = ""
+		if !u.profile.crop.state.Initialized {
+			components.InitializeAvatarEditorState(&u.profile.crop.state)
+		}
+	}
+}
+
+func (u *UI) closeProfileAvatarEditor() {
+	u.profile.crop = profileAvatarCropState{}
+}
+
+func (u *UI) drawProfileAvatarEditor(canvas *gfx.Canvas, viewport ui.Rect) {
+	crop := &u.profile.crop
+	bitmap := u.imageCache[crop.source]
+	options := components.AvatarEditorOptions{
+		IDs: components.AvatarEditorIDs{
+			Scope: u.ids.profileCropScope, Dismiss: u.ids.profileCropDismiss, Close: u.ids.profileCropClose,
+			Canvas: u.ids.profileCropCanvas, Zoom: u.ids.profileCropZoom,
+			ZoomOut: u.ids.profileCropOut, ZoomIn: u.ids.profileCropIn, Reset: u.ids.profileCropReset,
+			Cancel: u.ids.profileCropCancel, Confirm: u.ids.profileCropConfirm,
+		},
+		Labels: components.AvatarEditorLabels{
+			Title:       i18n.T("调整头像"),
+			Description: i18n.T("拖动图片调整位置，滚轮、滑杆或按钮缩放；方形区域将作为头像。"),
+			Canvas:      i18n.T("头像裁切区域"),
+			Zoom:        i18n.T("缩放"),
+			ZoomOut:     i18n.T("缩小"),
+			ZoomIn:      i18n.T("放大"),
+			Reset:       i18n.T("重置"),
+			Cancel:      i18n.T("取消"),
+			Confirm:     i18n.T("确定"),
+			Loading:     i18n.T("正在读取图片…"),
+			Unavailable: i18n.T("无法读取这张图片"),
+		},
+		Bitmap:      bitmap,
+		State:       crop.state,
+		AspectRatio: 1,
+		MinZoom:     1,
+		MaxZoom:     8,
+		StageSize:   320,
+		Circular:    true,
+		Loading:     !bitmapReady(bitmap) && crop.err == "",
+		Error:       crop.err,
+		Viewport:    viewport,
+		Layer:       78,
+	}
+	layout := components.BeginAvatarEditor(canvas, u.theme, viewport, options).Paint()
+	crop.state, crop.layout = layout.State, layout
+	switch {
+	case canvas.Clicked(u.ids.profileCropDismiss), canvas.Clicked(u.ids.profileCropClose),
+		canvas.Clicked(u.ids.profileCropCancel):
+		u.closeProfileAvatarEditor()
+	case canvas.Clicked(u.ids.profileCropConfirm) && layout.Ready:
+		canvas.AfterPaint(func() {
+			u.commitProfileAvatarCrop()
+			canvas.RequestFrame()
+		})
+	}
+}
+
+func (u *UI) commitProfileAvatarCrop() {
+	crop := &u.profile.crop
+	source, ok := u.imageCache[crop.source]
+	if !ok || !crop.layout.Ready || !bitmapReady(source) {
+		crop.err = i18n.T("头像还在处理中，请稍候")
+		return
+	}
+	preview, ok := cropScaledBitmap(source, crop.layout.Crop, 256)
+	if !ok {
+		crop.err = i18n.T("无法读取这张图片")
+		return
+	}
+	u.nextImageID++
+	preview.ID, preview.Version = u.nextImageID, 1
+	u.profile.avatar = crop.source
+	u.profile.avatarPreview = preview
+	u.profile.err = ""
+	u.markAvatarImage(crop.source)
+	u.closeProfileAvatarEditor()
 }
 
 var profileDetailNames = [...]string{"company", "department", "phone", "mobile", "email"}
@@ -497,6 +596,9 @@ func (u *UI) avatarWithPresence(f ui.C, name, path string, size float32, online,
 			Background(u.palette.mutedAvatar)
 		avatar.Children(func() {
 			bitmap := u.avatarBitmap(path)
+			if path != "" && path == u.profile.avatar && bitmapReady(u.profile.avatarPreview) {
+				bitmap = u.profile.avatarPreview
+			}
 			if bitmapReady(bitmap) {
 				ui.Image(f, bitmap).Fill()
 				return

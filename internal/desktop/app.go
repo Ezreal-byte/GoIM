@@ -98,7 +98,19 @@ type profileState struct {
 	gender    int
 	presence  domain.Presence
 	avatar    string
-	err       string
+	// avatarPreview is the committed square crop. avatar is the source path
+	// until the backend replaces it with its normalized avatar asset.
+	avatarPreview gfx.Bitmap
+	crop          profileAvatarCropState
+	err           string
+}
+
+type profileAvatarCropState struct {
+	open   bool
+	source string
+	state  components.AvatarEditorState
+	layout components.AvatarEditorLayout
+	err    string
 }
 
 type mentionCandidate struct {
@@ -228,6 +240,16 @@ type appIDs struct {
 	profileRemoveImage gfx.ID
 	profileSave        gfx.ID
 	profileCancel      gfx.ID
+	profileCropScope   gfx.ID
+	profileCropDismiss gfx.ID
+	profileCropClose   gfx.ID
+	profileCropCanvas  gfx.ID
+	profileCropZoom    gfx.ID
+	profileCropOut     gfx.ID
+	profileCropIn      gfx.ID
+	profileCropReset   gfx.ID
+	profileCropCancel  gfx.ID
+	profileCropConfirm gfx.ID
 
 	organizeScope   gfx.ID
 	organizeDismiss gfx.ID
@@ -827,6 +849,7 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 			if u.avatarImagePaths[result.path] {
 				u.cacheAvatarBitmap(result.path)
 			}
+			u.syncProfileAvatarCrop(result.path)
 			if u.profile.open && u.profile.avatar == result.path {
 				if _, ok := u.imageCache[result.path]; ok {
 					u.profile.err = ""
@@ -839,6 +862,9 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 		if !result.decoded {
 			delete(u.imageCache, result.path)
 			delete(u.avatarCache, result.path)
+			if u.profile.crop.open && u.profile.crop.source == result.path {
+				u.profile.crop.err = i18n.T("无法读取这张图片")
+			}
 			if u.profile.open && u.profile.avatar == result.path {
 				u.profile.err = i18n.T("无法读取这张图片")
 			}
@@ -853,6 +879,7 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 		if u.avatarImagePaths[result.path] {
 			u.cacheAvatarBitmap(result.path)
 		}
+		u.syncProfileAvatarCrop(result.path)
 		if u.profile.open && u.profile.avatar == result.path {
 			u.profile.err = ""
 		}
@@ -1027,6 +1054,16 @@ func (u *UI) initIDs() {
 	u.ids.profileRemoveImage = u.tree.ID(u.ids.dialog, "profile-remove-image")
 	u.ids.profileSave = u.tree.ID(u.ids.dialog, "profile-save")
 	u.ids.profileCancel = u.tree.ID(u.ids.dialog, "profile-cancel")
+	u.ids.profileCropScope = u.tree.ID(u.ids.dialog, "profile-avatar-crop-scope")
+	u.ids.profileCropDismiss = u.tree.ID(u.ids.dialog, "profile-avatar-crop-dismiss")
+	u.ids.profileCropClose = u.tree.ID(u.ids.dialog, "profile-avatar-crop-close")
+	u.ids.profileCropCanvas = u.tree.ID(u.ids.dialog, "profile-avatar-crop-canvas")
+	u.ids.profileCropZoom = u.tree.ID(u.ids.dialog, "profile-avatar-crop-zoom")
+	u.ids.profileCropOut = u.tree.ID(u.ids.dialog, "profile-avatar-crop-zoom-out")
+	u.ids.profileCropIn = u.tree.ID(u.ids.dialog, "profile-avatar-crop-zoom-in")
+	u.ids.profileCropReset = u.tree.ID(u.ids.dialog, "profile-avatar-crop-reset")
+	u.ids.profileCropCancel = u.tree.ID(u.ids.dialog, "profile-avatar-crop-cancel")
+	u.ids.profileCropConfirm = u.tree.ID(u.ids.dialog, "profile-avatar-crop-confirm")
 
 	u.ids.organizeScope = u.tree.ID(u.ids.dialog, "organize-scope")
 	u.ids.organizeDismiss = u.tree.ID(u.ids.dialog, "organize-dismiss")
@@ -2409,8 +2446,11 @@ func (u *UI) drawOverlays(canvas *gfx.Canvas, viewport ui.Rect) {
 	if u.memberProfile != "" && !u.isPanelSection() {
 		u.drawMemberProfile(canvas, viewport)
 	}
-	if u.profile.open {
+	if u.profile.open && !u.profile.crop.open {
 		u.drawProfileDialog(canvas, viewport)
+	}
+	if u.profile.crop.open {
+		u.drawProfileAvatarEditor(canvas, viewport)
 	}
 	if u.organize.open {
 		u.drawOrganizeDialog(canvas, viewport)
@@ -2457,6 +2497,13 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 }
 
 func (u *UI) onScroll(event gfx.ScrollEvent) gfx.EventResult {
+	if u.profile.crop.open {
+		state, result := u.profile.crop.layout.Scroll(event, u.profile.crop.state)
+		u.profile.crop.state = state
+		if result.Handled {
+			return result
+		}
+	}
 	if !u.lockVisible() && u.emojiOpen && pointInside(event.X, event.Y, u.emojiPanel) {
 		result := u.emojiPage.Wheel(event)
 		result.Handled = true
@@ -2490,6 +2537,13 @@ func (u *UI) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 }
 
 func (u *UI) onPointer(event gfx.PointerEvent) gfx.EventResult {
+	if u.profile.crop.open {
+		state, result := u.profile.crop.layout.Pointer(event, u.profile.crop.state)
+		u.profile.crop.state = state
+		if result.Handled {
+			return result
+		}
+	}
 	if u.emojiOpen && !u.lockVisible() {
 		return u.emojiPage.Pointer(event)
 	}
@@ -2529,6 +2583,9 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 			return gfx.EventResult{Handled: true}
 		case u.shellMenu.open:
 			u.closeShellMenu()
+			return gfx.EventResult{Handled: true, Repaint: true}
+		case u.profile.crop.open:
+			u.closeProfileAvatarEditor()
 			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.organize.open:
 			u.closeOrganize()
@@ -2571,6 +2628,13 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 	}
 	if u.shellMenu.open {
 		return gfx.EventResult{Handled: true}
+	}
+	if u.profile.crop.open {
+		state, result := u.profile.crop.layout.Key(event, u.profile.crop.state)
+		u.profile.crop.state = state
+		if result.Handled {
+			return result
+		}
 	}
 	if u.modalOpen() {
 		return u.dialogPage.Key(event)
@@ -2784,7 +2848,9 @@ func (u *UI) refreshImages() {
 	}
 	u.markAvatarImage(u.state.Self.Avatar)
 	u.markAvatarImage(u.state.Settings.Avatar)
-	if u.profile.open {
+	if u.profile.crop.open {
+		u.markImage(u.profile.crop.source)
+	} else if u.profile.open {
 		u.markAvatarImage(u.profile.avatar)
 	}
 	u.markImage(u.state.Settings.Background)
@@ -2856,7 +2922,9 @@ func (u *UI) queueImage(path string) {
 		u.mediaImageQueued[path] = generation
 	}
 	limit := 512
-	if u.avatarImagePaths[path] && path != u.state.Settings.Background {
+	if u.profile.crop.open && u.profile.crop.source == path {
+		limit = 1024
+	} else if u.avatarImagePaths[path] && path != u.state.Settings.Background {
 		limit = 192
 	} else if path == u.state.Settings.Background {
 		limit = 1024
@@ -2906,14 +2974,6 @@ func (u *UI) selfAvatarPath() string {
 	return strings.TrimSpace(u.state.Settings.Avatar)
 }
 
-func (u *UI) avatarUploadBitmap(path string) (gfx.Bitmap, bool) {
-	full, ok := u.imageCache[path]
-	if !ok {
-		return gfx.Bitmap{}, false
-	}
-	return squareBitmap(full)
-}
-
 func (u *UI) cacheAvatarBitmap(path string) {
 	if cached, ok := u.avatarCache[path]; ok && bitmapReady(cached) {
 		return
@@ -2957,6 +3017,31 @@ func squareBitmap(bitmap gfx.Bitmap) (gfx.Bitmap, bool) {
 		Pix: pixels, Width: side, Height: side, Stride: stride,
 		ID: bitmap.ID, Version: bitmap.Version,
 	}, true
+}
+
+// cropScaledBitmap materializes the source region a preview showed into one
+// square BGRA bitmap. Sampling happens only after confirmation, never in Paint.
+func cropScaledBitmap(bitmap gfx.Bitmap, crop gfx.Rect, size int) (gfx.Bitmap, bool) {
+	if size <= 0 || bitmap.Width <= 0 || bitmap.Height <= 0 || bitmap.Stride < bitmap.Width*4 ||
+		len(bitmap.Pix) < bitmap.Stride*bitmap.Height || crop.Width <= 0 || crop.Height <= 0 {
+		return gfx.Bitmap{}, false
+	}
+	left := max(0, min(bitmap.Width-1, int(crop.X+.5)))
+	top := max(0, min(bitmap.Height-1, int(crop.Y+.5)))
+	right := max(left+1, min(bitmap.Width, int(crop.X+crop.Width+.5)))
+	bottom := max(top+1, min(bitmap.Height, int(crop.Y+crop.Height+.5)))
+	stride := size * 4
+	pixels := make([]byte, stride*size)
+	for y := 0; y < size; y++ {
+		sourceY := top + y*(bottom-top)/size
+		for x := 0; x < size; x++ {
+			sourceX := left + x*(right-left)/size
+			source := sourceY*bitmap.Stride + sourceX*4
+			target := y*stride + x*4
+			copy(pixels[target:target+4], bitmap.Pix[source:source+4])
+		}
+	}
+	return gfx.Bitmap{Pix: pixels, Width: size, Height: size, Stride: stride}, true
 }
 
 // circularBitmap applies a one-pixel-antialiased circular alpha mask without

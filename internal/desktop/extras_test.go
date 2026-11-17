@@ -19,9 +19,18 @@ import (
 func writeExtraTestPNG(t *testing.T, name string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
-	source := image.NewNRGBA(image.Rect(0, 0, 2, 2))
-	source.SetNRGBA(0, 0, color.NRGBA{R: 31, G: 96, B: 221, A: 255})
-	source.SetNRGBA(1, 0, color.NRGBA{R: 229, G: 239, B: 255, A: 255})
+	source := image.NewNRGBA(image.Rect(0, 0, 4, 2))
+	colors := [...]color.NRGBA{
+		{R: 31, G: 96, B: 221, A: 255},
+		{R: 229, G: 239, B: 255, A: 255},
+		{R: 42, G: 180, B: 96, A: 255},
+		{R: 245, G: 176, B: 31, A: 255},
+	}
+	for y := 0; y < 2; y++ {
+		for x := range colors {
+			source.SetNRGBA(x, y, colors[x])
+		}
+	}
 	file, err := os.Create(path)
 	if err != nil {
 		t.Fatal(err)
@@ -60,8 +69,8 @@ func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
 	harness.typeInto(harness.ui.ids.profileDetails[0], "示例单位")
 	harness.typeInto(harness.ui.ids.profileDetails[4], "test@example.com")
 	harness.clickID(harness.ui.ids.profileChooseImage)
-	if harness.ui.profile.avatar != avatar {
-		t.Fatalf("profile avatar = %q, want %q", harness.ui.profile.avatar, avatar)
+	if !harness.ui.profile.crop.open || harness.ui.profile.avatar == avatar {
+		t.Fatalf("avatar crop did not open before commit: crop=%v avatar=%q", harness.ui.profile.crop.open, harness.ui.profile.avatar)
 	}
 	request, ok := harness.driver.LastOpenFilesRequest()
 	if !ok || request.AllowMultiple || request.Title != "选择头像" ||
@@ -69,10 +78,23 @@ func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
 		t.Fatalf("profile image picker request = %+v", request)
 	}
 	harness.waitFor(func() bool {
-		return harness.ui.avatarBitmap(avatar).Width > 1
+		return bitmapReady(harness.ui.imageCache[avatar]) && harness.ui.profile.crop.state.Initialized
 	})
-	if bitmap := harness.ui.avatarBitmap(avatar); bitmap.Width <= 0 {
+	if bitmap := harness.ui.imageCache[avatar]; !bitmapReady(bitmap) {
 		t.Fatal("chosen avatar was not decoded outside Paint")
+	}
+
+	harness.ui.profile.crop.state.Zoom = 2
+	harness.ui.profile.crop.state.CenterX = .125
+	harness.ui.profile.crop.state.CenterY = .5
+	harness.clickID(harness.ui.ids.profileCropConfirm)
+	harness.waitFor(func() bool {
+		return !harness.ui.profile.crop.open && bitmapReady(harness.ui.profile.avatarPreview)
+	})
+	if harness.ui.profile.avatar != avatar || harness.ui.profile.avatarPreview.Width != 256 ||
+		harness.ui.profile.avatarPreview.Height != 256 {
+		t.Fatalf("committed avatar crop = path %q, bitmap %dx%d", harness.ui.profile.avatar,
+			harness.ui.profile.avatarPreview.Width, harness.ui.profile.avatarPreview.Height)
 	}
 
 	harness.clickID(harness.ui.ids.profileSave)
@@ -84,8 +106,69 @@ func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
 		details.Company != "示例单位" || details.Email != "test@example.com" {
 		t.Fatal("profile details did not reach the save command")
 	}
+	if command.AvatarSize != 256 || len(command.AvatarBGRA) != 256*256*4 {
+		t.Fatalf("profile avatar preview = %d bytes at size %d", len(command.AvatarBGRA), command.AvatarSize)
+	}
+	if pixel := command.AvatarBGRA[:4]; pixel[0] != 221 || pixel[1] != 96 || pixel[2] != 31 || pixel[3] != 255 {
+		t.Fatalf("profile avatar used the unstaged center crop: %v", pixel)
+	}
 	if harness.ui.profile.open {
 		t.Fatal("profile editor stayed open after saving")
+	}
+}
+
+func TestProfileAvatarCropCancelKeepsCurrentAvatar(t *testing.T) {
+	harness := newShellTestHarnessAtSize(t, shellTestState(t), 1000, 700)
+	avatar := writeExtraTestPNG(t, "cancel-avatar.png")
+	if err := harness.driver.QueueOpenFiles([]string{avatar}, nil); err != nil {
+		t.Fatal(err)
+	}
+	harness.clickID(harness.ui.ids.profileAvatar)
+	previous := harness.ui.profile.avatar
+	harness.clickID(harness.ui.ids.profileChooseImage)
+	harness.waitFor(func() bool {
+		return bitmapReady(harness.ui.imageCache[avatar]) && harness.ui.profile.crop.state.Initialized
+	})
+	if !harness.ui.profile.crop.open || harness.ui.profile.avatar != previous {
+		t.Fatal("choosing an image changed the avatar before confirmation")
+	}
+	harness.clickID(harness.ui.ids.profileCropCancel)
+	if harness.ui.profile.crop.open || harness.ui.profile.avatar != previous ||
+		bitmapReady(harness.ui.profile.avatarPreview) {
+		t.Fatal("cancelling the crop left staged avatar state")
+	}
+	if !harness.ui.profile.open {
+		t.Fatal("cancelling the crop closed the profile editor")
+	}
+}
+
+func TestProfileAvatarCropCanRestageTheCurrentSource(t *testing.T) {
+	avatar := writeExtraTestPNG(t, "current-avatar.png")
+	state := shellTestState(t)
+	state.Self.Avatar = avatar
+	state.Settings.Avatar = avatar
+	harness := newShellTestHarnessAtSize(t, state, 1000, 700)
+	harness.waitFor(func() bool {
+		return bitmapReady(harness.ui.avatarBitmap(avatar))
+	})
+	if err := harness.driver.QueueOpenFiles([]string{avatar}, nil); err != nil {
+		t.Fatal(err)
+	}
+	harness.clickID(harness.ui.ids.profileAvatar)
+	harness.clickID(harness.ui.ids.profileChooseImage)
+	harness.waitFor(func() bool {
+		return bitmapReady(harness.ui.imageCache[avatar]) && harness.ui.profile.crop.state.Initialized
+	})
+	harness.clickID(harness.ui.ids.profileCropConfirm)
+	harness.waitFor(func() bool {
+		return !harness.ui.profile.crop.open && bitmapReady(harness.ui.profile.avatarPreview)
+	})
+
+	harness.clickID(harness.ui.ids.profileSave)
+	command := harness.lastCommand()
+	if command.Kind != domain.SetProfile || command.Value != avatar ||
+		command.AvatarSize != 256 || len(command.AvatarBGRA) != 256*256*4 {
+		t.Fatalf("restaged current avatar command = %+v", command)
 	}
 }
 

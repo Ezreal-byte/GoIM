@@ -478,6 +478,29 @@ func TestSquareAvatarCropUsesCenterPixelsAndLeavesTheSourceAlone(t *testing.T) {
 	}
 }
 
+func TestAvatarCropBitmapUsesTheConfirmedSourceRegion(t *testing.T) {
+	source := gfx.Bitmap{
+		Pix: []byte{
+			1, 2, 3, 4, 10, 20, 30, 40, 100, 110, 120, 130, 200, 210, 220, 230,
+			5, 6, 7, 8, 50, 60, 70, 80, 140, 150, 160, 170, 240, 250, 255, 255,
+		},
+		Width: 4, Height: 2, Stride: 16, ID: 41, Version: 1,
+	}
+	original := append([]byte(nil), source.Pix...)
+	cropped, ok := cropScaledBitmap(source, gfx.Rect{X: 1, Y: 0, Width: 1, Height: 1}, 3)
+	if !ok || cropped.Width != 3 || cropped.Height != 3 || cropped.Stride != 12 {
+		t.Fatalf("avatar crop = %+v, ok=%v", cropped, ok)
+	}
+	for offset := 0; offset < len(cropped.Pix); offset += 4 {
+		if !slicesEqualBytes(cropped.Pix[offset:offset+4], source.Pix[4:8]) {
+			t.Fatalf("avatar crop pixel %d = %v", offset/4, cropped.Pix[offset:offset+4])
+		}
+	}
+	if !slicesEqualBytes(source.Pix, original) {
+		t.Fatal("avatar crop changed the decoded source bitmap")
+	}
+}
+
 func TestAvatarCacheMasksOnceAndKeepsStableIdentity(t *testing.T) {
 	shell := New(nil)
 	defer shell.Close()
