@@ -69,8 +69,9 @@ func TestSendFileUsesCurrentTimestampWhenMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := time.Now().Unix()
-	if sf.LastModify < before || sf.LastModify > after {
-		t.Fatalf("last modify = %d, want current Unix time in [%d,%d]", sf.LastModify, before, after)
+	decoded := sf.LastModify/10_000_000 - 11_644_473_600
+	if decoded < before || decoded > after {
+		t.Fatalf("last modify FILETIME %d decodes to %d, want Unix time in [%d,%d]", sf.LastModify, decoded, before, after)
 	}
 }
 

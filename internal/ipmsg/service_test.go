@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/netip"
 	"os"
@@ -41,8 +42,15 @@ func TestProbeDiscoversClassicDialectsFromTheServicePort(t *testing.T) {
 			defer service.Close()
 			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 			defer cancel()
-			probe := make(chan error, 1)
-			go func() { probe <- service.Probe(ctx, remote.LocalAddr().(*net.UDPAddr).AddrPort()) }()
+			type response struct {
+				peer Peer
+				err  error
+			}
+			probe := make(chan response, 1)
+			go func() {
+				peer, err := service.Probe(ctx, remote.LocalAddr().(*net.UDPAddr).AddrPort())
+				probe <- response{peer, err}
+			}()
 			read := func() (packet, *net.UDPAddr) {
 				t.Helper()
 				_ = remote.SetReadDeadline(time.Now().Add(2 * time.Second))
@@ -65,15 +73,16 @@ func TestProbeDiscoversClassicDialectsFromTheServicePort(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response := fmt.Sprintf("%s:71:SYSTEM:fixture-host:3:%s\x00\x00", fixture.header, nickname)
-			if _, err := remote.WriteToUDP([]byte(response), from); err != nil {
+			packet := fmt.Sprintf("%s:71:SYSTEM:fixture-host:3:%s\x00\x00", fixture.header, nickname)
+			if _, err := remote.WriteToUDP([]byte(packet), from); err != nil {
 				t.Fatal(err)
 			}
-			if err := <-probe; err != nil {
-				t.Fatal(err)
+			discovered := <-probe
+			if discovered.err != nil {
+				t.Fatal(discovered.err)
 			}
 			peer := <-peers
-			if peer.Name != fixture.name || !peer.Online {
+			if discovered.peer != peer || peer.Name != fixture.name || !peer.Online || peer.Neiwangtong != (fixture.header == "1@shiyeline") {
 				t.Fatalf("discovered peer = %+v", peer)
 			}
 			capabilities, _ := read()
@@ -292,14 +301,16 @@ func TestDownloadFromClassicFileSender(t *testing.T) {
 
 func freeIPMSGPort(t *testing.T) int {
 	t.Helper()
-	for range 16 {
-		packet, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	for range 64 {
+		// Windows can reserve an ephemeral UDP port for TCP ranges used by
+		// virtual adapters, so choose from a wider shared test range.
+		port := 20000 + rand.IntN(12000)
+		packet, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 		if err != nil {
-			t.Fatal(err)
+			continue
 		}
-		port := packet.LocalAddr().(*net.UDPAddr).Port
-		_ = packet.Close()
 		listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+		_ = packet.Close()
 		if err == nil {
 			_ = listener.Close()
 			return port

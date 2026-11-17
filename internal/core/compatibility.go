@@ -119,6 +119,8 @@ func (n *Node) connectAuto(endpoint netip.AddrPort) error {
 		address := netip.AddrPortFrom(endpoint.Addr(), uint16(settings.Neiwangtong.Port))
 		if err := n.connectNeiwangtong(address.String()); err == nil {
 			return nil
+		} else if errors.Is(err, errNeedsGoIMConnection) {
+			return fmt.Errorf("%w: %v", err, tlsErr)
 		} else {
 			attempts = append(attempts, err)
 		}

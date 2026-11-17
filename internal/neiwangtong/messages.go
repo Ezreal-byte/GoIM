@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"math/bits"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -66,6 +67,7 @@ type messageFont struct {
 
 type MsgDataTxt struct {
 	Txt *MsgTxt `json:"txt,omitempty"`
+	Img *MsgTxt `json:"img,omitempty"`
 }
 
 type MsgTxt struct {
@@ -73,29 +75,60 @@ type MsgTxt struct {
 	V string `json:"v"`
 }
 
+type ChatImageRef struct {
+	Selector uint32
+	Digest   [16]byte
+}
+
+type MessagePart struct {
+	Text  string
+	Image *ChatImageRef
+}
+
+type DirectMessage struct {
+	PacketID  uint64
+	ID        string
+	Parts     []MessagePart
+	OfflineAt time.Time
+}
+
 func FormatSendMsg(msgID uint64, text string) ([]byte, error) {
+	return formatMessage(msgID, "", []MsgDataTxt{{Txt: &MsgTxt{T: "normal", V: text}}}, time.Time{})
+}
+
+func formatMessage(msgID uint64, id string, parts []MsgDataTxt, offlineAt time.Time) ([]byte, error) {
+	text, err := formatChatPayload(id, parts)
+	if err != nil {
+		return nil, err
+	}
+	stamp, offline := int64(0), 0
+	if !offlineAt.IsZero() && offlineAt.Unix() > 0 {
+		stamp, offline = offlineAt.Unix(), 1
+	}
+	return []byte(fmt.Sprintf(
+		`<X_SEND_MSG docver="1"><MSG_ID>%d</MSG_ID><RECEIPT>0</RECEIPT><MSG>%s</MSG><MSG_TIME>%d</MSG_TIME><OFFLINE>%d</OFFLINE><HIDE_RECORD>0</HIDE_RECORD></X_SEND_MSG>`,
+		msgID, text, stamp, offline,
+	)), nil
+}
+
+func formatChatPayload(id string, parts []MsgDataTxt) (string, error) {
 	var randomID [16]byte
-	_, _ = rand.Read(randomID[:])
-	hexID := hex.EncodeToString(randomID[:])
+	if id == "" {
+		_, _ = rand.Read(randomID[:])
+		id = hex.EncodeToString(randomID[:])
+	}
 
 	mj := MsgJSON{
-		App: "shiyeline",
-		Dt: []MsgDataTxt{
-			{
-				Txt: &MsgTxt{
-					T: "normal",
-					V: text,
-				},
-			},
-		},
+		App:  "shiyeline",
+		Dt:   parts,
 		Font: messageFont{Name: "微软雅黑", Size: "9", Color: "0x000000", Bold: "0", Italic: "0", Underline: "0"},
-		ID:   hexID,
+		ID:   id,
 		Type: "0",
 		Ver:  "6.0",
 	}
 	jb, err := json.MarshalIndent(mj, "", "   ")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	// Native 3.4.3055 uses named entities and literal line breaks in the XML
@@ -108,35 +141,75 @@ func FormatSendMsg(msgID uint64, text string) ([]byte, error) {
 		`"`, "&quot;",
 		" ", "&nbsp;",
 	).Replace(string(jb) + "\n")
-	messageText = strings.ReplaceAll(messageText, "&quot;:", "&quot;&nbsp;:")
-	return []byte(fmt.Sprintf(
-		`<X_SEND_MSG docver="1"><MSG_ID>%d</MSG_ID><RECEIPT>0</RECEIPT><MSG>%s</MSG><MSG_TIME>0</MSG_TIME><OFFLINE>0</OFFLINE><HIDE_RECORD>0</HIDE_RECORD></X_SEND_MSG>`,
-		msgID, messageText,
-	)), nil
+	return strings.ReplaceAll(messageText, "&quot;:", "&quot;&nbsp;:"), nil
 }
 
 func ParseSendMsg(data []byte) (msgID uint64, text string, id string, err error) {
-	var x XMLSendMsg
-	if err := decodeNativeXML(data, "X_SEND_MSG", &x); err != nil {
+	m, err := ParseDirectMessage(data)
+	if err != nil {
 		return 0, "", "", err
 	}
+	return m.PacketID, m.Text(), m.ID, nil
+}
+
+func (m DirectMessage) Text() string {
+	var text strings.Builder
+	for _, part := range m.Parts {
+		text.WriteString(part.Text)
+	}
+	return text.String()
+}
+
+func ParseDirectMessage(data []byte) (DirectMessage, error) {
+	var x XMLSendMsg
+	if err := decodeNativeXML(data, "X_SEND_MSG", &x); err != nil {
+		return DirectMessage{}, err
+	}
+	m, err := parseChatPayload(x.MsgID, x.Msg)
+	if x.Offline == 1 && x.MsgTime > 0 && x.MsgTime <= 253402300799 {
+		m.OfflineAt = time.Unix(int64(x.MsgTime), 0)
+	}
+	return m, err
+}
+
+func parseChatPayload(packet uint64, content string) (DirectMessage, error) {
+	m := DirectMessage{PacketID: packet}
 	var mj struct {
 		Dt []MsgDataTxt `json:"dt"`
 		ID string       `json:"id"`
 	}
-	if err := json.Unmarshal([]byte(x.Msg), &mj); err != nil {
-		if strings.HasPrefix(strings.TrimSpace(x.Msg), "{") {
-			return 0, "", "", err
+	if err := json.Unmarshal([]byte(content), &mj); err != nil {
+		if strings.HasPrefix(strings.TrimSpace(content), "{") {
+			return DirectMessage{}, err
 		}
-		return x.MsgID, x.Msg, "", nil
+		if content != "" {
+			m.Parts = []MessagePart{{Text: content}}
+		}
+		return m, nil
 	}
-	var sb strings.Builder
+	m.ID = mj.ID
 	for _, dt := range mj.Dt {
-		if dt.Txt != nil {
-			sb.WriteString(dt.Txt.V)
+		if dt.Txt != nil && dt.Txt.V != "" {
+			m.Parts = append(m.Parts, MessagePart{Text: dt.Txt.V})
+		}
+		if dt.Img != nil && dt.Img.T == "feihu" {
+			if ref, ok := parseChatImageRef(dt.Img.V); ok {
+				m.Parts = append(m.Parts, MessagePart{Image: &ref})
+			}
 		}
 	}
-	return x.MsgID, sb.String(), mj.ID, nil
+	return m, nil
+}
+
+func parseChatImageRef(value string) (ChatImageRef, bool) {
+	key, hash, ok := strings.Cut(value, "|")
+	id, err := strconv.ParseUint(key, 10, 32)
+	if !ok || err != nil || id == 0 || id == avatarSelector || len(hash) != 32 {
+		return ChatImageRef{}, false
+	}
+	ref := ChatImageRef{Selector: uint32(id)}
+	_, err = hex.Decode(ref.Digest[:], []byte(hash))
+	return ref, err == nil
 }
 
 func FormatSendMsgAck(msgID uint64) []byte {
@@ -190,7 +263,14 @@ func FormatSendFile(taskID, fileID uint64, name string, size, lastMod int64) []b
 		// metadata when a caller does not have a source timestamp.
 		lastMod = time.Now().Unix()
 	}
-	payload, _ := xml.Marshal(XMLSendFile{DocVer: "1", TaskID: taskID, FileID: fileID, Name: name, Size: size, LastModify: lastMod})
+	// LAST_MODIFY is a Windows FILETIME, here derived from the source's
+	// stable modification time rather than from the time of each retry.
+	const windowsEpoch = 11644473600
+	if lastMod > (1<<63-1)/10000000-windowsEpoch {
+		lastMod = time.Now().Unix()
+	}
+	stamp := (lastMod + windowsEpoch) * 10000000
+	payload, _ := xml.Marshal(XMLSendFile{DocVer: "1", TaskID: taskID, FileID: fileID, Name: name, Size: size, LastModify: stamp})
 	return payload
 }
 
@@ -212,6 +292,13 @@ type XMLOperateRecvFile struct {
 	OP      uint32   `xml:"OP"`
 }
 
+const (
+	fileSendCancel        uint32 = 1
+	fileReceiveAccept     uint32 = 2
+	fileReceiveStopLegacy uint32 = 3 // old GoIM compatibility endpoint
+	fileReceiveStop       uint32 = 4 // stock client uses this before and after starting a download
+)
+
 func FormatOperateRecvFile(taskID uint64, op uint32) []byte {
 	return []byte(fmt.Sprintf(`<X_OPERATE_RECV_FILE docver="1"><TASK_ID>%d</TASK_ID><OP>%d</OP></X_OPERATE_RECV_FILE>`, taskID, op))
 }
@@ -227,6 +314,10 @@ type XMLOperateSendFile struct {
 	DocVer  string   `xml:"docver,attr"`
 	TaskID  uint64   `xml:"TASK_ID"`
 	OP      uint32   `xml:"OP"`
+}
+
+func FormatOperateSendFile(taskID uint64, op uint32) []byte {
+	return []byte(fmt.Sprintf(`<X_OPERATE_SEND_FILE docver="1"><TASK_ID>%d</TASK_ID><OP>%d</OP></X_OPERATE_SEND_FILE>`, taskID, op))
 }
 
 func ParseOperateSendFile(data []byte) (taskID uint64, op uint32, err error) {
@@ -368,6 +459,10 @@ func formatProfile(info wireProfile, tcp, udp uint16, goim bool) []byte {
 }
 
 func formatProfileWithReverse(info wireProfile, tcp, reverse, udp uint16, goim bool) []byte {
+	return formatProfileWithFolder(info, tcp, reverse, udp, 0, goim)
+}
+
+func formatProfileWithFolder(info wireProfile, tcp, reverse, udp, folder uint16, goim bool) []byte {
 	if info.Group == "" {
 		// Native 3.4.3055 rejects an empty contact group even though the XML
 		// field is optional on the wire.
@@ -384,6 +479,10 @@ func formatProfileWithReverse(info wireProfile, tcp, reverse, udp uint16, goim b
 		Folder: "2:1", Share: "1", Group: "2:1", GroupMsg: "2:1", GroupFile: "", GroupFolder: "",
 		OfflineMsg: "1", OfflineFile: "1", LANUpdate: "1", HideRecord: "1", RemoteAssistance: "1"}}
 	x.Net.FileTranTCPPort, x.Net.FileTranENetPort = tcp, udp
+	if folder != 0 {
+		x.Net.FolderTranTCPPort = bits.ReverseBytes16(folder)
+		x.Net.FolderTranTCPReversePort = bits.ReverseBytes16(folder)
+	}
 	if tcp == AvatarPort {
 		x.Net.FileTranTCPPort = bits.ReverseBytes16(tcp)
 	}

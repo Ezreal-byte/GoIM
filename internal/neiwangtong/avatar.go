@@ -56,48 +56,80 @@ func ReadAvatar(r io.Reader) ([]byte, error) {
 }
 
 func readAvatar(r io.Reader, selector uint32, next func() error) ([]byte, error) {
+	data, err := readMedia(r, selector, avatarMaxBytes, next)
+	if err != nil {
+		return nil, err
+	}
+	return validateAvatar(data)
+}
+
+func validateAvatar(data []byte) ([]byte, error) {
+	cfg, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > avatarMaxEdge || cfg.Height > avatarMaxEdge {
+		return nil, errors.New("invalid native avatar PNG or dimensions")
+	}
+	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
+		return nil, fmt.Errorf("invalid native avatar PNG: %w", err)
+	}
+	return data, nil
+}
+
+func readMedia(r io.Reader, selector uint32, limit uint32, next func() error) ([]byte, error) {
 	const frameHeader = 12
 	if _, err := readAvatarHeader(r, 2, 108, 108); err != nil {
-		return nil, fmt.Errorf("invalid native avatar confirmation: %w", err)
+		return nil, fmt.Errorf("invalid native image confirmation: %w", err)
 	}
 	var confirmation [108 - frameHeader]byte
 	if _, err := io.ReadFull(r, confirmation[:]); err != nil {
 		return nil, err
 	}
 	if binary.BigEndian.Uint32(confirmation[selectorOffset-frameHeader:]) != selector {
-		return nil, errors.New("native transfer is not an avatar")
+		return nil, errors.New("unexpected native image selector")
 	}
 	if next != nil {
 		if err := next(); err != nil {
 			return nil, err
 		}
 	}
-	length, err := readAvatarHeader(r, 4, avatarHeader+1, avatarHeader+avatarMaxBytes)
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil, ErrNoAvatarOffer
-		}
-		return nil, fmt.Errorf("invalid native avatar data: %w", err)
-	}
+	var data []byte
 	var header [avatarHeader - frameHeader]byte
-	if _, err := io.ReadFull(r, header[:]); err != nil {
-		return nil, err
+	for done := 0; data == nil || done < len(data); {
+		length, err := readAvatarHeader(r, 4, avatarHeader+1, avatarHeader+limit)
+		if err != nil {
+			if done == 0 && errors.Is(err, io.EOF) {
+				return nil, ErrNoAvatarOffer
+			}
+			return nil, fmt.Errorf("invalid native image data: %w", err)
+		}
+		if _, err := io.ReadFull(r, header[:]); err != nil {
+			return nil, err
+		}
+		if binary.BigEndian.Uint32(header[selectorOffset-frameHeader:]) != selector {
+			return nil, errors.New("native transfer selector changed")
+		}
+		total := binary.BigEndian.Uint64(header[60-frameHeader:])
+		offset := binary.BigEndian.Uint64(header[68-frameHeader:])
+		count := binary.BigEndian.Uint32(header[76-frameHeader:])
+		block := length - avatarHeader
+		if done == 0 && total == 0 && offset == 0 && count == 0 {
+			// Older avatars and chat images can be encoded as a single record
+			// without an explicit size or position.
+			total, count = uint64(block), block
+		}
+		if total > uint64(limit) || offset != uint64(done) || count != block || uint64(done)+uint64(count) > total ||
+			data != nil && total != uint64(len(data)) {
+			return nil, errors.New("invalid native image size or position")
+		}
+		if data == nil {
+			data = make([]byte, int(total))
+		}
+		end := done + int(count)
+		if _, err := io.ReadFull(r, data[done:end]); err != nil {
+			return nil, err
+		}
+		done = end
 	}
-	if binary.BigEndian.Uint32(header[selectorOffset-frameHeader:]) != selector {
-		return nil, errors.New("native transfer selector changed")
-	}
-	image := make([]byte, length-avatarHeader)
-	if _, err := io.ReadFull(r, image); err != nil {
-		return nil, err
-	}
-	cfg, err := png.DecodeConfig(bytes.NewReader(image))
-	if err != nil || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > avatarMaxEdge || cfg.Height > avatarMaxEdge {
-		return nil, errors.New("invalid native avatar PNG or dimensions")
-	}
-	if _, err := png.Decode(bytes.NewReader(image)); err != nil {
-		return nil, fmt.Errorf("invalid native avatar PNG: %w", err)
-	}
-	return image, nil
+	return data, nil
 }
 
 // FetchOfferedAvatar pulls a pending avatar from the same IPv4 endpoint as the
@@ -107,10 +139,18 @@ func FetchOfferedAvatar(ctx context.Context, bind netip.Addr, target netip.AddrP
 }
 
 func fetchOfferedAvatar(ctx context.Context, bind netip.Addr, target netip.AddrPort, selector uint32) ([]byte, error) {
-	if !validUnicast(target) || bind.IsValid() && !bind.Is4() {
-		return nil, errors.New("native avatar requires IPv4 endpoints")
+	data, err := fetchMedia(ctx, bind, target, selector, avatarMaxBytes, 5*time.Second)
+	if err != nil {
+		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	return validateAvatar(data)
+}
+
+func fetchMedia(ctx context.Context, bind netip.Addr, target netip.AddrPort, selector, limit uint32, timeout time.Duration) ([]byte, error) {
+	if !validUnicast(target) || bind.IsValid() && !bind.Is4() {
+		return nil, errors.New("native image requires IPv4 endpoints")
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	d := net.Dialer{}
 	if bind.IsValid() {
@@ -129,7 +169,7 @@ func fetchOfferedAvatar(ctx context.Context, bind netip.Addr, target netip.AddrP
 		return nil, err
 	}
 	reader := bufio.NewReader(conn)
-	data, err := readAvatar(reader, selector, func() error {
+	data, err := readMedia(reader, selector, limit, func() error {
 		// The change event can push the PNG immediately; first discovery
 		// may instead wait for the file request after the confirmation.
 		_ = conn.SetReadDeadline(minTime(deadline, time.Now().Add(180*time.Millisecond)))

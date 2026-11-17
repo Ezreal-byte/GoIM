@@ -29,8 +29,6 @@ func (n *Node) execute(c domain.Command) error {
 		return n.connectVia(c.Transport, c.Address)
 	case domain.SetCompatibility:
 		return n.setCompatibility(c.Transport, c.Compatibility)
-	case domain.LinkCompatibility:
-		return n.linkCompatibility(c.PeerID, c.RelatedPeerID)
 	case domain.RefreshPeerAvatar:
 		return n.refreshNeiwangtongAvatar(c.PeerID)
 	case domain.StartChat:
@@ -110,16 +108,11 @@ func (n *Node) execute(c domain.Command) error {
 		if t.Status == "completed" {
 			return nil
 		}
-		n.mu.Lock()
-		if cancel := n.transfers[t.ID]; cancel != nil {
-			cancel()
-		}
-		n.mu.Unlock()
 		status := "cancelled"
 		if c.Kind == domain.RejectTransfer {
 			status = "rejected"
 		}
-		return n.durable(func(p *persisted) []pending {
+		err := n.durable(func(p *persisted) []pending {
 			if i := transferIndex(&p.State, t.ID); i >= 0 {
 				v := &p.State.Transfers[i]
 				if terminalTransfer(v.Status) {
@@ -131,6 +124,9 @@ func (n *Node) execute(c domain.Command) error {
 				if v.Direction == "send" {
 					v.Revoked = true
 				}
+				if stop := n.transfers[v.ID]; stop != nil {
+					stop()
+				}
 			}
 			p.TransferTombstones[t.PeerID+":"+t.ID] = status
 			for id, d := range p.Outbox {
@@ -140,6 +136,10 @@ func (n *Node) execute(c domain.Command) error {
 			}
 			return []pending{{PeerID: t.PeerID, Envelope: envelope{Type: "file_status", TransferID: t.ID, Status: status}}}
 		})
+		if err == nil && t.LegacyTransport == transportNWT && t.Direction == "receive" {
+			_ = os.Remove(n.nativePartialPath(t.ID))
+		}
+		return err
 	case domain.SetSetting:
 		return n.setting(c)
 	case domain.SetProfile:
@@ -358,9 +358,11 @@ func (n *Node) sendText(convID, text string) error {
 		return err
 	}
 	if conv.Kind == "group" {
+		native := n.isNativeGroup(conv.GroupID)
 		for _, id := range targets {
-			if s.Peer(id).Transport == legacyIPMSG {
-				return errors.New("内网通兼容联系人仅支持单聊发送")
+			transport := s.Peer(id).Transport
+			if transport == legacyIPMSG || transport == transportNWT && !native {
+				return errors.New("此群无法通过对端的兼容协议发送消息")
 			}
 		}
 	}
@@ -375,7 +377,9 @@ func (n *Node) sendText(convID, text string) error {
 		p.MessageTargets[m.ID] = targets
 		var deliveries []pending
 		for _, id := range targets {
-			deliveries = append(deliveries, pending{PeerID: id, Envelope: envelope{Type: "message", Message: m}})
+			peer := p.State.Peer(id)
+			queued := conv.Kind == "direct" && peer.Transport == transportNWT && !peer.Online
+			deliveries = append(deliveries, pending{PeerID: id, QueuedOffline: queued, Envelope: envelope{Type: "message", Message: m}})
 		}
 		return deliveries
 	})
@@ -391,6 +395,9 @@ func recipients(s domain.State, c domain.Conversation) ([]string, error) {
 			return nil, errors.New("等待成员确认邀请后再发送消息或文件")
 		}
 		return peers, nil
+	}
+	if s.Peer(c.PeerID).IsLegacyNeiwangtong() {
+		return nil, errors.New("这条旧会话仅保留聊天记录。请从联系人列表打开内网通会话")
 	}
 	return []string{c.PeerID}, nil
 }

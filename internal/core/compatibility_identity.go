@@ -4,15 +4,14 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"strings"
 	"time"
 
 	"goim/internal/domain"
 )
 
-// The two wire identities are independent. Confirmed is deliberately absent in
-// old IP-based records: those records must never authorize routing a message.
+// A saved link from a previous version. We retain confirmed links so already
+// linked chats and transfers keep their IDs. Discovery never creates links.
 type peerBridge struct {
 	CanonicalID   string
 	IPMSGID       string
@@ -51,6 +50,11 @@ func goIMPeerForNativeID(s *domain.State, nativeID string) string {
 func removeUnverifiedBridges(data *persisted) {
 	for id, bridge := range data.PeerBridges {
 		if bridge.Confirmed {
+			for _, contactID := range []string{bridge.IPMSGID, bridge.NeiwangtongID} {
+				if i := peerIndex(&data.State, contactID); i >= 0 && data.State.Peers[i].Transport != domain.TransportGoIM {
+					preferNativeContact(&data.State.Peers[i], bridge)
+				}
+			}
 			continue
 		}
 		delete(data.PeerBridges, id)
@@ -60,8 +64,20 @@ func removeUnverifiedBridges(data *persisted) {
 			peer := &data.State.Peers[i]
 			if strings.HasPrefix(peer.ID, "ipmsg-") && peer.Transport == transportNWT {
 				peer.Transport, peer.Address = legacyIPMSG, ""
+				peer.ClientType = domain.ClientNeiwangtong
 			}
 		}
+	}
+}
+
+func preferNativeContact(peer *domain.Peer, bridge peerBridge) {
+	if peer.Transport != transportNWT {
+		peer.Address = ""
+	}
+	peer.Transport, peer.ClientType = transportNWT, domain.ClientNeiwangtong
+	peer.CompatibilityAliasOf = ""
+	if peer.ID != bridge.CanonicalID {
+		peer.CompatibilityAliasOf = bridge.CanonicalID
 	}
 }
 
@@ -105,30 +121,49 @@ func (n *Node) compatibilitySenderLocked(transport, id string) domain.Peer {
 	canonical := id
 	if bridge, ok := bridgeFor(&n.data, id); ok {
 		canonical = bridge.CanonicalID
+	} else if route.IsLegacyNeiwangtong() {
+		return domain.Peer{}
 	}
 	peer := n.data.State.Peer(canonical)
-	if peer.Transport == domain.TransportGoIM {
+	if peer.Transport == domain.TransportGoIM || peer.IsLegacyNeiwangtong() {
 		return domain.Peer{}
 	}
 	return peer
 }
 
 func (n *Node) observeCompatibilityPeer(value domain.Peer) {
+	if value.IsLegacyNeiwangtong() {
+		n.mu.Lock()
+		saved := n.data.State.Peer(value.ID)
+		if n.closing || saved.ID == "" || saved.Transport == domain.TransportGoIM {
+			n.mu.Unlock()
+			return
+		}
+		if saved.Transport == transportNWT || saved.IsLegacyNeiwangtong() && !saved.Online {
+			n.rememberCompatibilityRouteLocked(value)
+			n.mu.Unlock()
+			return // only old transfers need this wire now; the contact did not change
+		}
+		n.mu.Unlock()
+	}
 	var linked []string
 	_ = n.durable(func(data *persisted) []pending {
 		s := &data.State
 		if value.Transport == transportNWT && goIMPeerForNativeID(s, value.ID) != "" {
 			return nil
 		}
-		if i := peerIndex(s, value.ID); i >= 0 && s.Peers[i].Transport == domain.TransportGoIM {
+		i := peerIndex(s, value.ID)
+		if i >= 0 && s.Peers[i].Transport == domain.TransportGoIM {
 			return nil
 		}
-		if n.compatPeers == nil {
-			n.compatPeers = make(map[compatibilityEndpoint]domain.Peer)
+		// The version marker identifies the Neiwangtong 2425 announcement,
+		// but does not prove it belongs to any particular native identity.
+		// Keep it only for history and transfers already bound to that wire ID.
+		if i < 0 && value.IsLegacyNeiwangtong() {
+			return nil
 		}
-		key := compatibilityEndpoint{value.Transport, value.ID}
-		n.compatPeers[key] = value
-		if peerIndex(s, value.ID) < 0 {
+		n.rememberCompatibilityRouteLocked(value)
+		if i < 0 {
 			s.Peers = append(s.Peers, value)
 		}
 		linked = n.refreshCompatibilityContactLocked(data, value.ID)
@@ -139,15 +174,21 @@ func (n *Node) observeCompatibilityPeer(value domain.Peer) {
 	}
 }
 
+func (n *Node) rememberCompatibilityRouteLocked(peer domain.Peer) {
+	if n.compatPeers == nil {
+		n.compatPeers = make(map[compatibilityEndpoint]domain.Peer)
+	}
+	n.compatPeers[compatibilityEndpoint{peer.Transport, peer.ID}] = peer
+}
+
 // Rebuild only the display profile and effective route. Chat IDs, messages and
 // already issued transfer requests always retain their original identities.
 func (n *Node) refreshCompatibilityContactLocked(data *persisted, id string) []string {
 	s := &data.State
 	ids := []string{id}
-	primary := id
-	if bridge, ok := bridgeFor(data, id); ok {
+	bridge, linked := bridgeFor(data, id)
+	if linked {
 		ids = []string{bridge.IPMSGID, bridge.NeiwangtongID}
-		primary = bridge.CanonicalID
 	}
 	var replay []string
 	for _, contactID := range ids {
@@ -156,34 +197,28 @@ func (n *Node) refreshCompatibilityContactLocked(data *persisted, id string) []s
 			continue
 		}
 		p := &s.Peers[i]
-		if p.CompatibilityAliasOf != "" && len(ids) == 1 {
+		if p.CompatibilityAliasOf != "" && !linked {
 			continue // suppressed GoIM compatibility advertisement
 		}
-		p.CompatibilityAliasOf = ""
-		if contactID != primary {
-			p.CompatibilityAliasOf = primary
+		if linked {
+			preferNativeContact(p, bridge)
 		}
 		p.Online = false
-		for _, transport := range []string{transportNWT, legacyIPMSG} {
-			wireID := wireCompatibilityID(data, contactID, transport)
-			route := n.compatPeers[compatibilityEndpoint{transport, wireID}]
-			if !route.Online {
-				continue
-			}
-			p.Online, p.Transport, p.Address, p.Presence = true, transport, route.Address, route.Presence
-			p.LastSeen = time.Now()
-			if transport == transportNWT || p.Name == "" || len(ids) == 1 {
-				p.Name = route.Name
-			}
-			if transport == transportNWT {
-				p.Signature, p.Details, p.Version = route.Signature, route.Details, route.Version
-				p.ClientType = domain.ClientNeiwangtong
-			} else if p.ClientType != domain.ClientNeiwangtong {
-				p.ClientType = route.ClientType
-			}
-			replay = append(replay, contactID)
-			break
+		wireID := wireCompatibilityID(data, contactID, p.Transport)
+		route := n.compatPeers[compatibilityEndpoint{p.Transport, wireID}]
+		if p.IsLegacyNeiwangtong() || route.IsLegacyNeiwangtong() {
+			p.ClientType = domain.ClientNeiwangtong
+			continue
 		}
+		if !route.Online {
+			continue
+		}
+		p.Online, p.Address, p.Presence, p.LastSeen = true, route.Address, route.Presence, time.Now()
+		p.Name, p.ClientType = route.Name, route.ClientType
+		if p.Transport == transportNWT {
+			p.Signature, p.Details, p.Version = route.Signature, route.Details, route.Version
+		}
+		replay = append(replay, contactID)
 	}
 	return replay
 }
@@ -199,46 +234,4 @@ func (n *Node) clearCompatibilityRoutesLocked(transport string) {
 			n.refreshCompatibilityContactLocked(&n.data, peer.ID)
 		}
 	}
-}
-
-func (n *Node) linkCompatibility(primary, secondary string) error {
-	if primary == "" || secondary == "" || primary == secondary {
-		return errors.New("请选择同一台内网通设备的两条连接")
-	}
-	var problem error
-	var replay []string
-	err := n.durable(func(data *persisted) []pending {
-		a, b := data.State.Peer(primary), data.State.Peer(secondary)
-		ipmsg, native := a, b
-		if b.Transport == legacyIPMSG {
-			ipmsg, native = b, a
-		}
-		_, hasPrimary := bridgeFor(data, primary)
-		_, hasSecondary := bridgeFor(data, secondary)
-		if ipmsg.ClientType != domain.ClientNeiwangtong || native.ClientType != domain.ClientNeiwangtong ||
-			ipmsg.Transport != legacyIPMSG || native.Transport != transportNWT ||
-			a.CompatibilityAliasOf != "" || b.CompatibilityAliasOf != "" || hasPrimary || hasSecondary ||
-			!n.compatPeers[compatibilityEndpoint{legacyIPMSG, ipmsg.ID}].Online ||
-			!n.compatPeers[compatibilityEndpoint{transportNWT, native.ID}].Online {
-			problem = errors.New("只能关联尚未关联的内网通原生和 2425 兼容联系人，两条连接都须已验证")
-			return nil
-		}
-		data.PeerBridges[primary] = peerBridge{
-			CanonicalID: primary, IPMSGID: ipmsg.ID, NeiwangtongID: native.ID, Confirmed: true,
-		}
-		if index := peerIndex(&data.State, primary); index >= 0 {
-			data.State.Peers[index].Avatar = native.Avatar
-		}
-		replay = n.refreshCompatibilityContactLocked(data, primary)
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	if problem == nil {
-		for _, id := range replay {
-			n.async(func() { n.replay(id) })
-		}
-	}
-	return problem
 }

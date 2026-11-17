@@ -7,7 +7,7 @@ lab_path=/usr/sbin:/usr/bin:/sbin:/bin
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
 case "${1:-}" in
-    reply|send-file|accept-file)
+    reply|queue-text|send-file|accept-file|cancel-file|send-image|send-folder|probe-group|group-reply|group-check|chat-check)
         # Launched by the checker as the lab user. Wine and X11 connect to
         # the same private session over local sockets, not over the veth.
         original=$(winepath -w "$GOIM_NWT_ORIGINAL/ShiYeLine.exe")
@@ -20,7 +20,33 @@ case "${1:-}" in
         wm=$!
         trap 'kill "$wm" 2>/dev/null || :' EXIT
         timeout 40s wineboot -u
+        desktop="$WINEPREFIX/drive_c/users/$USER/Desktop"
+        if [ -L "$desktop" ]; then rm -f -- "$desktop"; fi
+        mkdir -p -- "$desktop"
         cd "$GOIM_NWT_ORIGINAL"
+        if [ "${3:-}" = --offline-send ]; then
+            work=$2
+            wine ShiYeLine.exe &
+            app=$!
+            while [ ! -f "$work/reference-stop.request" ]; do
+                kill -0 "$app" 2>/dev/null || fail 'Original exited before its offline check.'
+                sleep 0.1
+            done
+            timeout 5s wineserver -k
+            wait "$app" || :
+            [ -z "$(ss -lunH 'sport = :9011')" ] || fail 'Original discovery socket is still open.'
+            : > "$work/reference-stopped"
+            until [ -f "$work/reference-start.request" ]; do sleep 0.1; done
+            wine ShiYeLine.exe &
+            app=$!
+            until ss -lunH 'sport = :9011' | grep -q ':9011'; do
+                kill -0 "$app" 2>/dev/null || fail 'Original did not start again.'
+                sleep 0.1
+            done
+            : > "$work/reference-started"
+            wait "$app"
+            exit
+        fi
         wine ShiYeLine.exe
         exit
         ;;
@@ -28,7 +54,10 @@ case "${1:-}" in
     *) exec unshare --uts "$0" isolated "$@" ;;
 esac
 
-[ "$#" -eq 1 ] || fail 'Specify the Linux path to the original client directory.'
+[ "$#" -gt 0 ] && [ "$#" -le 2 ] || fail 'Specify the Linux path to the original client directory and at most one check mode.'
+mode=${2:-}
+[ -z "$mode" ] || [ "$mode" = --large-file ] ||
+    [ "$mode" = --offline-replay ] || [ "$mode" = --offline-send ] || [ "$mode" = --resume-receive ] || fail 'Unknown sandbox option.'
 [ "$(id -u)" -eq 0 ] || fail 'Use root in the dedicated lab distro to create its isolated links.'
 [ "$(readlink /proc/self/ns/uts)" != "$(readlink /proc/1/ns/uts)" ] || fail 'Missing isolated hostname namespace.'
 [ -z "${WSL_INTEROP:-}" ] || fail 'Disable Windows interop in the dedicated lab distro.'
@@ -100,7 +129,7 @@ ip -n "$client" addr add 10.77.0.1/30 dev "$go_link"
 ip -n "$client" link set "$go_link" up
 
 as_lab "$reference" xvfb-run -a -s '-screen 0 1280x800x24 -dpi 96 -nolisten tcp' \
-    "$tools/run.sh" reference "$work" > "$work/startup.log" 2>&1 &
+    "$tools/run.sh" reference "$work" "$mode" > "$work/startup.log" 2>&1 &
 launcher=$!
 
 tries=0
@@ -116,6 +145,20 @@ done
 sleep 3
 IFS= read -r display < "$work/display"
 IFS= read -r authority < "$work/xauthority"
-as_lab "$client" env DISPLAY="unix$display" XAUTHORITY="$authority" \
-    "$tools/check" -bind 10.77.0.1 -target 10.77.0.2:9011 -peer GOIM-NWT \
-    -text-receipt -lab-driver "$tools/run.sh" -lab-dir "$work" -timeout 20s
+set -- -bind 10.77.0.1 -target 10.77.0.2:9011 -peer GOIM-NWT \
+    -text-receipt -lab-driver "$tools/run.sh" -lab-dir "$work"
+if [ "$mode" = --large-file ]; then
+    set -- "$@" -timeout 4m -lab-large-file
+elif [ "$mode" = --offline-replay ]; then
+    set -- "$@" -timeout 16s -lab-offline-replay
+elif [ "$mode" = --offline-send ]; then
+    set -- "$@" -timeout 55s -lab-offline-send
+elif [ "$mode" = --resume-receive ]; then
+    set -- "$@" -timeout 40s -lab-resume-receive
+else
+    set -- "$@" -timeout 20s
+fi
+as_lab "$client" env DISPLAY="unix$display" XAUTHORITY="$authority" "$tools/check" "$@" || {
+    tail -n 18 "$work/startup.log" >&2
+    exit 1
+}

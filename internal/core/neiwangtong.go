@@ -21,6 +21,12 @@ import (
 
 const transportNWT = domain.TransportNeiwangtong
 
+// The stock client reliably sends files larger than 4 GiB to us. Its
+// receiver has yet to complete the corresponding large-file fixture.
+const neiwangtongSendLimit = 1 << 32
+
+var errNeedsGoIMConnection = errors.New("已发现 GoIM 设备，但尚未建立 GoIM 连接")
+
 func (n *Node) connectNeiwangtong(address string) error {
 	target, err := netip.ParseAddrPort(address)
 	if err != nil || !target.Addr().Unmap().Is4() {
@@ -32,8 +38,15 @@ func (n *Node) connectNeiwangtong(address string) error {
 	if service == nil {
 		return errors.New("内网通互通服务未开启，请先在设置中启用")
 	}
-	if err := service.Probe(n.ctx, target, 9012, 9013); err != nil {
+	peer, err := service.ProbePeer(n.ctx, target, 9012, 9013)
+	if err != nil {
 		return fmt.Errorf("连接内网通设备 %s 失败: %w", target, err)
+	}
+	n.mu.Lock()
+	knownGoIM := goIMPeerForNativeID(&n.data.State, peer.ID) != ""
+	n.mu.Unlock()
+	if peer.GoIM || knownGoIM {
+		return errNeedsGoIMConnection
 	}
 	n.notice("已连接内网通设备")
 	return nil
@@ -68,6 +81,7 @@ func (n *Node) newNeiwangtong(port int, live *atomic.Bool) (*neiwangtong.Service
 		DiscoveryPort:    port,
 		ControlPort:      9012,
 		TransferPort:     9013,
+		EnableFolders:    true,
 		BindIP:           bind,
 		AvatarPNG:        avatarBytes,
 		DisableBroadcast: true,
@@ -89,19 +103,51 @@ func (n *Node) newNeiwangtong(port int, live *atomic.Bool) (*neiwangtong.Service
 					n.receiveNeiwangtongPeer(p)
 				}
 			},
-			Text: func(peerID string, packetID uint64, text string) {
+			Message: func(peerID string, message neiwangtong.DirectMessage) error {
 				if live.Load() {
-					n.receiveNeiwangtongText(peerID, packetID, text)
+					return n.receiveNeiwangtongMessage(peerID, message)
 				}
+				return neiwangtong.ErrNotConnected
+			},
+			GroupRoster: func(peerID string, roster neiwangtong.GroupRoster) {
+				if live.Load() {
+					n.receiveNeiwangtongGroupRoster(peerID, roster)
+				}
+			},
+			GroupText: func(peerID string, message neiwangtong.GroupMessage) error {
+				if live.Load() {
+					return n.receiveNeiwangtongGroupText(peerID, message)
+				}
+				return neiwangtong.ErrNotConnected
 			},
 			Files: func(peerID string, offer neiwangtong.XMLSendFile) {
 				if live.Load() {
-					n.receiveNeiwangtongFiles(peerID, offer.TaskID, offer.FileID, offer.Name, offer.Size)
+					n.receiveNeiwangtongFile(peerID, offer)
+				}
+			},
+			FileCancelled: func(peerID string, taskID uint64) {
+				if live.Load() {
+					n.receiveNeiwangtongCancel(peerID, taskID)
 				}
 			},
 			FileProgress: func(peerID string, taskID uint64, done, total int64, complete bool, err error) {
 				if live.Load() {
 					n.receiveNeiwangtongProgress(peerID, taskID, done, total, complete, err)
+				}
+			},
+			Folders: func(peerID string, offer neiwangtong.FolderOffer) {
+				if live.Load() {
+					n.receiveNeiwangtongDirectory(peerID, offer)
+				}
+			},
+			FolderCancelled: func(peerID, taskID string) {
+				if live.Load() {
+					n.receiveNeiwangtongTaskCancel(peerID, taskID)
+				}
+			},
+			FolderProgress: func(peerID, taskID string, done, total int64, complete bool, err error) {
+				if live.Load() {
+					n.receiveNeiwangtongTaskProgress(peerID, taskID, done, total, complete, err)
 				}
 			},
 			AvatarUpdated: func(peerID string, revision uint64, png []byte) {
@@ -149,8 +195,8 @@ func (n *Node) receiveNeiwangtongPeer(peer neiwangtong.Peer) {
 	})
 }
 
-func (n *Node) receiveNeiwangtongText(peerID string, packetID uint64, text string) {
-	if text == "" || len(text) > 256<<10 || !utf8.ValidString(text) {
+func (n *Node) receiveNeiwangtongFile(peerID string, offer neiwangtong.XMLSendFile) {
+	if offer.Size < 0 || strings.TrimSpace(offer.Name) == "" {
 		return
 	}
 	_ = n.change(func(s *domain.State) {
@@ -159,47 +205,19 @@ func (n *Node) receiveNeiwangtongText(peerID string, packetID uint64, text strin
 			return
 		}
 		conversationID := ensureDirect(s, peer)
-		messageID := legacyStableID("nwt-msg", peerID, fmt.Sprint(packetID), text)
-		for _, existing := range s.Messages {
-			if existing.ID == messageID {
-				return
-			}
-		}
-		addMessageState(s, domain.Message{
-			ID:             messageID,
-			ConversationID: conversationID,
-			SenderID:       peer.ID,
-			Kind:           "text",
-			Text:           text,
-			CreatedAt:      time.Now(),
-			Status:         "delivered",
-		})
-	})
-}
-
-func (n *Node) receiveNeiwangtongFiles(peerID string, taskID, remoteFileID uint64, name string, size int64) {
-	if size < 0 || strings.TrimSpace(name) == "" {
-		return
-	}
-	_ = n.change(func(s *domain.State) {
-		peer := n.compatibilitySenderLocked(transportNWT, peerID)
-		if peer.ID == "" {
-			return
-		}
-		conversationID := ensureDirect(s, peer)
-		taskHex := fmt.Sprint(taskID)
-		fileNumber := fmt.Sprint(remoteFileID)
-		fileID := legacyStableID("nwt-file", peerID, taskHex, fileNumber)
-		transferID := legacyStableID("nwt-transfer", peerID, taskHex, fileNumber)
+		taskHex, fileNumber := fmt.Sprint(offer.TaskID), fmt.Sprint(offer.FileID)
+		identity := []string{peerID, taskHex, fileNumber, offer.Name, fmt.Sprint(offer.Size), fmt.Sprint(offer.LastModify)}
+		fileID := legacyStableID(append([]string{"nwt-file"}, identity...)...)
+		transferID := legacyStableID(append([]string{"nwt-transfer"}, identity...)...)
 		if fileIndex(s, fileID) >= 0 || transferIndex(s, transferID) >= 0 {
 			return
 		}
 		receivedAt := time.Now()
-		mediaType := mime.TypeByExtension(strings.ToLower(filepath.Ext(name)))
+		mediaType := mime.TypeByExtension(strings.ToLower(filepath.Ext(offer.Name)))
 		file := domain.File{
 			ID:             fileID,
-			Name:           name,
-			Size:           size,
+			Name:           offer.Name,
+			Size:           offer.Size,
 			Hash:           strings.Repeat("0", 64),
 			MIME:           mediaType,
 			SenderID:       peer.ID,
@@ -231,15 +249,45 @@ func (n *Node) receiveNeiwangtongFiles(peerID string, taskID, remoteFileID uint6
 			SenderID:       peer.ID,
 			Kind:           "file",
 			FileID:         fileID,
-			Text:           name,
+			Text:           file.Name,
 			CreatedAt:      file.CreatedAt,
 			Status:         "delivered",
 		})
 	})
 }
 
+func (n *Node) receiveNeiwangtongCancel(peerID string, taskID uint64) {
+	n.receiveNeiwangtongTaskCancel(peerID, strconv.FormatUint(taskID, 10))
+}
+
+func (n *Node) receiveNeiwangtongTaskCancel(peerID, remoteTask string) {
+	var partials []string
+	_ = n.change(func(s *domain.State) {
+		for i := range s.Transfers {
+			t := &s.Transfers[i]
+			if t.LegacyTransport != transportNWT || t.RemotePeerID != peerID ||
+				t.RemotePacket != remoteTask || t.Direction != "receive" || terminalTransfer(t.Status) {
+				continue
+			}
+			if stop := n.transfers[t.ID]; stop != nil {
+				stop()
+			}
+			t.Status, t.Error = "cancelled", neiwangtong.ErrFileCancelled.Error()
+			t.Speed = 0
+			t.UpdatedAt = time.Now()
+			partials = append(partials, t.ID)
+		}
+	})
+	for _, id := range partials {
+		_ = os.Remove(n.nativePartialPath(id))
+	}
+}
+
 func (n *Node) receiveNeiwangtongProgress(peerID string, taskID uint64, done, total int64, complete bool, failure error) {
-	taskHex := fmt.Sprint(taskID)
+	n.receiveNeiwangtongTaskProgress(peerID, strconv.FormatUint(taskID, 10), done, total, complete, failure)
+}
+
+func (n *Node) receiveNeiwangtongTaskProgress(peerID, taskHex string, done, total int64, complete bool, failure error) {
 	status := "transferring"
 	if complete {
 		status = "completed"
@@ -247,8 +295,11 @@ func (n *Node) receiveNeiwangtongProgress(peerID string, taskID uint64, done, to
 	problem := ""
 	if failure != nil {
 		status, problem = "failed", failure.Error()
-		if errors.Is(failure, neiwangtong.ErrFileRejected) {
+		switch {
+		case errors.Is(failure, neiwangtong.ErrFileRejected):
 			status = "rejected"
+		case errors.Is(failure, neiwangtong.ErrFileCancelled):
+			status = "cancelled"
 		}
 	}
 	_ = n.change(func(s *domain.State) {
@@ -262,8 +313,10 @@ func (n *Node) receiveNeiwangtongProgress(peerID string, taskID uint64, done, to
 				return
 			}
 			t.Status = status
-			t.Done = done
-			t.Size = total
+			t.Done = max(t.Done, done)
+			if terminalTransfer(status) {
+				t.Speed = 0
+			}
 			t.Error = problem
 			t.UpdatedAt = time.Now()
 		}
@@ -319,8 +372,21 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 	e := value.Envelope
 	switch e.Type {
 	case "message":
-		packet, _ := strconv.ParseUint(e.ID[:min(len(e.ID), 16)], 16, 64)
-		return service.SendTextWithID(peer, max(packet, 1), e.Message.Text)
+		if groupID, ok := strings.CutPrefix(e.Message.ConversationID, "group:"); ok {
+			n.mu.Lock()
+			room := n.data.NativeGroups[groupID]
+			group := n.data.State.Group(groupID)
+			n.mu.Unlock()
+			if room.WireID == "" || group.Left || group.Dissolved || !contains(group.Members, value.PeerID) {
+				return errors.New("该联系人不在此内网通群中")
+			}
+			return service.SendGroupText(peer, room.WireID, nativeMessagePacket(value), e.Message.ID, e.Message.Text)
+		}
+		var queuedAt time.Time
+		if value.QueuedOffline {
+			queuedAt = e.Message.CreatedAt
+		}
+		return service.SendTextConfirmed(n.ctx, peer, nativeMessagePacket(value), e.Message.ID, e.Message.Text, queuedAt)
 	case "file_offer", "file_retry":
 		s := n.snapshot(false)
 		index := transferIndex(&s, e.TransferID)
@@ -336,6 +402,13 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 			n.setTransfer(t.ID, "failed", t.Done, 0, "源文件不可用")
 			return nil
 		}
+		if f.Folder {
+			return n.neiwangtongDirectoryPending(service, peer, t, f)
+		}
+		if f.Size >= neiwangtongSendLimit {
+			n.setTransfer(t.ID, "failed", t.Done, 0, "发给内网通的单个文件需小于 4 GiB，请拆分后重发")
+			return nil
+		}
 		taskID, fileID := neiwangtongOutgoingIDs(t)
 		if err := n.change(func(st *domain.State) {
 			if idx := transferIndex(st, t.ID); idx >= 0 {
@@ -348,7 +421,14 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 		}); err != nil {
 			return err
 		}
-		return service.SendFileOfferWithIDs(peer, taskID, fileID, f.Name, f.Size, time.Now().Unix(), f.SourcePath)
+		if f.InlineImage {
+			return n.sendNeiwangtongImage(service, peer, value, taskID, fileID, f)
+		}
+		info, err := os.Stat(f.SourcePath)
+		if err != nil {
+			return err
+		}
+		return service.SendFileOfferWithIDs(peer, taskID, fileID, f.Name, f.Size, info.ModTime().Unix(), f.SourcePath)
 	case "file_status":
 		if e.Status != "rejected" && e.Status != "cancelled" {
 			return nil
@@ -359,15 +439,20 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 			return nil
 		}
 		t := s.Transfers[i]
+		if t.LegacyTransport == transportNWT && t.RemotePacket != "" && s.File(t.FileID).Folder {
+			if t.Direction == "send" {
+				return service.CancelDirectorySend(peer, t.RemotePacket)
+			}
+			return service.StopDirectoryReceive(peer, t.RemotePacket)
+		}
 		task, err := strconv.ParseUint(t.RemotePacket, 10, 64)
 		if err != nil || t.LegacyTransport != transportNWT {
 			return nil
 		}
 		if t.Direction == "send" {
-			service.CancelSend(task)
-			return nil
+			return service.CancelSend(peer, task)
 		}
-		return service.RejectFile(peer, task)
+		return service.StopReceiving(peer, task)
 	default:
 		return nil
 	}
@@ -404,12 +489,21 @@ func neiwangtongSelector(kind, transferID string) uint64 {
 }
 
 func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f domain.File, destination string) error {
+	if terminalTransfer(t.Status) {
+		return context.Canceled
+	}
 	n.mu.Lock()
 	service := n.neiwangtong
 	wireID := transferWireID(&n.data, t)
 	n.mu.Unlock()
 	if service == nil || wireID == "" {
 		return errors.New("内网通互通服务未开启")
+	}
+	if t.RemoteImageMD5 != "" {
+		return n.downloadNeiwangtongImage(ctx, service, wireID, t, f, destination)
+	}
+	if f.Folder {
+		return n.downloadNeiwangtongDirectory(ctx, service, wireID, t, f, destination)
 	}
 	taskID, err := strconv.ParseUint(t.RemotePacket, 10, 64)
 	if err != nil {
@@ -445,23 +539,45 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
 		return err
 	}
-	temp, err := os.MkdirTemp(filepath.Dir(destination), ".goim-nwt-")
-	if err != nil {
+	partial := n.nativePartialPath(t.ID)
+	if err := os.MkdirAll(filepath.Dir(partial), 0700); err != nil {
 		return err
 	}
-	defer os.Remove(temp)
-	partial := filepath.Join(temp, "incoming")
-	defer os.Remove(partial)
-	n.setTransfer(t.ID, "transferring", 0, 0, "")
-	lastProgress := time.Now()
-	err = service.AcceptFile(ctx, wireID, taskID, fileID, t.Size, partial, func(done int64) {
-		if done == t.Size || time.Since(lastProgress) >= 150*time.Millisecond {
-			n.setTransfer(t.ID, "transferring", done, 0, "")
-			lastProgress = time.Now()
+	// Explicit cancellation discards the prefix, while a time-out, a lost
+	// connection, and application shutdown keep it for the next attempt.
+	defer func() {
+		n.mu.Lock()
+		i := transferIndex(&n.data.State, t.ID)
+		discard := i < 0 || terminalTransfer(n.data.State.Transfers[i].Status)
+		n.mu.Unlock()
+		if discard {
+			_ = os.Remove(partial)
 		}
-	})
-	if err != nil {
+	}()
+	var have int64
+	if info, err := os.Lstat(partial); err == nil && info.Mode().IsRegular() {
+		have = info.Size()
+	}
+	if err := n.change(func(s *domain.State) {
+		if i := transferIndex(s, t.ID); i >= 0 && !terminalTransfer(s.Transfers[i].Status) {
+			task := &s.Transfers[i]
+			task.Status, task.Path, task.Done, task.Error = "transferring", destination, have, ""
+			task.UpdatedAt = time.Now()
+		}
+	}); err != nil {
 		return err
+	}
+	lastProgress := time.Now()
+	if have == 0 || have != t.Size {
+		err = service.ResumeFile(ctx, wireID, taskID, fileID, t.Size, partial, func(done int64) {
+			if done == t.Size || time.Since(lastProgress) >= 150*time.Millisecond {
+				n.setTransfer(t.ID, "transferring", done, 0, "")
+				lastProgress = time.Now()
+			}
+		})
+		if err != nil {
+			return err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -470,4 +586,8 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 		return err
 	}
 	return n.completeReceive(t, destination)
+}
+
+func (n *Node) nativePartialPath(transferID string) string {
+	return filepath.Join(n.dir, "nwt-partials", transferID+".part")
 }

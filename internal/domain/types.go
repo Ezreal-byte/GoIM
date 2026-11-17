@@ -75,6 +75,16 @@ func (p Peer) VisibleOnline() bool {
 	return p.Online && p.Presence != PresenceInvisible && p.Presence != PresenceOffline
 }
 
+// IsLegacyNeiwangtong identifies the 2425 advertisement sent by some
+// Neiwangtong clients in addition to their native discovery.
+func (p Peer) IsLegacyNeiwangtong() bool {
+	return p.Transport == TransportIPMSG && p.ClientType == ClientNeiwangtong
+}
+
+func (p Peer) ListedContact() bool {
+	return p.CompatibilityAliasOf == "" && !p.IsLegacyNeiwangtong()
+}
+
 type Conversation struct {
 	ID        string
 	Title     string
@@ -154,6 +164,7 @@ type File struct {
 	Hash            string
 	MIME            string
 	InlineImage     bool `json:",omitempty"` // bounded image attachment delivered as a chat message
+	Folder          bool `json:",omitempty"` // native peer directory, distinct from browser sharing
 	SenderID        string
 	ConversationID  string
 	SourcePath      string // local only, never sent over the wire
@@ -185,6 +196,9 @@ type Transfer struct {
 	LegacyTransport string `json:",omitempty"`
 	RemotePacket    string `json:",omitempty"`
 	RemoteFile      string `json:",omitempty"`
+	RemoteImageMD5  string `json:",omitempty"` // legacy inline image asset digest
+	FolderMaxPath   int    `json:",omitempty"`
+	FolderMaxItem   int64  `json:",omitempty"`
 	RemotePeerID    string `json:",omitempty"` // wire identity of an existing compatibility transfer
 }
 
@@ -353,7 +367,6 @@ type CommandKind string
 const (
 	Connect            CommandKind = "connect"
 	SetCompatibility   CommandKind = "set_compatibility"
-	LinkCompatibility  CommandKind = "link_compatibility"
 	RefreshPeerAvatar  CommandKind = "refresh_peer_avatar"
 	StartChat          CommandKind = "start_chat"
 	SendText           CommandKind = "send_text"
@@ -408,7 +421,6 @@ type Command struct {
 	MessageID      string
 	Kind           CommandKind
 	PeerID         string
-	RelatedPeerID  string
 	ConversationID string
 	GroupID        string
 	FileID         string

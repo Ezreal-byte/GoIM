@@ -203,7 +203,6 @@ type appIDs struct {
 	connectField         gfx.ID
 	contactTalk          gfx.ID
 	contactRefreshAvatar gfx.ID
-	contactLink          gfx.ID
 	contactMemberScope   gfx.Scope
 	chatHeaderAvatar     gfx.ID
 	connectCancel        gfx.ID
@@ -422,8 +421,6 @@ type UI struct {
 	memberMenuIDs       map[string]gfx.ID
 	memberInfoIDs       map[string]gfx.ID
 	contactMemberIDs    map[string]gfx.ID
-	contactLinks        []contactLinkOption
-	contactLink         contactLinkOption
 	memberMessageIDs    map[string]gfx.ID
 	memberRemoveIDs     map[string]gfx.ID
 	memberTransferIDs   map[string]gfx.ID
@@ -1003,7 +1000,6 @@ func (u *UI) initIDs() {
 	contacts := u.tree.Feature("contact-details")
 	u.ids.contactTalk = u.tree.ID(contacts, "primary-action")
 	u.ids.contactRefreshAvatar = u.tree.ID(contacts, "refresh-avatar")
-	u.ids.contactLink = u.tree.ID(contacts, "confirm-route-link")
 	u.ids.contactMemberScope = u.tree.Sub(contacts, u.tree.Name("members"))
 	u.ids.chatHeaderAvatar = u.tree.ID(u.ids.chat, "peer-avatar")
 	u.ids.connectCancel = u.tree.ID(u.ids.dialog, "connect-cancel")
@@ -1346,7 +1342,7 @@ func (u *UI) drawContactFilters(f ui.C) {
 		peerCount, allOnline = 1, 1
 	}
 	for _, peer := range u.state.Peers {
-		if peer.ID == u.state.Self.ID || peer.CompatibilityAliasOf != "" || u.state.Settings.HideOfflineContacts && !peer.Online {
+		if peer.ID == u.state.Self.ID || !peer.ListedContact() || u.state.Settings.HideOfflineContacts && !peer.Online {
 			continue
 		}
 		peerCount++
@@ -1411,7 +1407,7 @@ func (u *UI) drawContacts(f ui.C) {
 	query := strings.TrimSpace(u.sidebarSearch.Text())
 	otherPeers := 0
 	for _, peer := range u.state.Peers {
-		if peer.ID == u.state.Self.ID || peer.CompatibilityAliasOf != "" {
+		if peer.ID == u.state.Self.ID || !peer.ListedContact() {
 			continue
 		}
 		if u.state.Settings.HideOfflineContacts && !peer.Online {
@@ -1876,12 +1872,11 @@ func (u *UI) rebuildPresentation(oldError string) {
 	}
 
 	groups := make(map[string][]domain.Peer)
-	u.refreshContactLinkChoices()
 	for _, name := range u.state.ContactGroups {
 		groups[name] = nil
 	}
 	for _, peer := range u.state.Peers {
-		if peer.ID == u.state.Self.ID || peer.CompatibilityAliasOf != "" || u.state.Settings.HideOfflineContacts && !peer.Online {
+		if peer.ID == u.state.Self.ID || !peer.ListedContact() || u.state.Settings.HideOfflineContacts && !peer.Online {
 			continue
 		}
 		name := strings.TrimSpace(peer.ContactGroup)

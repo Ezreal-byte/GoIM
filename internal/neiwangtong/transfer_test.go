@@ -143,6 +143,79 @@ func TestTransferServerMultiplexesAvatarAndFileOnOneConnection(t *testing.T) {
 	}
 }
 
+func TestNativeDownloadRemovesInterruptedFileAndCanRetry(t *testing.T) {
+	t.Run("discard ordinary partial", func(t *testing.T) { testInterruptedFile(t, false) })
+	t.Run("resume retained prefix", func(t *testing.T) { testInterruptedFile(t, true) })
+}
+
+func testInterruptedFile(t *testing.T, resumable bool) {
+	resume := make(chan struct{})
+	defer func() {
+		select {
+		case <-resume:
+		default:
+			close(resume)
+		}
+	}()
+	srv, err := StartTransferServer(loopback, 0, func(_ uint64, done, _ int64) {
+		if done == nativeFileBlock {
+			<-resume
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	dir := t.TempDir()
+	source, dest := filepath.Join(dir, "source.bin"), filepath.Join(dir, "received.bin")
+	data := bytes.Repeat([]byte("retry after disconnect\x00"), 50000)
+	if err := os.WriteFile(source, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	const task, selector = 319, 791
+	if err := srv.registerFile(selector, task, source, int64(len(data)), loopback, true); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	target := netip.AddrPortFrom(loopback, uint16(srv.Port()))
+	// Revoke the sender's file after the first block has reached disk.
+	err = downloadFileTo(ctx, loopback, target, selector, int64(len(data)), dest, true, resumable, func(done, _ int64) {
+		if done == nativeFileBlock {
+			srv.UnregisterFile(selector)
+			close(resume)
+		}
+	})
+	if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("expected the revoked send to interrupt the stream, got %v", err)
+	}
+	if resumable {
+		st, err := os.Stat(dest)
+		if err != nil || st.Size() != nativeFileBlock {
+			t.Fatalf("interrupted transfer did not retain exactly one block: %v", err)
+		}
+	} else if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("interrupted transfer left a destination: %v", err)
+	}
+	if err := srv.registerFile(selector, task, source, int64(len(data)), loopback, true); err != nil {
+		t.Fatal(err)
+	}
+	var first int64
+	if err := downloadFileTo(ctx, loopback, target, selector, int64(len(data)), dest, true, resumable, func(done, _ int64) {
+		if first == 0 {
+			first = done
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resumable && first != 2*nativeFileBlock {
+		t.Fatalf("resume did not skip the first block; next progress=%d", first)
+	}
+	if got, err := os.ReadFile(dest); err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("retry did not restore all bytes: %v", err)
+	}
+}
+
 func TestReceiveStockFileFrames(t *testing.T) {
 	const selector = 27926
 	payload := bytes.Repeat([]byte("stock file block stream"), 4000)

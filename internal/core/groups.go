@@ -167,6 +167,9 @@ func (n *Node) createGroup(name string, ids []string) error {
 			if !s.Peer(id).Online {
 				return errors.New("建群时请选择在线联系人")
 			}
+			if transport := s.Peer(id).Transport; transport == transportNWT || transport == legacyIPMSG {
+				return errors.New("请在原版内网通创建互通群，再把 GoIM 联系人加入")
+			}
 			selected = append(selected, id)
 		}
 	}
@@ -225,6 +228,9 @@ func (n *Node) inviteMembers(id string, ids []string) error {
 	var selected []string
 	for _, peer := range ids {
 		if !contains(g.Members, peer) && !contains(g.Pending, peer) && s.Peer(peer).Online {
+			if transport := s.Peer(peer).Transport; transport == transportNWT || transport == legacyIPMSG {
+				return errors.New("这个 GoIM 群无法邀请兼容客户端")
+			}
 			g.Pending = append(g.Pending, peer)
 			selected = append(selected, peer)
 		}
@@ -292,6 +298,9 @@ func (n *Node) manageGroup(c domain.Command) error {
 	g := s.Group(c.GroupID)
 	if g.ID == "" || g.Dissolved || g.Left {
 		return errors.New("群聊已不可用")
+	}
+	if n.isNativeGroup(g.ID) {
+		return errors.New("此群由原版内网通管理，请在原版内网通中操作")
 	}
 	if c.Kind == domain.LeaveGroup {
 		for _, v := range s.Invitations {

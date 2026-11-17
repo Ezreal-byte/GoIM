@@ -17,6 +17,7 @@ type pending struct {
 	Envelope      envelope
 	WireTransport string `json:",omitempty"`
 	WirePeerID    string `json:",omitempty"`
+	QueuedOffline bool   `json:",omitempty"`
 }
 type ownershipOffer struct {
 	PeerID    string
@@ -31,6 +32,7 @@ type persisted struct {
 	NextSequence       uint64
 	TransferTombstones map[string]string
 	PeerBridges        map[string]peerBridge
+	NativeGroups       map[string]nativeGroup
 	Version            int
 	State              domain.State
 	Outbox             map[string]pending

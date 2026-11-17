@@ -29,12 +29,25 @@ type Peer struct {
 type Callbacks struct {
 	Peer func(Peer)
 	Text func(peerID string, packetID uint64, text string)
+	// Message commits received chat content before the application receipt.
+	Message     func(peerID string, message DirectMessage) error
+	GroupRoster func(peerID string, roster GroupRoster)
+	GroupText   func(peerID string, message GroupMessage) error
 	// TextAcknowledged reports the application's receipt from an established peer.
 	// An ENet acknowledgement alone only confirms transport delivery.
 	TextAcknowledged func(peerID string, packetID uint64)
 	Files            func(peerID string, offer XMLSendFile)
+	FileCancelled    func(peerID string, taskID uint64) // the sender withdrew an incoming offer
 	FileProgress     func(peerID string, taskID uint64, done, total int64, complete bool, err error)
+	Folders          func(peerID string, offer FolderOffer)
+	FolderCancelled  func(peerID, taskID string)
+	FolderProgress   func(peerID, taskID string, done, total int64, complete bool, err error)
 	AvatarUpdated    func(peerID string, revision uint64, png []byte)
+}
+
+type receiptKey struct {
+	peer   string
+	packet uint64
 }
 
 type Config struct {
@@ -48,6 +61,7 @@ type Config struct {
 	ControlPort       int
 	RemoteControlPort int
 	TransferPort      int
+	EnableFolders     bool
 	BindIP            netip.Addr
 	AvatarPNG         []byte
 	DisableBroadcast  bool
@@ -64,6 +78,7 @@ type nativePeer struct {
 	discovery      netip.AddrPort
 	tcp            netip.AddrPort
 	reverseTCP     netip.AddrPort
+	folderTCP      netip.AddrPort
 	reverse        map[uint64]*reverseChannel
 	ready          chan struct{}
 	avatar         wireAvatar
@@ -73,12 +88,14 @@ type nativePeer struct {
 }
 
 type Service struct {
+	receipts    map[receiptKey]chan struct{} // protected by mu
 	cfg         Config
 	ctx         context.Context
 	cancel      context.CancelFunc
 	enet        *ENetTransport
 	profileENet *ENetTransport
 	transfer    *TransferServer
+	directories *directoryTransport
 	selfID      string
 	messageSeq  atomic.Uint32
 
@@ -101,9 +118,10 @@ type Service struct {
 type reverseChannel struct{ cancel context.CancelFunc }
 
 type fileOffer struct {
-	peerID string
-	fileID uint64
-	size   int64
+	peerID   string
+	fileID   uint64
+	size     int64
+	accepted bool
 }
 
 func Start(cfg Config) (*Service, error) {
@@ -158,6 +176,13 @@ func Start(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("内网通 TCP 文件端口: %w", err)
 	}
 	s.transfer.SetAvatar(cfg.AvatarPNG)
+	if cfg.EnableFolders {
+		s.directories, err = startDirectories(cfg.BindIP)
+		if err != nil {
+			s.Close()
+			return nil, fmt.Errorf("内网通 TCP 文件夹端口: %w", err)
+		}
+	}
 	s.enet, err = newENetTransport(cfg.BindIP, cfg.ControlPort, s.onENetCommand, s.onLost)
 	if err != nil {
 		s.Close()
@@ -202,6 +227,9 @@ func (s *Service) Close() error {
 		}
 		if s.transfer != nil {
 			_ = s.transfer.Close()
+		}
+		if s.directories != nil {
+			_ = s.directories.listener.Close()
 		}
 	})
 	return nil
@@ -493,7 +521,11 @@ func (s *Service) sendInitialProfile(target netip.AddrPort, includeDiscovery boo
 			return err
 		}
 	}
-	payload := formatProfileWithReverse(profile, uint16(s.transfer.Port()), uint16(s.transfer.ReversePort()), 0, s.cfg.GoIM)
+	var folderPort uint16
+	if s.directories != nil {
+		folderPort = s.directories.port()
+	}
+	payload := formatProfileWithFolder(profile, uint16(s.transfer.Port()), uint16(s.transfer.ReversePort()), 0, folderPort, s.cfg.GoIM)
 	return s.enet.SendAppCommand(target, CmdHandshark, payload)
 }
 
@@ -627,40 +659,65 @@ func (s *Service) onENetCommand(remote netip.AddrPort, kind uint32, plain []byte
 			s.onLost(remote)
 		}
 	case CmdSendMsg:
-		msgID, text, _, err := ParseSendMsg(plain)
-		if err == nil && msgID != 0 && text != "" {
+		message, err := ParseDirectMessage(plain)
+		if err == nil && message.PacketID != 0 && len(message.Parts) != 0 {
+			if notify := s.cfg.Callbacks.Message; notify != nil {
+				if err := notify(id, message); err != nil {
+					return
+				}
+			}
+			if text := message.Text(); text != "" && s.cfg.Callbacks.Text != nil {
+				s.cfg.Callbacks.Text(id, message.PacketID, text)
+			}
 			// Do not wait for ENet reliability inside the receive callback:
 			// the peer cannot acknowledge a new frame until this callback has
 			// returned and the incoming packet itself has been acknowledged.
-			go func() {
-				if ackErr := s.enet.SendAppCommand(remote, CmdSendMsgAck, FormatSendMsgAck(msgID)); ackErr != nil && s.cfg.Trace != nil {
-					s.cfg.Trace("send native message acknowledgement: " + ackErr.Error())
-				}
-			}()
-			if s.cfg.Callbacks.Text != nil {
-				s.cfg.Callbacks.Text(id, msgID, text)
+			go s.ackChatMessage(remote, message.PacketID)
+		}
+	case CmdGroupRoster:
+		if roster, err := ParseGroupRoster(plain); err == nil && s.cfg.Callbacks.GroupRoster != nil {
+			s.cfg.Callbacks.GroupRoster(id, roster)
+		}
+	case CmdGroupText:
+		if message, err := ParseGroupMessage(plain); err == nil && s.cfg.Callbacks.GroupText != nil {
+			if err := s.cfg.Callbacks.GroupText(id, message); err == nil {
+				go s.ackChatMessage(remote, message.Message.PacketID)
 			}
 		}
 	case CmdSendMsgAck:
-		if notify := s.cfg.Callbacks.TextAcknowledged; notify != nil {
-			if packetID, err := ParseSendMsgAck(plain); err == nil && packetID != 0 {
+		if packetID, err := ParseSendMsgAck(plain); err == nil && packetID != 0 {
+			key := receiptKey{id, packetID}
+			s.mu.Lock()
+			if done := s.receipts[key]; done != nil {
+				delete(s.receipts, key)
+				close(done)
+			}
+			s.mu.Unlock()
+			if notify := s.cfg.Callbacks.TextAcknowledged; notify != nil {
 				notify(id, packetID)
 			}
 		}
 	case CmdSendFile:
 		offer, err := ParseSendFile(plain)
-		if err == nil && offer.TaskID != 0 && offer.FileID != 0 && offer.Pwd == "" && validFileSize(offer.Size) &&
+		if err == nil && offer.TaskID != 0 &&
+			offer.FileID != 0 && offer.FileID <= maxFileSelector && offer.Pwd == "" && offer.Size >= 0 &&
 			s.cfg.Callbacks.Files != nil {
 			s.cfg.Callbacks.Files(id, offer)
 		}
+	case CmdSendFolder:
+		if offer, err := ParseFolderOffer(plain); err == nil && s.directories != nil && s.cfg.Callbacks.Folders != nil {
+			s.cfg.Callbacks.Folders(id, offer)
+		}
+	case CmdOperateSendFolder, CmdOperateRecvFolder:
+		s.onDirectoryOperation(id, kind, plain)
 	case CmdFileReverseReq:
 		if selector, err := ParseReverseFileReq(plain); err == nil {
 			s.startReverseChannel(id, selector)
 		}
 	case CmdOperateSendFile:
 		taskID, op, err := ParseOperateSendFile(plain)
-		if err == nil && op == 3 {
-			s.receiveFileOperation(id, taskID, op)
+		if err == nil && taskID != 0 && op == fileSendCancel && s.cfg.Callbacks.FileCancelled != nil {
+			s.cfg.Callbacks.FileCancelled(id, taskID)
 		}
 	case CmdOperateRecvFile:
 		taskID, op, err := ParseOperateRecvFile(plain)
@@ -716,6 +773,11 @@ func (s *Service) receiveProfile(id string, remote netip.AddrPort, info wireProf
 		}
 		if first || p.control == remote {
 			p.tcp = netip.AddrPortFrom(remote.Addr(), port)
+			folderPort := bits.ReverseBytes16(hs.Net.FolderTranTCPPort)
+			p.folderTCP = netip.AddrPort{}
+			if folderPort != 0 {
+				p.folderTCP = netip.AddrPortFrom(remote.Addr(), folderPort)
+			}
 			reversePort := bits.ReverseBytes16(hs.Net.FileTranTCPReversePort)
 			if reversePort != 0 {
 				p.reverseTCP = netip.AddrPortFrom(remote.Addr(), reversePort)
@@ -793,20 +855,25 @@ func (s *Service) onLost(remote netip.AddrPort) {
 }
 
 func (s *Service) Probe(ctx context.Context, target netip.AddrPort, controlPort, transferPort int) error {
+	_, err := s.ProbePeer(ctx, target, controlPort, transferPort)
+	return err
+}
+
+func (s *Service) ProbePeer(ctx context.Context, target netip.AddrPort, controlPort, transferPort int) (Peer, error) {
 	if !s.allows(target) {
-		return errors.New("内网通目标不在当前网络接口")
+		return Peer{}, errors.New("内网通目标不在当前网络接口")
 	}
 	s.mu.Lock()
 	announce, hidden := s.selfDisc, s.local.Status == StatusInvisible
 	s.mu.Unlock()
 	if hidden {
-		return errors.New("隐身状态下不可探测内网通")
+		return Peer{}, errors.New("隐身状态下不可探测内网通")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
 	defer cancel()
 	reply, err := Probe(ctx, s.cfg.BindIP, target, announce)
 	if err != nil {
-		return fmt.Errorf("内网通发现 %s: %w", target, err)
+		return Peer{}, fmt.Errorf("内网通发现 %s: %w", target, err)
 	}
 	if controlPort == 0 {
 		controlPort = int(ControlPort)
@@ -817,7 +884,7 @@ func (s *Service) Probe(ctx context.Context, target netip.AddrPort, controlPort,
 	control := netip.AddrPortFrom(target.Addr(), uint16(controlPort))
 	id, ok := s.recordDiscovery(reply, target, control, uint16(transferPort))
 	if !ok {
-		return errors.New("内网通控制地址和已知设备冲突")
+		return Peer{}, errors.New("内网通控制地址和已知设备冲突")
 	}
 	s.mu.Lock()
 	p := s.peers[id]
@@ -827,14 +894,20 @@ func (s *Service) Probe(ctx context.Context, target netip.AddrPort, controlPort,
 	s.kickHandshake(id, profileTarget)
 	select {
 	case <-wait:
-		return nil
+		s.mu.Lock()
+		peer := p.peer
+		s.mu.Unlock()
+		if !peer.Online {
+			return Peer{}, ErrNotConnected
+		}
+		return peer, nil
 	case <-ctx.Done():
 		if s.enet.connected(control) {
-			return fmt.Errorf("内网通资料握手 %s: %w", control, ctx.Err())
+			return Peer{}, fmt.Errorf("内网通资料握手 %s: %w", control, ctx.Err())
 		}
-		return fmt.Errorf("内网通控制握手 %s: %w", control, ctx.Err())
+		return Peer{}, fmt.Errorf("内网通控制握手 %s: %w", control, ctx.Err())
 	case <-s.ctx.Done():
-		return s.ctx.Err()
+		return Peer{}, s.ctx.Err()
 	}
 }
 
@@ -849,6 +922,15 @@ func (s *Service) control(peerID string) (netip.AddrPort, netip.AddrPort, error)
 
 func (s *Service) SendText(peerID, text string) error {
 	return s.SendTextWithID(peerID, 0, text)
+}
+
+// SendQuit notifies a connected peer that this endpoint is going offline.
+func (s *Service) SendQuit(peerID string) error {
+	control, _, err := s.control(peerID)
+	if err != nil {
+		return err
+	}
+	return s.enet.SendAppCommand(control, CmdQuit, []byte("<X_QUIT docver=\"1\"/>"))
 }
 
 func (s *Service) SendTextWithID(peerID string, packetID uint64, text string) error {
@@ -866,23 +948,68 @@ func (s *Service) SendTextWithID(peerID string, packetID uint64, text string) er
 	return s.enet.SendAppCommand(control, CmdSendMsg, payload)
 }
 
+// SendTextConfirmed uses the same application identifiers on every delivery
+// attempt. The caller can retain its outbox entry on an uncertain receipt.
+func (s *Service) SendTextConfirmed(ctx context.Context, peerID string, packetID uint64, id, text string, queuedAt time.Time) error {
+	control, _, err := s.control(peerID)
+	if err != nil {
+		return err
+	}
+	payload, err := formatMessage(packetID, id, []MsgDataTxt{{Txt: &MsgTxt{T: "normal", V: text}}}, queuedAt)
+	if err != nil {
+		return err
+	}
+	return s.sendWithReceipt(ctx, peerID, control, CmdSendMsg, packetID, payload)
+}
+
+func (s *Service) ackChatMessage(remote netip.AddrPort, packetID uint64) {
+	if err := s.enet.SendAppCommand(remote, CmdSendMsgAck, FormatSendMsgAck(packetID)); err != nil && s.cfg.Trace != nil {
+		s.cfg.Trace("send native message acknowledgement: " + err.Error())
+	}
+}
+
+func (s *Service) sendWithReceipt(ctx context.Context, peerID string, control netip.AddrPort, kind uint32, packetID uint64, payload []byte) error {
+	key := receiptKey{peerID, packetID}
+	done := make(chan struct{})
+	s.mu.Lock()
+	if s.receipts[key] != nil {
+		s.mu.Unlock()
+		return ErrDeliveryUncertain
+	}
+	if s.receipts == nil {
+		s.receipts = make(map[receiptKey]chan struct{})
+	}
+	s.receipts[key] = done
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		if s.receipts[key] == done {
+			delete(s.receipts, key)
+		}
+		s.mu.Unlock()
+	}()
+	if err := s.enet.SendAppCommand(control, kind, payload); err != nil && !errors.Is(err, ErrDeliveryUncertain) {
+		return err
+	}
+	timer := time.NewTimer(4 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return nil
+	case <-timer.C:
+	case <-ctx.Done():
+	case <-s.ctx.Done():
+	}
+	return ErrDeliveryUncertain
+}
+
 func (s *Service) SendFileOffer(peerID string, taskID uint64, name string, size, lastMod int64, path string) error {
 	return s.SendFileOfferWithIDs(peerID, taskID, taskID, name, size, lastMod, path)
 }
 
 func (s *Service) SendFileOfferWithIDs(peerID string, taskID, fileID uint64, name string, size, lastMod int64, path string) error {
-	control, _, err := s.control(peerID)
+	control, err := s.prepareFileOffer(peerID, taskID, fileID, size, path)
 	if err != nil {
-		return err
-	}
-	if taskID == 0 || taskID > maxFileSelector || fileID == 0 || fileID > maxFileSelector || !validFileSize(size) {
-		return errors.New("内网通文件超出此版本的传输范围")
-	}
-	s.mu.Lock()
-	s.files[taskID] = fileOffer{peerID: peerID, fileID: fileID, size: size}
-	s.mu.Unlock()
-	if err := s.transfer.registerFile(fileID, taskID, path, size, control.Addr()); err != nil {
-		s.dropFile(taskID)
 		return err
 	}
 	err = s.enet.SendAppCommand(control, CmdSendFile, FormatSendFile(taskID, fileID, name, size, lastMod))
@@ -892,27 +1019,93 @@ func (s *Service) SendFileOfferWithIDs(peerID string, taskID, fileID uint64, nam
 	return err
 }
 
+func (s *Service) SendChatImage(ctx context.Context, peerID string, packetID uint64, id string, taskID, fileID uint64, size int64, digest [16]byte, path string) error {
+	if size <= 0 || size > MaxChatImageBytes || fileID == avatarSelector {
+		return errors.New("invalid native chat image")
+	}
+	image := &MsgTxt{T: "feihu", V: fmt.Sprintf("%d|%x", fileID, digest)}
+	payload, err := formatMessage(packetID, id, []MsgDataTxt{{Img: image}}, time.Time{})
+	if err != nil {
+		return err
+	}
+	control, err := s.prepareFileOffer(peerID, taskID, fileID, size, path)
+	if err != nil {
+		return err
+	}
+	err = s.sendWithReceipt(ctx, peerID, control, CmdSendMsg, packetID, payload)
+	if err != nil && !errors.Is(err, ErrDeliveryUncertain) {
+		s.dropFile(taskID)
+	}
+	return err
+}
+
+func (s *Service) prepareFileOffer(peerID string, taskID, fileID uint64, size int64, path string) (netip.AddrPort, error) {
+	control, _, err := s.control(peerID)
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+	s.mu.Lock()
+	p := s.peers[peerID]
+	chunked := p != nil && !p.peer.GoIM
+	if taskID == 0 || taskID > maxFileSelector || fileID == 0 || fileID > maxFileSelector || !validFileSize(size, chunked) {
+		s.mu.Unlock()
+		return netip.AddrPort{}, errors.New("内网通文件超出此版本的传输范围")
+	}
+	old, exists := s.files[taskID]
+	if exists && (old.peerID != peerID || old.fileID != fileID || old.size != size) {
+		s.mu.Unlock()
+		return netip.AddrPort{}, errors.New("内网通任务编号已被占用")
+	}
+	if err := s.transfer.registerFile(fileID, taskID, path, size, control.Addr(), chunked); err != nil {
+		s.mu.Unlock()
+		return netip.AddrPort{}, err
+	}
+	if !exists {
+		s.files[taskID] = fileOffer{peerID: peerID, fileID: fileID, size: size}
+	}
+	s.mu.Unlock()
+	return control, nil
+}
+
 func (s *Service) receiveFileOperation(peer string, task uint64, op uint32) {
 	s.mu.Lock()
 	offer, ok := s.files[task]
-	s.mu.Unlock()
 	if !ok || offer.peerID != peer {
+		s.mu.Unlock()
 		return
 	}
-	if op == 3 {
-		s.dropFile(task)
-		s.reportFile(peer, task, 0, offer.size, false, ErrFileRejected)
+	if op == fileReceiveAccept {
+		offer.accepted = true
+		s.files[task] = offer
+		s.mu.Unlock()
+		return
 	}
+	p := s.peers[peer]
+	if op != fileReceiveStop && !(op == fileReceiveStopLegacy && p != nil && p.peer.GoIM) {
+		s.mu.Unlock()
+		return
+	}
+	reason := ErrFileRejected
+	if offer.accepted {
+		reason = ErrFileCancelled
+	}
+	s.dropFileLocked(task)
+	s.mu.Unlock()
+	s.reportFile(peer, task, 0, offer.size, false, reason)
 }
 
 func (s *Service) dropFile(task uint64) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dropFileLocked(task)
+}
+
+func (s *Service) dropFileLocked(task uint64) {
 	offer := s.files[task]
 	delete(s.files, task)
 	if p := s.peers[offer.peerID]; p != nil && s.offerCountLocked(offer.peerID) == 0 {
 		stopReverseChannels(p)
 	}
-	s.mu.Unlock()
 	if offer.fileID != 0 {
 		s.transfer.UnregisterFile(offer.fileID)
 	}
@@ -988,12 +1181,17 @@ func (s *Service) startReverseChannel(peerID string, selector uint64) {
 func (s *Service) onFileSent(task uint64, done, total int64) {
 	s.mu.Lock()
 	offer, ok := s.files[task]
+	if ok {
+		if done == total {
+			s.dropFileLocked(task)
+		} else if done > 0 && !offer.accepted {
+			offer.accepted = true
+			s.files[task] = offer
+		}
+	}
 	s.mu.Unlock()
 	if ok {
 		s.reportFile(offer.peerID, task, done, total, done == total, nil)
-		if done == total {
-			s.dropFile(task)
-		}
 	}
 }
 
@@ -1003,28 +1201,63 @@ func (s *Service) reportFile(peer string, task uint64, done, total int64, comple
 	}
 }
 
-func (s *Service) RejectFile(peerID string, taskID uint64) error {
+func (s *Service) StopReceiving(peerID string, taskID uint64) error {
+	if taskID == 0 {
+		return errors.New("invalid native file task")
+	}
 	control, _, err := s.control(peerID)
 	if err != nil {
 		return err
 	}
-	return s.enet.SendAppCommand(control, CmdOperateRecvFile, FormatOperateRecvFile(taskID, 3))
+	return s.enet.SendAppCommand(control, CmdOperateRecvFile, FormatOperateRecvFile(taskID, fileReceiveStop))
 }
 
-func (s *Service) CancelSend(taskID uint64) { s.dropFile(taskID) }
-
-func (s *Service) AcceptFile(ctx context.Context, peerID string, taskID, fileID uint64, total int64, destPath string, progress func(int64)) error {
-	control, tcp, err := s.control(peerID)
+func (s *Service) CancelSend(peerID string, taskID uint64) error {
+	if taskID == 0 {
+		return errors.New("invalid native file task")
+	}
+	s.mu.Lock()
+	if offer, ok := s.files[taskID]; ok {
+		if offer.peerID != peerID {
+			s.mu.Unlock()
+			return errors.New("内网通任务与联系人不匹配")
+		}
+		s.dropFileLocked(taskID)
+	}
+	s.mu.Unlock()
+	control, _, err := s.control(peerID)
 	if err != nil {
 		return err
 	}
-	if fileID == 0 || fileID > maxFileSelector || !validFileSize(total) {
-		return errors.New("invalid native file transfer")
+	return s.enet.SendAppCommand(control, CmdOperateSendFile, FormatOperateSendFile(taskID, fileSendCancel))
+}
+
+func (s *Service) AcceptFile(ctx context.Context, peerID string, taskID, fileID uint64, total int64, destPath string, progress func(int64)) error {
+	return s.receiveFile(ctx, peerID, taskID, fileID, total, destPath, false, progress)
+}
+
+// ResumeFile appends to a private partial file for this exact offer. It keeps
+// the received prefix if the connection is interrupted.
+func (s *Service) ResumeFile(ctx context.Context, peerID string, taskID, fileID uint64, total int64, partial string, progress func(int64)) error {
+	return s.receiveFile(ctx, peerID, taskID, fileID, total, partial, true, progress)
+}
+
+func (s *Service) receiveFile(ctx context.Context, peerID string, taskID, fileID uint64, total int64,
+	destPath string, resume bool, progress func(int64)) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	control, tcp, err := s.control(peerID)
+	if err != nil {
+		return err
 	}
 	s.mu.Lock()
 	p := s.peers[peerID]
 	stockClient := p != nil && !p.peer.GoIM
 	s.mu.Unlock()
+	if taskID == 0 || fileID == 0 || fileID > maxFileSelector || !validFileSize(total, stockClient) {
+		return errors.New("invalid native file transfer")
+	}
 	selector := fileID // Older GoIM peers expect their offered file ID.
 	if stockClient {
 		selector = uint64(max(1, s.messageSeq.Add(1)))
@@ -1038,7 +1271,7 @@ func (s *Service) AcceptFile(ctx context.Context, peerID string, taskID, fileID 
 	if err = s.enet.SendAppCommand(control, CmdFileReverseReq, FormatReverseFileReq(selector)); err != nil {
 		return err
 	}
-	if err = s.enet.SendAppCommand(control, CmdOperateRecvFile, FormatOperateRecvFile(taskID, 2)); err != nil {
+	if err = s.enet.SendAppCommand(control, CmdOperateRecvFile, FormatOperateRecvFile(taskID, fileReceiveAccept)); err != nil {
 		return err
 	}
 	// The native sender normally connects to our reverse listener before it
@@ -1054,7 +1287,7 @@ func (s *Service) AcceptFile(ctx context.Context, peerID string, taskID, fileID 
 	case <-s.ctx.Done():
 		return s.ctx.Err()
 	}
-	err = downloadFile(ctx, s.cfg.BindIP, tcp, fileID, total, destPath, stockClient, func(done, total int64) {
+	err = downloadFileTo(ctx, s.cfg.BindIP, tcp, fileID, total, destPath, stockClient, resume, func(done, total int64) {
 		if progress != nil {
 			progress(done)
 		}
@@ -1137,6 +1370,23 @@ func (s *Service) FetchAvatar(peerID string) error {
 	}
 	s.fetchAvatar(peerID, true)
 	return nil
+}
+
+const MaxChatImageBytes = 24 << 20
+
+func (s *Service) FetchChatImage(ctx context.Context, peerID string, ref ChatImageRef) ([]byte, error) {
+	_, tcp, err := s.control(peerID)
+	if err != nil {
+		return nil, err
+	}
+	if ref.Selector == 0 || ref.Selector == avatarSelector {
+		return nil, errors.New("invalid native chat image selector")
+	}
+	data, err := fetchMedia(ctx, s.cfg.BindIP, tcp, ref.Selector, MaxChatImageBytes, 15*time.Second)
+	if err == nil && md5.Sum(data) != ref.Digest {
+		return nil, errors.New("native chat image did not match its digest")
+	}
+	return data, err
 }
 
 func (s *Service) fetchAvatar(peerID string, force bool) {

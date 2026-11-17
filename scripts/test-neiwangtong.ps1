@@ -11,10 +11,22 @@ param(
     [string]$Peer,
     [string]$SandboxOriginalDir = '/opt/goim-lab/original',
     [switch]$Avatar,
-    [switch]$TextReceipt
+    [switch]$TextReceipt,
+    [switch]$SandboxSuite,
+    [switch]$LargeFile,
+    [switch]$OfflineReplay,
+    [switch]$OfflineSend,
+    [switch]$ResumeReceive
 )
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
+$special = @($LargeFile, $OfflineReplay, $OfflineSend, $ResumeReceive | Where-Object { $_ })
+if ($special.Count -gt 1 -or ($special.Count -gt 0 -and $Mode -ne 'Sandbox')) {
+    throw 'Each special check requires a separate Sandbox run.'
+}
+if ($SandboxSuite -and ($Mode -ne 'Sandbox' -or $special.Count -gt 0)) {
+    throw '-SandboxSuite requires Sandbox mode without individual check switches.'
+}
 $root = Split-Path -Parent $PSScriptRoot
 if (!$OutputDir) {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -70,10 +82,32 @@ function Invoke-ReferenceSandbox {
         if ($LASTEXITCODE -ne 0) { throw 'Failed to stage the Linux reference checker.' }
         & wsl.exe @linux i686-w64-mingw32-gcc -municode -O2 -Wall -Wextra -Werror -o "$stage/drive.exe" "$stage/drive.c"
         if ($LASTEXITCODE -ne 0) { throw 'Failed to build the reference fixture. Install the dependencies listed in docs/neiwangtong-testing.md.' }
-        $report = Join-Path $OutputDir 'sandbox.json'
-        & wsl.exe -d $distro -u root --exec "$stage/run.sh" $SandboxOriginalDir | Tee-Object -FilePath $report
-        if ($LASTEXITCODE -ne 0) { throw "Reference sandbox check failed. See $report and the console output." }
-        Write-Host "Sandbox report: $report"
+        $runs = if ($SandboxSuite) {
+            @(
+                @{ Name = 'standard'; Option = '' },
+                @{ Name = 'offline-from-original'; Option = '--offline-replay' },
+                @{ Name = 'offline-from-goim'; Option = '--offline-send' },
+                @{ Name = 'resume-on-original'; Option = '--resume-receive' }
+            )
+        } else {
+            $option = if ($LargeFile) { '--large-file' }
+                      elseif ($OfflineReplay) { '--offline-replay' }
+                      elseif ($OfflineSend) { '--offline-send' }
+                      elseif ($ResumeReceive) { '--resume-receive' }
+                      else { '' }
+            @(@{ Name = ''; Option = $option })
+        }
+        $failed = [Collections.Generic.List[string]]::new()
+        foreach ($run in $runs) {
+            $reportDir = if ($run.Name) { Join-Path $OutputDir $run.Name } else { $OutputDir }
+            New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
+            $report = Join-Path $reportDir 'sandbox.json'
+            $labOptions = @($SandboxOriginalDir)
+            if ($run.Option) { $labOptions += $run.Option }
+            & wsl.exe -d $distro -u root --exec "$stage/run.sh" @labOptions | Tee-Object -FilePath $report
+            if ($LASTEXITCODE -ne 0) { $failed.Add($report) } else { Write-Host "Sandbox report: $report" }
+        }
+        if ($failed.Count) { throw "Reference sandbox checks failed. See: $($failed -join ', ')" }
     } finally {
         foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name]) }
         Remove-Item -LiteralPath $binary.FullName -ErrorAction SilentlyContinue

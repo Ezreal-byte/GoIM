@@ -77,7 +77,7 @@ func TestSelfRowAppearsWithNoOtherContactsAndOpensProfile(t *testing.T) {
 
 	harness.clickID(harness.ui.ids.selfRow)
 	harness.settle()
-	if harness.ui.profile.open || !harness.hasText("用户类型") {
+	if harness.ui.profile.open || !harness.hasText("个人资料") {
 		t.Fatal("self selection must show the profile without editing")
 	}
 	harness.clickID(harness.ui.ids.contactTalk)

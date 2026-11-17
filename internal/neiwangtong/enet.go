@@ -16,16 +16,17 @@ import (
 // ENet 1.x command sizes and sequencing follow the upstream protocol. This
 // transport implements the reliable channels used by the native IM adapter.
 const (
-	enetAck        = 1
-	enetConnect    = 2
-	enetVerify     = 3
-	enetDisconnect = 4
-	enetPing       = 5
-	enetReliable   = 6
-	enetFragment   = 8
-	enetAckFlag    = 0x80
-	enetTimed      = 0x8000
-	enetNoPeer     = 0x0fff
+	enetAck         = 1
+	enetConnect     = 2
+	enetVerify      = 3
+	enetDisconnect  = 4
+	enetPing        = 5
+	enetReliable    = 6
+	enetFragment    = 8
+	enetAckFlag     = 0x80
+	enetUnsequenced = 0x40
+	enetTimed       = 0x8000
+	enetNoPeer      = 0x0fff
 
 	maxAppFrame   = 512 << 10
 	maxSessions   = 64
@@ -122,6 +123,21 @@ func newENetTransport(bind netip.Addr, port int, onCommand func(netip.AddrPort, 
 func (t *ENetTransport) Close() error {
 	t.stopOnce.Do(func() {
 		close(t.stopped)
+		// Release the remote session before closing the socket, so a client
+		// restarting on the same port needn't wait for its previous session to expire.
+		t.mu.Lock()
+		for remote, session := range t.sessions {
+			session.mu.Lock()
+			if session.active {
+				var packet [10]byte
+				binary.BigEndian.PutUint16(packet[:2], session.remoteSlot|uint16(session.outgoing)<<12)
+				packet[2], packet[3] = enetDisconnect|enetUnsequenced, 255
+				binary.BigEndian.PutUint16(packet[4:6], session.ctrlSeq+1)
+				_, _ = t.conn.WriteToUDPAddrPort(packet[:], remote)
+			}
+			session.mu.Unlock()
+		}
+		t.mu.Unlock()
 		_ = t.conn.Close()
 	})
 	return nil

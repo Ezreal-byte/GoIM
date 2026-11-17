@@ -25,7 +25,7 @@ func terminalTransfer(status string) bool {
 	return status == "completed" || status == "cancelled" || status == "rejected"
 }
 func validFile(f domain.File) bool {
-	if f.ShareFolder {
+	if f.ShareFolder || f.Folder {
 		return false
 	}
 	if f.ID != strings.ToLower(f.ID) || f.Hash != strings.ToLower(f.Hash) {
@@ -95,6 +95,9 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 		return err
 	}
 	if !info.Mode().IsRegular() {
+		if info.IsDir() && !shared {
+			return n.sendNeiwangtongDirectory(convID, path, target)
+		}
 		return errors.New("首期仅支持文件，请先将文件夹打包")
 	}
 	hash, err := fileHashContext(n.ctx, path)
@@ -133,8 +136,10 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 				if c.Kind == "group" {
 					return errors.New("内网通兼容联系人仅支持单聊发送")
 				}
-				// Legacy clients receive images through their normal file workflow.
-				f.InlineImage = false
+				if p.Transport == legacyIPMSG {
+					// IPMSG clients receive images through their normal file workflow.
+					f.InlineImage = false
+				}
 			}
 		}
 	}

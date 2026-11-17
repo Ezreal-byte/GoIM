@@ -35,11 +35,15 @@ func (n *Node) connectLegacy(address string) error {
 	if service == nil {
 		return errors.New("飞鸽／飞秋互通未运行，请检查网络设置")
 	}
-	if err := service.Probe(n.ctx, target); err != nil {
+	peer, err := service.Probe(n.ctx, target)
+	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("旧版设备 %s 未回复 UDP 探测，请检查客户端互通设置和防火墙", target)
 		}
 		return fmt.Errorf("连接旧版设备 %s 失败: %w", target, err)
+	}
+	if peer.Neiwangtong {
+		return errors.New("已发现内网通设备，但尚未建立内网通连接")
 	}
 	n.notice("已连接旧版设备")
 	return nil

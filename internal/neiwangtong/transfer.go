@@ -15,13 +15,15 @@ import (
 	"time"
 )
 
-type OutgoingFile struct {
+type outgoingFile struct {
 	TaskID    uint64 // application-level offer identifier
-	FileID    uint64 // TCP selector advertised in X_SEND_FILE
 	Path      string
 	Size      int64
 	Recipient netip.Addr
 	Info      os.FileInfo
+	chunked   bool
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 const maxFileSelector = math.MaxUint32
@@ -30,11 +32,17 @@ const (
 	nativeReverseFileCommand = 100
 	nativeReverseFileFrame   = 560
 	nativeFileHeader         = 100
+	nativeFileBlock          = 32 << 10
 )
 
-var ErrFileRejected = errors.New("对方拒绝了文件")
+var (
+	ErrFileRejected  = errors.New("对方拒绝了文件")
+	ErrFileCancelled = errors.New("对方取消了文件传输")
+)
 
-func validFileSize(size int64) bool { return size >= 0 && size <= math.MaxUint32-nativeFileHeader }
+func validFileSize(size int64, chunked bool) bool {
+	return size >= 0 && (chunked || size <= math.MaxUint32-nativeFileHeader)
+}
 
 type TransferServer struct {
 	listener      net.Listener
@@ -46,7 +54,7 @@ type TransferServer struct {
 	avatarMu      sync.RWMutex
 	avatarPNG     []byte
 	filesMu       sync.RWMutex
-	files         map[uint64]OutgoingFile
+	files         map[uint64]outgoingFile
 	onProgress    func(taskID uint64, done, total int64)
 	reverseMu     sync.Mutex
 	reverseWait   map[reverseKey]*incomingReverse
@@ -93,7 +101,7 @@ func startTransferServer(bind netip.Addr, port int, onProgress func(taskID uint6
 		bindIP:        bind,
 		reverse:       reverse,
 		reversePort:   reverse.Addr().(*net.TCPAddr).Port,
-		files:         make(map[uint64]OutgoingFile),
+		files:         make(map[uint64]outgoingFile),
 		onProgress:    onProgress,
 		reverseWait:   make(map[reverseKey]*incomingReverse),
 		avatarAllowed: avatarAllowed,
@@ -130,11 +138,11 @@ func (s *TransferServer) SetAvatar(png []byte) {
 }
 
 func (s *TransferServer) RegisterFile(taskID uint64, path string, size int64) {
-	_ = s.registerFile(taskID, taskID, path, size, netip.Addr{})
+	_ = s.registerFile(taskID, taskID, path, size, netip.Addr{}, true)
 }
 
-func (s *TransferServer) registerFile(fileID, taskID uint64, path string, size int64, recipient netip.Addr) error {
-	if fileID == 0 || fileID > maxFileSelector || taskID == 0 || !validFileSize(size) {
+func (s *TransferServer) registerFile(fileID, taskID uint64, path string, size int64, recipient netip.Addr, chunked bool) error {
+	if fileID == 0 || fileID > maxFileSelector || taskID == 0 || !validFileSize(size, chunked) {
 		return errors.New("invalid native file offer")
 	}
 	info, err := os.Lstat(path)
@@ -146,17 +154,30 @@ func (s *TransferServer) registerFile(fileID, taskID uint64, path string, size i
 	}
 	s.filesMu.Lock()
 	defer s.filesMu.Unlock()
+	if existing, ok := s.files[fileID]; ok {
+		if existing.TaskID == taskID && existing.Recipient == recipient && existing.Path == path &&
+			existing.Size == size && existing.chunked == chunked && os.SameFile(existing.Info, info) &&
+			existing.Info.ModTime().Equal(info.ModTime()) {
+			return nil // the same offer was queued again after a reconnect
+		}
+		return errors.New("内网通文件编号已被占用")
+	}
 	if len(s.files) >= 1024 {
 		return errors.New("内网通待接收文件数量已达上限")
 	}
-	s.files[fileID] = OutgoingFile{TaskID: taskID, FileID: fileID, Path: path, Size: size, Recipient: recipient, Info: info}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.files[fileID] = outgoingFile{TaskID: taskID, Path: path, Size: size, Recipient: recipient,
+		Info: info, chunked: chunked, ctx: ctx, cancel: cancel}
 	return nil
 }
 
 func (s *TransferServer) UnregisterFile(fileID uint64) {
 	s.filesMu.Lock()
 	defer s.filesMu.Unlock()
-	delete(s.files, fileID)
+	if file, ok := s.files[fileID]; ok {
+		delete(s.files, fileID)
+		file.cancel()
+	}
 }
 
 func (s *TransferServer) expectReverse(key reverseKey) (<-chan struct{}, error) {
@@ -254,7 +275,12 @@ func (s *TransferServer) handleConnection(conn net.Conn) {
 				}
 			}
 		case 3:
-			s.serveFile(conn, selector)
+			if len(frame) == 108 {
+				position := binary.BigEndian.Uint64(frame[60:68])
+				if position <= math.MaxInt64 {
+					s.serveFile(conn, selector, int64(position))
+				}
+			}
 			return
 		default:
 			return
@@ -363,7 +389,7 @@ func writeTransferConfirmation(w io.Writer, selector uint64) error {
 	return err
 }
 
-func (s *TransferServer) fileForRequest(conn net.Conn, selector uint64) (OutgoingFile, bool) {
+func (s *TransferServer) fileForRequest(conn net.Conn, selector uint64) (outgoingFile, bool) {
 	s.filesMu.RLock()
 	file, ok := s.files[selector]
 	s.filesMu.RUnlock()
@@ -371,9 +397,9 @@ func (s *TransferServer) fileForRequest(conn net.Conn, selector uint64) (Outgoin
 	return file, ok && isTCP && (!file.Recipient.IsValid() || file.Recipient == addr.AddrPort().Addr().Unmap())
 }
 
-func (s *TransferServer) serveFile(conn net.Conn, selector uint64) {
+func (s *TransferServer) serveFile(conn net.Conn, selector uint64, position int64) {
 	file, ok := s.fileForRequest(conn, selector)
-	if !ok {
+	if !ok || position < 0 || position > file.Size || position != 0 && !file.chunked {
 		return
 	}
 
@@ -387,47 +413,56 @@ func (s *TransferServer) serveFile(conn net.Conn, selector uint64) {
 		current.Size() != file.Size || !current.ModTime().Equal(file.Info.ModTime()) {
 		return
 	}
-
-	totalLen := nativeFileHeader + file.Size
-	header := make([]byte, nativeFileHeader)
-	binary.BigEndian.PutUint32(header[0:4], uint32(totalLen))
-	binary.BigEndian.PutUint32(header[4:8], 1)
-	binary.BigEndian.PutUint32(header[8:12], 4) // cmd 4
-	binary.BigEndian.PutUint32(header[56:60], uint32(selector))
-	binary.BigEndian.PutUint32(header[64:68], uint32(file.Size))
-	binary.BigEndian.PutUint32(header[76:80], uint32(file.Size))
-	if _, err := conn.Write(header); err != nil {
+	if _, err := f.Seek(position, io.SeekStart); err != nil {
 		return
 	}
 
-	// Stream file content
-	var done int64
-	buf := make([]byte, 32*1024)
-	for done < file.Size {
-		s.filesMu.RLock()
-		_, allowed := s.files[selector]
-		s.filesMu.RUnlock()
-		if !allowed || s.closing.Load() {
+	stop := context.AfterFunc(file.ctx, func() { _ = conn.Close() })
+	defer stop()
+	done := position
+	var lastProgress time.Time
+	// Native clients use cmd 4 blocks with 64-bit positions. Keep a single
+	// frame only for old GoIM peers using this compatibility transport.
+	frame := make([]byte, nativeFileHeader+nativeFileBlock)
+	for first := true; first || done < file.Size; first = false {
+		if file.ctx.Err() != nil || s.closing.Load() {
 			return
 		}
 		_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
-		n, rerr := f.Read(buf[:min(int64(len(buf)), file.Size-done)])
-		if n > 0 {
-			if _, werr := conn.Write(buf[:n]); werr != nil {
+		count := min(file.Size-done, nativeFileBlock)
+		start := nativeFileHeader
+		if file.chunked {
+			encodeFileHeader(frame, uint32(selector), file.Size, done, uint32(count))
+			start = 0
+		} else if first {
+			encodeFileHeader(frame, uint32(selector), file.Size, 0, uint32(file.Size))
+			if _, err := conn.Write(frame[:nativeFileHeader]); err != nil {
 				return
 			}
-			done += int64(n)
-			if s.onProgress != nil {
-				s.onProgress(file.TaskID, done, file.Size)
-			}
 		}
-		if rerr != nil {
+		end := nativeFileHeader + int(count)
+		if _, err := io.ReadFull(f, frame[nativeFileHeader:end]); err != nil {
 			return
 		}
+		if _, err := conn.Write(frame[start:end]); err != nil {
+			return
+		}
+		done += count
+		if s.onProgress != nil && (done == file.Size || time.Since(lastProgress) >= 150*time.Millisecond) {
+			s.onProgress(file.TaskID, done, file.Size)
+			lastProgress = time.Now()
+		}
 	}
-	if file.Size == 0 && s.onProgress != nil {
-		s.onProgress(file.TaskID, 0, 0)
-	}
+}
+
+func encodeFileHeader(header []byte, selector uint32, total, offset int64, count uint32) {
+	binary.BigEndian.PutUint32(header[0:4], nativeFileHeader+count)
+	binary.BigEndian.PutUint32(header[4:8], 1)
+	binary.BigEndian.PutUint32(header[8:12], 4)
+	binary.BigEndian.PutUint32(header[56:60], selector)
+	binary.BigEndian.PutUint64(header[60:68], uint64(total))
+	binary.BigEndian.PutUint64(header[68:76], uint64(offset))
+	binary.BigEndian.PutUint32(header[76:80], count)
 }
 
 // OpenReverseFileChannel sends the bootstrap frame that native Neiwangtong
@@ -469,8 +504,47 @@ func dialTransfer(ctx context.Context, bind netip.Addr, target netip.AddrPort) (
 }
 
 func downloadFile(ctx context.Context, bind netip.Addr, target netip.AddrPort, fileID uint64, totalSize int64, destPath string, confirm bool, onProgress func(done, total int64)) error {
-	if fileID == 0 || fileID > maxFileSelector || !validFileSize(totalSize) || !validUnicast(target) {
+	return downloadFileTo(ctx, bind, target, fileID, totalSize, destPath, confirm, false, onProgress)
+}
+
+func downloadFileTo(ctx context.Context, bind netip.Addr, target netip.AddrPort, fileID uint64, totalSize int64,
+	destPath string, confirm, resume bool, onProgress func(done, total int64)) error {
+	if fileID == 0 || fileID > maxFileSelector || totalSize < 0 || !validUnicast(target) {
 		return errors.New("invalid native file transfer")
+	}
+	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	if resume {
+		flags = os.O_RDWR | os.O_CREATE
+		if info, err := os.Lstat(destPath); err == nil && !info.Mode().IsRegular() {
+			return errors.New("native transfer partial is not a regular file")
+		} else if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	out, err := os.OpenFile(destPath, flags, 0600)
+	if err != nil {
+		return err
+	}
+	complete := false
+	defer func() {
+		out.Close()
+		if !complete && !resume {
+			_ = os.Remove(destPath)
+		}
+	}()
+	var position int64
+	if resume {
+		info, err := out.Stat()
+		if err != nil {
+			return err
+		}
+		position = info.Size()
+		if !info.Mode().IsRegular() || position > totalSize || !confirm && position != 0 {
+			return errors.New("invalid native transfer partial")
+		}
+		if _, err := out.Seek(position, io.SeekStart); err != nil {
+			return err
+		}
 	}
 	conn, err := dialTransfer(ctx, bind, target)
 	if err != nil {
@@ -495,24 +569,11 @@ func downloadFile(ctx context.Context, bind netip.Addr, target netip.AddrPort, f
 		}
 	}
 
-	// Send Command 3 (108 bytes)
-	if _, err := conn.Write(nativeFileRequest(uint32(fileID))); err != nil {
+	if _, err := conn.Write(nativeFileRequestAt(uint32(fileID), position)); err != nil {
 		return err
 	}
 
-	out, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return err
-	}
-	complete := false
-	defer func() {
-		out.Close()
-		if !complete {
-			_ = os.Remove(destPath)
-		}
-	}()
-
-	if err := receiveFileFrames(conn, out, uint32(fileID), totalSize, onProgress); err != nil {
+	if err := receiveFileFramesAt(conn, out, uint32(fileID), totalSize, position, onProgress); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -535,9 +596,13 @@ func downloadFile(ctx context.Context, bind netip.Addr, target netip.AddrPort, f
 // byte offset and block size. Older GoIM sends one record with those fields
 // unset. Neither format can write beyond the size announced in the offer.
 func receiveFileFrames(conn net.Conn, out io.Writer, selector uint32, total int64, progress func(int64, int64)) error {
+	return receiveFileFramesAt(conn, out, selector, total, 0, progress)
+}
+
+func receiveFileFramesAt(conn net.Conn, out io.Writer, selector uint32, total, position int64, progress func(int64, int64)) error {
 	var header [nativeFileHeader]byte
-	var done int64
-	buf := make([]byte, 32*1024)
+	done := position
+	buf := make([]byte, nativeFileBlock)
 	for first := true; first || done < total; first = false {
 		_ = conn.SetReadDeadline(time.Now().Add(12 * time.Second))
 		if _, err := io.ReadFull(conn, header[:]); err != nil {
@@ -576,10 +641,15 @@ func receiveFileFrames(conn net.Conn, out io.Writer, selector uint32, total int6
 }
 
 func nativeFileRequest(selector uint32) []byte {
+	return nativeFileRequestAt(selector, 0)
+}
+
+func nativeFileRequestAt(selector uint32, position int64) []byte {
 	req := make([]byte, 108)
 	binary.BigEndian.PutUint32(req, 108)
 	binary.BigEndian.PutUint32(req[4:], 1)
 	binary.BigEndian.PutUint32(req[8:], 3)
 	binary.BigEndian.PutUint32(req[56:], selector)
+	binary.BigEndian.PutUint64(req[60:68], uint64(position))
 	return req
 }

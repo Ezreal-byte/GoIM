@@ -32,6 +32,10 @@ type options struct {
 	labDriver       string
 	labDir          string
 	text, avatar    bool
+	labLargeFile    bool
+	labOffline      bool
+	labOfflineSend  bool
+	labResume       bool
 	timeout         time.Duration
 }
 
@@ -77,6 +81,10 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opt.avatar, "avatar", false, "Require a nonempty, valid PNG avatar from the reference client")
 	flags.StringVar(&opt.labDriver, "lab-driver", "", "Local driver for the disposable reference sandbox")
 	flags.StringVar(&opt.labDir, "lab-dir", "", "Scratch directory of the disposable reference sandbox")
+	flags.BoolVar(&opt.labLargeFile, "lab-large-file", false, "Run the bidirectional 4 GiB boundary checks instead of the standard file scenarios")
+	flags.BoolVar(&opt.labOffline, "lab-offline-replay", false, "Check original-client offline replay in the disposable sandbox")
+	flags.BoolVar(&opt.labOfflineSend, "lab-offline-send", false, "Queue data in the GoIM backend until the original returns")
+	flags.BoolVar(&opt.labResume, "lab-resume-receive", false, "Interrupt a real file transfer to the original and verify its resumption offset")
 	flags.DurationVar(&opt.timeout, "timeout", 15*time.Second, "Timeout for each requested check")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
@@ -87,9 +95,6 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 		opt.bind == opt.target.Addr() || opt.bind.IsLoopback() != opt.target.Addr().IsLoopback() {
 		return options{}, errors.New("supply distinct private or loopback IPv4 endpoints using -bind and -target IPv4:port")
 	}
-	if opt.timeout <= 0 || opt.timeout > time.Minute || opt.expectedVersion == "" {
-		return options{}, errors.New("a reference version and a positive timeout of at most one minute are required")
-	}
 	if opt.text && opt.expectedName == "" {
 		return options{}, errors.New("-text-receipt requires -peer with the exact test client's nickname")
 	}
@@ -97,6 +102,25 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 		if !opt.text || !filepath.IsAbs(opt.labDriver) || !filepath.IsAbs(opt.labDir) {
 			return options{}, errors.New("sandbox checks require absolute -lab-driver and -lab-dir paths, plus -text-receipt and -peer")
 		}
+	}
+	special := 0
+	for _, enabled := range []bool{opt.labLargeFile, opt.labOffline, opt.labOfflineSend, opt.labResume} {
+		if enabled {
+			special++
+		}
+	}
+	if special > 1 {
+		return options{}, errors.New("choose one special lab check per sandbox run")
+	}
+	if special != 0 && (opt.labDriver == "" || opt.bind.String() != "10.77.0.1" || opt.target.String() != "10.77.0.2:9011" || opt.expectedName != "GOIM-NWT") {
+		return options{}, errors.New("special lab checks require the fixed endpoints and peer name of the disposable sandbox")
+	}
+	timeoutLimit := time.Minute
+	if opt.labLargeFile {
+		timeoutLimit = 4 * time.Minute
+	}
+	if opt.timeout <= 0 || opt.timeout > timeoutLimit || opt.expectedVersion == "" {
+		return options{}, fmt.Errorf("a reference version and a positive timeout of at most %s are required", timeoutLimit)
 	}
 	return opt, nil
 }
@@ -127,6 +151,9 @@ func wait[T any](ctx context.Context, timeout time.Duration, events <-chan T, ma
 }
 
 func verify(ctx context.Context, opt options) report {
+	if opt.labOfflineSend {
+		return verifyOfflineSend(ctx, opt)
+	}
 	r := report{Mode: "reference", Target: opt.target.String()}
 	type receipt struct {
 		peer   string
@@ -147,6 +174,7 @@ func verify(ctx context.Context, opt options) report {
 		Profile:          neiwangtong.Peer{Name: qaName},
 		GoIM:             true,
 		DisableBroadcast: true,
+		EnableFolders:    opt.labDriver != "" && !opt.labLargeFile && !opt.labOffline && !opt.labResume,
 		AllowRemote:      func(addr netip.AddrPort) bool { return addr.Addr() == opt.target.Addr() },
 		Callbacks: neiwangtong.Callbacks{
 			Peer:             func(p neiwangtong.Peer) { publish(peers, p) },
@@ -154,6 +182,7 @@ func verify(ctx context.Context, opt options) report {
 			AvatarUpdated:    func(id string, _ uint64, png []byte) { publish(avatars, avatar{id, png}) },
 		},
 	}
+	copy(cfg.ID[:], runID[:])
 	var lab *labChecks
 	if opt.labDriver != "" {
 		r.Mode = "sandbox"
@@ -237,6 +266,15 @@ func verify(ctx context.Context, opt options) report {
 		if sent && lab != nil {
 			labPassed := lab.run(ctx, &r, service, reference)
 			passed = passed && labPassed
+			if opt.labOffline {
+				offline := lab.checkOffline(ctx, &r, service, reference.ID, cfg)
+				passed = passed && offline
+			}
+			if opt.labResume && labPassed {
+				passed = r.run("resumed_by_reference_receiver", func() (string, error) {
+					return lab.checkStockReceiveResume(ctx, service, reference.ID, cfg)
+				}) && passed
+			}
 		}
 	} else {
 		r.skip("text_application_receipt")

@@ -363,6 +363,9 @@ func (n *Node) flushPeer(peer string) {
 			return
 		}
 		if err != nil {
+			if transport == transportNWT && errors.Is(err, neiwangtong.ErrDeliveryUncertain) {
+				return // preserve order and the original identifiers on replay
+			}
 			n.failCompatibilityDelivery(p, err)
 			continue
 		}
@@ -377,6 +380,9 @@ func (n *Node) pendingRouteLocked(p pending) (transport, wireID string, online b
 	transport, wireID = p.WireTransport, p.WirePeerID
 	if transport == "" {
 		transport = peer.Transport
+		if peer.IsLegacyNeiwangtong() {
+			transport = transportNWT
+		}
 		if i := transferIndex(&n.data.State, p.Envelope.TransferID); i >= 0 {
 			t := n.data.State.Transfers[i]
 			if t.LegacyTransport != "" && t.RemotePacket != "" {

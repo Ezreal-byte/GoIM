@@ -96,7 +96,7 @@ type Service struct {
 	mu     sync.Mutex
 	peers  map[string]*peerState
 	files  map[fileKey]servingFile
-	probes map[netip.AddrPort][]chan struct{}
+	probes map[netip.AddrPort][]chan Peer
 	wg     sync.WaitGroup
 }
 
@@ -125,7 +125,7 @@ func Start(cfg Config) (*Service, error) {
 	service := &Service{
 		ctx: ctx, cancel: cancel, cfg: cfg, udp: packet,
 		peers: make(map[string]*peerState), files: make(map[fileKey]servingFile),
-		probes: make(map[netip.AddrPort][]chan struct{}),
+		probes: make(map[netip.AddrPort][]chan Peer),
 	}
 	service.packet.Store(uint64(time.Now().Unix()))
 	service.fileID.Store(1)
@@ -430,7 +430,7 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 	if presence {
 		s.mu.Lock()
 		for _, done := range s.probes[address] {
-			close(done)
+			done <- peer
 		}
 		delete(s.probes, address)
 		s.mu.Unlock()
@@ -507,23 +507,23 @@ func (s *Service) presencePacket(profile *localProfile, command uint32) []byte {
 
 // Probe sends a unicast entry from the actual legacy service port. Some
 // clients ignore otherwise valid discovery packets from an ephemeral port.
-func (s *Service) Probe(ctx context.Context, address netip.AddrPort) error {
+func (s *Service) Probe(ctx context.Context, address netip.AddrPort) (Peer, error) {
 	ip := address.Addr().Unmap()
 	if !ip.Is4() || ip.IsUnspecified() || ip.IsMulticast() || ip == netip.AddrFrom4([4]byte{255, 255, 255, 255}) || address.Port() == 0 {
-		return errors.New("IPMSG requires a unicast IPv4 address")
+		return Peer{}, errors.New("IPMSG requires a unicast IPv4 address")
 	}
 	address = netip.AddrPortFrom(ip, address.Port())
 	profile := s.profile.Load()
 	if profile.hidden {
-		return errors.New("IPMSG discovery is unavailable while invisible")
+		return Peer{}, errors.New("IPMSG discovery is unavailable while invisible")
 	}
-	done := make(chan struct{})
+	done := make(chan Peer, 1)
 	s.mu.Lock()
 	s.probes[address] = append(s.probes[address], done)
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
-		waiters := slices.DeleteFunc(s.probes[address], func(ch chan struct{}) bool { return ch == done })
+		waiters := slices.DeleteFunc(s.probes[address], func(ch chan Peer) bool { return ch == done })
 		if len(waiters) == 0 {
 			delete(s.probes, address)
 		} else {
@@ -533,23 +533,23 @@ func (s *Service) Probe(ctx context.Context, address netip.AddrPort) error {
 	}()
 	for range 3 {
 		if _, err := s.udp.WriteToUDPAddrPort(s.presencePacket(profile, commandEntry), address); err != nil {
-			return err
+			return Peer{}, err
 		}
 		timer := time.NewTimer(700 * time.Millisecond)
 		select {
-		case <-done:
+		case peer := <-done:
 			timer.Stop()
-			return nil
+			return peer, nil
 		case <-ctx.Done():
 			timer.Stop()
-			return ctx.Err()
+			return Peer{}, ctx.Err()
 		case <-s.ctx.Done():
 			timer.Stop()
-			return s.ctx.Err()
+			return Peer{}, s.ctx.Err()
 		case <-timer.C:
 		}
 	}
-	return context.DeadlineExceeded
+	return Peer{}, context.DeadlineExceeded
 }
 
 func (s *Service) heartbeat() {

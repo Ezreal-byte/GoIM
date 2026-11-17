@@ -76,6 +76,9 @@ func (n *Node) retryTransfer(t domain.Transfer) error {
 	s := n.snapshot(false)
 	if t.Direction == "receive" {
 		if t.Status == "cancelled" || t.Status == "rejected" {
+			if t.LegacyTransport == transportNWT {
+				return errors.New("此内网通任务已结束，请让对方重新发送")
+			}
 			return n.durable(func(p *persisted) []pending {
 				if p.fileMessageRecalled(t) {
 					return nil

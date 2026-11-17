@@ -41,7 +41,11 @@ func inlineImageType(path string, size int64) string {
 		return ""
 	}
 	defer f.Close()
-	config, format, err := image.DecodeConfig(io.LimitReader(f, size))
+	return inspectInlineImage(io.LimitReader(f, size))
+}
+
+func inspectInlineImage(data io.Reader) string {
+	config, format, err := image.DecodeConfig(data)
 	if err != nil || config.Width < 1 || config.Height < 1 || config.Width > 8192 || config.Height > 8192 {
 		return ""
 	}
@@ -57,6 +61,9 @@ func inlineImageType(path string, size int64) string {
 }
 
 func attachmentPreview(file domain.File) string {
+	if file.Folder {
+		return "[文件夹] " + file.Name
+	}
 	if file.InlineImage {
 		return "[图片]"
 	}

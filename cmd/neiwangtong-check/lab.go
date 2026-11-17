@@ -17,7 +17,10 @@ import (
 	"goim/internal/neiwangtong"
 )
 
-const sampleSize = 96<<10 + 17
+const (
+	sampleSize = 96<<10 + 17
+	largeSize  = 1<<32 + 65553
+)
 
 type labMessage struct {
 	peer, body string
@@ -28,6 +31,32 @@ type labOffer struct {
 	file neiwangtong.XMLSendFile
 }
 
+type labImage struct {
+	peer string
+	ref  neiwangtong.ChatImageRef
+}
+
+type labDirectory struct {
+	peer  string
+	offer neiwangtong.FolderOffer
+}
+
+type labDirectoryResult struct {
+	peer, task string
+	done       int64
+	err        error
+}
+
+type labRoster struct {
+	peer   string
+	roster neiwangtong.GroupRoster
+}
+
+type labRoomMessage struct {
+	peer    string
+	message neiwangtong.GroupMessage
+}
+
 type labProgress struct {
 	peer        string
 	task        uint64
@@ -36,40 +65,113 @@ type labProgress struct {
 	err         error
 }
 
+type labOperation struct {
+	kind uint32
+	task uint64
+	op   uint32
+}
+
+type labCancellation struct {
+	peer string
+	task uint64
+}
+
+type labSendGate struct {
+	task            uint64
+	started, resume chan struct{}
+	waiting         atomic.Bool
+}
+
 type labChecks struct {
-	opt      options
-	qaName   string
-	runID    string
-	messages chan labMessage
-	offers   chan labOffer
-	progress chan labProgress
-	textSeen atomic.Uint32
+	opt        options
+	qaName     string
+	runID      string
+	messages   chan labMessage
+	offers     chan labOffer
+	progress   chan labProgress
+	ops        chan labOperation
+	cancelled  chan labCancellation
+	imageRefs  chan labImage
+	folders    chan labDirectory
+	folderDone chan labDirectoryResult
+	rosters    chan labRoster
+	groupTexts chan labRoomMessage
+	gate       atomic.Pointer[labSendGate]
+	textSeen   atomic.Uint32
 }
 
 func newLabChecks(opt options, qaName, runID string) *labChecks {
 	return &labChecks{opt: opt, qaName: qaName, runID: runID,
-		messages: make(chan labMessage, 8), offers: make(chan labOffer, 8), progress: make(chan labProgress, 16)}
+		messages: make(chan labMessage, 8), offers: make(chan labOffer, 8),
+		progress: make(chan labProgress, 16), ops: make(chan labOperation, 32),
+		cancelled: make(chan labCancellation, 8), imageRefs: make(chan labImage, 8),
+		folders: make(chan labDirectory, 8), folderDone: make(chan labDirectoryResult, 4),
+		rosters: make(chan labRoster, 4), groupTexts: make(chan labRoomMessage, 8)}
 }
 
 func (l *labChecks) attach(cfg *neiwangtong.Config) {
-	cfg.TraceEvent = func(kind uint32, _ []byte) {
-		if kind == neiwangtong.CmdSendMsg {
+	cfg.TraceEvent = func(kind uint32, payload []byte) {
+		switch kind {
+		case neiwangtong.CmdSendMsg:
 			l.textSeen.Add(1)
+		case neiwangtong.CmdOperateRecvFile:
+			if task, op, err := neiwangtong.ParseOperateRecvFile(payload); err == nil {
+				publish(l.ops, labOperation{kind, task, op})
+			}
+		case neiwangtong.CmdOperateSendFile:
+			if task, op, err := neiwangtong.ParseOperateSendFile(payload); err == nil {
+				publish(l.ops, labOperation{kind, task, op})
+			}
 		}
+	}
+	cfg.Callbacks.Message = func(peer string, message neiwangtong.DirectMessage) error {
+		for _, part := range message.Parts {
+			if part.Image != nil {
+				publish(l.imageRefs, labImage{peer, *part.Image})
+			}
+		}
+		return nil
 	}
 	cfg.Callbacks.Text = func(peer string, _ uint64, body string) {
 		publish(l.messages, labMessage{peer, body})
 	}
+	cfg.Callbacks.GroupRoster = func(peer string, roster neiwangtong.GroupRoster) {
+		publish(l.rosters, labRoster{peer, roster})
+	}
+	cfg.Callbacks.GroupText = func(peer string, message neiwangtong.GroupMessage) error {
+		publish(l.groupTexts, labRoomMessage{peer, message})
+		return nil
+	}
 	cfg.Callbacks.Files = func(peer string, offer neiwangtong.XMLSendFile) {
 		publish(l.offers, labOffer{peer, offer})
 	}
+	cfg.Callbacks.Folders = func(peer string, offer neiwangtong.FolderOffer) {
+		publish(l.folders, labDirectory{peer, offer})
+	}
+	cfg.Callbacks.FolderProgress = func(peer, task string, done, _ int64, complete bool, err error) {
+		if complete || err != nil {
+			publish(l.folderDone, labDirectoryResult{peer, task, done, err})
+		}
+	}
+	cfg.Callbacks.FileCancelled = func(peer string, task uint64) {
+		publish(l.cancelled, labCancellation{peer, task})
+	}
 	cfg.Callbacks.FileProgress = func(peer string, task uint64, done, total int64, complete bool, err error) {
 		publish(l.progress, labProgress{peer, task, done, total, complete, err})
+		if gate := l.gate.Load(); gate != nil && gate.task == task && done > 0 && done < total && err == nil &&
+			gate.waiting.CompareAndSwap(false, true) {
+			close(gate.started)
+			<-gate.resume
+		}
 	}
 }
 
 func (l *labChecks) drive(ctx context.Context, action string, args ...string) error {
-	cmd := exec.CommandContext(ctx, l.opt.labDriver, append([]string{action, l.qaName}, args...)...)
+	return l.driveFor(ctx, action, l.qaName, args...)
+}
+
+func (l *labChecks) driveFor(ctx context.Context, action, title string, args ...string) error {
+	cmd := exec.CommandContext(ctx, l.opt.labDriver, append([]string{action, title}, args...)...)
 	cmd.WaitDelay = time.Second
 	if output, err := cmd.CombinedOutput(); err != nil {
 		if ctx.Err() != nil {
@@ -97,78 +199,305 @@ func (l *labChecks) run(ctx context.Context, r *report, service *neiwangtong.Ser
 		}
 		return "matching peer and UTF-8 contents", nil
 	})
+	if l.opt.labOffline || l.opt.labResume {
+		return text
+	}
+	if l.opt.labLargeFile {
+		received := r.run("large_file_from_reference", func() (string, error) {
+			return l.receiveFile(ctx, service, reference.ID, largeSize)
+		})
+		sent := r.run("large_file_to_reference", func() (string, error) {
+			return l.sendFile(ctx, service, reference.ID, largeSize, 103, 3513)
+		})
+		return text && sent && received
+	}
 	// Offer a file before downloading one so the original has not already
 	// opened a file channel with the test peer.
 	sent := r.run("file_to_reference", func() (string, error) {
-		return l.sendFile(ctx, service, reference.ID)
+		return l.sendFile(ctx, service, reference.ID, sampleSize, 101, 3511)
 	})
 	received := r.run("file_from_reference", func() (string, error) {
-		return l.receiveFile(ctx, service, reference.ID)
+		return l.receiveFile(ctx, service, reference.ID, sampleSize)
 	})
-	return text && received && sent
+	rejected := r.run("reference_declines_file", func() (string, error) {
+		return l.stockDecline(ctx, service, reference.ID)
+	})
+	cancelled := r.run("reference_cancels_file", func() (string, error) {
+		return l.stockCancel(ctx, reference.ID)
+	})
+	stopped := r.run("reference_cancels_receiving_file", func() (string, error) {
+		return l.stockStopReceiving(ctx, service, reference.ID)
+	})
+	withdrawn := r.run("goim_cancels_file", func() (string, error) {
+		return l.withdrawOffer(ctx, service, reference.ID)
+	})
+	declined := r.run("goim_declines_then_receives_new_offer", func() (string, error) {
+		return l.declineAndReceive(ctx, service, reference.ID)
+	})
+	images := l.checkImages(ctx, r, service, reference.ID)
+	resumed := r.run("reference_file_resume", func() (string, error) {
+		return l.checkResume(ctx, service, reference.ID)
+	})
+	dirs := l.checkDirectories(ctx, r, service, reference.ID)
+	groups := r.run("native_group_text", func() (string, error) {
+		return l.checkGroup(ctx, service, reference.ID)
+	})
+	return text && sent && received && rejected && cancelled && stopped && withdrawn && declined && images && resumed && dirs && groups
 }
 
-func (l *labChecks) receiveFile(ctx context.Context, service *neiwangtong.Service, peer string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, l.opt.timeout)
+func (l *labChecks) stockDecline(ctx context.Context, service *neiwangtong.Service, peer string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	name := "原版-" + l.runID + ".bin"
-	dir := filepath.Join(l.opt.labDir, "wine", "drive_c", "goim-qa")
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	name := "拒收-" + l.runID + ".bin"
+	source := filepath.Join(l.opt.labDir, name)
+	if _, err := makeSample(source, sampleSize); err != nil {
 		return "", err
 	}
-	digest, err := makeSample(filepath.Join(dir, name))
-	if err != nil {
+	const taskID, fileID = 102, 3512
+	if err := service.SendFileOfferWithIDs(peer, taskID, fileID, name, sampleSize, time.Now().Unix(), source); err != nil {
+		return "", err
+	}
+	if err := l.drive(ctx, "cancel-file"); err != nil {
+		return "", err
+	}
+	if err := l.expectFileEnd(ctx, peer, taskID, neiwangtong.ErrFileRejected); err != nil {
+		return "", err
+	}
+	return "GoIM reports refusal for the offered task", l.checkNoStockDownload(name)
+}
+
+func (l *labChecks) stockCancel(ctx context.Context, peer string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	name := "原版取消-" + l.runID + ".bin"
+	path := filepath.Join(l.opt.labDir, "wine", "drive_c", "goim-qa", name)
+	if _, err := makeSample(path, sampleSize); err != nil {
 		return "", err
 	}
 	if err := l.drive(ctx, "send-file", `C:\goim-qa\`+name); err != nil {
 		return "", err
 	}
-	event, err := wait(ctx, l.opt.timeout, l.offers, func(got labOffer) bool {
-		return got.peer == peer && got.file.Name == name && got.file.Size == sampleSize
-	})
+	offer, err := wait(ctx, l.opt.timeout, l.offers, func(e labOffer) bool { return e.peer == peer && e.file.Name == name })
 	if err != nil {
-		return "", fmt.Errorf("no reference file offer with the expected name and size: %w", err)
-	}
-	dest := filepath.Join(l.opt.labDir, "received.bin")
-	if err := service.AcceptFile(ctx, peer, event.file.TaskID, event.file.FileID, event.file.Size, dest, nil); err != nil {
 		return "", err
 	}
-	return verifySample(dest, digest)
+	if err := l.drive(ctx, "cancel-file"); err != nil {
+		return "", err
+	}
+	if _, err := wait(ctx, l.opt.timeout, l.cancelled, func(got labCancellation) bool {
+		return got.peer == peer && got.task == offer.file.TaskID
+	}); err != nil {
+		return "", err
+	}
+	return "GoIM sees the original sender withdraw this incoming offer", nil
 }
 
-func (l *labChecks) sendFile(ctx context.Context, service *neiwangtong.Service, peer string) (string, error) {
+func (l *labChecks) stockStopReceiving(ctx context.Context, service *neiwangtong.Service, peer string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, l.opt.timeout)
 	defer cancel()
-	name := "GoIM-样例-" + l.runID + ".bin"
+	const taskID, fileID, size = 104, 3514, 256 << 10
+	name := "中途取消-" + l.runID + ".bin"
 	source := filepath.Join(l.opt.labDir, name)
-	digest, err := makeSample(source)
+	digest, err := makeSample(source, size)
 	if err != nil {
 		return "", err
 	}
-	const taskID, fileID = 101, 3511
-	if err := service.SendFileOfferWithIDs(peer, taskID, fileID, name, sampleSize, time.Now().Unix(), source); err != nil {
+	gate := &labSendGate{task: taskID, started: make(chan struct{}), resume: make(chan struct{})}
+	l.gate.Store(gate)
+	defer func() { l.gate.Store(nil); close(gate.resume) }()
+	if err := service.SendFileOfferWithIDs(peer, taskID, fileID, name, size, time.Now().Unix(), source); err != nil {
 		return "", err
 	}
 	if err := l.drive(ctx, "accept-file"); err != nil {
 		return "", err
 	}
+	select {
+	case <-gate.started:
+	case <-ctx.Done():
+		return "", fmt.Errorf("reference did not start receiving the file: %w", ctx.Err())
+	}
+	if err := l.drive(ctx, "cancel-file"); err != nil {
+		return "", err
+	}
+	event, err := wait(ctx, l.opt.timeout, l.ops, func(e labOperation) bool { return e.task == taskID && e.op != 2 })
+	if err != nil {
+		return "", fmt.Errorf("no receive control after the first delivered block: %w", err)
+	}
+	if err := l.expectFileEnd(ctx, peer, taskID, neiwangtong.ErrFileCancelled); err != nil {
+		return "", fmt.Errorf("reference command %d operation %d: %w", event.kind, event.op, err)
+	}
+	dest := l.stockDownloadPath(name)
+	if _, err := verifySample(dest, size, digest); err == nil {
+		return "", errors.New("a cancelled upload produced the complete file")
+	}
+	if info, err := os.Lstat(dest); err == nil {
+		return fmt.Sprintf("GoIM stops the matching upload; reference retains an incomplete file (%d bytes on disk)", info.Size()), nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	return "GoIM stops the matching upload; reference has no destination file", nil
+}
+
+func (l *labChecks) expectFileEnd(ctx context.Context, peer string, task uint64, reason error) error {
 	event, err := wait(ctx, l.opt.timeout, l.progress, func(p labProgress) bool {
-		return p.peer == peer && p.task == taskID && (p.complete || p.err != nil)
+		return p.peer == peer && p.task == task && (p.err != nil || p.complete)
 	})
 	if err != nil {
-		return "", fmt.Errorf("no completion for the offered file: %w", err)
+		return err
+	}
+	if !errors.Is(event.err, reason) {
+		return fmt.Errorf("wanted %v, got %v (completed=%t)", reason, event.err, event.complete)
+	}
+	return nil
+}
+
+func (l *labChecks) withdrawOffer(ctx context.Context, service *neiwangtong.Service, peer string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, l.opt.timeout)
+	defer cancel()
+	const taskID, fileID = 105, 3515
+	name := "撤销-" + l.runID + ".bin"
+	source := filepath.Join(l.opt.labDir, name)
+	if _, err := makeSample(source, sampleSize); err != nil {
+		return "", err
+	}
+	if err := service.SendFileOfferWithIDs(peer, taskID, fileID, name, sampleSize, time.Now().Unix(), source); err != nil {
+		return "", err
+	}
+	if err := service.CancelSend(peer, taskID); err != nil {
+		return "", err
+	}
+	if err := l.drive(ctx, "accept-file"); err != nil {
+		return "", err
+	}
+	_, err := wait(ctx, 1200*time.Millisecond, l.ops, func(e labOperation) bool {
+		return e.kind == neiwangtong.CmdOperateRecvFile && e.task == taskID && e.op == 2
+	})
+	if err == nil {
+		return "", errors.New("the reference still accepted the withdrawn offer")
+	}
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	return "withdrawn offer can no longer be accepted by the reference", l.checkNoStockDownload(name)
+}
+
+func (l *labChecks) declineAndReceive(ctx context.Context, service *neiwangtong.Service, peer string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, l.opt.timeout)
+	defer cancel()
+	name := "重新发送-" + l.runID + ".bin"
+	dir := filepath.Join(l.opt.labDir, "wine", "drive_c", "goim-qa")
+	digest, err := makeSample(filepath.Join(dir, name), sampleSize)
+	if err != nil {
+		return "", err
+	}
+	offer, err := l.stockOffer(ctx, peer, name)
+	if err != nil {
+		return "", err
+	}
+	if err := service.StopReceiving(peer, offer.TaskID); err != nil {
+		return "", err
+	}
+	again, err := l.stockOffer(ctx, peer, name)
+	if err != nil {
+		return "", err
+	}
+	if again.TaskID == offer.TaskID || again.Size != sampleSize {
+		return "", errors.New("the original did not make a fresh offer after refusal")
+	}
+	dest := filepath.Join(l.opt.labDir, name)
+	defer os.Remove(dest)
+	if err := service.AcceptFile(ctx, peer, again.TaskID, again.FileID, again.Size, dest, nil); err != nil {
+		return "", err
+	}
+	return verifySample(dest, sampleSize, digest)
+}
+
+func (l *labChecks) stockOffer(ctx context.Context, peer, name string) (neiwangtong.XMLSendFile, error) {
+	if err := l.drive(ctx, "send-file", `C:\goim-qa\`+name); err != nil {
+		return neiwangtong.XMLSendFile{}, err
+	}
+	event, err := wait(ctx, l.opt.timeout, l.offers, func(got labOffer) bool {
+		return got.peer == peer && got.file.Name == name
+	})
+	return event.file, err
+}
+
+func (l *labChecks) stockDownloadPath(name string) string {
+	return filepath.Join(l.opt.labDir, "wine", "drive_c", "users", "Public", "Nwt", "cache", "recv", l.qaName, name)
+}
+
+func (l *labChecks) checkNoStockDownload(name string) error {
+	if _, err := os.Lstat(l.stockDownloadPath(name)); !os.IsNotExist(err) {
+		return fmt.Errorf("reference still has the cancelled destination: %v", err)
+	}
+	return nil
+}
+
+func (l *labChecks) receiveFile(ctx context.Context, service *neiwangtong.Service, peer string, size int64) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, l.opt.timeout)
+	defer cancel()
+	name := fmt.Sprintf("原版-%s-%d.bin", l.runID, size)
+	dir := filepath.Join(l.opt.labDir, "wine", "drive_c", "goim-qa")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	digest, err := makeSample(filepath.Join(dir, name), size)
+	if err != nil {
+		return "", err
+	}
+	offer, err := l.stockOffer(ctx, peer, name)
+	if err != nil {
+		return "", fmt.Errorf("no reference file offer with the expected name: %w", err)
+	}
+	if offer.Size != size {
+		return "", fmt.Errorf("reference offered %d bytes, expected %d", offer.Size, size)
+	}
+	dest := filepath.Join(l.opt.labDir, name)
+	defer os.Remove(dest)
+	if err := service.AcceptFile(ctx, peer, offer.TaskID, offer.FileID, offer.Size, dest, nil); err != nil {
+		return "", err
+	}
+	return verifySample(dest, size, digest)
+}
+
+func (l *labChecks) sendFile(ctx context.Context, service *neiwangtong.Service, peer string, size int64, taskID, fileID uint64) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, l.opt.timeout)
+	defer cancel()
+	name := fmt.Sprintf("GoIM-样例-%s-%d.bin", l.runID, size)
+	source := filepath.Join(l.opt.labDir, name)
+	digest, err := makeSample(source, size)
+	if err != nil {
+		return "", err
+	}
+	if err := service.SendFileOfferWithIDs(peer, taskID, fileID, name, size, time.Now().Unix(), source); err != nil {
+		return "", err
+	}
+	if err := l.drive(ctx, "accept-file"); err != nil {
+		return "", err
+	}
+	var streamed int64
+	event, err := wait(ctx, l.opt.timeout, l.progress, func(p labProgress) bool {
+		if p.peer != peer || p.task != taskID {
+			return false
+		}
+		streamed = max(streamed, p.done)
+		return p.complete || p.err != nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("no completion for the offered file (%d of %d bytes reported): %w", streamed, size, err)
 	}
 	if event.err != nil {
 		return "", event.err
 	}
-	if event.done != sampleSize || event.total != sampleSize {
+	if event.done != size || event.total != size {
 		return "", errors.New("unexpected completed byte count")
 	}
-	dest := filepath.Join(l.opt.labDir, "wine", "drive_c", "users", "Public", "Nwt", "cache", "recv", l.qaName, name)
+	dest := l.stockDownloadPath(name)
+	defer os.Remove(dest)
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		detail, err := verifySample(dest, digest)
+		detail, err := verifySample(dest, size, digest)
 		if err == nil {
 			return detail, nil
 		}
@@ -180,24 +509,65 @@ func (l *labChecks) sendFile(ctx context.Context, service *neiwangtong.Service, 
 	}
 }
 
-func makeSample(path string) ([32]byte, error) {
-	body := make([]byte, sampleSize)
-	_, _ = rand.Read(body)
-	return sha256.Sum256(body), os.WriteFile(path, body, 0600)
+func makeSample(path string, size int64) ([32]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	defer f.Close()
+	if err := f.Truncate(size); err != nil {
+		return [32]byte{}, err
+	}
+	if size == 0 {
+		return sha256.Sum256(nil), nil
+	}
+	// Distinct data around the 4 GiB boundary catches truncation, wraparound
+	// and repeated blocks without filling the source file with random data.
+	offsets := []int64{0, size - 4096}
+	if size >= largeSize {
+		offsets = append(offsets, 1<<32-2048)
+	}
+	var block [4096]byte
+	for _, offset := range offsets {
+		if _, err := rand.Read(block[:]); err != nil {
+			return [32]byte{}, err
+		}
+		if _, err := f.WriteAt(block[:], offset); err != nil {
+			return [32]byte{}, err
+		}
+	}
+	return sampleDigest(f, size)
 }
 
-func verifySample(path string, expected [32]byte) (string, error) {
+func sampleDigest(f *os.File, size int64) ([32]byte, error) {
+	h := sha256.New()
+	if _, err := io.CopyN(h, f, size); err != nil {
+		return [32]byte{}, err
+	}
+	var digest [32]byte
+	h.Sum(digest[:0])
+	return digest, nil
+}
+
+func verifySample(path string, size int64, expected [32]byte) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
-	body, err := io.ReadAll(io.LimitReader(f, sampleSize+1))
+	info, err := f.Stat()
 	if err != nil {
 		return "", err
 	}
-	if len(body) != sampleSize || sha256.Sum256(body) != expected {
-		return "", errors.New("file size or SHA-256 does not match")
+	if info.Size() != size {
+		return "", fmt.Errorf("file size is %d, expected %d", info.Size(), size)
 	}
-	return fmt.Sprintf("%d bytes, sha256=%x", len(body), expected), nil
+	got, err := sampleDigest(f, size)
+	if err != nil {
+		return "", err
+	}
+	if got != expected {
+		return "", errors.New("file SHA-256 does not match")
+	}
+	return fmt.Sprintf("%d bytes, sha256=%x", size, expected), nil
 }

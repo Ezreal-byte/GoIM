@@ -134,13 +134,21 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	_ = transferProbe.Close()
 	outgoing := make(chan string, 2)
 	offers := make(chan neiwangtong.XMLSendFile, 2)
+	folders := make(chan neiwangtong.FolderOffer, 2)
+	withdrawals := make(chan uint64, 2)
 	profile := neiwangtong.Peer{Name: "Peer", Sign: "签名", Company: "测试组"}
 	remoteCfg := neiwangtong.Config{
-		ID: remoteID, Profile: profile, AvatarPNG: nativeTestAvatar(t, 30), BindIP: remoteIP, DisableBroadcast: true,
+		ID: remoteID, Profile: profile, AvatarPNG: nativeTestAvatar(t, 30), BindIP: remoteIP, DisableBroadcast: true, EnableFolders: true,
 		DiscoveryPort: freeCompatibilityPort(t), ControlPort: 9012, RemoteControlPort: 9012, TransferPort: 9013,
 		Callbacks: neiwangtong.Callbacks{
 			Text:  func(_ string, _ uint64, text string) { outgoing <- text },
 			Files: func(_ string, offer neiwangtong.XMLSendFile) { offers <- offer },
+			Folders: func(_ string, offer neiwangtong.FolderOffer) {
+				folders <- offer
+			},
+			FileCancelled: func(_ string, taskID uint64) {
+				withdrawals <- taskID
+			},
 		},
 	}
 	remote, err := neiwangtong.Start(remoteCfg)
@@ -276,10 +284,54 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	if rejected.TaskID == offer.TaskID || rejected.FileID == offer.FileID {
 		t.Fatalf("new offer reused selectors: %+v", rejected)
 	}
-	if err := remote.RejectFile(selfID, rejected.TaskID); err != nil {
+	if err := remote.StopReceiving(selfID, rejected.TaskID); err != nil {
 		t.Fatal(err)
 	}
 	awaitSentTransfer(rejected, "rejected")
+
+	// Task IDs are chosen by the sender. The same ID can be in flight in
+	// both directions without a withdrawal touching the other transfer.
+	waiting := nextOffer()
+	if err := remote.SendFileOffer(selfID, waiting.TaskID, "对方取消.txt", int64(len(content)), time.Now().Unix(), path); err != nil {
+		t.Fatal(err)
+	}
+	var incomingID, outgoingID string
+	eventually(t, "two independent file offers", func() bool {
+		for _, transfer := range n.Snapshot().Transfers {
+			if transfer.RemotePacket == fmt.Sprint(waiting.TaskID) && transfer.Status == "offered" {
+				if transfer.Direction == "receive" {
+					incomingID = transfer.ID
+				} else {
+					outgoingID = transfer.ID
+				}
+			}
+		}
+		return incomingID != "" && outgoingID != ""
+	})
+	if err := remote.CancelSend(selfID, waiting.TaskID); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "cancelled incoming native offer", func() bool {
+		for _, transfer := range n.Snapshot().Transfers {
+			if transfer.ID == incomingID {
+				return transfer.Status == "cancelled"
+			}
+		}
+		return false
+	})
+	awaitSentTransfer(waiting, "offered")
+	if err := n.execute(domain.Command{Kind: domain.CancelTransfer, TransferID: outgoingID}); err != nil {
+		t.Fatal(err)
+	}
+	awaitSentTransfer(waiting, "cancelled")
+	select {
+	case taskID := <-withdrawals:
+		if taskID != waiting.TaskID {
+			t.Fatalf("wrong native offer cancelled: %d", taskID)
+		}
+	case <-ctx.Done():
+		t.Fatalf("peer did not receive withdrawal: %v", ctx.Err())
+	}
 
 	profile.Name = "Updated"
 	remote.UpdateProfile(profile, nativeTestAvatar(t, 90))
@@ -289,4 +341,164 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	})
 	remote.UpdateProfile(profile, nil)
 	eventually(t, "removed avatar", func() bool { return n.Snapshot().Peer(nativeID).Avatar == "" })
+	testNeiwangtongDirectories(t, n, remote, selfID, nativeID, conv, folders)
+
+	if err := remote.SendQuit(selfID); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "native peer went offline", func() bool { return !n.Snapshot().Peer(nativeID).Online })
+	const offlineBody = "重启后补投的消息"
+	if err := n.sendText(conv, offlineBody); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.sendFile(conv, outgoingFile, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	before := n.Snapshot().ChatMessages(conv)
+	if len(before) < 2 || before[len(before)-2].Text != offlineBody || before[len(before)-2].Status != "pending" {
+		t.Fatal("text was not kept pending for the offline peer")
+	}
+	if err := remote.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := testNodeAt(t, "GoIM core", n.dir)
+	if err := reopened.setCompatibility(transportNWT, domain.CompatibilityConfig{Enabled: true, Port: port}); err != nil {
+		t.Fatal(err)
+	}
+	again, err := neiwangtong.Start(remoteCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	reconnect, stop := context.WithTimeout(context.Background(), 12*time.Second)
+	defer stop()
+	if err := again.Probe(reconnect, netip.AddrPortFrom(localIP, uint16(port)), 9012, 9013); err != nil {
+		t.Fatal(err)
+	}
+	reopened.mu.Lock()
+	restarted := reopened.neiwangtong
+	reopened.mu.Unlock()
+	if err := restarted.Probe(reconnect, netip.AddrPortFrom(remoteIP, uint16(remoteCfg.DiscoveryPort)), 9012, 9013); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-outgoing:
+		if got != offlineBody {
+			t.Fatalf("queued text differs: %q", got)
+		}
+	case <-reconnect.Done():
+		t.Fatal("queued text was not replayed", reconnect.Err())
+	}
+	select {
+	case offer := <-offers:
+		file := filepath.Join(t.TempDir(), offer.Name)
+		if err := again.AcceptFile(reconnect, selfID, offer.TaskID, offer.FileID, offer.Size, file, nil); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := os.ReadFile(file); err != nil || sha256.Sum256(got) != sha256.Sum256(outgoingBytes) {
+			t.Fatalf("queued file SHA-256 mismatch: %v", err)
+		}
+	case <-reconnect.Done():
+		t.Fatal("queued file offer was not replayed", reconnect.Err())
+	}
+	eventually(t, "queued text receipt persisted", func() bool {
+		for _, m := range reopened.Snapshot().ChatMessages(conv) {
+			if m.Text == offlineBody {
+				return m.Status == "sent"
+			}
+		}
+		return false
+	})
+}
+
+func testNeiwangtongDirectories(t *testing.T, n *Node, remote *neiwangtong.Service, selfID, peerID, conv string, offers <-chan neiwangtong.FolderOffer) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	base := t.TempDir()
+	source := filepath.Join(base, "目录")
+	if err := os.MkdirAll(filepath.Join(source, "资料"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	empty := filepath.Join("空目录", "仍空")
+	if err := os.MkdirAll(filepath.Join(source, empty), 0700); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{"顶层.bin": bytes.Repeat([]byte("root-data"), 4100), "资料/中文.txt": []byte("目录内容"), "资料/空文件.txt": nil}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(source, filepath.FromSlash(name)), body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	verify := func(target string) {
+		t.Helper()
+		if entries, err := os.ReadDir(filepath.Join(target, empty)); err != nil || len(entries) != 0 {
+			t.Fatalf("empty directory was not preserved: %v", err)
+		}
+		for name, want := range files {
+			got, err := os.ReadFile(filepath.Join(target, filepath.FromSlash(name)))
+			if err != nil || !bytes.Equal(got, want) {
+				t.Fatalf("directory item %s did not match: %v", name, err)
+			}
+		}
+	}
+	dir, err := neiwangtong.InspectDirectory(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.SendDirectory(selfID, newID(), dir); err != nil {
+		t.Fatal(err)
+	}
+	var inbound string
+	eventually(t, "native folder offer", func() bool {
+		for _, transfer := range n.Snapshot().Transfers {
+			if transfer.PeerID == peerID && transfer.Name == dir.Name && transfer.Direction == "receive" && transfer.Status == "offered" {
+				inbound = transfer.ID
+				return true
+			}
+		}
+		return false
+	})
+	dest := filepath.Join(base, "received")
+	if err := n.execute(domain.Command{Kind: domain.AcceptTransfer, TransferID: inbound, Paths: []string{dest}}); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "completed folder in GoIM", func() bool {
+		for _, transfer := range n.Snapshot().Transfers {
+			if transfer.ID == inbound {
+				return transfer.Status == "completed" && transfer.Path == dest
+			}
+		}
+		return false
+	})
+	verify(dest)
+	if err := n.execute(domain.Command{Kind: domain.SendFiles, ConversationID: conv, Paths: []string{source}}); err != nil {
+		t.Fatal(err)
+	}
+	var offer neiwangtong.FolderOffer
+	select {
+	case offer = <-offers:
+	case <-ctx.Done():
+		t.Fatal("test peer did not receive the GoIM directory offer", ctx.Err())
+	}
+	peerDest := filepath.Join(base, "received-by-peer")
+	if err := os.Mkdir(peerDest, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.ReceiveDirectory(ctx, selfID, offer, peerDest, nil); err != nil {
+		t.Fatal(err)
+	}
+	verify(peerDest)
+	eventually(t, "completed folder to native peer", func() bool {
+		for _, transfer := range n.Snapshot().Transfers {
+			if transfer.Direction == "send" && transfer.RemotePacket == offer.TaskID {
+				return transfer.Status == "completed" && transfer.Done == dir.Size
+			}
+		}
+		return false
+	})
 }
