@@ -55,11 +55,15 @@ func build() error {
 	buildTime := flag.String("build-time", "", "UTC build time in RFC3339 (defaults to now)")
 	ciURL := flag.String("ci-url", "", "CI run URL (defaults from GitHub Actions)")
 	out := flag.String("out", "dist", "artifact directory")
+	windowsSetup := flag.Bool("windows-setup", false, "also build the Viva Windows Setup installer (requires NSIS)")
 	stamp := flag.String("stamp-windows", "", "apply the Windows icon and metadata to an existing GoIM executable")
 	flag.Parse()
 	platformVersion, _, _ := strings.Cut(*version, "-")
 	if *stamp != "" {
 		return stampWindowsExecutable(*stamp, platformVersion)
+	}
+	if *windowsSetup && runtime.GOOS != "windows" {
+		return fmt.Errorf("--windows-setup requires a native Windows build")
 	}
 	sourceCommit := strings.TrimSpace(*commit)
 	if sourceCommit == "" {
@@ -207,7 +211,21 @@ func build() error {
 	if err := pack(staging, archive, runtime.GOOS == "linux"); err != nil {
 		return err
 	}
-	f, err := os.Open(archive)
+	if err := writeChecksum(archive); err != nil {
+		return err
+	}
+	if *windowsSetup {
+		setup := filepath.Join(*out, name+"-Setup.exe")
+		if err := buildWindowsSetup(staging, setup, *version, runtime.GOARCH); err != nil {
+			return err
+		}
+		return writeChecksum(setup)
+	}
+	return nil
+}
+
+func writeChecksum(path string) error {
+	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
@@ -217,8 +235,8 @@ func build() error {
 	if err != nil {
 		return err
 	}
-	sum := hex.EncodeToString(h.Sum(nil)) + "  " + filepath.Base(archive) + "\n"
-	if err = os.WriteFile(archive+".sha256", []byte(sum), 0644); err != nil {
+	sum := hex.EncodeToString(h.Sum(nil)) + "  " + filepath.Base(path) + "\n"
+	if err = os.WriteFile(path+".sha256", []byte(sum), 0644); err != nil {
 		return err
 	}
 	fmt.Print(sum)

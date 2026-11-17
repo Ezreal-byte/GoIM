@@ -6,3 +6,7 @@ icon = "internal/brand/assets/goim-1024.png"
 
 [mac]
 min_system = "13.0"
+
+[windows]
+publisher = "Ezreal-byte"
+url = "https://ezreal-byte.github.io/GoIM/"

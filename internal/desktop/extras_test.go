@@ -78,7 +78,7 @@ func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
 		t.Fatalf("profile image picker request = %+v", request)
 	}
 	harness.waitFor(func() bool {
-		return bitmapReady(harness.ui.imageCache[avatar]) && harness.ui.profile.crop.state.Initialized
+		return bitmapReady(harness.ui.imageCache[avatar]) && harness.ui.profile.crop.layout.Ready
 	})
 	if bitmap := harness.ui.imageCache[avatar]; !bitmapReady(bitmap) {
 		t.Fatal("chosen avatar was not decoded outside Paint")
@@ -102,6 +102,20 @@ func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
 	}
 	if round.Pix[3] != 0 || round.Pix[(128*round.Stride)+128*4+3] != 255 {
 		t.Fatal("committed avatar corners are not transparent around an opaque center")
+	}
+
+	// Cancelling a second edit must preserve the first confirmed draft.
+	other := writeExtraTestPNG(t, "second-avatar.png")
+	if err := harness.driver.QueueOpenFiles([]string{other}, nil); err != nil {
+		t.Fatal(err)
+	}
+	harness.clickID(harness.ui.ids.profileChooseImage)
+	harness.waitFor(func() bool {
+		return harness.ui.profile.crop.source == other && harness.ui.profile.crop.layout.Ready
+	})
+	harness.clickID(harness.ui.ids.profileCropCancel)
+	if harness.ui.profile.crop.open || harness.ui.profile.avatar != avatar || harness.ui.profile.avatarPreviewRound.ID != round.ID {
+		t.Fatal("cancelling a replacement did not preserve the previously staged avatar")
 	}
 
 	harness.clickID(harness.ui.ids.profileSave)
@@ -134,7 +148,7 @@ func TestProfileAvatarCropCancelKeepsCurrentAvatar(t *testing.T) {
 	previous := harness.ui.profile.avatar
 	harness.clickID(harness.ui.ids.profileChooseImage)
 	harness.waitFor(func() bool {
-		return bitmapReady(harness.ui.imageCache[avatar]) && harness.ui.profile.crop.state.Initialized
+		return bitmapReady(harness.ui.imageCache[avatar]) && harness.ui.profile.crop.layout.Ready
 	})
 	if !harness.ui.profile.crop.open || harness.ui.profile.avatar != previous {
 		t.Fatal("choosing an image changed the avatar before confirmation")
@@ -164,7 +178,7 @@ func TestProfileAvatarCropCanRestageTheCurrentSource(t *testing.T) {
 	harness.clickID(harness.ui.ids.profileAvatar)
 	harness.clickID(harness.ui.ids.profileChooseImage)
 	harness.waitFor(func() bool {
-		return bitmapReady(harness.ui.imageCache[avatar]) && harness.ui.profile.crop.state.Initialized
+		return bitmapReady(harness.ui.imageCache[avatar]) && harness.ui.profile.crop.layout.Ready
 	})
 	harness.clickID(harness.ui.ids.profileCropConfirm)
 	harness.waitFor(func() bool {

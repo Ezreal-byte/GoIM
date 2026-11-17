@@ -45,7 +45,7 @@ Capture a region, resize it, annotate it, and copy at the original resolution. U
 
 ## Install
 
-Choose your platform and architecture from [GitHub Releases](https://github.com/Ezreal-byte/GoIM/releases/latest). v0.1.2 ships 14 installers and archives in the formats below.
+Choose your platform and architecture from [GitHub Releases](https://github.com/Ezreal-byte/GoIM/releases/latest).
 
 | Platform | Architecture | Package formats |
 | --- | --- | --- |
@@ -53,7 +53,9 @@ Choose your platform and architecture from [GitHub Releases](https://github.com/
 | macOS 13 or later | Intel, Apple silicon | `.dmg`, `.zip` |
 | Linux (X11 or XWayland) | x64, ARM64 | `.deb`, `.tar.gz` |
 
-Choose either Setup or MSI on Windows. For archives, extract the full package so GoIM can find its screenshot tool. Windows packages have no commercial code signature. macOS uses ad-hoc signing and requires the usual local approval for unnotarized apps. Verify downloads with the release's `SHA256SUMS`.
+For a new Windows installation, use Viva's `Setup.exe`, which installs for the current user. If you used the standalone MSI, you can upgrade in place with the new MSI. Uninstall v0.1.1 or v0.1.2 before switching to the new Setup. GoIM stores profiles and chat history in a separate user data folder.
+
+For archives, extract the full package so GoIM can find its screenshot tool. Windows packages have no commercial code signature. macOS uses ad-hoc signing and requires the usual local approval for unnotarized apps. Verify downloads with the release's `SHA256SUMS`.
 
 ## Quick start
 

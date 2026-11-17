@@ -2,8 +2,6 @@ package desktop
 
 import (
 	"errors"
-	"github.com/vivaui/viva/gfx"
-	"goim/internal/i18n"
 	"slices"
 	"strings"
 	"unicode"
@@ -11,10 +9,12 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
+	"goim/internal/i18n"
 )
 
 const (
@@ -77,8 +77,6 @@ func (u *UI) chooseProfileAvatar() {
 	}
 	path := paths[0]
 	u.profile.crop = profileAvatarCropState{open: true, source: path}
-	u.profile.avatarPreview = gfx.Bitmap{}
-	u.profile.avatarPreviewRound = gfx.Bitmap{}
 	u.ensureImage(path)
 	u.profile.err = ""
 	u.syncProfileAvatarCrop(path)
@@ -233,9 +231,6 @@ func (u *UI) syncProfileAvatarCrop(path string) {
 	}
 	if bitmap, ok := u.imageCache[path]; ok && bitmapReady(bitmap) {
 		u.profile.crop.err = ""
-		if !u.profile.crop.state.Initialized {
-			components.InitializeAvatarEditorState(&u.profile.crop.state)
-		}
 	}
 }
 
@@ -263,7 +258,7 @@ func (u *UI) drawProfileAvatarEditor(canvas *gfx.Canvas, viewport ui.Rect) {
 	options := components.AvatarEditorOptions{
 		IDs: components.AvatarEditorIDs{
 			Canvas: u.ids.profileCropCanvas, Zoom: u.ids.profileCropZoom,
-			ZoomOut: u.ids.profileCropOut, ZoomIn: u.ids.profileCropIn, Reset: u.ids.profileCropReset,
+			ZoomOut: u.ids.profileCropOut, ZoomIn: u.ids.profileCropIn,
 		},
 		Labels: components.AvatarEditorLabels{
 			Hint:        i18n.T("拖动图片调整位置，滚轮、滑杆或按钮缩放；方形区域将作为头像。"),
@@ -271,16 +266,12 @@ func (u *UI) drawProfileAvatarEditor(canvas *gfx.Canvas, viewport ui.Rect) {
 			Zoom:        i18n.T("缩放"),
 			ZoomOut:     i18n.T("缩小"),
 			ZoomIn:      i18n.T("放大"),
-			Reset:       i18n.T("重置"),
 			Loading:     i18n.T("正在读取图片…"),
 			Unavailable: i18n.T("无法读取这张图片"),
 		},
 		Bitmap:       bitmap,
 		State:        crop.state,
 		Backdrop:     u.theme.Popover,
-		AspectRatio:  1,
-		MinZoom:      1,
-		MaxZoom:      8,
 		MaxStageSize: stageSize,
 		Circular:     true,
 		Loading:      !bitmapReady(bitmap) && crop.err == "",

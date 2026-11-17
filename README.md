@@ -45,7 +45,7 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/Ezreal-byte/GoIM/releases/latest) 选择系统和架构。v0.1.2 提供以下 14 个安装包和压缩包。
+从 [GitHub Releases](https://github.com/Ezreal-byte/GoIM/releases/latest) 选择系统和架构。
 
 | 系统 | 架构 | 下载格式 |
 | --- | --- | --- |
@@ -53,7 +53,9 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
 | macOS 13 或更新版本 | Intel、Apple 芯片 | `.dmg`、`.zip` |
 | Linux（X11 或 XWayland） | x64、ARM64 | `.deb`、`.tar.gz` |
 
-Windows 的 Setup 和 MSI 使用同一套安装内容，任选一种。压缩包需完整解压，保留 GoIM 与截图工具的相对位置。Windows 包未使用商业证书签名，macOS 应用使用 ad-hoc 签名且未经 Apple 公证。可用发布附带的 `SHA256SUMS` 校验下载。
+Windows 新装推荐使用 Viva 安装向导 `Setup.exe`，默认只给当前用户安装。过去使用独立 MSI 安装的用户可用新版 MSI 原位升级；从 v0.1.1 或 v0.1.2 换用新版 Setup 时，请先卸载旧程序。GoIM 的本地资料和聊天记录保存在独立的用户数据目录。
+
+压缩包需完整解压，保留 GoIM 与截图工具的相对位置。Windows 包未使用商业证书签名，macOS 应用使用 ad-hoc 签名且未经 Apple 公证。可用发布附带的 `SHA256SUMS` 校验下载。
 
 ## 快速开始
 

@@ -249,7 +249,6 @@ type appIDs struct {
 	profileCropZoom    gfx.ID
 	profileCropOut     gfx.ID
 	profileCropIn      gfx.ID
-	profileCropReset   gfx.ID
 	profileCropCancel  gfx.ID
 	profileCropConfirm gfx.ID
 
@@ -1063,7 +1062,6 @@ func (u *UI) initIDs() {
 	u.ids.profileCropZoom = u.tree.ID(u.ids.dialog, "profile-avatar-crop-zoom")
 	u.ids.profileCropOut = u.tree.ID(u.ids.dialog, "profile-avatar-crop-zoom-out")
 	u.ids.profileCropIn = u.tree.ID(u.ids.dialog, "profile-avatar-crop-zoom-in")
-	u.ids.profileCropReset = u.tree.ID(u.ids.dialog, "profile-avatar-crop-reset")
 	u.ids.profileCropCancel = u.tree.ID(u.ids.dialog, "profile-avatar-crop-cancel")
 	u.ids.profileCropConfirm = u.tree.ID(u.ids.dialog, "profile-avatar-crop-confirm")
 
