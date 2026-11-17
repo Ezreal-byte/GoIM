@@ -6,7 +6,7 @@ on:
     inputs:
       version:
         description: Package version
-        default: 0.1.4
+        default: 0.1.5
         required: true
         type: string
 permissions:
@@ -69,7 +69,7 @@ jobs:
           GOIM_SHARE_LIST_QA: ${{ github.workspace }}/GoIM/artifacts/screenshots/shares
           GOIM_TRANSFER_QA: ${{ github.workspace }}/GoIM/artifacts/screenshots/transfers
         run: |
-          go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestShareListDesignScreenshots|TestTransferDesignScreenshots|TestChatLayoutScreenshotQA|TestChatPolishQA|TestProfileAvatarEditorScreenshotQA' -count=1 -timeout=180s
+          go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestShareListDesignScreenshots|TestTransferDesignScreenshots|TestChatLayoutScreenshotQA|TestChatPolishQA|TestProfileAvatarEditorScreenshotQA|TestSettingsInterfaceFontScreenshotQA|TestDesktopFeatureRepairScreenshotQA' -count=1 -timeout=180s
           go test -tags vivahead ./cmd/goim-snip -run '^TestEditorScreenshots$' -count=1 -timeout=60s
       - name: Native content resize
         env:
