@@ -49,7 +49,7 @@ func TestDesktopFeatureRepairScreenshotQA(t *testing.T) {
 	shellQAEscape(t, session)
 
 	shellQAClick(t, session, shell.panels.ids.settingsCategories.At(int(panelSettingsAbout)))
-	if err := session.Expect("text", "系统诊断报告"); err != nil {
+	if err := session.Expect("text", "导出脱敏报告"); err != nil {
 		t.Fatal(err)
 	}
 	if err := session.Expect("layout", "clean"); err != nil {

@@ -1925,13 +1925,20 @@ func (u *UI) emptyListMessage(f ui.C, title, body string) {
 }
 
 func (u *UI) initialsAvatar(f ui.C, name string, size float32) {
-	initial := initialOf(name)
 	ui.Row(f).Size(size, size).Radius(size / 2).Background(u.palette.mutedAvatar).
 		Items(ui.Center).Justify(ui.Center).
 		Children(func() {
-			ui.Text(f, initial).FontSize(max(11, size*0.36)).Weight(gfx.WeightSemibold).
-				Color(u.palette.avatarText).TextCenter()
+			u.avatarInitial(f, name, size)
 		})
+}
+
+func (u *UI) avatarInitial(f ui.C, name string, size float32) {
+	ui.Text(f, initialOf(name)).
+		Width(max(1, size-6)).
+		FontSize(max(11, size*0.36)).
+		Weight(gfx.WeightSemibold).
+		Color(u.palette.avatarText).
+		TextCenter()
 }
 
 func (u *UI) badgeText(f ui.C, label string, primary bool) {
@@ -2142,8 +2149,7 @@ func (u *UI) initialsAvatarStatus(f ui.C, name string, size float32, online bool
 	ui.Row(f).Size(size, size).Radius(size / 2).Background(u.palette.mutedAvatar).
 		Items(ui.Center).Justify(ui.Center).
 		Children(func() {
-			ui.Text(f, initialOf(name)).FontSize(max(11, size*0.36)).Weight(gfx.WeightSemibold).
-				Color(u.palette.avatarText).TextCenter()
+			u.avatarInitial(f, name, size)
 			dot := max(8, size*0.22)
 			color := u.palette.secondaryText
 			if online {

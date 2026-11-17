@@ -137,7 +137,7 @@ func (p *Panels) exportDiagnostics(canvas *gfx.Canvas, state domain.State) {
 	canvas.AfterPaint(func() {
 		now := time.Now()
 		path, err := app.SaveFile(app.SaveFileOptions{
-			Title:            i18n.T("保存系统诊断报告"),
+			Title:            i18n.T("导出脱敏诊断报告"),
 			SuggestedName:    "goim-diagnostics-" + now.In(aboutTZ).Format("20060102-1504") + ".txt",
 			DefaultExtension: "txt",
 			Filters:          []app.FileFilter{{Name: i18n.T("文本文件"), Pattern: "*.txt"}},

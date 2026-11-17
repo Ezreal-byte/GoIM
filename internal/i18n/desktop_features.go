@@ -14,7 +14,7 @@ func init() {
 		"诊断与反馈":            "Diagnostics and feedback",
 		"遇到问题时导出脱敏报告，仅保留版本、协议状态、适配器和数据计数，不含聊天内容、联系人、完整地址、文件路径或凭据。": "Export a redacted report for troubleshooting. It keeps only versions, protocol status, adapters and counts, without chats, contacts, full addresses, paths or credentials.",
 		"导出脱敏报告":             "Export redacted report",
-		"保存系统诊断报告":           "Save system diagnostic report",
+		"导出脱敏诊断报告":           "Export redacted diagnostic report",
 		"文本文件":               "Text file",
 		"无法创建诊断报告：":          "Could not create the diagnostic report: ",
 		"无法保存诊断报告：":          "Could not save the diagnostic report: ",

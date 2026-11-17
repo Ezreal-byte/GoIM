@@ -620,8 +620,7 @@ func (u *UI) avatarWithPresence(f ui.C, name, path string, size float32, online,
 				return
 			}
 			ui.Row(f).Fill().Items(ui.Center).Justify(ui.Center).Children(func() {
-				ui.Text(f, initialOf(name)).FontSize(max(11, size*0.36)).Weight(gfx.WeightSemibold).
-					Color(u.palette.avatarText).TextCenter()
+				u.avatarInitial(f, name, size)
 			})
 		})
 		if !presence {
