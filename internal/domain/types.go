@@ -218,6 +218,7 @@ type Settings struct {
 	RecentEmoji                  []string `json:",omitempty"`
 	Language                     string
 	Theme                        string
+	InterfaceFont                string
 	Nickname                     string
 	Avatar                       string
 	Signature                    string

@@ -103,6 +103,7 @@ func (p *Panels) drawSettings(f ui.C, theme ui.Theme, state domain.State, submit
 	if p.settingsTab == panelSettingsSecurity {
 		p.drawPasswordDialog(f, contentTheme, state, submit)
 	}
+	p.drawInterfaceFontPicker(f, contentTheme, state, submit)
 	return scroll
 }
 
@@ -269,6 +270,11 @@ func (p *Panels) drawSettingsGeneral(f ui.C, theme ui.Theme, state domain.State,
 				p.submitString(submit, state, "language", language)
 			}
 		})
+	})
+	p.settingsRow(f, theme, i18n.T("界面字体"), p.interfaceFontDescription(settings), func() {
+		if namedButton(f, p.settingsExtra.interfaceFont.trigger, i18n.T("选择字体")).Small().Outline().Clicked() {
+			p.openInterfaceFontPicker()
+		}
 	})
 	p.drawBackgroundSettings(f, theme, state, submit)
 	panelSectionGap(f)

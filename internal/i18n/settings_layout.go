@@ -21,6 +21,20 @@ var settingsEnglish = [...]struct {
 	{"录制快捷键", "Record shortcut"},
 	{"为“%s”按下组合键。Tab 在弹窗内移动焦点，Esc 取消。", "Press a key combination for “%s”. Tab moves focus in this dialog; Esc cancels."},
 	{"使用默认", "Use default"},
+	{"界面字体", "Interface font"},
+	{"更改 GoIM 窗口、菜单和设置页使用的字体", "Choose the font used by GoIM windows, menus, and settings"},
+	{"选择字体", "Choose font"},
+	{"当前：%s", "Current: %s"},
+	{"系统默认", "System default"},
+	{"搜索已安装的字体", "Search installed fonts"},
+	{"正在读取已安装的字体…", "Loading installed fonts…"},
+	{"未找到匹配的字体。", "No matching fonts."},
+	{"当前平台没有可枚举的系统字体。", "System fonts cannot be listed on this platform."},
+	{"应用所选字体", "Apply selected font"},
+	{"当前", "Current"},
+	{"已保存的字体未安装，暂时使用系统字体", "The saved font is not installed; the system font is being used"},
+	{"当前平台不支持更改界面字体", "This platform cannot change the interface font"},
+	{"Aa Bb Cc 你好，世界！ 0123456789", "Aa Bb Cc Hello, world! 0123456789"},
 }
 
 func init() {

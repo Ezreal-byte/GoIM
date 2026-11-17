@@ -77,6 +77,9 @@ func Run(backend domain.Backend, restartArguments []string) error {
 	}()
 	return app.RunApplication(func(application *app.Application) error {
 		r.application = application
+		supported := app.SetInterfaceFontFamily(strings.TrimSpace(shell.state.Settings.InterfaceFont))
+		shell.panels.settingsExtra.interfaceFont.supportKnown = true
+		shell.panels.settingsExtra.interfaceFont.supported = supported
 		shell.requestScreenshot = r.launchScreenshot
 		shell.presentViewer = func() {
 			r.viewerPending = true

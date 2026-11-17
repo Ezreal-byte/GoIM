@@ -275,9 +275,11 @@ type Panels struct {
 	listNetworks     func() ([]net.Interface, error)
 	networkChange    panelNetworkChange
 
-	localFiles  map[string]panelLocalFile
-	mediaSubmit func(mediaJob)
-	toast       func(title, description string, tone components.ToastType)
+	localFiles       map[string]panelLocalFile
+	mediaSubmit      func(mediaJob)
+	toast            func(title, description string, tone components.ToastType)
+	fontFamilies     func() []string
+	setInterfaceFont func(string) bool
 
 	localActions    map[uint64]panelLocalAction
 	nextLocalAction uint64
@@ -321,6 +323,8 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.shortcutEdit = -1
 	p.localActions = make(map[uint64]panelLocalAction)
 	p.shareQRCache = make(map[shareQRKey]shareQRResult)
+	p.fontFamilies = app.FontFamilies
+	p.setInterfaceFont = app.SetInterfaceFontFamily
 
 	settings := tree.Feature("settings-panels")
 	p.ids.settingsFeature = settings
@@ -586,6 +590,11 @@ func (p *Panels) Key(event gfx.KeyEvent) gfx.EventResult {
 		return gfx.EventResult{}
 	}
 	if p.module == panelModuleSettings {
+		if p.settingsExtra.interfaceFont.open {
+			if result, handled := p.settingsExtra.interfaceFont.key(event, p.confirmInterfaceFont); handled {
+				return result
+			}
+		}
 		if p.shortcutEdit >= 0 {
 			if event.Key == gfx.KeyEscape {
 				p.cancelShortcutEdit()
@@ -631,6 +640,9 @@ func (p *Panels) Shortcut(event gfx.KeyEvent) gfx.EventResult {
 // Wheel routes the wheel to an open settings dropdown first, then to the panel
 // scroll area under the pointer.
 func (p *Panels) Wheel(event gfx.ScrollEvent) gfx.EventResult {
+	if p.module == panelModuleSettings && p.settingsExtra.interfaceFont.open {
+		return p.settingsExtra.interfaceFont.wheel(event)
+	}
 	if p.module == panelModuleTransfers && p.transferMenu != "" {
 		p.transferMenu = ""
 		return gfx.EventResult{Handled: true, Repaint: true}
