@@ -129,7 +129,13 @@ func TestNativeUpgradeChild(t *testing.T) {
 		fail(err)
 	}
 	dir := filepath.Dir(exe)
-	marker, err := os.ReadFile(filepath.Join(dir, "fixture-version"))
+	markerPath := filepath.Join(dir, "fixture-version")
+	if runtime.GOOS == "darwin" {
+		// macOS validates every code object under Contents/MacOS. Keep fixture
+		// metadata in Resources so only the executable helper needs a signature.
+		markerPath = filepath.Join(dir, "..", "Resources", "fixture-version")
+	}
+	marker, err := os.ReadFile(markerPath)
 	if err != nil {
 		fail(err)
 	}

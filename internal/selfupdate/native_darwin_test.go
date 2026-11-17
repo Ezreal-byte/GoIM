@@ -21,10 +21,18 @@ func prepareNativeUpgrade(t *testing.T, root, binary string) (string, string) {
 			t.Fatal(err)
 		}
 		mac := filepath.Join(bundle, "Contents", "MacOS")
+		resources := filepath.Join(bundle, "Contents", "Resources")
 		for name, value := range map[string]string{"fixture-version": version, "goim-snip": "companion " + version} {
-			if err := os.WriteFile(filepath.Join(mac, name), []byte(value), 0600); err != nil {
+			dest := filepath.Join(mac, name)
+			if name == "fixture-version" {
+				dest = filepath.Join(resources, name)
+			}
+			if err := os.WriteFile(dest, []byte(value), 0600); err != nil {
 				t.Fatal(err)
 			}
+		}
+		if b, err := exec.Command("codesign", "--force", "--sign", "-", filepath.Join(mac, "goim-snip")).CombinedOutput(); err != nil {
+			t.Fatalf("sign helper: %v\n%s", err, b)
 		}
 		if b, err := exec.Command("codesign", "--force", "--sign", "-", bundle).CombinedOutput(); err != nil {
 			t.Fatalf("sign: %v\n%s", err, b)
