@@ -6,7 +6,7 @@ on:
     inputs:
       version:
         description: Package version
-        default: 0.1.3
+        default: 0.1.4
         required: true
         type: string
 permissions:
@@ -109,31 +109,26 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           if (Test-Path -LiteralPath (Join-Path $nsis 'makensis.exe')) { "NSIS_HOME=$nsis" >> $env:GITHUB_ENV }
+      - name: Verify signed update, installation and relaunch
+        if: matrix.os != 'linux'
+        env:
+          GOIM_NATIVE_UPGRADE_TEST: '1'
+        run: go test ./internal/selfupdate -run '^TestNativeUpgrade$' -count=1 -timeout=180s
       - name: Native release package
         env:
           PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
+          GOIM_UPDATE_PUBLIC_KEY: ${{ vars.GOIM_UPDATE_PUBLIC_KEY }}
         run: |
           args=(--version "${PACKAGE_VERSION#v}" --commit "$GITHUB_SHA")
           if [ '${{ matrix.os }}' = windows ]; then args+=(--windows-setup); fi
           go run ./cmd/package "${args[@]}"
-      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
-        if: runner.os == 'Windows'
-        with:
-          dotnet-version: '8.0.x'
-      - name: Windows MSI
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
-          PACKAGE_ARCH: ${{ matrix.arch }}
-        run: ./packaging/windows/build.ps1 -Version $env:PACKAGE_VERSION.TrimStart('v') -Architecture $env:PACKAGE_ARCH
       - name: Verify Windows installers and shortcut icons
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
           PACKAGE_ARCH: ${{ matrix.arch }}
-        run: ./packaging/windows/verify.ps1 -Version $env:PACKAGE_VERSION.TrimStart('v') -Architecture $env:PACKAGE_ARCH
+        run: ./packaging/windows/verify.ps1 -Version $env:PACKAGE_VERSION.TrimStart('v') -Architecture $env:PACKAGE_ARCH -SkipMSI
       - name: Linux DEB or macOS DMG
         if: runner.os != 'Windows'
         env:
@@ -148,7 +143,6 @@ jobs:
             GoIM/dist/*.zip
             GoIM/dist/*.tar.gz
             GoIM/dist/*-Setup.exe
-            GoIM/dist/*.msi
             GoIM/dist/*.dmg
             GoIM/dist/*.deb
             GoIM/dist/*.sha256
@@ -169,20 +163,19 @@ jobs:
           pattern: GoIM-*
           merge-multiple: true
           path: release
-      - name: Install MSI inspection tool
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends msitools
-      - name: Verify fourteen packages and prepare checksums
+      - name: Verify twelve packages and prepare checksums
         env:
           SOURCE_COMMIT: ${{ github.sha }}
           PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
+          GOIM_UPDATE_PUBLIC_KEY: ${{ vars.GOIM_UPDATE_PUBLIC_KEY }}
         run: |
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, re, subprocess, tarfile, zipfile
+          import hashlib, json, os, pathlib, tarfile, zipfile
           root = pathlib.Path('release')
           version = os.environ['PACKAGE_VERSION'].removeprefix('v')
-          formats = {'windows': ('.zip', '-Setup.exe', '.msi'), 'linux': ('.tar.gz', '.deb'), 'darwin': ('.zip', '.dmg')}
+          formats = {'windows': ('.zip', '-Setup.exe'), 'linux': ('.tar.gz', '.deb'), 'darwin': ('.zip', '.dmg')}
           expected = {f'GoIM_{version}_{o}_{a}{ext}': (o,a) for o in formats for a in ('amd64','arm64') for ext in formats[o]}
-          found, sums, frameworks, toolchains = set(), [], set(), set()
+          found, sums, frameworks, toolchains, public_keys = set(), [], set(), set(), set()
           for p in sorted(root.iterdir()):
               if p.suffix == '.sha256': continue
               assert p.name in expected and p.is_file() and p.stat().st_size > 0, p.name
@@ -192,14 +185,6 @@ jobs:
               expected_sum, expected_name = (root/(p.name+'.sha256')).read_text().split()
               assert digest==expected_sum and expected_name==p.name, p.name
               sums.append(digest+'  '+p.name)
-              if p.suffix == '.msi':
-                  summary = subprocess.check_output(['msiinfo', 'suminfo', p], text=True)
-                  template = re.search(r'^Template:\s*([^;\n]+)', summary, re.MULTILINE | re.IGNORECASE)
-                  arch = 'x64' if target[1] == 'amd64' else 'arm64'
-                  assert template and template[1].lower() == arch, (p.name, summary)
-                  table = subprocess.check_output(['msiinfo', 'export', p, 'File'], text=True)
-                  filenames = {line.split('\t')[2].rsplit('|', 1)[-1] for line in table.splitlines()[3:] if line}
-                  assert {'GoIM.exe', 'goim-snip.exe', 'GoIM.ico', 'build-info.json', 'LICENSE'} <= filenames, (p.name, filenames)
               if not p.name.endswith(('.zip', '.tar.gz')): continue
               if p.name.endswith('.zip'):
                   with zipfile.ZipFile(p) as z:
@@ -223,11 +208,13 @@ jobs:
               assert info['commit']==os.environ['SOURCE_COMMIT'] and info['version']==version and (info['os'],info['arch'])==target
               frameworks.add(info['viva'])
               toolchains.add(info['go'])
+              public_keys.add(info.get('update_public_key', ''))
               assert any('/licenses/' in n for n in names)
           assert found==expected.keys(), (found,expected.keys())
           assert len(frameworks)==len(toolchains)==1, (frameworks,toolchains)
+          assert public_keys == {os.environ['GOIM_UPDATE_PUBLIC_KEY'].strip()}, 'packaged trust key mismatch'
           (root/'SHA256SUMS').write_text('\n'.join(sums)+'\n')
-          notes=f'GoIM {version}\n\nSix native targets and fourteen packages passed CI. Includes Windows ZIP, Viva NSIS Setup and MSI, macOS ZIP and DMG, and Linux tar.gz and DEB. Windows installer, shortcut icon and three-process smoke checks and Linux race checks passed.\n\nSource: {os.environ["SOURCE_COMMIT"]}\nViva: {next(iter(frameworks))}\nGo: {next(iter(toolchains))}\n'
+          notes=f'GoIM {version}\n\nSix native targets and twelve packages passed CI. Includes Windows ZIP and Viva NSIS Setup, macOS ZIP and DMG, and Linux tar.gz and DEB. Windows installer, shortcut icon and three-process smoke checks and Linux race checks passed.\n\nSource: {os.environ["SOURCE_COMMIT"]}\nViva: {next(iter(frameworks))}\nGo: {next(iter(toolchains))}\n'
           (root/'RELEASE_NOTES.md').write_text(notes)
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -236,4 +223,30 @@ jobs:
           path: |
             release/SHA256SUMS
             release/RELEASE_NOTES.md
+          retention-days: 14
+  update-feed:
+    needs: release
+    if: github.event_name == 'push' && github.ref_type == 'tag' && vars.GOIM_UPDATE_PUBLIC_KEY != ''
+    runs-on: ubuntu-24.04
+    environment: goim-release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.27.3'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: GoIM-*
+          merge-multiple: true
+          path: release
+      - name: Sign the stable update feed
+        env:
+          GOIM_UPDATE_PUBLIC_KEY: ${{ vars.GOIM_UPDATE_PUBLIC_KEY }}
+          GOIM_UPDATE_PRIVATE_KEY: ${{ secrets.GOIM_UPDATE_PRIVATE_KEY }}
+        run: go run ./cmd/update-feed --dir release --tag "$GITHUB_REF_NAME"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: GoIM-signed-update-feed
+          path: release/goim-update.json*
+          if-no-files-found: error
           retention-days: 14

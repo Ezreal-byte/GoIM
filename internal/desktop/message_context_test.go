@@ -21,8 +21,8 @@ func TestMessageMenuCopyRecallDeleteAndSave(t *testing.T) {
 	state.Notice = "已保存"
 	h := newShellTestHarness(t, state)
 	h.waitFor(func() bool { return h.ui.fileAvailable["file-1"] })
-	if h.hasText("已保存") {
-		t.Fatal("generic saved notice leaked into chat")
+	if h.ui.toasts[0].id.IsZero() || !h.hasText("已保存") {
+		t.Fatal("generic saved notice did not use the transient toast surface")
 	}
 	right := func(id gfx.ID) {
 		t.Helper()

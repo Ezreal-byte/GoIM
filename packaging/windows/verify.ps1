@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$')][string]$Version,
     [Parameter(Mandatory)][ValidateSet('amd64', 'arm64')][string]$Architecture,
+    [switch]$SkipMSI,
     [string]$Output = 'dist'
 )
 
@@ -9,7 +10,7 @@ $name = "GoIM_${Version}_windows_$Architecture"
 $outputPath = (Resolve-Path -LiteralPath $Output).Path
 $staging = (Resolve-Path -LiteralPath (Join-Path $outputPath $name)).Path
 $setup = (Resolve-Path -LiteralPath (Join-Path $outputPath "$name-Setup.exe")).Path
-$msi = (Resolve-Path -LiteralPath (Join-Path $outputPath "$name.msi")).Path
+$msi = if (!$SkipMSI) { (Resolve-Path -LiteralPath (Join-Path $outputPath "$name.msi")).Path } else { $null }
 $userLink = Join-Path ([Environment]::GetFolderPath('Programs')) 'GoIM.lnk'
 $machineLink = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'GoIM.lnk'
 
@@ -86,17 +87,19 @@ try {
 }
 if (Test-Path -LiteralPath $userLink) { throw "Setup did not remove $userLink" }
 
-$msiRoot = Join-Path $scratch 'MSI'
-$log = Join-Path $scratch 'msi-install.log'
-$msiInstalled = $false
-try {
-    Invoke-Installer 'msiexec.exe' ('/i "{0}" /qn /norestart INSTALLFOLDER="{1}" /l*v "{2}"' -f $msi, $msiRoot, $log)
-    $msiInstalled = $true
-    Confirm-Installation $msiRoot $machineLink 'GoIM.exe'
-} catch {
-    if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 40 | Write-Output }
-    throw
-} finally {
-    if ($msiInstalled) { Invoke-Installer 'msiexec.exe' ('/x "{0}" /qn /norestart' -f $msi) }
+if (!$SkipMSI) {
+    $msiRoot = Join-Path $scratch 'MSI'
+    $log = Join-Path $scratch 'msi-install.log'
+    $msiInstalled = $false
+    try {
+        Invoke-Installer 'msiexec.exe' ('/i "{0}" /qn /norestart INSTALLFOLDER="{1}" /l*v "{2}"' -f $msi, $msiRoot, $log)
+        $msiInstalled = $true
+        Confirm-Installation $msiRoot $machineLink 'GoIM.exe'
+    } catch {
+        if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 40 | Write-Output }
+        throw
+    } finally {
+        if ($msiInstalled) { Invoke-Installer 'msiexec.exe' ('/x "{0}" /qn /norestart' -f $msi) }
+    }
+    if (Test-Path -LiteralPath $machineLink) { throw "MSI did not remove $machineLink" }
 }
-if (Test-Path -LiteralPath $machineLink) { throw "MSI did not remove $machineLink" }

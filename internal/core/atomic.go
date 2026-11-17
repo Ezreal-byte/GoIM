@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"net"
 
 	"goim/internal/domain"
 )
@@ -17,6 +18,7 @@ func (n *Node) durable(mutator func(*persisted) []pending) error {
 		return context.Canceled
 	}
 	backup, _ := json.Marshal(n.data)
+	previousNetwork := n.data.State.Settings.Network
 	deliveries := mutator(&n.data)
 	if next := n.data.State.Settings.PendingNetwork; next != "" {
 		active := false
@@ -43,6 +45,7 @@ func (n *Node) durable(mutator func(*persisted) []pending) error {
 		n.data.Outbox[e.ID] = deliveries[i]
 	}
 	n.data.State.Revision++
+	network := n.data.State.Settings.Network
 	err := saveStore(n.db, &n.data)
 	if err != nil {
 		var restored persisted
@@ -51,6 +54,16 @@ func (n *Node) durable(mutator func(*persisted) []pending) error {
 		n.data.State.Error = "保存失败: " + err.Error()
 	}
 	n.mu.Unlock()
+	if err == nil && network != previousNetwork && n.listener != nil {
+		if bound, ok := n.listener.Addr().(*net.TCPAddr); ok {
+			ip := browserIP(bound, network).String()
+			n.mu.Lock()
+			if n.data.State.Settings.Network == network {
+				n.localIP = ip
+			}
+			n.mu.Unlock()
+		}
+	}
 	n.signal()
 	if err != nil {
 		return err

@@ -2,6 +2,7 @@
 package desktop
 
 import (
+	"errors"
 	"github.com/vivaui/viva/gfx"
 	"image"
 	"image/draw"
@@ -212,6 +213,8 @@ type appIDs struct {
 	emojiDismiss                                                           gfx.ID
 
 	connectScope         gfx.ID
+	titleLAN             gfx.ID
+	toastScope           gfx.Scope
 	connectDismiss       gfx.ID
 	connectClose         gfx.ID
 	connectField         gfx.ID
@@ -311,16 +314,27 @@ type appIDs struct {
 // UI is the native Viva desktop application. It reads detached backend
 // snapshots and owns only presentation and editor state.
 type UI struct {
-	backend     domain.Backend
-	state       domain.State
-	localNotice string
-	theme       ui.Theme
-	palette     palette
-	tree        gfx.Tree
-	panels      Panels
-	invalidator app.Invalidator
-	done        chan struct{}
-	closeOnce   sync.Once
+	backend                       domain.Backend
+	state                         domain.State
+	theme                         ui.Theme
+	palette                       palette
+	tree                          gfx.Tree
+	panels                        Panels
+	invalidator                   app.Invalidator
+	done                          chan struct{}
+	closeOnce                     sync.Once
+	lanEndpoint                   string
+	lanAnchor                     gfx.Rect
+	toasts                        [3]shellNotice
+	toastSlot                     int
+	noticeRevision                uint64
+	updater                       *updateController
+	update                        updateView
+	updateIDs                     updateControls
+	updateOpen, updateResultShown bool
+	updateAnnounced               string
+	screenshotActive              func() bool
+	restartArguments              []string
 
 	titlePage   *ui.Page
 	railPage    *ui.Page
@@ -659,7 +673,10 @@ func New(backend domain.Backend) *UI {
 	u.surface = u.newChatSurface(page("workspace"))
 	u.panels.Init(&u.tree)
 	u.panels.settingsExtra.openProfile = u.openProfile
+	u.panels.openUpdates = u.showUpdates
 	u.panels.setMediaSubmit(u.media.submitOne)
+	u.panels.setToast(u.showToast)
+	u.panels.settingsExtra.chooseBackground = u.requestBackgroundPicker
 	u.panels.shareQRWorker.setNotify(u.invalidator.Invalidate)
 	if backend != nil {
 		u.refresh()
@@ -745,6 +762,7 @@ func (u *UI) watchUpdates() {
 
 func (u *UI) onWake() {
 	u.refresh()
+	u.observeUpdate()
 	u.applyMediaResults()
 	u.panels.updateLists(u.state)
 	u.queueMediaJobs()
@@ -766,9 +784,39 @@ func (u *UI) refresh() {
 	}
 	oldError := u.state.Error
 	u.state = u.backend.Snapshot()
+	u.lanEndpoint = displayLANEndpoint(u.state)
 	i18n.SetLanguage(u.state.Settings.Language)
+	u.presentStateNotice()
 	u.panels.OnWake(u.state)
 	u.rebuildPresentation(oldError)
+}
+
+func (u *UI) presentStateNotice() {
+	notice := strings.TrimSpace(u.state.Notice)
+	if notice == "" || u.noticeRevision == u.state.Revision {
+		return
+	}
+	u.noticeRevision = u.state.Revision
+	u.state.Notice = ""
+	u.showToast(i18n.T(notice), "", components.ToastSuccess)
+	u.submit(domain.Command{Kind: domain.ClearError})
+}
+
+func (u *UI) requestBackgroundPicker(canvas *gfx.Canvas) {
+	canvas.AfterPaint(func() {
+		paths, err := u.openFilePicker(app.OpenFileOptions{
+			Title: i18n.T("选择聊天背景"),
+			Filters: []app.FileFilter{{
+				Name: i18n.T("图片"), Pattern: "*.png;*.jpg;*.jpeg;*.gif",
+			}},
+		})
+		switch {
+		case err == nil && len(paths) > 0:
+			u.submit(domain.Command{Kind: domain.SetSetting, Setting: "background", Value: paths[0]})
+		case err != nil && !errors.Is(err, app.ErrCanceled) && !errors.Is(err, app.ErrNoDriverResponse):
+			u.showToast(i18n.T("无法选择背景"), err.Error(), components.ToastError)
+		}
+	})
 }
 
 func (u *UI) requestFileAvailability(fileID, path string, previous bool, previousSet bool) {
@@ -917,7 +965,7 @@ func (u *UI) markSelectedConversationRead() {
 }
 
 func (u *UI) modalOpen() bool {
-	return u.confirm.open || u.compose.open || u.connectOpen ||
+	return u.confirm.open || u.compose.open || u.connectOpen || u.updateOpen ||
 		u.profile.open || u.memberProfile != "" || u.organize.open ||
 		u.shellMenu.open || u.lockVisible()
 }
@@ -956,6 +1004,9 @@ func (u *UI) initIDs() {
 	u.ids.chat = u.tree.Sub(u.ids.page, u.tree.Name("chat"))
 	u.ids.dialog = u.tree.Sub(u.ids.page, u.tree.Name("dialogs"))
 	u.ids.menu = u.tree.Sub(u.ids.page, u.tree.Name("menus"))
+	u.ids.titleLAN = u.tree.ID(u.ids.page, "lan-status")
+	u.ids.toastScope = u.tree.Sub(u.ids.page, u.tree.Name("notices"))
+	u.updateIDs.init(&u.tree, u.ids.page)
 
 	u.ids.navMessages = u.tree.ID(u.ids.nav, "messages")
 	u.ids.navContacts = u.tree.ID(u.ids.nav, "contacts")
@@ -1141,6 +1192,7 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	u.drawTitlebar(canvas, titlebar)
 	if u.lockVisible() {
 		u.drawLocked(canvas, body)
+		u.drawToasts(canvas, body)
 		u.markSelectedConversationRead()
 		return
 	}
@@ -1156,6 +1208,8 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 		u.focusSearch = false
 	}
 	u.hover.Paint(canvas, u.theme, body, components.TooltipOptions{Layer: 55}, 0)
+	u.drawLANHint(canvas, bounds)
+	u.drawToasts(canvas, body)
 	u.drawOverlays(canvas, bounds)
 	u.drawChatImageViewer(canvas)
 	u.markSelectedConversationRead()
@@ -1170,7 +1224,7 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 		return
 	}
 	canvas.Fill(bounds, u.palette.rail)
-	var brand ui.Box
+	var brand, status ui.Box
 	u.titlePage.Draw(canvas, bounds, func(f ui.C) {
 		ui.Row(f).Fill().MovesWindow().
 			PadSides(0, u.titleTrailing+14, 0, u.titleLeading+20).
@@ -1179,15 +1233,12 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 			ui.Row(f).Width(9).Height(1)
 			ui.Text(f, "GoIM").FontSize(16).Weight(gfx.WeightSemibold)
 			ui.Spacer(f)
-			if u.state.ListenAddress != "" && bounds.Width > 900 {
-				ui.Row(f).Items(ui.Center).Gap(7).Children(func() {
-					ui.Stack(f).Size(6, 6).Radius(3).Background(u.palette.success)
-					ui.Text(f, u.state.ListenAddress).FontSize(11).Muted()
-				})
-			}
+			u.drawUpdateTitlebar(f, bounds.Width >= 650)
+			status = u.drawLANStatus(f, bounds.Width >= 480)
 		})
 	})
 	paintGoIMMark(canvas, brand.Rect(), titleMark)
+	u.lanAnchor = status.Rect()
 	canvas.Fill(ui.Rect{X: bounds.X, Y: bounds.Y + bounds.Height - 1, Width: bounds.Width, Height: 1}, u.palette.border)
 }
 
@@ -1336,7 +1387,6 @@ func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 						u.drawConversationList(f)
 					}
 				})
-			u.drawSidebarFooter(f)
 		})
 	})
 	if connect.Clicked() {
@@ -1416,24 +1466,6 @@ func (u *UI) drawContactFilters(f ui.C) {
 				u.sidebarFilter = item.value
 			}
 		}
-	})
-}
-
-func (u *UI) drawSidebarFooter(f ui.C) {
-	ui.Row(f).Height(30).Items(ui.Center).Children(func() {
-		ui.Spacer(f)
-		ui.Row(f).Items(ui.Center).Gap(5).Children(func() {
-			ui.Stack(f).Size(7, 7).Radius(4).Background(u.palette.success)
-			label := i18n.T("局域网在线")
-			if u.state.ListenAddress == "" {
-				label = i18n.T("等待网络")
-			}
-			color := u.palette.secondaryText
-			if u.state.ListenAddress == "" {
-				color = u.palette.danger
-			}
-			ui.Text(f, label).FontSize(10.5).Color(color)
-		})
 	})
 }
 
@@ -2146,7 +2178,7 @@ func (u *UI) reconcileCompose(oldError string) {
 				}
 			}
 			if u.state.Error != "" && u.state.Error != oldError {
-				u.localNotice = i18n.T("群聊已创建；部分邀请发送失败：") + u.state.Error
+				u.showToast(i18n.T("群聊已创建"), i18n.T("部分邀请发送失败：")+u.state.Error, components.ToastWarning)
 				u.submit(domain.Command{Kind: domain.ClearError})
 			}
 			return
@@ -2464,6 +2496,9 @@ func (u *UI) drawOverlays(canvas *gfx.Canvas, viewport ui.Rect) {
 	if u.confirm.open {
 		u.drawConfirmation(canvas, viewport)
 	}
+	if u.updateOpen {
+		u.drawUpdateDialog(canvas, viewport)
+	}
 }
 
 func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
@@ -2578,6 +2613,8 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 	}
 	if event.Key == gfx.KeyEscape {
 		switch {
+		case u.updateOpen:
+			return gfx.EventResult{}
 		case u.confirm.open:
 			u.confirm.open = false
 			return gfx.EventResult{Handled: true}

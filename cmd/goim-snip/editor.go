@@ -10,8 +10,10 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 
 	"goim/internal/capture"
+	"goim/internal/i18n"
 )
 
 const previewBitmapID uint64 = 0x474F494D534E4950
@@ -38,31 +40,38 @@ const (
 	toolRectangle
 	toolArrow
 	toolFreehand
+	toolEllipse
+	toolText
+	toolMosaic
 )
 
 func (tool tool) String() string {
 	switch tool {
 	case toolRectangle:
-		return "Rectangle"
+		return i18n.T("矩形")
 	case toolArrow:
-		return "Arrow"
+		return i18n.T("箭头")
 	case toolFreehand:
-		return "Freehand"
+		return i18n.T("画笔")
+	case toolEllipse:
+		return i18n.T("椭圆")
+	case toolText:
+		return i18n.T("文字")
+	case toolMosaic:
+		return i18n.T("马赛克")
 	default:
-		return "Select area"
+		return i18n.T("选区")
 	}
 }
 
 func (tool tool) hint() string {
 	switch tool {
-	case toolRectangle:
-		return "Drag to draw a rectangle"
-	case toolArrow:
-		return "Drag to point an arrow"
-	case toolFreehand:
-		return "Drag to draw freehand"
+	case toolText:
+		return i18n.T("单击添加文字")
+	case toolSelect:
+		return i18n.T("拖动选择截图区域")
 	default:
-		return "Drag to select a crop"
+		return i18n.T("拖动标注")
 	}
 }
 
@@ -73,6 +82,7 @@ const (
 	outcomeConfirmed
 	outcomeCanceled
 	outcomeFailed
+	outcomeSaved
 )
 
 type gestureKind uint8
@@ -103,9 +113,11 @@ type editor struct {
 	cropLabel    string
 	displayLabel string
 	toolLabel    string
-	undoHint     string
 	gesture      *gesture
 	pressTarget  gfx.ID
+	text         snipText
+	ink, stroke  int
+	notice       string
 
 	windowWidth  int
 	windowHeight int
@@ -128,8 +140,9 @@ func newEditor(document *capture.Document, output string, info sourceInfo, dark 
 		windowHeight: height,
 		displayLabel: sourceDisplayLabel(info),
 		toolLabel:    toolSelect.String(),
-		undoHint:     primaryShortcut() + "     Undo",
+		stroke:       1,
 	}
+	editor.text.page = ui.NewPage(ui.PageConfig{Root: "snip-text", Tree: &tree, Theme: &editor.text.theme})
 	if err := editor.refreshPreview(); err != nil {
 		return nil, err
 	}
@@ -139,7 +152,7 @@ func newEditor(document *capture.Document, output string, info sourceInfo, dark 
 func (editor *editor) config(invalidator *app.Invalidator) app.Config {
 	return app.Config{
 		Tree:        &tree,
-		Title:       "GoIM Snip",
+		Title:       i18n.T("GoIM 截图"),
 		Width:       editor.windowWidth,
 		Height:      editor.windowHeight,
 		MinWidth:    820,
@@ -149,6 +162,7 @@ func (editor *editor) config(invalidator *app.Invalidator) app.Config {
 		OnPointer:   editor.pointer,
 		OnKey:       editor.key,
 		OnShortcut:  editor.shortcut,
+		TextInput:   editor.textInput,
 		OnWake:      editor.wake,
 		OnClosed:    editor.closed,
 	}
@@ -248,6 +262,9 @@ func (editor *editor) undo() bool {
 }
 
 func (editor *editor) pointer(event gfx.PointerEvent) gfx.EventResult {
+	if editor.text.open {
+		return editor.text.page.Pointer(event)
+	}
 	layout := computeLayout(event.Viewport)
 	switch event.Kind {
 	case gfx.PointerDown:
@@ -291,25 +308,22 @@ func (editor *editor) pointer(event gfx.PointerEvent) gfx.EventResult {
 
 func (editor *editor) beginGesture(event gfx.PointerEvent, layout editorLayout) {
 	crop := editor.document.Crop()
-	imageBounds, _ := fitImageRect(layout.imageArea(), crop)
+	imageBounds, scale := fitImageRect(layout.imageArea(), crop)
 	if imageRectEmpty(imageBounds) {
 		return
 	}
 	start := viewToSource(event.X, event.Y, crop, imageBounds)
+	if editor.tool == toolText {
+		editor.beginText(start, scale)
+		return
+	}
 	gesture := &gesture{start: start, end: start}
 	if editor.tool == toolSelect {
 		gesture.kind = gestureCrop
 	} else {
 		gesture.kind = gestureShape
 		gesture.points = []capture.Point{start}
-		switch editor.tool {
-		case toolRectangle:
-			gesture.shape = capture.Rectangle
-		case toolArrow:
-			gesture.shape = capture.Arrow
-		case toolFreehand:
-			gesture.shape = capture.Freehand
-		}
+		gesture.shape = editor.tool.shape()
 	}
 	editor.gesture = gesture
 }
@@ -357,15 +371,7 @@ func (editor *editor) commitGesture(layout editorLayout) {
 			return
 		}
 	case gestureShape:
-		width := annotationWidth(scale)
-		shape := capture.Shape{
-			Kind:   gesture.shape,
-			Start:  gesture.start,
-			End:    gesture.end,
-			Color:  capture.DefaultShapeColor,
-			Width:  width,
-			Points: nil,
-		}
+		shape := editor.annotation(gesture, scale)
 		if gesture.shape == capture.Freehand {
 			points := gesture.points
 			if len(points) == 0 || points[len(points)-1] != gesture.end {
@@ -386,32 +392,17 @@ func (editor *editor) commitGesture(layout editorLayout) {
 }
 
 func (editor *editor) activatePointer(id gfx.ID, x, y float32, layout editorLayout) bool {
+	for i, toolID := range toolIDs {
+		if id == toolID && pointIn(x, y, layout.toolButtons[i]) {
+			editor.selectTool(tool(i))
+			return true
+		}
+	}
 	switch id {
-	case selectID:
-		if !pointIn(x, y, layout.toolButtons[0]) {
-			return false
-		}
-		editor.selectTool(toolSelect)
-	case rectID:
-		if !pointIn(x, y, layout.toolButtons[1]) {
-			return false
-		}
-		editor.selectTool(toolRectangle)
-	case arrowID:
-		if !pointIn(x, y, layout.toolButtons[2]) {
-			return false
-		}
-		editor.selectTool(toolArrow)
-	case drawID:
-		if !pointIn(x, y, layout.toolButtons[3]) {
-			return false
-		}
-		editor.selectTool(toolFreehand)
 	case undoID:
-		if !pointIn(x, y, layout.undo) {
-			return false
-		}
-		return editor.undo()
+		return pointIn(x, y, layout.undo) && editor.undo()
+	case redoID:
+		return pointIn(x, y, layout.redo) && editor.redo()
 	case cancelID:
 		if !pointIn(x, y, layout.cancel) {
 			return false
@@ -425,7 +416,6 @@ func (editor *editor) activatePointer(id gfx.ID, x, y float32, layout editorLayo
 	default:
 		return false
 	}
-	return true
 }
 
 func (editor *editor) selectTool(next tool) {
@@ -433,7 +423,27 @@ func (editor *editor) selectTool(next tool) {
 	editor.toolLabel = next.String()
 }
 
+func (tool tool) shape() capture.ShapeKind {
+	switch tool {
+	case toolRectangle:
+		return capture.Rectangle
+	case toolArrow:
+		return capture.Arrow
+	case toolFreehand:
+		return capture.Freehand
+	case toolEllipse:
+		return capture.Ellipse
+	case toolMosaic:
+		return capture.Mosaic
+	default:
+		return 0
+	}
+}
+
 func (editor *editor) key(event gfx.KeyEvent) gfx.EventResult {
+	if editor.text.open {
+		return editor.text.page.Key(event)
+	}
 	if event.Release {
 		return gfx.EventResult{}
 	}
@@ -443,6 +453,12 @@ func (editor *editor) key(event gfx.KeyEvent) gfx.EventResult {
 			return gfx.EventResult{Handled: true}
 		}
 	case gfx.KeyEnter:
+		if !event.Target.IsZero() && event.Target != canvasID {
+			if !event.Repeat && editor.activateKeyboard(event.Target) {
+				return gfx.EventResult{Handled: true, Repaint: !editor.done}
+			}
+			return gfx.EventResult{}
+		}
 		if !event.Repeat && editor.export() {
 			return gfx.EventResult{Handled: true}
 		}
@@ -455,17 +471,17 @@ func (editor *editor) key(event gfx.KeyEvent) gfx.EventResult {
 }
 
 func (editor *editor) activateKeyboard(id gfx.ID) bool {
+	for i, toolID := range toolIDs {
+		if id == toolID {
+			editor.selectTool(tool(i))
+			return true
+		}
+	}
 	switch id {
-	case selectID:
-		editor.selectTool(toolSelect)
-	case rectID:
-		editor.selectTool(toolRectangle)
-	case arrowID:
-		editor.selectTool(toolArrow)
-	case drawID:
-		editor.selectTool(toolFreehand)
 	case undoID:
 		return editor.undo()
+	case redoID:
+		return editor.redo()
 	case cancelID:
 		return editor.cancel()
 	case exportID:
@@ -473,22 +489,28 @@ func (editor *editor) activateKeyboard(id gfx.ID) bool {
 	default:
 		return false
 	}
-	return true
 }
 
 func (editor *editor) shortcut(event gfx.KeyEvent) gfx.EventResult {
-	if event.Release {
+	if event.Release || editor.text.open {
 		return gfx.EventResult{}
 	}
 	modifier := gfx.ModifierControl
 	if runtime.GOOS == "darwin" {
 		modifier = gfx.ModifierMeta
 	}
-	if event.Modifiers&modifier != 0 && strings.EqualFold(event.Text, "z") {
-		if editor.undo() {
-			return gfx.EventResult{Handled: true, Repaint: true}
+	if event.Modifiers&modifier != 0 {
+		switch strings.ToLower(event.Text) {
+		case "z":
+			if event.Modifiers&gfx.ModifierShift != 0 {
+				return gfx.EventResult{Handled: true, Repaint: editor.redo()}
+			}
+			return gfx.EventResult{Handled: true, Repaint: editor.undo()}
+		case "y":
+			return gfx.EventResult{Handled: true, Repaint: editor.redo()}
+		case "c":
+			return gfx.EventResult{Handled: editor.export()}
 		}
-		return gfx.EventResult{Handled: true}
 	}
 	return gfx.EventResult{}
 }
@@ -501,9 +523,12 @@ type editorLayout struct {
 	header      gfx.Rect
 	footer      gfx.Rect
 	well        gfx.Rect
-	toolButtons [4]gfx.Rect
+	toolButtons [len(toolIDs)]gfx.Rect
 	undo        gfx.Rect
+	redo        gfx.Rect
+	style       gfx.Rect
 	cancel      gfx.Rect
+	save        gfx.Rect
 	export      gfx.Rect
 }
 
@@ -512,9 +537,9 @@ func computeLayout(size gfx.Size) editorLayout {
 	layout := editorLayout{body: body}
 	content := body.Inset(gfx.All(14))
 	layout.left, content = content.CutLeft(184)
-	content = content.Inset(gfx.Insets{Left: 14, Right: 14})
+	content = content.Inset(gfx.Insets{Left: 14})
 	layout.right, content = content.CutRight(232)
-	layout.center = content
+	layout.center = content.Inset(gfx.Insets{Right: 14})
 
 	leftInner := layout.left.Inset(gfx.All(16))
 	y := leftInner.Y
@@ -523,10 +548,13 @@ func computeLayout(size gfx.Size) editorLayout {
 	y += 19
 	y += 24
 	for index := range layout.toolButtons {
-		layout.toolButtons[index] = gfx.Rect{X: leftInner.X, Y: y, Width: leftInner.Width, Height: 38}
-		y += 45
+		layout.toolButtons[index] = gfx.Rect{X: leftInner.X, Y: y, Width: leftInner.Width, Height: 32}
+		y += 37
 	}
-	layout.undo = gfx.Rect{X: leftInner.X, Y: leftInner.Bottom() - 38, Width: leftInner.Width, Height: 38}
+	layout.style = gfx.Rect{X: leftInner.X, Y: y + 6, Width: leftInner.Width, Height: 50}
+	half := (leftInner.Width - 6) / 2
+	layout.undo = gfx.Rect{X: leftInner.X, Y: leftInner.Bottom() - 34, Width: half, Height: 34}
+	layout.redo = gfx.Rect{X: layout.undo.Right() + 6, Y: layout.undo.Y, Width: half, Height: 34}
 
 	centerInner := layout.center.Inset(gfx.All(18))
 	layout.header, centerInner = centerInner.CutTop(28)
@@ -538,6 +566,7 @@ func computeLayout(size gfx.Size) editorLayout {
 	rightInner := layout.right.Inset(gfx.All(16))
 	layout.export = gfx.Rect{X: rightInner.X, Y: rightInner.Bottom() - 44, Width: rightInner.Width, Height: 44}
 	layout.cancel = gfx.Rect{X: rightInner.X, Y: layout.export.Y - 8 - 36, Width: rightInner.Width, Height: 36}
+	layout.save = gfx.Rect{X: rightInner.X, Y: layout.cancel.Y - 42, Width: rightInner.Width, Height: 34}
 	return layout
 }
 
@@ -625,6 +654,7 @@ func (editor *editor) paint(canvas *gfx.Canvas, size gfx.Size) {
 	editor.paintTools(canvas, theme, layout)
 	editor.paintCanvas(canvas, theme, layout)
 	editor.paintExport(canvas, theme, layout)
+	editor.paintActions(canvas, theme, layout.body)
 }
 
 func (editor *editor) paintTools(canvas *gfx.Canvas, theme gfx.Theme, layout editorLayout) {
@@ -632,24 +662,24 @@ func (editor *editor) paintTools(canvas *gfx.Canvas, theme gfx.Theme, layout edi
 	inner := layout.left.Inset(gfx.All(16))
 
 	canvas.Rounded(gfx.Rect{X: inner.X, Y: inner.Y + 4, Width: 3, Height: 18}, 1.5, theme.Primary)
-	canvas.Label("GoIM Snip", gfx.Rect{X: inner.X + 12, Y: inner.Y, Width: inner.Width - 12, Height: 26}, gfx.TextStyle{
+	canvas.Label(i18n.T("GoIM 截图"), gfx.Rect{X: inner.X + 12, Y: inner.Y, Width: inner.Width - 12, Height: 26}, gfx.TextStyle{
 		Size: 18, Weight: gfx.WeightSemibold, Color: theme.Foreground,
 	})
 	y := inner.Y + 32
-	canvas.Label("Screenshot editor", gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 18}, gfx.TextStyle{
+	canvas.Label(i18n.T("截图编辑器"), gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 18}, gfx.TextStyle{
 		Size: 12, Color: theme.MutedForeground,
 	})
 	y += 24
 	canvas.Fill(gfx.Rect{X: inner.X, Y: y + 5, Width: inner.Width, Height: 1}, theme.Border)
 	y += 19
-	canvas.Label("TOOLS", gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 16}, gfx.TextStyle{
+	canvas.Label(i18n.T("标注工具"), gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 16}, gfx.TextStyle{
 		Size: 10, Weight: gfx.WeightSemibold, Color: theme.MutedForeground,
 	})
 
-	labels := [...]string{"Select area", "Rectangle", "Arrow", "Freehand"}
-	for index, label := range labels {
+	for index, id := range toolIDs {
+		label := tool(index).String()
 		active := int(editor.tool) == index
-		button := components.BeginButton(canvas, theme, toolID(index), layout.toolButtons[index]).
+		button := components.BeginButton(canvas, theme, id, layout.toolButtons[index]).
 			Height(layout.toolButtons[index].Height).FontSize(13)
 		if active {
 			button.Default(label)
@@ -658,40 +688,24 @@ func (editor *editor) paintTools(canvas *gfx.Canvas, theme gfx.Theme, layout edi
 		}
 	}
 
-	swatchY := layout.undo.Y - 70
-	canvas.Rounded(gfx.Rect{X: inner.X, Y: swatchY + 2, Width: 12, Height: 12}, 6, shapeColor())
-	canvas.Label("Blue ink", gfx.Rect{X: inner.X + 20, Y: swatchY - 1, Width: inner.Width - 20, Height: 17}, gfx.TextStyle{
-		Size: 12, Color: theme.Foreground,
-	})
-	canvas.Label("Drag on the canvas", gfx.Rect{X: inner.X, Y: layout.undo.Y - 32, Width: inner.Width, Height: 16}, gfx.TextStyle{
-		Size: 11, Color: theme.MutedForeground,
-	})
+	editor.paintStyle(canvas, theme, layout.style, false)
 	undo := components.BeginButton(canvas, theme, undoID, layout.undo).
 		Height(layout.undo.Height).FontSize(13)
 	if !editor.document.CanUndo() {
 		undo = undo.Disabled()
 	}
-	undo.Outline("Undo")
-}
-
-func toolID(index int) gfx.ID {
-	switch index {
-	case 0:
-		return selectID
-	case 1:
-		return rectID
-	case 2:
-		return arrowID
-	case 3:
-		return drawID
+	undo.Outline(i18n.T("撤销"))
+	redo := components.BeginButton(canvas, theme, redoID, layout.redo).Height(layout.redo.Height).FontSize(13)
+	if !editor.document.CanRedo() {
+		redo = redo.Disabled()
 	}
-	return gfx.ID{}
+	redo.Outline(i18n.T("重做"))
 }
 
 func (editor *editor) paintCanvas(canvas *gfx.Canvas, theme gfx.Theme, layout editorLayout) {
 	canvas.RoundedBorder(layout.center, 14, 1, theme.Border, theme.Card)
 	crop := editor.document.Crop()
-	canvas.Label("Canvas", layout.header, gfx.TextStyle{
+	canvas.Label(i18n.T("预览"), layout.header, gfx.TextStyle{
 		Size: 16, Weight: gfx.WeightSemibold, Color: theme.Foreground,
 	})
 	canvas.LabelAligned(
@@ -714,15 +728,15 @@ func (editor *editor) paintCanvas(canvas *gfx.Canvas, theme gfx.Theme, layout ed
 	if canvas.Focused() == canvasID && canvas.FocusVisible() == canvasID {
 		canvas.RoundedOutline(layout.well, 10, 1.5, theme.Primary)
 	}
-	canvas.HitWithOptions(canvasID, layout.well, "Screenshot canvas", gfx.HitOptions{
+	canvas.HitWithOptions(canvasID, layout.well, i18n.T("截图区域"), gfx.HitOptions{
 		Role:        gfx.RoleGroup,
 		Cursor:      gfx.PointerCursorCrosshair,
 		Autofocus:   true,
-		Description: "Drag with the selected tool to crop or annotate.",
+		Description: editor.tool.hint(),
 	})
 
 	canvas.Label(editor.tool.hint(), layout.footer, gfx.TextStyle{Size: 11, Color: theme.MutedForeground})
-	canvas.LabelAligned("Fit to window", layout.footer, gfx.TextStyle{Size: 11, Color: theme.MutedForeground}, gfx.AlignEnd)
+	canvas.LabelAligned(i18n.T("适应窗口"), layout.footer, gfx.TextStyle{Size: 11, Color: theme.MutedForeground}, gfx.AlignEnd)
 }
 
 func (editor *editor) paintGesture(canvas *gfx.Canvas, imageBounds gfx.Rect, crop image.Rectangle, scale float64, theme gfx.Theme) {
@@ -759,14 +773,7 @@ func (editor *editor) paintGesture(canvas *gfx.Canvas, imageBounds gfx.Rect, cro
 		}
 		return
 	}
-	shape := capture.Shape{
-		Kind:   editor.gesture.shape,
-		Start:  editor.gesture.start,
-		End:    editor.gesture.end,
-		Points: editor.gesture.points,
-		Color:  capture.DefaultShapeColor,
-		Width:  annotationWidth(scale),
-	}
+	shape := editor.annotation(editor.gesture, scale)
 	if shape.Kind == capture.Rectangle {
 		start := sourceToView(shape.Start, crop, imageBounds)
 		end := sourceToView(shape.End, crop, imageBounds)
@@ -786,12 +793,21 @@ func drawShape(canvas *gfx.Canvas, shape capture.Shape, crop image.Rectangle, im
 		return gfx.Point{X: view.X - imageBounds.X, Y: view.Y - imageBounds.Y}
 	}
 	stroke := gfx.PathStyle{
-		Stroke:      shapeColor(),
+		Stroke:      inkColor(shape.Color),
 		StrokeWidth: max(float32(shape.Width*scale), 1),
 		Cap:         gfx.CapRound,
 		Join:        gfx.JoinRound,
 	}
 	switch shape.Kind {
+	case capture.Mosaic:
+		rect := normalizedPointRect(sourceToView(shape.Start, crop, imageBounds), sourceToView(shape.End, crop, imageBounds))
+		canvas.Fill(rect, gfx.RGBA(30, 36, 48, .45))
+		canvas.RoundedOutline(rect, 0, 1.5, gfx.RGB(243, 246, 253))
+	case capture.Ellipse:
+		rect := normalizedPointRect(sourceToView(shape.Start, crop, imageBounds), sourceToView(shape.End, crop, imageBounds))
+		if !imageRectEmpty(rect) {
+			canvas.DrawPath(snipEllipsePath, rect, stroke)
+		}
 	case capture.Rectangle:
 		start, end := local(shape.Start), local(shape.End)
 		path := gfx.NewPath(
@@ -816,7 +832,7 @@ func drawShape(canvas *gfx.Canvas, shape capture.Shape, crop image.Rectangle, im
 			gfx.LineTo(right.X, right.Y),
 			gfx.ClosePath(),
 		)
-		canvas.DrawPath(headPath, imageBounds, gfx.PathStyle{Fill: shapeColor(), FillRule: gfx.PathFillNonZero})
+		canvas.DrawPath(headPath, imageBounds, gfx.PathStyle{Fill: inkColor(shape.Color), FillRule: gfx.PathFillNonZero})
 	case capture.Freehand:
 		if len(shape.Points) == 0 {
 			return
@@ -835,9 +851,13 @@ func drawShape(canvas *gfx.Canvas, shape capture.Shape, crop image.Rectangle, im
 
 func (editor *editor) paintExport(canvas *gfx.Canvas, theme gfx.Theme, layout editorLayout) {
 	canvas.RoundedBorder(layout.right, 14, 1, theme.Border, theme.Card)
+	components.BeginButton(canvas, theme, saveID, layout.save).Height(layout.save.Height).Outline(i18n.T("另存为"))
+	if canvas.Clicked(saveID) {
+		editor.scheduleSaveAs(canvas)
+	}
 	inner := layout.right.Inset(gfx.All(16))
 	y := inner.Y
-	canvas.Label("Export", gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 24}, gfx.TextStyle{
+	canvas.Label(i18n.T("输出截图"), gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 24}, gfx.TextStyle{
 		Size: 18, Weight: gfx.WeightSemibold, Color: theme.Foreground,
 	})
 	y += 31
@@ -847,7 +867,7 @@ func (editor *editor) paintExport(canvas *gfx.Canvas, theme gfx.Theme, layout ed
 	y += 24
 	canvas.Fill(gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 1}, theme.Border)
 	y += 18
-	canvas.Label("SOURCE", gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 15}, gfx.TextStyle{
+	canvas.Label(i18n.T("源图信息"), gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 15}, gfx.TextStyle{
 		Size: 10, Weight: gfx.WeightSemibold, Color: theme.MutedForeground,
 	})
 	y += 22
@@ -856,10 +876,10 @@ func (editor *editor) paintExport(canvas *gfx.Canvas, theme gfx.Theme, layout ed
 		label string
 		value string
 	}{
-		{"Source", editor.info.title},
-		{"Image", editor.cropLabel},
-		{"Displays", editor.displayLabel},
-		{"Tool", editor.toolLabel},
+		{i18n.T("来源"), editor.info.title},
+		{i18n.T("图片尺寸"), editor.cropLabel},
+		{i18n.T("屏幕"), editor.displayLabel},
+		{i18n.T("当前工具"), editor.toolLabel},
 	}
 	for _, row := range rows {
 		canvas.Label(row.label, gfx.Rect{X: inner.X, Y: y, Width: inner.Width, Height: 14}, gfx.TextStyle{
@@ -872,16 +892,10 @@ func (editor *editor) paintExport(canvas *gfx.Canvas, theme gfx.Theme, layout ed
 		y += 38
 	}
 
-	hintStyle := gfx.TextStyle{Size: 11, Color: theme.MutedForeground}
-	hintY := layout.cancel.Y - 62
-	canvas.Label("Enter     Export", gfx.Rect{X: inner.X, Y: hintY, Width: inner.Width, Height: 16}, hintStyle)
-	canvas.Label(editor.undoHint, gfx.Rect{X: inner.X, Y: hintY + 18, Width: inner.Width, Height: 16}, hintStyle)
-	canvas.Label("Esc       Cancel", gfx.Rect{X: inner.X, Y: hintY + 36, Width: inner.Width, Height: 16}, hintStyle)
-
 	components.BeginButton(canvas, theme, exportID, layout.export).
-		Height(layout.export.Height).FontSize(14).Default("Export PNG")
+		Height(layout.export.Height).FontSize(14).Default(i18n.T("复制截图"))
 	components.BeginButton(canvas, theme, cancelID, layout.cancel).
-		Height(layout.cancel.Height).FontSize(13).Outline("Cancel")
+		Height(layout.cancel.Height).FontSize(13).Outline(i18n.T("取消"))
 }
 
 func snipTheme(dark bool) gfx.Theme {
@@ -943,26 +957,15 @@ func canvasWell(dark bool) gfx.Color {
 	return gfx.RGB(232, 238, 247)
 }
 
-func shapeColor() gfx.Color {
-	return gfx.RGB(capture.DefaultShapeColor.R, capture.DefaultShapeColor.G, capture.DefaultShapeColor.B)
-}
-
 func sourceDisplayLabel(info sourceInfo) string {
 	if info.imported {
-		return "PNG file"
+		return i18n.T("PNG 文件")
 	}
-	dpi := "DPI unknown"
+	dpi := i18n.T("未知 DPI")
 	if info.dpi != 0 {
 		dpi = fmt.Sprintf("%d DPI", info.dpi)
 	}
 	return fmt.Sprintf("%d · %s", info.displays, dpi)
-}
-
-func primaryShortcut() string {
-	if runtime.GOOS == "darwin" {
-		return "Cmd+Z"
-	}
-	return "Ctrl+Z"
 }
 
 func normalizedPointRect(a, b gfx.Point) gfx.Rect {

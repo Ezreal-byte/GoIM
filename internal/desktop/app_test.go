@@ -1117,7 +1117,9 @@ func TestCreateGroupReconcilesBeforePartialInviteError(t *testing.T) {
 	if harness.ui.selected != "conv-new" {
 		t.Fatalf("selected conversation = %q after partial success", harness.ui.selected)
 	}
-	if !harness.hasText("群聊已创建；部分邀请发送失败：邀请 Alice 失败") {
+	if harness.ui.toasts[0].id.IsZero() ||
+		!harness.hasText("群聊已创建") ||
+		!harness.hasText("部分邀请发送失败：邀请 Alice 失败") {
 		t.Fatal("the partial invite failure was not shown as a notice")
 	}
 	var createCount, clearCount int
@@ -1535,6 +1537,108 @@ func TestClipboardImagePasteReportsFailuresAndSendsSuccess(t *testing.T) {
 			t.Fatalf("clipboard cache failure was silent: %+v", command)
 		}
 	})
+}
+
+func TestOfflinePeerImageSelectionRendersWithoutReopeningPicker(t *testing.T) {
+	state := shellTestState(t)
+	for index := range state.Peers {
+		if state.Peers[index].ID == "peer-a" {
+			state.Peers[index].Online = false
+		}
+	}
+	state.Conversations[1].UpdatedAt = time.Now().Add(time.Minute)
+	imagePath := writeExtraTestPNG(t, "offline-send.png")
+	h := newShellTestHarness(t, state)
+	if h.ui.selected != "conv-alice" {
+		h.clickID(h.ui.convRowIDs["conv-alice"])
+		h.settle()
+	}
+	if err := h.driver.QueueOpenFiles([]string{imagePath}, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.clickID(h.ui.ids.chatImage)
+	h.settle()
+
+	send := h.lastCommand()
+	if send.Kind != domain.SendFiles || send.ConversationID != "conv-alice" ||
+		!slices.Equal(send.Paths, []string{imagePath}) {
+		t.Fatalf("offline image command = %+v", send)
+	}
+
+	state.Files = append(state.Files, domain.File{
+		ID: "file-offline-image", Name: filepath.Base(imagePath), Size: 128,
+		MIME: "image/png", InlineImage: true, SenderID: "self",
+		ConversationID: "conv-alice", SourcePath: imagePath, CreatedAt: time.Now(),
+	})
+	state.Messages = append(state.Messages, domain.Message{
+		ID: "file-offline-image", ConversationID: "conv-alice", SenderID: "self",
+		Kind: "image", Text: filepath.Base(imagePath), FileID: "file-offline-image",
+		CreatedAt: time.Now(), Status: "sent",
+	})
+	state.Transfers = append(state.Transfers, domain.Transfer{
+		ID: "transfer-offline-image", FileID: "file-offline-image",
+		ConversationID: "conv-alice", PeerID: "peer-a", Direction: "send",
+		Status: "offered", Name: filepath.Base(imagePath), Size: 128,
+		Path: imagePath, UpdatedAt: time.Now(),
+	})
+	state.Revision++
+	h.publish(state)
+	h.waitFor(func() bool { return bitmapReady(h.ui.fileBitmap(imagePath)) })
+	if !h.hasHit(h.ui.fileButtonIDs["file-offline-image"]) {
+		t.Fatal("offline image message did not render a usable preview")
+	}
+	requireShellLayout(t, h.snapshot())
+
+	count := 0
+	for _, command := range h.backend.commandLog() {
+		if command.Kind == domain.SendFiles {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("one image selection produced %d send commands", count)
+	}
+}
+
+func TestBackgroundPickerAndResetAreSingleShot(t *testing.T) {
+	state := shellTestState(t)
+	background := writeExtraTestPNG(t, "background-setting.png")
+	h := newShellTestHarness(t, state)
+	h.clickID(h.ui.ids.navSettings)
+	h.settle()
+	h.clickID(h.ui.panels.ids.settingsCategories.At(0))
+	h.settle()
+	if err := h.driver.QueueOpenFiles([]string{background}, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.clickID(h.ui.panels.settingsExtra.background)
+	h.settle()
+	command := h.lastCommand()
+	if command.Kind != domain.SetSetting || command.Setting != "background" || command.Value != background {
+		t.Fatalf("background selection command = %+v", command)
+	}
+
+	state.Settings.Background = background
+	state.Revision++
+	h.publish(state)
+	commandsAfterSelection := len(h.backend.commandLog())
+	if err := h.driver.Advance(2 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(h.backend.commandLog()); got != commandsAfterSelection {
+		t.Fatal("background selection reopened or resubmitted after returning from the native picker")
+	}
+
+	h.clickID(h.ui.panels.settingsExtra.clearBackground)
+	h.settle()
+	command = h.lastCommand()
+	if command.Kind != domain.SetSetting || command.Setting != "background" || command.Value != "" {
+		t.Fatalf("background reset command = %+v", command)
+	}
+	state.Settings.Background = ""
+	state.Revision++
+	h.publish(state)
+	requireShellLayout(t, h.snapshot())
 }
 
 func TestDecodeBitmapUsesPremultipliedBGRA(t *testing.T) {

@@ -129,12 +129,12 @@ func TestShapesAreDetachedAndInvalidAddsAreAtomic(t *testing.T) {
 		t.Fatal("Shapes exposed mutable document storage")
 	}
 	before := len(document.Shapes())
-	historyBefore := len(document.undo)
+	historyBefore := len(document.history)
 	invalid := Shape{Kind: Freehand, Points: []Point{{X: 1, Y: 2}}, Color: DefaultShapeColor, Width: 3}
 	if err := document.Add(invalid); !errors.Is(err, ErrInvalidShape) {
 		t.Fatalf("invalid annotation error = %v", err)
 	}
-	if len(document.Shapes()) != before || len(document.undo) != historyBefore {
+	if len(document.Shapes()) != before || len(document.history) != historyBefore {
 		t.Fatal("rejected annotation changed the document")
 	}
 }

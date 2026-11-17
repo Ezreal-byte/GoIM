@@ -67,12 +67,8 @@ func (p *Panels) drawSettings(f ui.C, theme ui.Theme, state domain.State, submit
 		ui.Column(f).Grow(1).FillHeight().PadSides(24, 32, 10, 32).
 			Items(ui.Center).Children(func() {
 			ui.Column(f).FillWidth().MaxWidth(panelSettingsContentMax).FillHeight().Gap(14).Children(func() {
-				p.drawSettingsHeader(f, contentTheme, state)
-				feedback := state
-				if feedback.Notice != "锁定密码已保存" && feedback.Notice != "已切换局域网接口" {
-					feedback.Notice = ""
-				}
-				p.panelFeedback(f, contentTheme, feedback, submit, p.ids.settingsDismissLocal, p.ids.settingsClearError)
+				p.drawSettingsHeader(f, contentTheme)
+				p.panelFeedback(f, contentTheme, state, submit, p.ids.settingsDismissLocal, p.ids.settingsClearError)
 				scroll = ui.Scroll(f.KeyInt(int(p.settingsTab)))
 				if !p.scrollTabSet || p.scrollTab != p.settingsTab {
 					scroll.ScrollState().ScrollTo(p.settingsScroll[p.settingsTab])
@@ -104,6 +100,9 @@ func (p *Panels) drawSettings(f ui.C, theme ui.Theme, state domain.State, submit
 			})
 		})
 	})
+	if p.settingsTab == panelSettingsSecurity {
+		p.drawPasswordDialog(f, contentTheme, state, submit)
+	}
 	return scroll
 }
 
@@ -149,7 +148,7 @@ func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme) {
 			label := i18n.T(panelSettingsLabels[tab])
 			id := p.ids.settingsCategories.At(int(tab))
 			active := p.settingsTab == tab
-			icon := panelIconGear
+			icon := panelIconGeneral
 			switch tab {
 			case panelSettingsProfile:
 				icon = Users
@@ -190,7 +189,6 @@ func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme) {
 					p.aboutLicense = false
 					p.resetShortcuts = false
 					p.localError = ""
-					p.localNotice = ""
 					p.settingsExtra.resetSecrets()
 				}
 				p.settingsTab = tab
@@ -206,7 +204,7 @@ func (p *Panels) drawSettingsSidebarFooter(f ui.C, theme ui.Theme) {
 	ui.Text(f, i18n.T("设置自动保存在本机")).Muted().FontSize(theme.Metrics.FontSizeS)
 }
 
-func (p *Panels) drawSettingsHeader(f ui.C, theme ui.Theme, state domain.State) {
+func (p *Panels) drawSettingsHeader(f ui.C, theme ui.Theme) {
 	title, description := i18n.T(panelSettingsLabels[p.settingsTab]), i18n.T("管理外观、消息发送与窗口行为")
 	switch p.settingsTab {
 	case panelSettingsShortcuts:
@@ -225,28 +223,18 @@ func (p *Panels) drawSettingsHeader(f ui.C, theme ui.Theme, state domain.State) 
 		description = i18n.T("设置锁定密码与启动保护")
 	}
 	panelPageHeader(f, theme, title, description, func() {
-		if p.settingsTab != panelSettingsAbout {
+		if p.settingsTab != panelSettingsAbout && (p.pending != nil || p.saveFailed) {
 			p.drawSettingsSaveStatus(f, theme)
 		}
 	})
 }
 
 func (p *Panels) drawSettingsSaveStatus(f ui.C, theme ui.Theme) {
-	text := i18n.T("已保存")
-	tone := theme.Success
-	showCheck := true
-	switch {
-	case p.pending != nil:
-		text, tone, showCheck = i18n.T("保存中"), theme.MutedForeground, false
-	case p.saveFailed:
-		text, tone, showCheck = i18n.T("保存失败"), theme.Danger, false
+	text, tone := i18n.T("保存中"), theme.MutedForeground
+	if p.saveFailed {
+		text, tone = i18n.T("保存失败"), theme.Danger
 	}
-	ui.Row(f).Gap(6).Items(ui.Center).Children(func() {
-		if showCheck {
-			ui.Icon(f, panelIconCheck).Size(15, 15).Color(tone)
-		}
-		ui.Text(f, text).FontSize(theme.Metrics.FontSizeS + 1).Color(tone)
-	})
+	ui.Text(f, text).FontSize(theme.Metrics.FontSizeS + 1).Color(tone)
 }
 
 func (p *Panels) settingsFooterText() string {
@@ -397,8 +385,6 @@ func (p *Panels) drawSettingsNetwork(f ui.C, theme ui.Theme, state domain.State,
 		}
 		if p.networkReadError != "" {
 			description += i18n.T("；无法读取网络接口：") + p.networkReadError
-		} else if state.ListenAddress != "" {
-			description += i18n.T("；当前监听 ") + state.ListenAddress
 		}
 		options, selected := p.networkChoicesFor(settings.Network)
 		p.settingsRow(f, theme, i18n.T("使用的网络"), description, func() {
@@ -686,7 +672,6 @@ func (p *Panels) chooseDownloadDirectory(canvas *gfx.Canvas, submit func(domain.
 			return
 		}
 		p.localError = ""
-		p.localNotice = ""
 		p.submitString(submit, state, "download_dir", path)
 	})
 }

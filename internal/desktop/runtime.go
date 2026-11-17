@@ -1,55 +1,63 @@
 package desktop
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/vivaui/viva/gfx"
-	"goim/internal/i18n"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/components"
+	"github.com/vivaui/viva/gfx"
+
+	"goim/internal/buildinfo"
 	"goim/internal/domain"
+	"goim/internal/i18n"
 )
 
 type desktopRuntime struct {
-	ui                *UI
-	backend           domain.Backend
-	application       *app.Application
-	window            *app.Window
-	tray              *app.StatusItem
-	seen              map[string]bool
-	badge             int
-	trayLanguage      string
-	global            string
-	stopGlobal        func()
-	screenshotGlobal  string
-	stopScreenshot    func()
-	notificationError bool
-	trayNormal        app.StatusIcon
-	trayFlash         app.StatusIcon
-	flashTimer        *time.Timer
-	flashDue          time.Time
-	flashUntil        time.Time
-	flashOn           bool
-	screenshotRunning atomic.Bool
-	viewerWindow      *app.Window
-	viewerWake        app.Invalidator
-	viewerPending     bool
-	viewerSavePath    string
-	viewerSaving      bool
+	ui                 *UI
+	backend            domain.Backend
+	application        *app.Application
+	window             *app.Window
+	tray               *app.StatusItem
+	seen               map[string]bool
+	badge              int
+	trayLanguage       string
+	global             string
+	globalRejected     string
+	stopGlobal         func()
+	screenshotGlobal   string
+	screenshotRejected string
+	stopScreenshot     func()
+	notificationError  bool
+	trayNormal         app.StatusIcon
+	trayFlash          app.StatusIcon
+	flashTimer         *time.Timer
+	flashDue           time.Time
+	flashUntil         time.Time
+	flashOn            bool
+	screenshotRunning  atomic.Bool
+	viewerWindow       *app.Window
+	viewerWake         app.Invalidator
+	viewerPending      bool
+	viewerSavePath     string
+	viewerSaving       bool
 }
 
 // Run owns the native window and optional tray. The same lifecycle is exercised
 // by the vivahead runner without opening a real window or using the OS tray.
-func Run(backend domain.Backend) error {
+func Run(backend domain.Backend, restartArguments []string) error {
 	shell := New(backend)
 	defer shell.Close()
 	icon, statusIcon := windowIcon(), trayIcon()
 	r := &desktopRuntime{ui: shell, backend: backend, seen: make(map[string]bool), badge: -1, trayNormal: statusIcon, trayFlash: attentionIcon(statusIcon)}
+	shell.updater = newUpdateController(buildinfo.Current().Version, buildinfo.UpdatePublicKey, shell.invalidator.Invalidate)
+	shell.screenshotActive = r.screenshotRunning.Load
+	shell.restartArguments = restartArguments
+	defer shell.updater.stop()
 	for _, m := range shell.state.Messages {
 		r.seen[m.ID] = true
 	}
@@ -97,6 +105,10 @@ func Run(backend domain.Backend) error {
 			if wake != nil {
 				wake()
 			}
+			if shell.update.quit {
+				application.Quit()
+				return
+			}
 			r.observe()
 			r.tickAttention(time.Now())
 			r.syncViewer()
@@ -107,13 +119,7 @@ func Run(backend domain.Backend) error {
 				r.window.Hide()
 				return
 			}
-			active := false
-			for _, t := range shell.state.Transfers {
-				if t.Status == "transferring" || t.Status == "verifying" {
-					active = true
-				}
-			}
-			if active && !shell.state.Locked {
+			if hasActiveTransfers(shell.state.Transfers) && !shell.state.Locked {
 				shell.confirm = confirmation{open: true, title: i18n.T("退出 GoIM？"), body: i18n.T("进行中的文件传输将中断，重新连接后可继续。"), action: application.Quit}
 				shell.invalidator.Invalidate()
 				return
@@ -133,13 +139,7 @@ func Run(backend domain.Backend) error {
 		show := func() { r.stopAttention(); window.Show(); shell.SetWindowVisible(true) }
 		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: i18n.T("GoIM · 局域网即时通讯"), Icon: statusIcon, OnClick: func(app.StatusClick) { show() }, Menu: func() []app.MenuItem {
 			return []app.MenuItem{{Title: i18n.T("打开 GoIM"), OnSelect: show}, {Separator: true}, {Title: i18n.T("退出 GoIM"), OnSelect: func() {
-				active := false
-				for _, t := range shell.state.Transfers {
-					if t.Status == "transferring" || t.Status == "verifying" {
-						active = true
-					}
-				}
-				if active && !shell.state.Locked {
+				if hasActiveTransfers(shell.state.Transfers) && !shell.state.Locked {
 					show()
 					shell.confirm = confirmation{open: true, title: i18n.T("退出 GoIM？"), body: i18n.T("进行中的文件传输将中断，重新连接后可继续。"), action: application.Quit}
 					shell.invalidator.Invalidate()
@@ -280,7 +280,7 @@ func (r *desktopRuntime) applyGlobal(s domain.State) {
 			screenshot = key.Keys
 		}
 	}
-	r.applyGlobalShortcut("显示或隐藏窗口", desired, &r.global, &r.stopGlobal, func() {
+	r.applyGlobalShortcut("显示或隐藏窗口", desired, &r.global, &r.globalRejected, &r.stopGlobal, func() {
 		if r.window.Hidden() || r.window.Minimized() {
 			r.stopAttention()
 			r.window.Show()
@@ -291,15 +291,20 @@ func (r *desktopRuntime) applyGlobal(s domain.State) {
 		}
 	})
 	r.applyGlobalShortcut(domain.ShortcutScreenshot, screenshot,
-		&r.screenshotGlobal, &r.stopScreenshot, func() { r.launchScreenshot() })
+		&r.screenshotGlobal, &r.screenshotRejected, &r.stopScreenshot, func() { r.launchScreenshot() })
 }
 
-func (r *desktopRuntime) applyGlobalShortcut(action, desired string, current *string,
+func (r *desktopRuntime) applyGlobalShortcut(action, desired string, current, rejected *string,
 	stopCurrent *func(), callback func()) {
 	if strings.EqualFold(desired, *current) {
+		*rejected = ""
+		return
+	}
+	if desired != "" && strings.EqualFold(desired, *rejected) {
 		return
 	}
 	if desired == "" {
+		*rejected = ""
 		if *stopCurrent != nil {
 			(*stopCurrent)()
 			*stopCurrent = nil
@@ -313,15 +318,12 @@ func (r *desktopRuntime) applyGlobalShortcut(action, desired string, current *st
 		stop, err = app.RegisterGlobalShortcut(shortcut, callback)
 	}
 	if err != nil {
-		keys := append([]domain.Shortcut(nil), r.ui.state.Settings.Shortcuts...)
-		for i := range keys {
-			if keys[i].Action == action {
-				keys[i].Keys = *current
-			}
+		*rejected = desired
+		detail := i18n.T(action) + " · " + desired
+		if *current != "" {
+			detail += " · " + i18n.T("原快捷键仍可用")
 		}
-		data, _ := json.Marshal(keys)
-		r.backend.Submit(domain.Command{Kind: domain.SetSetting, Setting: "shortcuts", Value: string(data)})
-		r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T(action) + i18n.T("快捷键不可用，已保留之前的设置：") + err.Error()})
+		r.ui.showToast(i18n.T("无法注册全局快捷键"), detail, components.ToastWarning)
 		return
 	}
 	if *stopCurrent != nil {
@@ -329,4 +331,5 @@ func (r *desktopRuntime) applyGlobalShortcut(action, desired string, current *st
 	}
 	*stopCurrent = stop
 	*current = desired
+	*rejected = ""
 }

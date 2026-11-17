@@ -700,6 +700,7 @@ func TestPasswordKeysInSecuritySettingsAndUnlock(t *testing.T) {
 	h.clickID(h.ui.ids.navSettings)
 	h.clickID(h.ui.panels.ids.settingsCategories.At(int(panelSettingsSecurity)))
 	fields := &h.ui.panels.settingsExtra
+	h.clickID(fields.passwordTrigger)
 	typePasswordKeys(t, h, fields.passwordOld, "Pass-123!")
 	typePasswordKeys(t, h, fields.passwordNew, "Next-456?")
 	typePasswordKeys(t, h, fields.passwordRepeat, "Next-456?")
@@ -709,6 +710,24 @@ func TestPasswordKeysInSecuritySettingsAndUnlock(t *testing.T) {
 	change, ok := findShellCommand(h.backend.commandLog(), domain.SetLockPassword)
 	if !ok || change.Password != "Pass-123!" || change.Text != "Next-456?" {
 		t.Fatal("typed password change did not submit both values")
+	}
+	state.LockResult = domain.LockResult{Request: change.Request, Error: "当前密码不正确"}
+	state.Revision++
+	h.publish(state)
+	if !fields.passwordOpen || fields.old.Text() != "" || !h.hasText("当前密码不正确") {
+		t.Fatal("password failure did not keep the dialog open and clear the old password")
+	}
+	typePasswordKeys(t, h, fields.passwordOld, "Pass-123!")
+	h.clickID(fields.passwordSave)
+	retry := h.lastCommand()
+	if retry.Request == change.Request {
+		t.Fatal("password retry reused the previous request")
+	}
+	state.LockResult = domain.LockResult{Request: retry.Request}
+	state.Revision++
+	h.publish(state)
+	if fields.passwordOpen || fields.password.Text() != "" {
+		t.Fatal("successful password change did not close and clear the dialog")
 	}
 
 	state.Locked = true

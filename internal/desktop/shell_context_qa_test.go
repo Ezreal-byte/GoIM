@@ -112,6 +112,17 @@ func TestShellContextScreenshotQA(t *testing.T) {
 
 	shellQAClick(t, session, shell.ids.navMessages)
 	shellQAShot(t, session, directory, "shell-chat-background-light.png")
+	shellQAClick(t, session, shell.ids.navSettings)
+	shellQAClick(t, session, shell.panels.ids.settingsCategories.At(int(panelSettingsAbout)))
+	if err := session.Expect("text", "加入交流"); err != nil {
+		t.Fatal(err)
+	}
+	shellQAShot(t, session, directory, "shell-about-light.png")
+	if err := session.Scroll(gfx.ScrollEvent{X: 900, Y: 700, DeltaY: 720}); err != nil {
+		t.Fatal(err)
+	}
+	shellQAShot(t, session, directory, "shell-about-community-light.png")
+	shellQAClick(t, session, shell.ids.navMessages)
 	shellQARightClick(t, session, shell.convRowIDs["conv-alice"])
 	shellQAShot(t, session, directory, "shell-conversation-menu-light.png")
 	shellQAClick(t, session, shell.ids.shellMenuDelete)
@@ -139,6 +150,16 @@ func TestShellContextScreenshotQA(t *testing.T) {
 	shellQAEscape(t, darkSession)
 	shellQAClick(t, darkSession, darkShell.ids.navMessages)
 	shellQAShot(t, darkSession, directory, "shell-chat-background-dark.png")
+	shellQAClick(t, darkSession, darkShell.ids.navSettings)
+	shellQAClick(t, darkSession, darkShell.panels.ids.settingsCategories.At(int(panelSettingsAbout)))
+	if err := darkSession.Expect("text", "加入交流"); err != nil {
+		t.Fatal(err)
+	}
+	shellQAShot(t, darkSession, directory, "shell-about-dark.png")
+	if err := darkSession.Scroll(gfx.ScrollEvent{X: 900, Y: 700, DeltaY: 720}); err != nil {
+		t.Fatal(err)
+	}
+	shellQAShot(t, darkSession, directory, "shell-about-community-dark.png")
 
 	minimumState := shellTestState(t)
 	minimumShell, minimumSession := openShellQA(t, minimumState, 1000, 700)

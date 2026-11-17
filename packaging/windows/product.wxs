@@ -22,6 +22,8 @@
                   WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKMU" Key="Software\dev.goim.desktop\Installer"
                        Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+        <RegistryValue Root="HKMU" Key="Software\dev.goim.desktop\Installer"
+                       Name="InstallLocation" Type="string" Value="[INSTALLFOLDER]" />
       </Component>
     </StandardDirectory>
 

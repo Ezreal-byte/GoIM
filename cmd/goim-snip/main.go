@@ -117,6 +117,8 @@ func run(args []string, stderr io.Writer) int {
 		return 0
 	case outcomeCanceled:
 		return 2
+	case outcomeSaved:
+		return capture.ExitSaved
 	default:
 		return 1
 	}
@@ -189,7 +191,7 @@ func loadSource(options options) (sourceData, error) {
 			image:  picture,
 			bounds: bounds,
 			info: sourceInfo{
-				title:    "Imported PNG",
+				title:    i18n.T("导入的 PNG"),
 				detail:   filepath.Base(options.input),
 				imported: true,
 			},
@@ -225,9 +227,9 @@ func loadSource(options options) (sourceData, error) {
 	if err != nil {
 		return sourceData{}, fmt.Errorf("capture: %w", err)
 	}
-	title := "All displays"
+	title := i18n.T("所有屏幕")
 	if options.display >= 0 {
-		title = fmt.Sprintf("Display %d", options.display)
+		title = fmt.Sprintf(i18n.T("屏幕 %d"), options.display+1)
 	}
 	var dpi uint32
 	if len(desktop.Displays) > 0 {

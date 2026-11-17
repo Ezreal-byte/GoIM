@@ -242,6 +242,8 @@ type Panels struct {
 	settingsTab    panelSettingsTab
 	settingsScroll [panelSettingsCount]float32
 	settingsExtra  panelSettingsExtra
+	openUpdates    func(bool)
+	update         updateView
 	settingsWidth  float32
 	settingsNarrow bool
 	scrollTab      panelSettingsTab
@@ -275,6 +277,7 @@ type Panels struct {
 
 	localFiles  map[string]panelLocalFile
 	mediaSubmit func(mediaJob)
+	toast       func(title, description string, tone components.ToastType)
 
 	localActions    map[uint64]panelLocalAction
 	nextLocalAction uint64
@@ -300,11 +303,10 @@ type Panels struct {
 	listLanguage string
 	listDirty    bool
 
-	pending     *panelPendingSetting
-	saveFailed  bool
-	localError  string
-	localNotice string
-	build       panelBuildInfo
+	pending    *panelPendingSetting
+	saveFailed bool
+	localError string
+	build      panelBuildInfo
 }
 
 func (p *Panels) Init(tree *gfx.Tree) {
@@ -439,7 +441,6 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 		p.aboutLicense = false
 		p.networkChange = panelNetworkChange{}
 		p.localError = ""
-		p.localNotice = ""
 		p.transferMenu = ""
 		p.closeShareInteractions()
 		p.shareToast = shareToastState{}
@@ -487,6 +488,7 @@ func (p *Panels) OnWake(state domain.State) {
 	}
 	p.applyShareBrowserEvents()
 	p.observePending(state)
+	p.settingsExtra.observePassword(state)
 	previous := p.localFiles
 	paths := localFilePaths(state)
 	p.localFiles = make(map[string]panelLocalFile, len(paths))
@@ -511,6 +513,10 @@ func (p *Panels) setMediaSubmit(submit func(mediaJob)) {
 			kind: mediaJobFileAvailability, path: "", fileID: "share-browser-wake",
 		})
 	})
+}
+
+func (p *Panels) setToast(toast func(title, description string, tone components.ToastType)) {
+	p.toast = toast
 }
 
 func (p *Panels) setLocalFileAvailability(entries []mediaFileResult) {
@@ -651,14 +657,12 @@ func (p *Panels) submitString(submit func(domain.Command), state domain.State, s
 	submit(domain.Command{Kind: domain.SetSetting, Setting: setting, Value: value})
 	p.pending = &panelPendingSetting{kind: panelPendingValue, setting: setting, value: value, revision: state.Revision}
 	p.saveFailed = false
-	p.localNotice = ""
 }
 
 func (p *Panels) submitBool(submit func(domain.Command), state domain.State, setting string, value bool) {
 	submit(domain.Command{Kind: domain.SetSetting, Setting: setting, Bool: value})
 	p.pending = &panelPendingSetting{kind: panelPendingBool, setting: setting, boolean: value, revision: state.Revision}
 	p.saveFailed = false
-	p.localNotice = ""
 }
 
 func (p *Panels) submitShortcuts(submit func(domain.Command), state domain.State, shortcuts []domain.Shortcut) {
@@ -668,7 +672,6 @@ func (p *Panels) submitShortcuts(submit func(domain.Command), state domain.State
 		shortcut: append([]domain.Shortcut(nil), shortcuts...), revision: state.Revision,
 	}
 	p.saveFailed = false
-	p.localNotice = ""
 }
 
 func (p *Panels) submitResetShortcuts(submit func(domain.Command), state domain.State) {
@@ -1240,7 +1243,9 @@ func panelCopy(canvas *gfx.Canvas, p *Panels, text string) {
 			return
 		}
 		p.localError = ""
-		p.localNotice = i18n.T("已复制")
+		if p.toast != nil {
+			p.toast(i18n.T("已复制"), "", components.ToastSuccess)
+		}
 	})
 }
 
@@ -1430,12 +1435,6 @@ func (p *Panels) panelFeedback(f ui.C, theme ui.Theme, state domain.State, submi
 		panelBannerWithAction(f, theme, i18n.T(state.Error), true, clearError, func() {
 			submit(domain.Command{Kind: domain.ClearError})
 		})
-	}
-	if state.Notice != "" {
-		panelBanner(f, theme, i18n.T(state.Notice), false, nil)
-	}
-	if p.localNotice != "" {
-		panelBanner(f, theme, p.localNotice, false, nil)
 	}
 }
 

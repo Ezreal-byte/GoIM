@@ -19,16 +19,21 @@ var ErrInvalidShape = errors.New("capture: invalid annotation")
 // Document owns a screenshot, its current crop, annotations, and undo history.
 // It is intended for use on the UI thread.
 type Document struct {
-	source *image.RGBA
-	crop   image.Rectangle
-	shapes []Shape
-	undo   []undoEntry
+	source  *image.RGBA
+	crop    image.Rectangle
+	shapes  []Shape
+	history []edit
+	applied int
 }
 
-type undoEntry struct {
-	crop       image.Rectangle
-	shapeCount int
+type edit struct {
+	before, after image.Rectangle
+	shape         Shape
 }
+
+// ExitSaved is the companion's result after saving to a user-chosen path.
+// The parent leaves the clipboard untouched in this case.
+const ExitSaved = 3
 
 // NewDocument copies source into an owned RGBA image and selects the whole
 // image. Copying means later mutation of source cannot change what is exported.
@@ -68,6 +73,15 @@ func (document *Document) SourceBounds() image.Rectangle {
 // partly outside the source is clipped; a crop with no remaining area is
 // rejected. Setting the current crop is a no-op.
 func (document *Document) SetCrop(crop image.Rectangle) error {
+	return document.setCrop(crop, false)
+}
+
+// SelectCrop records an explicit initial selection, even for the full image.
+func (document *Document) SelectCrop(crop image.Rectangle) error {
+	return document.setCrop(crop, true)
+}
+
+func (document *Document) setCrop(crop image.Rectangle, explicit bool) error {
 	if document == nil || document.source == nil {
 		return ErrNoSource
 	}
@@ -75,11 +89,10 @@ func (document *Document) SetCrop(crop image.Rectangle) error {
 	if crop.Empty() {
 		return ErrInvalidCrop
 	}
-	if crop == document.crop {
+	if crop == document.crop && !explicit {
 		return nil
 	}
-	document.undo = append(document.undo, undoEntry{crop: document.crop, shapeCount: len(document.shapes)})
-	document.crop = crop
+	document.record(edit{before: document.crop, after: crop})
 	return nil
 }
 
@@ -91,9 +104,7 @@ func (document *Document) Add(shape Shape) error {
 	if err := shape.Validate(); err != nil {
 		return err
 	}
-	shape.Points = append([]Point(nil), shape.Points...)
-	document.undo = append(document.undo, undoEntry{crop: document.crop, shapeCount: len(document.shapes)})
-	document.shapes = append(document.shapes, shape)
+	document.record(edit{shape: shape.clone()})
 	return nil
 }
 
@@ -104,28 +115,56 @@ func (document *Document) Shapes() []Shape {
 	}
 	shapes := make([]Shape, len(document.shapes))
 	for index, shape := range document.shapes {
-		shapes[index] = shape
-		shapes[index].Points = append([]Point(nil), shape.Points...)
+		shapes[index] = shape.clone()
 	}
 	return shapes
 }
 
 // CanUndo reports whether Undo would change the document.
 func (document *Document) CanUndo() bool {
-	return document != nil && len(document.undo) > 0
+	return document != nil && document.applied > 0
+}
+
+// CanRedo reports whether an undone edit can be reapplied.
+func (document *Document) CanRedo() bool {
+	return document != nil && document.applied < len(document.history)
+}
+
+func (document *Document) record(change edit) {
+	clear(document.history[document.applied:])
+	document.history = append(document.history[:document.applied], change)
+	document.Redo()
 }
 
 // Undo restores the state before the latest crop or annotation change.
 func (document *Document) Undo() bool {
-	if document == nil || len(document.undo) == 0 {
+	if !document.CanUndo() {
 		return false
 	}
-	entry := document.undo[len(document.undo)-1]
-	document.undo = document.undo[:len(document.undo)-1]
-	if entry.shapeCount < len(document.shapes) {
-		document.shapes = document.shapes[:entry.shapeCount]
+	document.applied--
+	change := document.history[document.applied]
+	if change.shape.Kind != 0 {
+		i := len(document.shapes) - 1
+		document.shapes[i] = Shape{}
+		document.shapes = document.shapes[:i]
+	} else {
+		document.crop = change.before
 	}
-	document.crop = entry.crop
+	return true
+}
+
+// Redo reapplies the next edit. A fresh edit discards the redo branch.
+func (document *Document) Redo() bool {
+	if !document.CanRedo() {
+		return false
+	}
+	change := document.history[document.applied]
+	document.applied++
+	if change.shape.Kind != 0 {
+		document.shapes = append(document.shapes, change.shape)
+	} else {
+		document.crop = change.after
+	}
 	return true
 }
 

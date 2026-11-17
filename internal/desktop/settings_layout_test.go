@@ -64,6 +64,10 @@ func TestSettingsLayoutCapsWidthAndUses38DPControls(t *testing.T) {
 	}
 
 	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsSecurity)))
+	if _, visible := h.findHit(h.panels.settingsExtra.passwordNew); visible {
+		t.Fatal("password fields appeared before the dialog opened")
+	}
+	h.click(h.panels.settingsExtra.passwordTrigger)
 	password, ok := h.findHit(h.panels.settingsExtra.passwordNew)
 	if !ok {
 		t.Fatal("new-password field is not visible")
@@ -137,12 +141,14 @@ func TestManualConnectionSelectorKeepsTheDialogOpenOnEscape(t *testing.T) {
 	}
 	h.clickLabel("连接方式")
 	h.clickLabel("GoIM")
+	h.clickLabel("连接方式")
+	h.clickLabel("自动")
 	h.typeInto(h.ui.ids.connectField, "192.168.1.44")
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if command := h.lastCommand(); command.Kind != domain.Connect ||
-		command.Address != "192.168.1.44" || command.Transport != domain.TransportGoIM {
+		command.Address != "192.168.1.44" || command.Transport != domain.TransportAuto {
 		t.Fatalf("manual connection command = %+v", command)
 	}
 }

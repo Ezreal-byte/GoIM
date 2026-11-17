@@ -152,8 +152,15 @@ func TestSelectionOverlayClickSnapAndResizeAtScaledResolution(t *testing.T) {
 	if o.selection != want {
 		t.Fatalf("selection after edges and move = %v, want %v", o.selection, want)
 	}
-	clickControl(t, d, exportID)
-	f, err := os.Open(e.output)
+	target := filepath.Join(t.TempDir(), "overlay.png")
+	if err := d.QueueSaveFile(target, nil); err != nil {
+		t.Fatal(err)
+	}
+	clickControl(t, d, saveID)
+	if e.outcome != outcomeSaved {
+		t.Fatalf("overlay Save As outcome = %v: %s", e.outcome, e.notice)
+	}
+	f, err := os.Open(target)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,11 +210,11 @@ func TestSelectionOverlayWholeScreenAndUndo(t *testing.T) {
 	if err := d.Release(280, 290, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
-	if len(o.shapes) != 1 {
+	if len(e.document.Shapes()) != 1 {
 		t.Fatal("annotation was not committed to full screen")
 	}
 	clickControl(t, d, undoID)
-	if !o.selected || o.selection != e.document.SourceBounds() || len(o.shapes) != 0 {
+	if !o.selected || o.selection != e.document.SourceBounds() || len(e.document.Shapes()) != 0 {
 		t.Fatal("undo removed the full-screen selection with the annotation")
 	}
 	clickControl(t, d, undoID)
