@@ -1,13 +1,17 @@
 package desktop
 
 import (
-	"github.com/vivaui/viva/gfx"
+	"errors"
 	"strings"
+	"time"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/components"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/buildinfo"
+	"goim/internal/diagnostics"
 	"goim/internal/domain"
 	"goim/internal/i18n"
 )
@@ -21,36 +25,18 @@ type panelBuildInfo struct {
 	revision    string
 	revisionDay string
 	buildTime   string
-	ciRef       string
-	ciRunID     string
-	ciURL       string
 }
 
-// The project's stable destinations live together so the cards and their copy
-// text cannot drift. QQ and WeChat deliberately have no URL until a real group
-// is opened.
-var aboutProject = struct {
-	repository  string
-	issues      string
-	communities []aboutCommunity
-}{
-	repository: buildinfo.RepositoryURL,
-	issues:     buildinfo.IssuesURL,
-	communities: []aboutCommunity{
-		{name: "QQ 群"},
-		{name: "微信群"},
-	},
-}
-
-type aboutCommunity struct {
-	name string
-	url  string
-}
+const (
+	aboutSite   = "https://ezreal-byte.github.io/GoIM/"
+	aboutQQ     = "1084364974"
+	aboutQQURL  = "https://qm.qq.com/cgi-bin/qm/qr?k=&group_code=" + aboutQQ
+	aboutWeChat = "https://www.kdocs.cn/l/cdcdb0XI3TTt"
+)
 
 type aboutFact struct {
 	label string
 	value string
-	url   string
 }
 
 const aboutTwoColumnMin = float32(panelSettingsWidth + 700)
@@ -66,9 +52,6 @@ func panelReadBuildInfo() panelBuildInfo {
 		revision:    facts.Revision,
 		revisionDay: facts.CommitTime,
 		buildTime:   facts.BuildTime,
-		ciRef:       facts.CIRef,
-		ciRunID:     facts.CIRunID,
-		ciURL:       facts.CIURL,
 	}
 }
 
@@ -96,10 +79,19 @@ func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, s
 		if namedButton(f, p.ids.aboutLicense, i18n.T("开源许可")).Small().Outline().Clicked() {
 			p.aboutLicense = true
 			p.localError = ""
-			p.localNotice = ""
 		}
 	})
 
+	panelSectionGap(f)
+	p.drawUpdateSettings(f, theme, state, submit)
+	panelSectionGap(f)
+	p.settingsRow(f, theme, i18n.T("诊断与反馈"),
+		i18n.T("遇到问题时导出脱敏报告，仅保留版本、协议状态、适配器和数据计数，不含聊天内容、联系人、完整地址、文件路径或凭据。"),
+		func() {
+			if namedButton(f, p.ids.aboutDiagnostics, i18n.T("导出脱敏报告")).Small().Outline().Clicked() {
+				p.exportDiagnostics(f.Canvas(), state)
+			}
+		})
 	panelSectionGap(f)
 	panelSection(f, i18n.T("构建信息"), i18n.T("点击任一卡片可复制完整的构建信息。"), func() {
 		facts := []aboutFact{
@@ -109,8 +101,7 @@ func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, s
 			{label: i18n.T("源码提交"), value: panelRevision(p.build)},
 			{label: "Go", value: panelValue(p.build.goVersion)},
 			{label: "Viva", value: panelViva(p.build)},
-			{label: i18n.T("构建时间"), value: panelValue(p.build.buildTime)},
-			{label: i18n.T("CI 运行"), value: panelCIValue(p.build), url: p.build.ciURL},
+			{label: i18n.T("构建时间"), value: panelBuildTime(p.build.buildTime)},
 		}
 		p.aboutFactGrid(f, theme, facts, func() {
 			panelCopy(f.Canvas(), p, panelVersionReport(state, p.build))
@@ -118,24 +109,90 @@ func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, s
 	})
 
 	panelSectionGap(f)
-	panelSection(f, i18n.T("项目与支持"), i18n.T("源码与问题跟踪使用 GitHub；群聊入口确认后再开放。"), func() {
-		items := []aboutLinkItem{
-			{id: "project-repository", name: i18n.T("GitHub 仓库"), desc: i18n.T("查看源码、版本与发布记录"), url: aboutProject.repository},
-			{id: "project-issues", name: i18n.T("问题反馈"), desc: i18n.T("报告问题并跟进修复"), url: aboutProject.issues},
-		}
-		for _, community := range aboutProject.communities {
-			items = append(items, aboutLinkItem{
-				id:   "community-" + community.name,
-				name: i18n.T(community.name),
-				desc: i18n.T("待开放"),
-				url:  community.url,
-			})
-		}
-		p.aboutLinkGrid(f, theme, items)
+	panelSection(f, i18n.T("加入交流"), "", func() {
+		p.aboutLinkGrid(f, theme, []aboutLinkItem{
+			{id: "community-qq", name: i18n.T("QQ 群"), desc: aboutQQ, url: aboutQQURL, mark: aboutQQLinkMark},
+			{id: "community-wechat", name: i18n.T("微信群"), desc: i18n.T("查看入群方式"), url: aboutWeChat, mark: aboutWeChatLinkMark},
+		})
+	})
+	panelSectionGap(f)
+	panelSection(f, i18n.T("项目"), "", func() {
+		p.aboutLinkGrid(f, theme, []aboutLinkItem{
+			{id: "project-site", name: i18n.T("项目官网"), desc: i18n.T("了解和下载 GoIM"), url: aboutSite},
+			{id: "project-repository", name: i18n.T("GitHub 仓库"), desc: i18n.T("查看源码、版本与发布记录"), url: buildinfo.RepositoryURL, mark: aboutGitHubLinkMark},
+			{
+				id: "project-issues", name: i18n.T("问题反馈"), desc: i18n.T("报告问题并跟进修复"), url: buildinfo.IssuesURL,
+				mark: &aboutLinkMark{
+					icon: CircleAlert, chip: theme.Background.Mix(theme.Primary, 0.15), ink: theme.Primary, size: 19,
+				},
+			},
+		})
 	})
 
 	ui.Paragraph(f, i18n.T("复制的内容只包含版本与构建信息，不包含聊天内容、联系人、文件路径或本机地址。"), 3).
 		Muted().FontSize(theme.Metrics.FontSizeS)
+}
+
+func (p *Panels) exportDiagnostics(canvas *gfx.Canvas, state domain.State) {
+	canvas.AfterPaint(func() {
+		now := time.Now()
+		path, err := app.SaveFile(app.SaveFileOptions{
+			Title:            i18n.T("导出脱敏诊断报告"),
+			SuggestedName:    "goim-diagnostics-" + now.In(aboutTZ).Format("20060102-1504") + ".txt",
+			DefaultExtension: "txt",
+			Filters:          []app.FileFilter{{Name: i18n.T("文本文件"), Pattern: "*.txt"}},
+		})
+		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) {
+			return
+		}
+		if err != nil {
+			p.localError = i18n.T("无法创建诊断报告：") + err.Error()
+			p.invalidateDiagnostics()
+			return
+		}
+		dataDir := ""
+		if p.diagnosticDataDir != nil {
+			dataDir = p.diagnosticDataDir()
+		}
+		report := diagnostics.Build(diagnostics.Input{
+			Now:                    now,
+			Build:                  diagnosticsBuildInfo(p.build),
+			State:                  state,
+			Autostart:              p.autostartDiagnosticState(),
+			InterfaceFontSupported: p.settingsExtra.interfaceFont.supported,
+			DataDir:                dataDir,
+		})
+		if err := diagnostics.WritePrivateFile(path, report); err != nil {
+			p.localError = i18n.T("无法保存诊断报告：") + err.Error()
+			p.invalidateDiagnostics()
+			return
+		}
+		p.localError = ""
+		if p.toast != nil {
+			p.toast(i18n.T("诊断报告已保存"), i18n.T("可发送给开发者协助排查问题。"), components.ToastSuccess)
+		} else {
+			p.invalidateDiagnostics()
+		}
+	})
+}
+
+func (p *Panels) invalidateDiagnostics() {
+	if p.invalidate != nil {
+		p.invalidate()
+	}
+}
+
+func diagnosticsBuildInfo(build panelBuildInfo) buildinfo.Info {
+	return buildinfo.Info{
+		Version:     build.version,
+		Platform:    build.platform,
+		Source:      build.source,
+		Revision:    build.revision,
+		CommitTime:  build.revisionDay,
+		GoVersion:   build.goVersion,
+		VivaVersion: build.vivaVersion,
+		BuildTime:   build.buildTime,
+	}
 }
 
 func (p *Panels) aboutFactGrid(f ui.C, theme ui.Theme, facts []aboutFact, copyAll func()) {
@@ -165,15 +222,11 @@ func (p *Panels) aboutFactGrid(f ui.C, theme ui.Theme, facts []aboutFact, copyAl
 }
 
 func (p *Panels) aboutFactCard(f ui.C, theme ui.Theme, id gfx.ID, fact aboutFact, copyAll func()) {
-	role, hint := gfx.RoleButton, i18n.T("复制构建信息")
-	if fact.url != "" {
-		role, hint = gfx.RoleLink, i18n.T("在浏览器中打开")
-	}
 	card := ui.Column(f).FillWidth().MinHeight(74).PadSides(12, 12, 12, 12).Gap(4).
 		Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl).
 		Hover(ui.Look{}.Background(theme.Hover)).
 		HitWith(id, fact.label+"："+fact.value, gfx.HitOptions{
-			Role: role, Cursor: gfx.PointerCursorHand, Hint: hint,
+			Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Hint: i18n.T("复制构建信息"),
 		})
 	card.Children(func() {
 		ui.Text(f, fact.label).Muted().FontSize(theme.Metrics.FontSizeS)
@@ -183,19 +236,42 @@ func (p *Panels) aboutFactCard(f ui.C, theme ui.Theme, id gfx.ID, fact aboutFact
 		card.Stroke(1.5, theme.Ring)
 	}
 	if card.Clicked() {
-		if fact.url != "" {
-			p.openAboutURL(f.Canvas(), fact.url)
-		} else {
-			copyAll()
-		}
+		copyAll()
 	}
 }
+
+// aboutLinkMark mirrors Motty's brand marks: each logo keeps the chip color,
+// ink and visual size chosen for it, so the artwork is not flattened by one
+// shared page tint.
+type aboutLinkMark struct {
+	icon gfx.Icon
+	chip gfx.Color
+	ink  gfx.Color
+	size float32
+}
+
+var (
+	aboutBrandMarkTile = gfx.RGB(0xFF, 0xFF, 0xFF)
+	aboutBrandMarkInk  = gfx.RGB(0xFF, 0xFF, 0xFF)
+
+	aboutQQLinkMark = &aboutLinkMark{
+		icon: AboutQq, chip: aboutBrandMarkTile, ink: aboutBrandMarkInk, size: 21,
+	}
+	aboutWeChatLinkMark = &aboutLinkMark{
+		icon: AboutWechat, chip: gfx.RGB(0x07, 0xC1, 0x60), ink: aboutBrandMarkInk, size: 16,
+	}
+	aboutGitHubLinkMark = &aboutLinkMark{
+		icon: AboutGithub, chip: aboutBrandMarkTile, ink: gfx.RGB(0x18, 0x17, 0x17), size: 17,
+	}
+)
 
 type aboutLinkItem struct {
 	id   string
 	name string
 	desc string
 	url  string
+	copy string
+	mark *aboutLinkMark
 }
 
 func (p *Panels) aboutLinkGrid(f ui.C, theme ui.Theme, items []aboutLinkItem) {
@@ -226,33 +302,42 @@ func (p *Panels) aboutLinkGrid(f ui.C, theme ui.Theme, items []aboutLinkItem) {
 
 func (p *Panels) aboutLinkCard(f ui.C, theme ui.Theme, item aboutLinkItem) {
 	id := p.ids.aboutCards.ID(p.tree.Name(item.id))
-	available := item.url != ""
-	card := ui.Row(f).FillWidth().MinHeight(62).PadSides(12, 12, 12, 12).Gap(10).Items(ui.Center).
-		Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl)
-	if available {
-		card = card.Hover(ui.Look{}.Background(theme.Hover)).
-			HitWith(id, item.name+"："+item.desc, gfx.HitOptions{
-				Role: gfx.RoleLink, Cursor: gfx.PointerCursorHand, Hint: i18n.T("在浏览器中打开"),
-			})
-	} else {
-		card = card.HitWith(id, item.name+"："+item.desc, gfx.HitOptions{
-			Role: gfx.RoleButton, Disabled: true, Hint: i18n.T("待开放"),
-		})
+	role, hint, action := gfx.RoleLink, i18n.T("在浏览器中打开"), &ExternalLink
+	if item.copy != "" {
+		role, hint, action = gfx.RoleButton, i18n.T("复制群号"), &Copy
 	}
+	card := ui.Row(f).FillWidth().MinHeight(62).PadSides(12, 12, 12, 12).Gap(10).Items(ui.Center).
+		Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl).
+		Hover(ui.Look{}.Background(theme.Hover)).
+		HitWith(id, item.name+"："+item.desc, gfx.HitOptions{
+			Role: role, Cursor: gfx.PointerCursorHand, Hint: hint,
+		})
 	card.Children(func() {
+		if item.mark == nil {
+			ui.Stack(f).Size(34, 34).Radius(9).Clip().Children(func() {
+				ui.Image(f, titleMark).Fill()
+			})
+		} else {
+			ui.Row(f).Size(34, 34).Radius(9).Items(ui.Center).Justify(ui.Center).
+				Background(item.mark.chip).Children(func() {
+				ui.Icon(f, item.mark.icon).Size(item.mark.size, item.mark.size).Color(item.mark.ink)
+			})
+		}
 		ui.Column(f).Grow(1).Gap(2).Children(func() {
 			ui.Text(f, item.name).FontSize(theme.Metrics.FontSizeS + 2).Weight(gfx.WeightMedium)
 			ui.Text(f, item.desc).Muted().FontSize(theme.Metrics.FontSizeS).Ellipsis()
 		})
-		if available {
-			ui.Icon(f, ExternalLink).Size(15, 15).Color(theme.MutedForeground)
-		}
+		ui.Icon(f, *action).Size(15, 15).Color(theme.MutedForeground)
 	})
 	if f.Canvas().FocusVisible() == id {
 		card.Stroke(1.5, theme.Ring)
 	}
-	if available && card.Clicked() {
-		p.openAboutURL(f.Canvas(), item.url)
+	if card.Clicked() {
+		if item.copy != "" {
+			panelCopy(f.Canvas(), p, item.copy)
+		} else {
+			p.openAboutURL(f.Canvas(), item.url)
+		}
 	}
 }
 
@@ -263,7 +348,6 @@ func (p *Panels) openAboutURL(canvas *gfx.Canvas, target string) {
 			return
 		}
 		p.localError = ""
-		p.localNotice = ""
 	})
 }
 
@@ -277,8 +361,7 @@ func panelVersionReport(state domain.State, build panelBuildInfo) string {
 		i18n.T("提交日期") + ": " + panelValue(build.revisionDay),
 		"Go " + panelValue(build.goVersion),
 		"Viva " + panelViva(build),
-		i18n.T("构建时间") + ": " + panelValue(build.buildTime),
-		i18n.T("CI 链接") + ": " + panelValue(build.ciURL),
+		i18n.T("构建时间") + ": " + panelBuildTime(build.buildTime),
 	}, "\n")
 }
 
@@ -296,14 +379,7 @@ func panelDisplayVersion(fromState, fromBuild string) string {
 func panelBuildSource(build panelBuildInfo) string {
 	switch build.source {
 	case buildinfo.SourceGitHubActions:
-		parts := []string{"GitHub Actions"}
-		if build.ciRef != "" {
-			parts = append(parts, build.ciRef)
-		}
-		if build.ciRunID != "" {
-			parts = append(parts, "run "+build.ciRunID)
-		}
-		return strings.Join(parts, " · ")
+		return "GitHub Actions"
 	case buildinfo.SourceLocal:
 		return i18n.T("本地构建")
 	case "":
@@ -331,11 +407,14 @@ func panelViva(build panelBuildInfo) string {
 	return panelValue(build.vivaVersion)
 }
 
-func panelCIValue(build panelBuildInfo) string {
-	if build.ciURL == "" {
+var aboutTZ = time.FixedZone("GMT+8", 8*60*60)
+
+func panelBuildTime(utc string) string {
+	t, err := time.Parse("2006-01-02 15:04 UTC", utc)
+	if err != nil {
 		return i18n.T("未提供")
 	}
-	return i18n.T("打开 CI 运行")
+	return t.In(aboutTZ).Format("2006-01-02 15:04 MST")
 }
 
 func panelShortRevision(value string) string {

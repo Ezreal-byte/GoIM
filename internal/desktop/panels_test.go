@@ -64,6 +64,7 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 	h.panels.updateLists(state)
 	h.media = newMediaWorker(func() { h.wake.Invalidate() })
 	h.panels.setMediaSubmit(h.media.submitOne)
+	h.panels.setInvalidator(h.wake.Invalidate)
 	t.Cleanup(h.media.close)
 	driver, err := app.NewDriver(app.Config{
 		Title:  "panel driver test",
@@ -75,6 +76,7 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 		},
 		OnKey:       h.panels.Key,
 		OnShortcut:  h.panels.Shortcut,
+		OnPointer:   h.panels.Pointer,
 		OnScroll:    h.panels.Wheel,
 		TextInput:   h.panels.TextInput,
 		OnWake:      h.onWake,

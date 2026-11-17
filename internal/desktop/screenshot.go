@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/app"
+	"goim/internal/capture"
 
 	"goim/internal/domain"
 	"goim/internal/i18n"
@@ -47,8 +48,11 @@ func (r *desktopRuntime) launchScreenshot() {
 		command.Stderr = &stderr
 		if err := command.Run(); err != nil {
 			var exit *exec.ExitError
-			if errors.As(err, &exit) && exit.ExitCode() == 2 {
-				return
+			if errors.As(err, &exit) {
+				switch exit.ExitCode() {
+				case 2, capture.ExitSaved:
+					return
+				}
 			}
 			detail := strings.TrimSpace(stderr.String())
 			if detail == "" {

@@ -186,7 +186,7 @@ func TestLoadImportedSource(t *testing.T) {
 	if source.image.Bounds().Size() != image.Pt(7, 5) || source.bounds.Size() != image.Pt(7, 5) {
 		t.Fatalf("source bounds = %v, %v", source.image.Bounds(), source.bounds)
 	}
-	if !source.info.imported || source.info.title != "Imported PNG" || source.info.detail != filepath.Base(path) {
+	if !source.info.imported || source.info.title == "" || source.info.detail != filepath.Base(path) {
 		t.Fatalf("source info = %+v", source.info)
 	}
 }

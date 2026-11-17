@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 
 	"goim/internal/buildinfo"
@@ -38,6 +39,10 @@ func run() error {
 		fmt.Println("GoIM " + version)
 		return nil
 	}
+	restart, err := restartArguments(flag.CommandLine)
+	if err != nil {
+		return err
+	}
 	n, err := core.New(core.Options{
 		DataDir: *data, Listen: *listen, Name: *name,
 		DisableDiscovery: *noDiscovery, DisableIPMSG: *noIPMSG,
@@ -53,5 +58,25 @@ func run() error {
 			n.Connect(address)
 		}
 	}
-	return desktop.Run(n)
+	return desktop.Run(n, restart)
+}
+
+// A replacement process can start in a different working directory. Preserve
+// the meaning of GoIM's two directory flags when the installer relaunches it.
+func restartArguments(flags *flag.FlagSet) ([]string, error) {
+	args := make([]string, 0, flags.NFlag())
+	var pathErr error
+	flags.Visit(func(f *flag.Flag) {
+		value := f.Value.String()
+		if value != "" && (f.Name == "data-dir" || f.Name == "download-dir") {
+			path, err := filepath.Abs(value)
+			if err != nil {
+				pathErr = fmt.Errorf("resolve --%s: %w", f.Name, err)
+				return
+			}
+			value = path
+		}
+		args = append(args, "--"+f.Name+"="+value)
+	})
+	return args, pathErr
 }

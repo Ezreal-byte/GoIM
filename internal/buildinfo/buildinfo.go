@@ -26,9 +26,12 @@ var (
 	CommitTime = ""
 	Source     = SourceLocal
 	BuildTime  = ""
-	CIRef      = ""
-	CIRunID    = ""
-	CIURL      = ""
+	// UpdatePublicKey is injected into packaged releases. A development build
+	// with no key never checks or installs network updates.
+	UpdatePublicKey = ""
+	CIRef           = ""
+	CIRunID         = ""
+	CIURL           = ""
 )
 
 // Info is the complete, read-only description of this executable.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 
@@ -151,7 +152,6 @@ func (u *UI) drawChatEmpty(f ui.C) {
 			}
 		})
 		ui.Row(f).Height(10)
-		u.connectionPill(f)
 	})
 }
 
@@ -246,24 +246,7 @@ func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 }
 
 func (u *UI) drawChatNotice(f ui.C) {
-	notice := u.localNotice
-	if notice == "" {
-		notice = u.state.Notice
-		if notice == "已保存" || notice == "个人资料已保存" {
-			notice = ""
-		}
-	}
-	if u.state.Error == "" || u.localNotice != "" {
-		if notice == "" {
-			return
-		}
-		ui.Row(f).FillWidth().PadSides(8, 28, 8, 28).Height(34).Children(func() {
-			ui.Row(f).Fill().PadX(12).Radius(8).Background(u.palette.fileCard).Items(ui.Center).Gap(8).
-				Children(func() {
-					ui.Icon(f, u.iconCircleCheck).Size(15, 15).Color(u.palette.success)
-					ui.Text(f, notice).FontSize(12).Color(u.palette.secondaryText).Ellipsis()
-				})
-		})
+	if u.state.Error == "" {
 		return
 	}
 	ui.Row(f).FillWidth().PadSides(8, 28, 8, 28).Height(38).Children(func() {
@@ -593,15 +576,11 @@ func (u *UI) drawComposer(f ui.C, conversation domain.Conversation) {
 	hasText := u.chatEditor != nil && strings.TrimSpace(u.chatEditor.String()) != ""
 	composer := ui.Column(f).FillWidth().FillHeight().PadSides(2, 9, 8, 9).
 		Background(u.palette.header).Children(func() {
-		border := u.theme.Border
-		if u.fieldFocused(&u.chatEditorField) {
-			border = u.palette.selectedText
-		}
-		ui.Column(f).Fill().Radius(11).Border(1, border).Background(u.palette.header).
+		ui.Column(f).Fill().Radius(11).Background(u.palette.header).
 			PadSides(1, 5, 4, 5).Children(func() {
 			editor := ui.TextArea(f, &u.chatEditorField,
 				i18n.T("消息输入框"), i18n.T("输入消息…")).
-				FillWidth().Grow(1).Basis(0).MinHeight(40)
+				FillWidth().Grow(1).Basis(0).MinHeight(40).Border(0, gfx.Color{})
 			u.mentionEditor = editor
 
 			ui.Row(f).Height(34).Items(ui.Center).Gap(3).Children(func() {
@@ -617,10 +596,10 @@ func (u *UI) drawComposer(f ui.C, conversation domain.Conversation) {
 					}
 				}
 				if imageButton.Clicked() {
-					u.chooseChatFiles(true)
+					u.chooseChatFiles(f.Canvas(), true)
 				}
 				if fileButton.Clicked() {
-					u.chooseChatFiles(false)
+					u.chooseChatFiles(f.Canvas(), false)
 				}
 				if snip.Clicked() && u.requestScreenshot != nil {
 					u.requestScreenshot()
@@ -767,10 +746,11 @@ func (u *UI) setChatEditorText(value string) {
 	u.chatInput.State = app.TextStateOf(u.chatEditor)
 }
 
-func (u *UI) chooseChatFiles(imagesOnly bool) {
+func (u *UI) chooseChatFiles(canvas *gfx.Canvas, imagesOnly bool) {
 	if u.selected == "" || u.chatReadOnlyReason(u.state.Conversation(u.selected)) != "" {
 		return
 	}
+	conversationID := u.selected
 	options := app.OpenFileOptions{
 		Title:         i18n.T("发送文件"),
 		AllowMultiple: true,
@@ -782,18 +762,21 @@ func (u *UI) chooseChatFiles(imagesOnly bool) {
 			{Name: i18n.T("所有文件"), Pattern: "*.*"},
 		}
 	}
-	paths, err := u.openFilePicker(options)
-	if err != nil {
-		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) ||
-			errors.Is(err, app.ErrUnsupported) {
+	canvas.AfterPaint(func() {
+		paths, err := u.openFilePicker(options)
+		if err != nil {
+			if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) ||
+				errors.Is(err, app.ErrUnsupported) {
+				return
+			}
+			u.showToast(i18n.T("无法选择文件"), err.Error(), components.ToastError)
 			return
 		}
-		return
-	}
-	if len(paths) == 0 {
-		return
-	}
-	u.submit(domain.Command{Kind: domain.SendFiles, ConversationID: u.selected, Paths: append([]string(nil), paths...)})
+		if len(paths) == 0 {
+			return
+		}
+		u.submit(domain.Command{Kind: domain.SendFiles, ConversationID: conversationID, Paths: append([]string(nil), paths...)})
+	})
 }
 
 func (u *UI) pasteClipboardImage() {
@@ -854,20 +837,6 @@ func (u *UI) groupCounts(group domain.Group) (total, online int) {
 		online++
 	}
 	return total, online
-}
-
-func (u *UI) connectionPill(f ui.C) {
-	ui.Row(f).PadSides(6, 12, 6, 12).Radius(12).Background(u.palette.mutedAvatar).
-		Items(ui.Center).Gap(6).Children(func() {
-		color := u.palette.danger
-		label := i18n.T("等待局域网")
-		if u.state.ListenAddress != "" {
-			color = u.palette.success
-			label = u.state.ListenAddress
-		}
-		ui.Stack(f).Size(6, 6).Radius(3).Background(color)
-		ui.Text(f, label).FontSize(10.5).Color(u.palette.secondaryText).Ellipsis()
-	})
 }
 
 func (u *UI) fileIcon(file domain.File) gfx.Icon {

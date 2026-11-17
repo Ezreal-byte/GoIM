@@ -4,12 +4,17 @@ import (
 	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
 )
+
+var lockRequests atomic.Uint64
+
+func nextLockRequest() uint64 { return lockRequests.Add(1) }
 
 type lockUIState struct {
 	scope                            gfx.Scope
@@ -32,7 +37,7 @@ func (u *UI) requestLock() {
 	s.setup, s.pending, s.focused, s.err = !u.state.Settings.HasLockPassword, u.state.Settings.HasLockPassword, false, ""
 	s.field, s.confirmation = ui.Field{Secure: true}, ui.Field{Secure: true}
 	if u.state.Settings.HasLockPassword {
-		s.request++
+		s.request = nextLockRequest()
 		u.submit(domain.Command{Kind: domain.LockApp, Request: s.request})
 	}
 }
@@ -127,7 +132,7 @@ func (u *UI) submitLock() {
 		return
 	}
 	s.pending, s.err = true, ""
-	s.request++
+	s.request = nextLockRequest()
 	s.field.SetText("")
 	s.confirmation.SetText("")
 	s.focused = false

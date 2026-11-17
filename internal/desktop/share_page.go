@@ -219,10 +219,10 @@ func (p *Panels) drawShareSendDialog(f ui.C, theme ui.Theme, submit func(domain.
 		})
 	})
 	dialog.Footer(func() {
-		if namedButton(f, p.ids.shareDialogCancel, i18n.T("取消")).Outline().Clicked() {
+		if dialogActionButton(f, p.ids.shareDialogCancel, i18n.T("取消")).Outline().Clicked() {
 			p.closeShareSendDialog()
 		}
-		if namedButton(f, p.ids.shareDialogSubmit, i18n.T("创建分享")).Clicked() {
+		if dialogActionButton(f, p.ids.shareDialogSubmit, i18n.T("创建分享")).Clicked() {
 			submitted = true
 		}
 	})
@@ -256,10 +256,10 @@ func (p *Panels) drawSharePasswordDialog(f ui.C, theme ui.Theme, submit func(dom
 		})
 	})
 	dialog.Footer(func() {
-		if namedButton(f, p.ids.sharePasswordCancel, i18n.T("取消")).Outline().Clicked() {
+		if dialogActionButton(f, p.ids.sharePasswordCancel, i18n.T("取消")).Outline().Clicked() {
 			p.closeSharePassword()
 		}
-		if namedButton(f, p.ids.sharePasswordSubmit, i18n.T("保存")).Clicked() {
+		if dialogActionButton(f, p.ids.sharePasswordSubmit, i18n.T("保存")).Clicked() {
 			submitted = true
 		}
 	})
@@ -307,11 +307,11 @@ func (p *Panels) drawShareQRDialog(f ui.C, theme ui.Theme) {
 	})
 	dialog.Footer(func() {
 		if p.shareQR.url != "" {
-			if namedButton(f, p.ids.shareQRCopy, i18n.T("复制链接")).Outline().Clicked() {
+			if dialogActionButton(f, p.ids.shareQRCopy, i18n.T("复制链接")).Outline().Clicked() {
 				p.copyShareLink(f.Canvas(), p.shareQR.url)
 			}
 		}
-		if namedButton(f, p.ids.shareQRDismissButton, i18n.T("关闭")).Clicked() {
+		if dialogActionButton(f, p.ids.shareQRDismissButton, i18n.T("关闭")).Clicked() {
 			p.closeShareQR()
 		}
 	})

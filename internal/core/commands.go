@@ -430,6 +430,8 @@ func (n *Node) setting(c domain.Command) error {
 		settings.DisableAutoDiscovery = c.Bool
 	case "auto_accept_images":
 		settings.AutoAcceptImages = c.Bool
+	case "disable_auto_update_check":
+		settings.DisableAutoUpdateCheck = c.Bool
 	case "language":
 		if c.Value != "zh-CN" && c.Value != "en" {
 			return errors.New("仅支持简体中文和英语")
@@ -440,6 +442,14 @@ func (n *Node) setting(c domain.Command) error {
 			return errors.New("仅支持明亮和暗黑主题")
 		}
 		settings.Theme = c.Value
+	case "interface_font":
+		family := strings.TrimSpace(c.Value)
+		if len(family) > 96 || strings.IndexFunc(family, func(r rune) bool {
+			return r < 0x20 || r == 0x7f
+		}) >= 0 {
+			return errors.New("无效的界面字体")
+		}
+		settings.InterfaceFont = family
 	case "desktop_notifications":
 		settings.DesktopNotifications = c.Bool
 	case "sound":

@@ -62,16 +62,18 @@ function Start-Peer([string]$TaskName,[string]$TaskConnect='') {
     $null=Read-Reply $taskProcess
     return $taskProcess
 }
+function Get-PeerAddress($TaskProcess) {
+    $listeners = @(Get-NetTCPConnection -State Listen -OwningProcess $TaskProcess.Id -LocalAddress '127.0.0.1')
+    if ($listeners.Count -ne 1) { throw "Expected one loopback listener for peer $($TaskProcess.Id)" }
+    return "127.0.0.1:$($listeners[0].LocalPort)"
+}
 Push-Location $taskProjectRoot
 try {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
     New-Item -ItemType Directory -Path $taskRunDir -Force | Out-Null
     & (Join-Path $PSScriptRoot 'build.ps1') -Headless -OutputDir $taskBinaryDir
     $taskBob=Start-Peer '林晓'
-    $taskTexts=Send-Command $taskBob 'texts'
-    $taskAddress=[regex]::Match($taskTexts,'127\.0\.0\.1:\d+').Value
-    if(!$taskAddress){throw 'Listening address missing from real headless window'}
-    $taskAlice=Start-Peer '我' $taskAddress
+    $taskAlice=Start-Peer '我' (Get-PeerAddress $taskBob)
     Send-Command $taskAlice 'click id:goim/navigation/contacts'
     Send-Command $taskAlice 'waitfor "林晓" 10000'
     Send-Command $taskAlice 'tree' | Set-Content -LiteralPath (Join-Path $OutputDir 'initial-tree.txt')
@@ -83,9 +85,14 @@ try {
     Send-Command $taskAlice 'expect exists "option:GoIM"'
     Send-Command $taskAlice 'key esc'
     Send-Command $taskAlice 'expect absent "option:GoIM"'
-    Send-Command $taskAlice 'expect exists "textfield:设备地址"'
+    Send-Command $taskAlice 'expect exists "textfield:对方 IP 地址"'
+    Send-Command $taskAlice 'click "combobox:连接方式"'
+    Send-Command $taskAlice 'click "option:GoIM"'
+    Send-Command $taskAlice 'click "combobox:连接方式"'
+    Send-Command $taskAlice 'click "option:自动"'
+    Send-Command $taskAlice 'expect exists "textfield:对方 IP 地址"'
     Send-Command $taskAlice 'key esc'
-    Send-Command $taskAlice 'expect absent "textfield:设备地址"'
+    Send-Command $taskAlice 'expect absent "textfield:对方 IP 地址"'
     Send-Command $taskAlice 'click "林晓"'
     Send-Command $taskAlice 'expect text "设备信息"'
     Send-Command $taskAlice 'click "button:发消息"'
@@ -179,10 +186,7 @@ try {
     }
     Send-Command $taskBob ('closewindow '+$taskViewer.Groups[1].Value)
     Send-Command $taskBob 'window 1'
-    $taskAliceTexts=Send-Command $taskAlice 'texts'
-    $taskAliceAddress=[regex]::Match($taskAliceTexts,'127\.0\.0\.1:\d+').Value
-    if (!$taskAliceAddress) { throw 'Group host listening address missing from headless window' }
-    $taskCharlie=Start-Peer '陈序' $taskAliceAddress
+    $taskCharlie=Start-Peer '陈序' (Get-PeerAddress $taskAlice)
     Send-Command $taskAlice 'click id:goim/navigation/contacts'
     Send-Command $taskAlice 'waitfor "陈序" 10000'
     Send-Command $taskAlice 'click id:goim/sidebar/create'

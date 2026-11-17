@@ -3,6 +3,7 @@ package capture
 import (
 	"image"
 	"image/color"
+	"image/draw"
 	"math"
 )
 
@@ -13,8 +14,17 @@ func rasterizeShape(dst *image.RGBA, shape Shape, origin image.Point) {
 	bounds := shape.Bounds()
 	bounds.Min = bounds.Min.Sub(origin)
 	bounds.Max = bounds.Max.Sub(origin)
+	unclipped := bounds
 	bounds = bounds.Intersect(dst.Bounds())
 	if bounds.Empty() {
+		return
+	}
+	if shape.Kind == Text {
+		draw.Draw(dst, bounds, shape.Ink, bounds.Min.Sub(unclipped.Min).Add(shape.Ink.Bounds().Min), draw.Over)
+		return
+	}
+	if shape.Kind == Mosaic {
+		pixelate(dst, bounds, unclipped.Min, max(2, int(shape.Width)))
 		return
 	}
 	mask := make([]byte, bounds.Dx()*bounds.Dy())
@@ -23,6 +33,22 @@ func rasterizeShape(dst *image.RGBA, shape Shape, origin image.Point) {
 	}
 	radius := shape.Width / 2
 	switch shape.Kind {
+	case Ellipse:
+		start, end := translate(shape.Start), translate(shape.End)
+		cx, cy := (start.X+end.X)/2, (start.Y+end.Y)/2
+		rx, ry := math.Abs(end.X-start.X)/2, math.Abs(end.Y-start.Y)/2
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				px, py := (float64(x)+.5-cx)/rx, (float64(y)+.5-cy)/ry
+				gradient := math.Hypot(px/rx, py/ry)
+				distance := min(rx, ry)
+				if gradient > 0 {
+					distance = math.Abs(px*px+py*py-1) / (2 * gradient)
+				}
+				a := min(max(radius+.5-distance, 0), 1)
+				mask[(y-bounds.Min.Y)*bounds.Dx()+x-bounds.Min.X] = byte(a*255 + .5)
+			}
+		}
 	case Rectangle:
 		start, end := translate(shape.Start), translate(shape.End)
 		minX, maxX := math.Min(start.X, end.X), math.Max(start.X, end.X)
@@ -47,6 +73,36 @@ func rasterizeShape(dst *image.RGBA, shape Shape, origin image.Point) {
 		addStroke(mask, bounds, points, radius)
 	}
 	blendMask(dst, bounds, mask, shape.Color)
+}
+
+func pixelate(dst *image.RGBA, bounds image.Rectangle, origin image.Point, size int) {
+	x0 := origin.X + ((bounds.Min.X-origin.X)/size)*size
+	y0 := origin.Y + ((bounds.Min.Y-origin.Y)/size)*size
+	for y := y0; y < bounds.Max.Y; y += size {
+		for x := x0; x < bounds.Max.X; x += size {
+			block := bounds.Intersect(image.Rect(x, y, x+size, y+size))
+			var red, green, blue uint64
+			for py := block.Min.Y; py < block.Max.Y; py++ {
+				for px := block.Min.X; px < block.Max.X; px++ {
+					i := dst.PixOffset(px, py)
+					red += uint64(dst.Pix[i])
+					green += uint64(dst.Pix[i+1])
+					blue += uint64(dst.Pix[i+2])
+				}
+			}
+			count := uint64(block.Dx()) * uint64(block.Dy())
+			if count != 0 {
+				r, g, b := uint8(red/count), uint8(green/count), uint8(blue/count)
+				for py := block.Min.Y; py < block.Max.Y; py++ {
+					i := dst.PixOffset(block.Min.X, py)
+					for range block.Dx() {
+						dst.Pix[i], dst.Pix[i+1], dst.Pix[i+2], dst.Pix[i+3] = r, g, b, 255
+						i += 4
+					}
+				}
+			}
+		}
+	}
 }
 
 func addStroke(mask []byte, maskBounds image.Rectangle, points []Point, radius float64) {

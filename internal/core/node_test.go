@@ -2,6 +2,8 @@ package core
 
 import (
 	"bytes"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -80,6 +82,44 @@ func TestRealTLSMessagesDeduplicateAndSurviveRestart(t *testing.T) {
 	}
 	connectNodes(t, a, b2)
 	eventually(t, "outbox replay", func() bool { return len(b2.Snapshot().Messages) == 2 })
+}
+
+func TestOfflineImageQueuesAndReplaysAfterPeerReturns(t *testing.T) {
+	a, b := testNode(t, "发送者"), testNode(t, "接收者")
+	connectNodes(t, a, b)
+	conv := direct(t, a, b)
+	peerID, dir := b.Snapshot().Self.ID, b.dir
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "peer offline", func() bool { return !a.Snapshot().Peer(peerID).Online })
+
+	path := filepath.Join(t.TempDir(), "离线图片.png")
+	var imageBytes bytes.Buffer
+	if err := png.Encode(&imageBytes, image.NewRGBA(image.Rect(0, 0, 3, 3))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, imageBytes.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.sendFile(conv, path, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	s := a.Snapshot()
+	if len(s.Messages) != 1 || s.Messages[0].Kind != "image" || len(s.Transfers) != 1 {
+		t.Fatalf("offline image was not recorded as a queued image: messages=%+v transfers=%+v", s.Messages, s.Transfers)
+	}
+
+	b2 := testNodeAt(t, "接收者", dir)
+	connectNodes(t, a, b2)
+	eventually(t, "offline image offer replayed", func() bool {
+		for _, transfer := range b2.Snapshot().Transfers {
+			if transfer.FileID == s.Messages[0].FileID {
+				return true
+			}
+		}
+		return false
+	})
 }
 func TestRealFileTransferResumesAndVerifies(t *testing.T) {
 	a, b := testNode(t, "发送者"), testNode(t, "接收者")

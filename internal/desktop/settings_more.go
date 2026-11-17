@@ -2,14 +2,16 @@ package desktop
 
 import (
 	"errors"
-	"github.com/vivaui/viva/gfx"
-	"goim/internal/i18n"
 	"strconv"
+	"strings"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/components"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
+	"goim/internal/i18n"
 )
 
 type panelSettingsExtra struct {
@@ -21,8 +23,120 @@ type panelSettingsExtra struct {
 	compat                                                                                                [2]compatibilityEditor
 	address, old, password, repeat                                                                        ui.Field
 	passwordError                                                                                         string
+	passwordOpen, passwordPending, passwordRefocus                                                        bool
+	passwordRequest                                                                                       uint64
+	passwordTrigger, passwordScope, passwordDismiss, passwordClose, passwordCancel                        gfx.ID
+	interfaceFont                                                                                         panelInterfaceFontPicker
+	autostart                                                                                             panelAutostartState
 	openProfile                                                                                           func()
+	chooseBackground                                                                                      func(*gfx.Canvas)
 }
+
+type panelAutostartState struct {
+	enabled func() (bool, error)
+	set     func(bool) error
+
+	known     bool
+	available bool
+	pending   bool
+	on        bool
+	err       string
+}
+
+func (p *Panels) setAutostartProvider(enabled func() (bool, error), set func(bool) error) {
+	p.settingsExtra.autostart.enabled = enabled
+	p.settingsExtra.autostart.set = set
+	p.settingsExtra.autostart.known = false
+	p.settingsExtra.autostart.available = enabled != nil && set != nil
+	p.settingsExtra.autostart.pending = false
+	p.settingsExtra.autostart.on = false
+	p.settingsExtra.autostart.err = ""
+}
+
+// loadAutostart performs the operating-system read outside Viva's paint path.
+func (p *Panels) loadAutostart() {
+	a := &p.settingsExtra.autostart
+	a.known, a.pending, a.on, a.err = false, false, false, ""
+	a.available = a.enabled != nil && a.set != nil
+	if !a.available {
+		return
+	}
+	on, err := a.enabled()
+	if err != nil {
+		if errors.Is(err, app.ErrAutostartUnsupported) {
+			a.available = false
+		}
+		a.err = i18n.T("无法读取开机自启状态：") + err.Error()
+		if p.invalidate != nil {
+			p.invalidate()
+		}
+		return
+	}
+	a.known, a.on = true, on
+	if p.invalidate != nil {
+		p.invalidate()
+	}
+}
+
+func (p *Panels) changeAutostart(canvas *gfx.Canvas, desired bool) {
+	a := &p.settingsExtra.autostart
+	if !a.known || !a.available || a.pending || a.set == nil {
+		return
+	}
+	previous := a.on
+	a.pending, a.on, a.err = true, desired, ""
+	canvas.AfterPaint(func() {
+		err := a.set(desired)
+		a.pending = false
+		if err != nil {
+			a.on = previous
+			a.err = i18n.T("无法修改开机自启设置：") + err.Error()
+		}
+		if p.invalidate != nil {
+			p.invalidate()
+		}
+	})
+}
+
+func (p *Panels) autostartDescription() string {
+	a := &p.settingsExtra.autostart
+	switch {
+	case a.err != "":
+		return a.err
+	case a.pending:
+		return i18n.T("正在更新系统登录项…")
+	case !a.available:
+		return i18n.T("当前系统或运行环境不支持开机自启")
+	case !a.known:
+		return i18n.T("正在读取系统登录项…")
+	default:
+		return i18n.T("登录系统后自动启动 GoIM")
+	}
+}
+
+func (p *Panels) autostartDiagnosticState() string {
+	a := &p.settingsExtra.autostart
+	switch {
+	case a.err != "":
+		return "error"
+	case a.pending:
+		return "updating"
+	case !a.available:
+		return "unsupported"
+	case !a.known:
+		return "unknown"
+	case a.on:
+		return "enabled"
+	default:
+		return "disabled"
+	}
+}
+
+var panelIconGeneral = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
+	gfx.MoveTo(3, 6), gfx.LineTo(7, 6), gfx.MoveTo(11, 6), gfx.LineTo(21, 6), gfx.MoveTo(7, 3), gfx.LineTo(7, 9),
+	gfx.MoveTo(3, 12), gfx.LineTo(15, 12), gfx.MoveTo(19, 12), gfx.LineTo(21, 12), gfx.MoveTo(15, 9), gfx.LineTo(15, 15),
+	gfx.MoveTo(3, 18), gfx.LineTo(9, 18), gfx.MoveTo(13, 18), gfx.LineTo(21, 18), gfx.MoveTo(9, 15), gfx.LineTo(9, 21),
+}}
 
 var panelSettingsLockIcon = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
 	gfx.MoveTo(7, 10), gfx.LineTo(7, 7), gfx.CubicTo(7, 1, 17, 1, 17, 7), gfx.LineTo(17, 10),
@@ -52,12 +166,20 @@ func (s *panelSettingsExtra) init(tree *gfx.Tree, scope gfx.Scope) {
 	s.passwordNew = tree.ID(scope, "password-new")
 	s.passwordRepeat = tree.ID(scope, "password-repeat")
 	s.passwordSave = tree.ID(scope, "password-save")
+	s.passwordTrigger = tree.ID(scope, "password-trigger")
+	s.passwordScope = tree.ID(scope, "password-dialog")
+	s.passwordDismiss = tree.ID(scope, "password-dismiss")
+	s.passwordClose = tree.ID(scope, "password-close")
+	s.passwordCancel = tree.ID(scope, "password-cancel")
+	s.interfaceFont.init(tree, scope)
 	s.resetSecrets()
 }
 
 func (s *panelSettingsExtra) resetSecrets() {
 	s.old, s.password, s.repeat = ui.Field{Secure: true}, ui.Field{Secure: true}, ui.Field{Secure: true}
 	s.passwordError = ""
+	s.passwordOpen, s.passwordPending, s.passwordRefocus = false, false, false
+	s.passwordRequest = 0
 }
 
 func (s *panelSettingsExtra) isPasswordField(id gfx.ID) bool {
@@ -71,13 +193,8 @@ func (p *Panels) drawBackgroundSettings(f ui.C, theme ui.Theme, state domain.Sta
 		p.settingsControl(f, 240, func() {
 			ui.Row(f).Gap(8).Items(ui.Center).Children(func() {
 				if namedButton(f, s.background, i18n.T("选择图片…")).Small().Outline().Clicked() {
-					paths, err := app.OpenFiles(app.OpenFileOptions{Title: i18n.T("选择聊天背景"), Filters: []app.FileFilter{
-						{Name: i18n.T("图片"), Pattern: "*.png;*.jpg;*.jpeg;*.gif"},
-					}})
-					if err == nil && len(paths) > 0 {
-						submit(domain.Command{Kind: domain.SetSetting, Setting: "background", Value: paths[0]})
-					} else if err != nil && !errors.Is(err, app.ErrCanceled) && !errors.Is(err, app.ErrNoDriverResponse) {
-						p.localError = i18n.T("无法选择背景：") + err.Error()
+					if s.chooseBackground != nil {
+						s.chooseBackground(f.Canvas())
 					}
 				}
 				if settings.Background != "" && namedButton(f, s.clearBackground, i18n.T("恢复默认")).Small().Ghost().Clicked() {
@@ -111,7 +228,7 @@ func (p *Panels) drawSettingsProfile(f ui.C, theme ui.Theme, state domain.State,
 	s := &p.settingsExtra
 	panelSection(f, i18n.T("个人资料"), "", func() {
 		p.settingsRow(f, theme, state.Self.Name, i18n.T("本机昵称和头像"), func() {
-			if namedButton(f, s.profile, i18n.T("编辑资料…")).Small().Outline().Clicked() && s.openProfile != nil {
+			if namedButton(f, s.profile, i18n.T("编辑资料")).Small().Outline().Clicked() && s.openProfile != nil {
 				s.openProfile()
 			}
 		})
@@ -140,19 +257,23 @@ func (p *Panels) drawDiscoverySettings(f ui.C, theme ui.Theme, state domain.Stat
 	})
 	p.settingsRow(f, theme, i18n.T("手动连接"), i18n.T("先选择连接方式，再输入对方设备地址。"), func() {
 		p.settingsControl(f, 300, func() {
-			address, transport, submitted := panelConnectionForm(f, state, panelConnectionFields{
+			submitted := connectionFields(f, state, panelConnectionFields{
 				route:   &s.connectRoute,
 				address: &s.address, addressID: s.connectAddress, connectID: s.connect,
 			})
 			if !submitted {
 				return
 			}
+			address := strings.TrimSpace(s.address.Text())
 			if address == "" {
 				p.localError = i18n.T("请输入对方 IP 地址")
 				return
 			}
-			p.localError, p.localNotice = "", i18n.T("已发起连接")
-			submit(domain.Command{Kind: domain.Connect, Address: address, Transport: transport})
+			p.localError = ""
+			if p.toast != nil {
+				p.toast(i18n.T("已发起连接"), "", components.ToastInfo)
+			}
+			submit(domain.Command{Kind: domain.Connect, Address: address, Transport: s.connectRoute.transport()})
 		})
 	})
 }
@@ -170,33 +291,101 @@ func (p *Panels) drawSettingsSecurity(f ui.C, theme ui.Theme, state domain.State
 				}
 			})
 		})
-		ui.Row(f).FillWidth().Justify(ui.End).Children(func() {
-			p.settingsControl(f, 360, func() {
-				ui.Column(f).FillWidth().Gap(8).PadY(10).Children(func() {
-					if settings.HasLockPassword {
-						ui.Text(f, i18n.T("当前密码")).FontSize(13)
-						ui.TextFieldID(f, s.passwordOld, &s.old, i18n.T("当前密码"), i18n.T("输入当前密码")).FillWidth()
-					}
-					ui.Text(f, i18n.T("新密码")).FontSize(13)
-					ui.TextFieldID(f, s.passwordNew, &s.password, i18n.T("新密码"), i18n.T("至少 6 个字符")).FillWidth()
-					ui.Text(f, i18n.T("确认新密码")).FontSize(13)
-					last := ui.TextFieldID(f, s.passwordRepeat, &s.repeat, i18n.T("确认新密码"), i18n.T("再输入一次新密码")).FillWidth()
-					if s.passwordError != "" {
-						ui.Paragraph(f, s.passwordError, 2).Color(theme.Danger).FontSize(12)
-					}
-					if namedButton(f, s.passwordSave, i18n.T("保存密码")).Small().Clicked() || last.Submitted() {
-						password := s.password.Text()
-						if err := validatePasswordPair(password, s.repeat.Text()); err != "" {
-							s.passwordError = err
-							return
-						}
-						submit(domain.Command{Kind: domain.SetLockPassword, Password: s.old.Text(), Text: password})
-						s.resetSecrets()
-					}
-				})
-			})
+		p.settingsRow(f, theme, i18n.T("锁定密码"), i18n.T("用于验证 GoIM 的应用锁定。"), func() {
+			if namedButton(f, s.passwordTrigger, lockPasswordAction(settings.HasLockPassword)).Small().Outline().Clicked() {
+				s.resetSecrets()
+				s.passwordOpen = true
+			}
 		})
 	})
+}
+
+func lockPasswordAction(hasPassword bool) string {
+	if hasPassword {
+		return i18n.T("修改密码")
+	}
+	return i18n.T("设置密码")
+}
+
+func (p *Panels) drawPasswordDialog(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+	s := &p.settingsExtra
+	if !s.passwordOpen {
+		return
+	}
+	hasPassword := state.Settings.HasLockPassword
+	focus := s.passwordNew
+	if hasPassword {
+		focus = s.passwordOld
+	}
+	dialog := ui.Dialog(f, ui.DialogSpec{
+		Title: lockPasswordAction(hasPassword), Width: 420,
+		Scope: s.passwordScope, DismissID: s.passwordDismiss, CloseID: s.passwordClose,
+		InitialFocusID: focus, NoClose: s.passwordPending,
+	})
+	if s.passwordRefocus {
+		f.Canvas().RequestFocus(focus)
+		s.passwordRefocus = false
+	}
+	var save, cancel bool
+	dialog.Body(func() {
+		ui.Column(f).FillWidth().Gap(10).Children(func() {
+			field := func(id gfx.ID, editor *ui.Field, label, hint string) ui.Box {
+				var result ui.Box
+				ui.Column(f).FillWidth().Gap(4).Children(func() {
+					ui.Text(f, i18n.T(label)).FontSize(13)
+					result = ui.TextFieldID(f, id, editor, i18n.T(label), i18n.T(hint)).FillWidth().Disabled(s.passwordPending)
+				})
+				return result
+			}
+			if hasPassword {
+				field(s.passwordOld, &s.old, "当前密码", "输入当前密码")
+			}
+			field(s.passwordNew, &s.password, "新密码", "至少 6 个字符")
+			save = field(s.passwordRepeat, &s.repeat, "确认新密码", "再输入一次新密码").Submitted()
+			if s.passwordError != "" {
+				ui.Paragraph(f, s.passwordError, 2).Color(theme.Danger).FontSize(12)
+			}
+		})
+	})
+	dialog.Footer(func() {
+		cancel = dialogActionButton(f, s.passwordCancel, i18n.T("取消")).Outline().Disabled(s.passwordPending).Clicked()
+		save = dialogActionButton(f, s.passwordSave, i18n.T("保存密码")).Disabled(s.passwordPending).Clicked() || save
+	})
+	if s.passwordPending {
+		return
+	}
+	if cancel || dialog.Dismissed() {
+		s.resetSecrets()
+		f.Canvas().RequestFocus(s.passwordTrigger)
+		return
+	}
+	if save {
+		password := s.password.Text()
+		s.passwordError = validatePasswordPair(password, s.repeat.Text())
+		if s.passwordError == "" {
+			s.passwordRequest = nextLockRequest()
+			s.passwordPending = true
+			submit(domain.Command{Kind: domain.SetLockPassword, Password: s.old.Text(), Text: password, Request: s.passwordRequest})
+		}
+	}
+}
+
+func (s *panelSettingsExtra) observePassword(state domain.State) {
+	if state.Locked {
+		s.resetSecrets()
+		return
+	}
+	result := state.LockResult
+	if !s.passwordPending || result.Request != s.passwordRequest {
+		return
+	}
+	if result.Error == "" {
+		s.resetSecrets()
+		return
+	}
+	s.passwordPending, s.passwordRefocus = false, true
+	s.passwordError = i18n.T(result.Error)
+	s.old.SetText("")
 }
 
 func (p *Panels) drawAutoAcceptImages(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {

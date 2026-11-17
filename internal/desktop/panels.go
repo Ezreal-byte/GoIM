@@ -68,15 +68,16 @@ type panelIDs struct {
 	settingsFeature    gfx.Scope
 	settingsCategories gfx.Scope
 
-	settingsNotification gfx.ID
-	settingsSound        gfx.ID
-	settingsAutoAccept   gfx.ID
-	settingsCloseToTray  gfx.ID
-	settingsChooseDir    gfx.ID
-	settingsOpenDir      gfx.ID
-	settingsRefreshNet   gfx.ID
-	settingsDismissLocal gfx.ID
-	settingsClearError   gfx.ID
+	settingsNotification  gfx.ID
+	settingsSound         gfx.ID
+	settingsAutoAccept    gfx.ID
+	settingsCloseToTray   gfx.ID
+	settingsLaunchAtLogin gfx.ID
+	settingsChooseDir     gfx.ID
+	settingsOpenDir       gfx.ID
+	settingsRefreshNet    gfx.ID
+	settingsDismissLocal  gfx.ID
+	settingsClearError    gfx.ID
 
 	networkDefer  gfx.ID
 	networkCancel gfx.ID
@@ -100,6 +101,8 @@ type panelIDs struct {
 	aboutLicense     gfx.ID
 	aboutBack        gfx.ID
 	aboutCopyLicense gfx.ID
+	aboutDiagnostics gfx.ID
+	aboutAutoUpdate  gfx.ID
 	aboutCards       gfx.Scope
 
 	transferActions     gfx.Scope
@@ -242,6 +245,8 @@ type Panels struct {
 	settingsTab    panelSettingsTab
 	settingsScroll [panelSettingsCount]float32
 	settingsExtra  panelSettingsExtra
+	openUpdates    func(bool)
+	update         updateView
 	settingsWidth  float32
 	settingsNarrow bool
 	scrollTab      panelSettingsTab
@@ -273,8 +278,13 @@ type Panels struct {
 	listNetworks     func() ([]net.Interface, error)
 	networkChange    panelNetworkChange
 
-	localFiles  map[string]panelLocalFile
-	mediaSubmit func(mediaJob)
+	localFiles        map[string]panelLocalFile
+	mediaSubmit       func(mediaJob)
+	toast             func(title, description string, tone components.ToastType)
+	invalidate        func()
+	fontFamilies      func() []string
+	setInterfaceFont  func(string) bool
+	diagnosticDataDir func() string
 
 	localActions    map[uint64]panelLocalAction
 	nextLocalAction uint64
@@ -300,11 +310,10 @@ type Panels struct {
 	listLanguage string
 	listDirty    bool
 
-	pending     *panelPendingSetting
-	saveFailed  bool
-	localError  string
-	localNotice string
-	build       panelBuildInfo
+	pending    *panelPendingSetting
+	saveFailed bool
+	localError string
+	build      panelBuildInfo
 }
 
 func (p *Panels) Init(tree *gfx.Tree) {
@@ -319,6 +328,8 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.shortcutEdit = -1
 	p.localActions = make(map[uint64]panelLocalAction)
 	p.shareQRCache = make(map[shareQRKey]shareQRResult)
+	p.fontFamilies = app.FontFamilies
+	p.setInterfaceFont = app.SetInterfaceFontFamily
 
 	settings := tree.Feature("settings-panels")
 	p.ids.settingsFeature = settings
@@ -329,6 +340,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.settingsSound = tree.ID(settings, "sound")
 	p.ids.settingsAutoAccept = tree.ID(settings, "auto-accept")
 	p.ids.settingsCloseToTray = tree.ID(settings, "close-to-tray")
+	p.ids.settingsLaunchAtLogin = tree.ID(settings, "launch-at-login")
 	p.ids.settingsChooseDir = tree.ID(settings, "choose-download-directory")
 	p.ids.settingsOpenDir = tree.ID(settings, "open-download-directory")
 	p.ids.settingsRefreshNet = tree.ID(settings, "refresh-networks")
@@ -359,6 +371,8 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.aboutLicense = tree.ID(settings, "show-license")
 	p.ids.aboutBack = tree.ID(settings, "about-back")
 	p.ids.aboutCopyLicense = tree.ID(settings, "copy-license")
+	p.ids.aboutDiagnostics = tree.ID(settings, "export-diagnostics")
+	p.ids.aboutAutoUpdate = tree.ID(settings, "auto-check-updates")
 	p.ids.aboutCards = tree.Sub(settings, tree.Name("about-card"))
 
 	transfers := tree.Feature("transfers-panel")
@@ -439,7 +453,6 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 		p.aboutLicense = false
 		p.networkChange = panelNetworkChange{}
 		p.localError = ""
-		p.localNotice = ""
 		p.transferMenu = ""
 		p.closeShareInteractions()
 		p.shareToast = shareToastState{}
@@ -487,6 +500,7 @@ func (p *Panels) OnWake(state domain.State) {
 	}
 	p.applyShareBrowserEvents()
 	p.observePending(state)
+	p.settingsExtra.observePassword(state)
 	previous := p.localFiles
 	paths := localFilePaths(state)
 	p.localFiles = make(map[string]panelLocalFile, len(paths))
@@ -511,6 +525,14 @@ func (p *Panels) setMediaSubmit(submit func(mediaJob)) {
 			kind: mediaJobFileAvailability, path: "", fileID: "share-browser-wake",
 		})
 	})
+}
+
+func (p *Panels) setToast(toast func(title, description string, tone components.ToastType)) {
+	p.toast = toast
+}
+
+func (p *Panels) setInvalidator(invalidate func()) {
+	p.invalidate = invalidate
 }
 
 func (p *Panels) setLocalFileAvailability(entries []mediaFileResult) {
@@ -580,6 +602,11 @@ func (p *Panels) Key(event gfx.KeyEvent) gfx.EventResult {
 		return gfx.EventResult{}
 	}
 	if p.module == panelModuleSettings {
+		if p.settingsExtra.interfaceFont.open {
+			if result, handled := p.settingsExtra.interfaceFont.key(event, p.confirmInterfaceFont); handled {
+				return result
+			}
+		}
 		if p.shortcutEdit >= 0 {
 			if event.Key == gfx.KeyEscape {
 				p.cancelShortcutEdit()
@@ -622,9 +649,19 @@ func (p *Panels) Shortcut(event gfx.KeyEvent) gfx.EventResult {
 	return p.Key(event)
 }
 
+// Pointer lets Viva update hover and custom pointer state for the panel page.
+// This is required by stateful controls such as scrollbar drag targets and
+// dialogs whose native hit regions extend beyond ordinary Clicked handling.
+func (p *Panels) Pointer(event gfx.PointerEvent) gfx.EventResult {
+	return p.page.Pointer(event)
+}
+
 // Wheel routes the wheel to an open settings dropdown first, then to the panel
 // scroll area under the pointer.
 func (p *Panels) Wheel(event gfx.ScrollEvent) gfx.EventResult {
+	if p.module == panelModuleSettings && p.settingsExtra.interfaceFont.open {
+		return p.page.Wheel(event)
+	}
 	if p.module == panelModuleTransfers && p.transferMenu != "" {
 		p.transferMenu = ""
 		return gfx.EventResult{Handled: true, Repaint: true}
@@ -651,14 +688,12 @@ func (p *Panels) submitString(submit func(domain.Command), state domain.State, s
 	submit(domain.Command{Kind: domain.SetSetting, Setting: setting, Value: value})
 	p.pending = &panelPendingSetting{kind: panelPendingValue, setting: setting, value: value, revision: state.Revision}
 	p.saveFailed = false
-	p.localNotice = ""
 }
 
 func (p *Panels) submitBool(submit func(domain.Command), state domain.State, setting string, value bool) {
 	submit(domain.Command{Kind: domain.SetSetting, Setting: setting, Bool: value})
 	p.pending = &panelPendingSetting{kind: panelPendingBool, setting: setting, boolean: value, revision: state.Revision}
 	p.saveFailed = false
-	p.localNotice = ""
 }
 
 func (p *Panels) submitShortcuts(submit func(domain.Command), state domain.State, shortcuts []domain.Shortcut) {
@@ -668,7 +703,6 @@ func (p *Panels) submitShortcuts(submit func(domain.Command), state domain.State
 		shortcut: append([]domain.Shortcut(nil), shortcuts...), revision: state.Revision,
 	}
 	p.saveFailed = false
-	p.localNotice = ""
 }
 
 func (p *Panels) submitResetShortcuts(submit func(domain.Command), state domain.State) {
@@ -1240,7 +1274,9 @@ func panelCopy(canvas *gfx.Canvas, p *Panels, text string) {
 			return
 		}
 		p.localError = ""
-		p.localNotice = i18n.T("已复制")
+		if p.toast != nil {
+			p.toast(i18n.T("已复制"), "", components.ToastSuccess)
+		}
 	})
 }
 
@@ -1430,12 +1466,6 @@ func (p *Panels) panelFeedback(f ui.C, theme ui.Theme, state domain.State, submi
 		panelBannerWithAction(f, theme, i18n.T(state.Error), true, clearError, func() {
 			submit(domain.Command{Kind: domain.ClearError})
 		})
-	}
-	if state.Notice != "" {
-		panelBanner(f, theme, i18n.T(state.Notice), false, nil)
-	}
-	if p.localNotice != "" {
-		panelBanner(f, theme, p.localNotice, false, nil)
 	}
 }
 

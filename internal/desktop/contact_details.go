@@ -35,12 +35,12 @@ func (u *UI) contactGroupRow(f ui.C, c domain.Conversation) {
 	if selected {
 		background = u.palette.selected
 	}
-	row := ui.Row(f).FillWidth().Height(57).PadX(9).Radius(9).Gap(10).Items(ui.Center).
+	row := ui.Row(f).FillWidth().Height(sidebarGroupHeight).PadX(8).Radius(9).Gap(9).Items(ui.Center).
 		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(u.convRowIDs[c.ID], group.Name, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
-			u.initialsAvatar(f, group.Name, 38)
-			ui.Column(f).Grow(1).Gap(3).Children(func() {
+			u.initialsAvatar(f, group.Name, 34)
+			ui.Column(f).Grow(1).Gap(2).Children(func() {
 				ui.Text(f, group.Name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
 				ui.Text(f, intString(len(group.Members))+" "+i18n.T("位成员")).FontSize(11).Muted()
 			})

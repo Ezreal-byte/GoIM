@@ -20,12 +20,10 @@ type selectionOverlay struct {
 	width, height  int
 	selected       bool
 	selection      image.Rectangle
-	shapes         []capture.Shape
 	drawing        *gesture
 	drag           selectionDrag
 	targets        []image.Rectangle
 	hover          image.Rectangle
-	history        []selectionUndo
 	tooltip        components.HoverTooltip
 	dimensionRect  image.Rectangle
 	dimensionLabel string
@@ -38,13 +36,9 @@ type selectionDrag struct {
 	original            image.Rectangle
 }
 
-type selectionUndo struct {
-	selected        bool
-	documentChanged bool
-}
-
 func newSelectionOverlay(e *editor, source sourceData) *selectionOverlay {
 	o := &selectionOverlay{editor: e, desktop: e.preview, width: e.windowWidth, height: e.windowHeight}
+	o.desktop.ID = previewBitmapID + 1
 	if len(source.displays) != 0 {
 		var origin gfx.Point
 		o.width, o.height, origin = overlayPlacement(source.displays[0])
@@ -70,7 +64,8 @@ func (o *selectionOverlay) config(invalidator *app.Invalidator) app.Config {
 		Tree: &tree, Title: i18n.T("GoIM 截图"), Class: "GoIM.Snip",
 		Width: o.width, Height: o.height, Origin: o.origin,
 		WindowMode: app.WindowFrameless, Invalidator: invalidator,
-		Paint: o.paint, OnPointer: o.pointer, OnKey: o.key, OnShortcut: o.shortcut, OnClosed: o.editor.closed,
+		Paint: o.paint, OnPointer: o.pointer, OnKey: o.key, OnShortcut: o.shortcut,
+		TextInput: o.editor.textInput, OnClosed: o.editor.closed,
 	}
 }
 
@@ -82,6 +77,9 @@ func (o *selectionOverlay) scene(size gfx.Size) (gfx.Rect, image.Rectangle, floa
 func (o *selectionOverlay) pointer(event gfx.PointerEvent) gfx.EventResult {
 	if o.editor.done {
 		return gfx.EventResult{}
+	}
+	if o.editor.text.open {
+		return o.editor.text.page.Pointer(event)
 	}
 	bounds, source, scale := o.scene(event.Viewport)
 	if imageRectEmpty(bounds) {
@@ -114,16 +112,11 @@ func (o *selectionOverlay) pointer(event gfx.PointerEvent) gfx.EventResult {
 			if !pixel.In(o.selection) {
 				return handled
 			}
-			g := &gesture{kind: gestureShape, start: p, end: p, points: []capture.Point{p}}
-			switch o.editor.tool {
-			case toolRectangle:
-				g.shape = capture.Rectangle
-			case toolArrow:
-				g.shape = capture.Arrow
-			case toolFreehand:
-				g.shape = capture.Freehand
+			if o.editor.tool == toolText {
+				o.editor.beginText(p, scale)
+				return handled
 			}
-			o.drawing = g
+			o.drawing = &gesture{kind: gestureShape, shape: o.editor.tool.shape(), start: p, end: p, points: []capture.Point{p}}
 		} else {
 			o.drag = selectionDrag{active: true, start: p, end: p}
 		}
@@ -157,8 +150,7 @@ func (o *selectionOverlay) pointer(event gfx.PointerEvent) gfx.EventResult {
 			}
 			if event.Kind == gfx.PointerUp {
 				if o.editor.document.Add(o.activeShape(scale)) == nil {
-					o.history = append(o.history, selectionUndo{selected: true, documentChanged: true})
-					o.shapes = o.editor.document.Shapes()
+					o.editor.rebuildPreview()
 				}
 				o.drawing = nil
 			}
@@ -192,12 +184,15 @@ func (o *selectionOverlay) selectRegion(rect image.Rectangle) bool {
 	if rect.Dx() < 4 || rect.Dy() < 4 || (o.selected && rect == o.selection) {
 		return false
 	}
-	previous := o.editor.document.Crop()
-	if o.editor.document.SetCrop(rect) != nil {
+	setCrop := o.editor.document.SetCrop
+	if !o.selected {
+		setCrop = o.editor.document.SelectCrop
+	}
+	if setCrop(rect) != nil {
 		return false
 	}
-	o.history = append(o.history, selectionUndo{selected: o.selected, documentChanged: rect != previous})
 	o.selected, o.selection = true, rect
+	o.editor.rebuildPreview()
 	return true
 }
 
@@ -233,12 +228,13 @@ func (d selectionDrag) rect(source image.Rectangle) image.Rectangle {
 }
 
 func (o *selectionOverlay) activeShape(scale float64) capture.Shape {
-	g := o.drawing
-	return capture.Shape{Kind: g.shape, Start: g.start, End: g.end, Points: g.points,
-		Color: capture.DefaultShapeColor, Width: annotationWidth(scale)}
+	return o.editor.annotation(o.drawing, scale)
 }
 
 func (o *selectionOverlay) key(event gfx.KeyEvent) gfx.EventResult {
+	if o.editor.text.open {
+		return o.editor.text.page.Key(event)
+	}
 	if event.Release || event.Repeat {
 		return gfx.EventResult{}
 	}
@@ -247,8 +243,11 @@ func (o *selectionOverlay) key(event gfx.KeyEvent) gfx.EventResult {
 		o.editor.cancel()
 		return gfx.EventResult{Handled: true}
 	case gfx.KeyEnter:
-		if event.Target != canvasID && o.activate(event.Target) {
-			return gfx.EventResult{Handled: true, Repaint: !o.editor.done}
+		if !event.Target.IsZero() && event.Target != canvasID {
+			if o.activate(event.Target) {
+				return gfx.EventResult{Handled: true, Repaint: !o.editor.done}
+			}
+			return gfx.EventResult{}
 		}
 		if !o.selected && !o.hover.Empty() {
 			o.selectRegion(o.hover)
@@ -266,14 +265,21 @@ func (o *selectionOverlay) key(event gfx.KeyEvent) gfx.EventResult {
 }
 
 func (o *selectionOverlay) shortcut(event gfx.KeyEvent) gfx.EventResult {
-	if event.Release || event.Modifiers&(gfx.ModifierControl|gfx.ModifierMeta) == 0 {
+	if event.Release || o.editor.text.open || event.Modifiers&(gfx.ModifierControl|gfx.ModifierMeta) == 0 {
 		return gfx.EventResult{}
 	}
 	switch strings.ToLower(event.Text) {
 	case "a":
 		return gfx.EventResult{Handled: true, Repaint: o.activate(screenSelectionID)}
 	case "z":
+		if event.Modifiers&gfx.ModifierShift != 0 {
+			return gfx.EventResult{Handled: true, Repaint: o.activate(redoID)}
+		}
 		return gfx.EventResult{Handled: true, Repaint: o.activate(undoID)}
+	case "y":
+		return gfx.EventResult{Handled: true, Repaint: o.activate(redoID)}
+	case "c":
+		return gfx.EventResult{Handled: o.activate(exportID)}
 	}
 	return gfx.EventResult{}
 }
@@ -287,34 +293,31 @@ func (o *selectionOverlay) activate(id gfx.ID) bool {
 		o.editor.tool = toolSelect
 		return o.selectRegion(o.editor.document.SourceBounds()) || changed
 	}
+	if id == redoID || id == undoID {
+		change := o.editor.redo
+		if id == undoID {
+			change = o.editor.undo
+		}
+		if !change() {
+			return false
+		}
+		o.selection, o.selected = o.editor.document.Crop(), o.editor.document.CanUndo()
+		if !o.selected {
+			o.selection = image.Rectangle{}
+			o.editor.selectTool(toolSelect)
+		}
+		return true
+	}
 	if !o.selected {
 		return false
 	}
+	for i, candidate := range toolIDs {
+		if id == candidate {
+			o.editor.selectTool(tool(i))
+			return true
+		}
+	}
 	switch id {
-	case selectID:
-		o.editor.tool = toolSelect
-	case rectID:
-		o.editor.tool = toolRectangle
-	case arrowID:
-		o.editor.tool = toolArrow
-	case drawID:
-		o.editor.tool = toolFreehand
-	case undoID:
-		if len(o.history) == 0 {
-			return false
-		}
-		last := o.history[len(o.history)-1]
-		o.history = o.history[:len(o.history)-1]
-		if last.documentChanged {
-			o.editor.document.Undo()
-		}
-		o.selection = o.editor.document.Crop()
-		o.selected = last.selected
-		o.shapes = o.editor.document.Shapes()
-		if !o.selected {
-			o.selection = image.Rectangle{}
-			o.editor.tool = toolSelect
-		}
 	case cancelID:
 		return o.editor.cancel()
 	case exportID:
@@ -322,7 +325,6 @@ func (o *selectionOverlay) activate(id gfx.ID) bool {
 	default:
 		return false
 	}
-	return true
 }
 
 func (o *selectionOverlay) paint(c *gfx.Canvas, size gfx.Size) {
@@ -365,12 +367,18 @@ func (o *selectionOverlay) paint(c *gfx.Canvas, size gfx.Size) {
 		}
 	}
 	c.Clip(rect)
-	for _, shape := range o.shapes {
-		drawShape(c, shape, source, bounds, scale)
+	if o.selected {
+		old := o.editor.document.Crop()
+		c.DrawBitmap(o.editor.preview, normalizedPointRect(
+			sourceToView(capture.Point{X: float64(old.Min.X), Y: float64(old.Min.Y)}, source, bounds),
+			sourceToView(capture.Point{X: float64(old.Max.X), Y: float64(old.Max.Y)}, source, bounds),
+		))
 	}
+	c.PushLayer(2)
 	if o.drawing != nil {
 		drawShape(c, o.activeShape(scale), source, bounds, scale)
 	}
+	c.PopLayer()
 	c.Unclip()
 	accent := gfx.RGB(67, 180, 255)
 	c.RoundedOutline(rect, 0, 2, accent)
@@ -391,6 +399,7 @@ func (o *selectionOverlay) paint(c *gfx.Canvas, size gfx.Size) {
 		o.paintStartHint(c, bounds)
 	}
 	o.tooltip.Paint(c, gfx.DarkTheme(), bounds, components.TooltipOptions{Layer: 3}, 0)
+	o.editor.paintActions(c, snipTheme(o.editor.dark), bounds)
 }
 
 func desktopRectToPixels(rect, desktop, pixels image.Rectangle) image.Rectangle {

@@ -64,6 +64,10 @@ func TestSettingsLayoutCapsWidthAndUses38DPControls(t *testing.T) {
 	}
 
 	h.click(h.panels.ids.settingsCategories.At(int(panelSettingsSecurity)))
+	if _, visible := h.findHit(h.panels.settingsExtra.passwordNew); visible {
+		t.Fatal("password fields appeared before the dialog opened")
+	}
+	h.click(h.panels.settingsExtra.passwordTrigger)
 	password, ok := h.findHit(h.panels.settingsExtra.passwordNew)
 	if !ok {
 		t.Fatal("new-password field is not visible")
@@ -137,12 +141,14 @@ func TestManualConnectionSelectorKeepsTheDialogOpenOnEscape(t *testing.T) {
 	}
 	h.clickLabel("连接方式")
 	h.clickLabel("GoIM")
+	h.clickLabel("连接方式")
+	h.clickLabel("自动")
 	h.typeInto(h.ui.ids.connectField, "192.168.1.44")
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if command := h.lastCommand(); command.Kind != domain.Connect ||
-		command.Address != "192.168.1.44" || command.Transport != domain.TransportGoIM {
+		command.Address != "192.168.1.44" || command.Transport != domain.TransportAuto {
 		t.Fatalf("manual connection command = %+v", command)
 	}
 }
@@ -300,5 +306,32 @@ func TestSettingsLayoutLocaleEntriesLoadAfterMainCatalog(t *testing.T) {
 	}
 	if got := i18n.T("录制快捷键"); got != "Record shortcut" {
 		t.Fatalf("record shortcut = %q", got)
+	}
+}
+
+func TestDesktopFeatureEnglishCopy(t *testing.T) {
+	previous := i18n.Language()
+	t.Cleanup(func() { i18n.SetLanguage(previous) })
+	i18n.SetLanguage(i18n.English)
+	for source, want := range map[string]string{
+		"开机自启":   "Launch at login",
+		"诊断与反馈":  "Diagnostics and feedback",
+		"导出脱敏报告": "Export redacted report",
+	} {
+		if got := i18n.T(source); got != want {
+			t.Errorf("%q = %q, want %q", source, got, want)
+		}
+	}
+}
+
+func TestSettingsHeaderDoesNotShowTransientSavingStatus(t *testing.T) {
+	h := panelTestNewHarness(t, panelModuleSettings, panelTestDefaultState(t))
+	h.panels.pending = &panelPendingSetting{kind: panelPendingValue, setting: "theme", value: "dark"}
+	h.publish(h.state)
+	if h.hasText("保存中") {
+		t.Fatal("automatic settings save exposed a transient saving status in the header")
+	}
+	if !h.hasText("修改后自动保存") {
+		t.Fatal("automatic-save explanation is missing")
 	}
 }

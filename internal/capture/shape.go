@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"math"
 )
 
@@ -17,6 +18,12 @@ const (
 	Arrow
 	// Freehand draws a round stroke through Points.
 	Freehand
+	// Ellipse draws the outline inscribed in the box between Start and End.
+	Ellipse
+	// Mosaic covers its box with opaque square blocks. Width is the block edge.
+	Mosaic
+	// Text composites a rasterized label at Start.
+	Text
 )
 
 const (
@@ -42,18 +49,29 @@ type Shape struct {
 	Points []Point
 	Color  color.NRGBA
 	Width  float64
+	Ink    *image.RGBA
+}
+
+func (shape Shape) clone() Shape {
+	shape.Points = append([]Point(nil), shape.Points...)
+	if shape.Ink != nil {
+		ink := image.NewRGBA(image.Rect(0, 0, shape.Ink.Bounds().Dx(), shape.Ink.Bounds().Dy()))
+		draw.Draw(ink, ink.Bounds(), shape.Ink, shape.Ink.Bounds().Min, draw.Src)
+		shape.Ink = ink
+	}
+	return shape
 }
 
 // Validate reports whether a shape can be rendered.
 func (shape Shape) Validate() error {
-	if shape.Width <= 0 || shape.Width > 512 || !finite(shape.Width) {
+	if shape.Kind != Text && (shape.Width <= 0 || shape.Width > 512 || !finite(shape.Width)) {
 		return fmt.Errorf("%w: width must be between 0 and 512", ErrInvalidShape)
 	}
 	switch shape.Kind {
-	case Rectangle:
+	case Rectangle, Ellipse, Mosaic:
 		if !finitePoint(shape.Start) || !finitePoint(shape.End) ||
 			shape.Start.X == shape.End.X || shape.Start.Y == shape.End.Y {
-			return fmt.Errorf("%w: rectangle corners do not form an area", ErrInvalidShape)
+			return fmt.Errorf("%w: annotation corners do not form an area", ErrInvalidShape)
 		}
 	case Arrow:
 		if !finitePoint(shape.Start) || !finitePoint(shape.End) ||
@@ -69,6 +87,10 @@ func (shape Shape) Validate() error {
 				return fmt.Errorf("%w: freehand contains a non-finite point", ErrInvalidShape)
 			}
 		}
+	case Text:
+		if !finitePoint(shape.Start) || shape.Ink == nil || shape.Ink.Bounds().Empty() {
+			return fmt.Errorf("%w: text needs a rasterized label and a position", ErrInvalidShape)
+		}
 	default:
 		return fmt.Errorf("%w: unknown shape kind %d", ErrInvalidShape, shape.Kind)
 	}
@@ -78,7 +100,14 @@ func (shape Shape) Validate() error {
 // Bounds returns the shape's inclusive source-pixel extents, including stroke
 // width.
 func (shape Shape) Bounds() image.Rectangle {
+	if shape.Kind == Text && shape.Ink != nil {
+		at := image.Pt(int(math.Floor(shape.Start.X)), int(math.Floor(shape.Start.Y)))
+		return image.Rectangle{Min: at, Max: at.Add(shape.Ink.Bounds().Size())}
+	}
 	minX, minY, maxX, maxY := shape.extents()
+	if shape.Kind == Mosaic {
+		return image.Rect(int(math.Floor(minX)), int(math.Floor(minY)), int(math.Ceil(maxX)), int(math.Ceil(maxY)))
+	}
 	half := shape.Width / 2
 	return image.Rect(
 		int(math.Floor(minX-half)),

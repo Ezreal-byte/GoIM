@@ -96,7 +96,6 @@ func (o *selectionOverlay) paintStartHint(c *gfx.Canvas, screen gfx.Rect) {
 }
 
 func (o *selectionOverlay) paintToolbar(c *gfx.Canvas, screen, selection gfx.Rect) {
-	const h float32 = 40
 	actions := [...]struct {
 		id    gfx.ID
 		label string
@@ -108,12 +107,29 @@ func (o *selectionOverlay) paintToolbar(c *gfx.Canvas, screen, selection gfx.Rec
 		{rectID, "矩形", snipRectangleIcon, toolRectangle},
 		{arrowID, "箭头", snipArrowIcon, toolArrow},
 		{drawID, "画笔", snipPenIcon, toolFreehand},
+		{ellipseID, "椭圆", snipEllipseIcon, toolEllipse},
+		{textID, "文字", snipTextIcon, toolText},
+		{mosaicID, "马赛克", snipMosaicIcon, toolMosaic},
 		{undoID, "撤销", snipUndoIcon, toolSelect},
+		{redoID, "重做", snipRedoIcon, toolSelect},
+		{saveID, "另存为", snipSaveIcon, toolSelect},
 		{cancelID, "取消", snipCancelIcon, toolSelect},
-		{exportID, "完成", snipCheckIcon, toolSelect},
+		{exportID, "复制截图", snipCheckIcon, toolSelect},
 	}
-	step := min(float32(35), max((screen.Width-40)/float32(len(actions)), 1))
-	width := float32(len(actions))*step + 16
+	const step float32 = 35
+	cols := min(len(actions), max(1, int((screen.Width-26)/step)))
+	rows := (len(actions) + cols - 1) / cols
+	width := float32(cols)*step + 12
+	h := float32(rows)*36 + 8
+	showStyle := o.editor.tool != toolSelect && o.editor.tool != toolMosaic
+	inlineStyle := width >= 280
+	if showStyle {
+		if inlineStyle {
+			h += 30
+		} else {
+			h += 54
+		}
+	}
 	x := min(max(selection.Right()-width, 10), max(screen.Right()-width-10, 10))
 	y := selection.Bottom() + 10
 	if y+h+8 > screen.Bottom() {
@@ -130,18 +146,45 @@ func (o *selectionOverlay) paintToolbar(c *gfx.Canvas, screen, selection gfx.Rec
 	defer c.PopLayer()
 	c.RoundedBorder(bar, 10, 1, gfx.RGB(64, 73, 91), gfx.RGB(24, 29, 39))
 	c.Block(bar)
-	x += 5
-	for _, action := range actions {
-		if action.id == undoID || action.id == cancelID {
-			c.Fill(gfx.Rect{X: x + 1, Y: y + 10, Width: 1, Height: 20}, gfx.RGB(71, 80, 95))
-			x += 3
+	for i, action := range actions {
+		col, row := i%cols, i/cols
+		bx, by := x+6+float32(col)*step, y+4+float32(row)*36
+		if col > 0 && (action.id == undoID || action.id == saveID) {
+			c.Fill(gfx.Rect{X: bx - 2, Y: by + 6, Width: 1, Height: 20}, gfx.RGB(71, 80, 95))
 		}
-		r := gfx.Rect{X: x, Y: y + 4, Width: max(step-3, 1), Height: 32}
-		x += step
-		active := (action.id == selectID || action.id == rectID || action.id == arrowID || action.id == drawID) && action.tool == o.editor.tool
-		o.paintToolButton(c, r, action.id, i18n.T(action.label), action.icon, active, action.id == exportID, action.id == undoID && len(o.history) == 0)
+		r := gfx.Rect{X: bx, Y: by, Width: step - 3, Height: 32}
+		active := action.id == selectID && o.editor.tool == toolSelect || action.tool != toolSelect && action.tool == o.editor.tool
+		disabled := action.id == undoID && !o.editor.document.CanUndo() || action.id == redoID && !o.editor.document.CanRedo()
+		o.paintToolButton(c, r, action.id, i18n.T(action.label), action.icon, active, action.id == exportID, disabled)
+	}
+	if showStyle {
+		style := gfx.Rect{X: bar.X + 10, Y: bar.Y + float32(rows)*36 + 7, Width: bar.Width - 20}
+		if !inlineStyle {
+			style.Width = min(160, style.Width)
+		}
+		o.editor.paintStyle(c, gfx.DarkTheme(), style, inlineStyle)
 	}
 }
+
+var snipEllipsePath = gfx.NewPath(24, 24,
+	gfx.MoveTo(12, 0), gfx.CubicTo(18.627, 0, 24, 5.373, 24, 12),
+	gfx.CubicTo(24, 18.627, 18.627, 24, 12, 24), gfx.CubicTo(5.373, 24, 0, 18.627, 0, 12),
+	gfx.CubicTo(0, 5.373, 5.373, 0, 12, 0), gfx.ClosePath(),
+)
+
+var snipEllipseIcon = snipIcon(
+	gfx.MoveTo(12, 5), gfx.CubicTo(17, 5, 21, 8, 21, 12),
+	gfx.CubicTo(21, 16, 17, 19, 12, 19), gfx.CubicTo(7, 19, 3, 16, 3, 12),
+	gfx.CubicTo(3, 8, 7, 5, 12, 5), gfx.ClosePath(),
+)
+var snipTextIcon = snipIcon(gfx.MoveTo(5, 6), gfx.LineTo(19, 6), gfx.MoveTo(12, 6), gfx.LineTo(12, 19),
+	gfx.MoveTo(8, 19), gfx.LineTo(16, 19))
+var snipMosaicIcon = snipIcon(gfx.MoveTo(4, 4), gfx.LineTo(20, 4), gfx.LineTo(20, 20), gfx.LineTo(4, 20), gfx.ClosePath(),
+	gfx.MoveTo(4, 12), gfx.LineTo(20, 12), gfx.MoveTo(12, 4), gfx.LineTo(12, 20))
+var snipRedoIcon = snipIcon(gfx.MoveTo(20, 10), gfx.LineTo(15, 5), gfx.MoveTo(20, 10), gfx.LineTo(15, 15),
+	gfx.MoveTo(20, 10), gfx.LineTo(10, 10), gfx.QuadTo(4, 10, 4, 17))
+var snipSaveIcon = snipIcon(gfx.MoveTo(12, 4), gfx.LineTo(12, 15), gfx.MoveTo(7, 10), gfx.LineTo(12, 15),
+	gfx.LineTo(17, 10), gfx.MoveTo(4, 16), gfx.LineTo(4, 20), gfx.LineTo(20, 20), gfx.LineTo(20, 16))
 
 func (o *selectionOverlay) paintToolButton(c *gfx.Canvas, r gfx.Rect, id gfx.ID, label string, icon gfx.Icon, active, primary, disabled bool) {
 	color := gfx.RGB(241, 245, 252)
@@ -165,8 +208,12 @@ func (o *selectionOverlay) paintToolButton(c *gfx.Canvas, r gfx.Rect, id gfx.ID,
 	edge := min(19, r.Width, r.Height)
 	c.DrawIcon(icon, gfx.Rect{X: r.X + (r.Width-edge)/2, Y: r.Y + (r.Height-edge)/2, Width: edge, Height: edge}, color)
 	c.HitWithOptions(id, r, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: label, Selected: active, Disabled: disabled, Cursor: gfx.PointerCursorHand})
-	if !disabled && c.Clicked(id) && o.activate(id) && !o.editor.done {
-		c.RequestFrame()
+	if !disabled && c.Clicked(id) {
+		if id == saveID {
+			o.editor.scheduleSaveAs(c)
+		} else if o.activate(id) && !o.editor.done {
+			c.RequestFrame()
+		}
 	}
 }
 

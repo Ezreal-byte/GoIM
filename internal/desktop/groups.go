@@ -295,7 +295,7 @@ func (u *UI) drawMemberProfile(canvas *gfx.Canvas, viewport ui.Rect) {
 		Layer: 74, Scope: u.ids.memberProfileScope, DismissID: u.ids.memberProfileDismiss,
 		CloseID: u.ids.memberProfileClose, InitialFocusID: u.ids.memberProfileTalk,
 		ContentSize: ui.Size{Width: 460}, FitBody: true, BodyHeight: min(478, viewport.Height*0.66),
-		ButtonSize: components.ButtonSizeSmall,
+		ButtonSize: dialogActionButtonSize,
 	})
 	title := i18n.T("联系人资料")
 	if group.ID != "" && slices.Contains(group.Members, peer.ID) {
@@ -312,7 +312,8 @@ func (u *UI) drawMemberProfile(canvas *gfx.Canvas, viewport ui.Rect) {
 	if self {
 		action = i18n.T("编辑资料")
 	}
-	dialog.Actions(layout, components.ButtonAction{ID: u.ids.memberProfileTalk, Label: action})
+	paintDialogActions(canvas, u.theme, layout.Footer,
+		components.ButtonAction{ID: u.ids.memberProfileTalk, Label: action})
 	dialog.End()
 	switch {
 	case canvas.Clicked(u.ids.memberProfileDismiss), canvas.Clicked(u.ids.memberProfileClose):
@@ -1101,49 +1102,32 @@ func (u *UI) drawChatMenu(canvas *gfx.Canvas) {
 }
 
 func (u *UI) drawConnectDialog(canvas *gfx.Canvas, viewport ui.Rect) {
-	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
-		Layer: 70, Scope: u.ids.connectScope, DismissID: u.ids.connectDismiss,
-		CloseID: u.ids.connectClose, InitialFocusID: u.ids.connectField,
-		ContentSize: ui.Size{Width: 500}, FitBody: true, BodyHeight: 163,
-		ButtonSize: components.ButtonSizeSmall,
-	})
-	layout := dialog.Begin(i18n.T("手动连接"), i18n.T("输入对方设备地址。连接成功后，对端联系人会出现在列表中。"))
-	var connect ui.Box
-	var submitted bool
-	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
-		ui.Column(f).Fill().Gap(8).Children(func() {
-			connectionSelector(f, &u.connectRoute).FillWidth().Height(38)
-			ui.Text(f, i18n.T("设备地址")).FontSize(12).Weight(gfx.WeightMedium)
-			connect = ui.TextFieldID(f, u.ids.connectField, &u.connectField, i18n.T("设备地址"),
-				connectionHint(u.state, u.connectRoute)).Height(38)
-			if !connectionAvailable(u.state, u.connectRoute) {
-				ui.Paragraph(f, connectionProblem(u.state, u.connectRoute), 2).FontSize(11).Muted()
-			}
-			if u.state.Error != "" {
-				ui.Text(f, u.state.Error).FontSize(11).Color(u.palette.danger).MaxLines(2)
-			}
+	u.dialogPage.Draw(canvas, viewport, func(f ui.C) {
+		dialog := ui.Dialog(f, ui.DialogSpec{
+			Title: i18n.T("手动连接"), Description: i18n.T("输入对方设备地址。连接成功后，对端联系人会出现在列表中。"),
+			Width: 500, Layer: 70, Scope: u.ids.connectScope, DismissID: u.ids.connectDismiss,
+			CloseID: u.ids.connectClose, InitialFocusID: u.ids.connectField,
 		})
-	})
-	submitted = connect.Submitted()
-	dialog.Actions(layout,
-		components.ButtonAction{ID: u.ids.connectCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},
-		components.ButtonAction{ID: u.ids.connectSubmit, Label: i18n.T("连接"), Disabled: !connectionAvailable(u.state, u.connectRoute)},
-	)
-	dialog.End()
-
-	if canvas.Clicked(u.ids.connectDismiss) || canvas.Clicked(u.ids.connectClose) ||
-		canvas.Clicked(u.ids.connectCancel) {
-		u.connectOpen = false
-		return
-	}
-	if connectionAvailable(u.state, u.connectRoute) && (submitted || canvas.Clicked(u.ids.connectSubmit)) {
-		address := strings.TrimSpace(u.connectField.Text())
-		if address == "" {
+		var submitted, canceled bool
+		dialog.Body(func() {
+			submitted = connectionFields(f, u.state, panelConnectionFields{
+				route: &u.connectRoute, address: &u.connectField, addressID: u.ids.connectField,
+			})
+		})
+		dialog.Footer(func() {
+			canceled = dialogActionButton(f, u.ids.connectCancel, i18n.T("取消")).Outline().Clicked()
+			enabled := connectionAvailable(u.state, u.connectRoute) && strings.TrimSpace(u.connectField.Text()) != ""
+			submitted = dialogActionButton(f, u.ids.connectSubmit, i18n.T("连接")).Disabled(!enabled).Clicked() || submitted
+		})
+		if dialog.Dismissed() || canceled {
+			u.connectOpen = false
 			return
 		}
-		u.submit(domain.Command{Kind: domain.Connect, Address: address, Transport: u.connectRoute.transport()})
-		u.connectOpen = false
-	}
+		if address := strings.TrimSpace(u.connectField.Text()); submitted && address != "" {
+			u.submit(domain.Command{Kind: domain.Connect, Address: address, Transport: u.connectRoute.transport()})
+			u.connectOpen = false
+		}
+	})
 }
 
 func (u *UI) drawComposeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
@@ -1171,7 +1155,7 @@ func (u *UI) drawComposeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 		Layer: 70, Scope: u.ids.composeScope, DismissID: u.ids.composeDismiss,
 		CloseID: u.ids.composeClose, InitialFocusID: initialFocus,
 		ContentSize: ui.Size{Width: 760}, FitBody: true, BodyHeight: bodyHeight,
-		ButtonSize: components.ButtonSizeSmall,
+		ButtonSize: dialogActionButtonSize,
 	})
 	layout := dialog.Begin(title, description)
 	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
@@ -1198,7 +1182,7 @@ func (u *UI) drawComposeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			label = i18n.T("正在邀请…")
 		}
 	}
-	dialog.Actions(layout,
+	paintDialogActions(canvas, u.theme, layout.Footer,
 		components.ButtonAction{
 			ID: u.ids.composeCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline,
 			Disabled: u.compose.pending,
@@ -1403,13 +1387,13 @@ func (u *UI) drawConfirmation(canvas *gfx.Canvas, viewport ui.Rect) {
 		Layer: 76, Scope: u.ids.confirmScope, DismissID: u.ids.confirmDismiss,
 		CloseID: u.ids.confirmClose, InitialFocusID: u.ids.confirmCancel,
 		ContentSize: ui.Size{Width: 440}, FitBody: true, BodyHeight: 8,
-		ButtonSize: components.ButtonSizeSmall,
+		ButtonSize: dialogActionButtonSize,
 	})
 	layout := dialog.Begin(u.confirm.title, u.confirm.body)
 	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
 		ui.Row(f).Fill()
 	})
-	dialog.Actions(layout,
+	paintDialogActions(canvas, u.theme, layout.Footer,
 		components.ButtonAction{ID: u.ids.confirmCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},
 		components.ButtonAction{ID: u.ids.confirmRun, Label: i18n.T("确认"), Variant: components.ButtonDestructive},
 	)

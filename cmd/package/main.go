@@ -11,6 +11,7 @@ import (
 	"debug/elf"
 	"debug/macho"
 	"debug/pe"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -30,6 +31,7 @@ import (
 	"github.com/vivaui/viva/tools/appbundle"
 	"github.com/vivaui/viva/tools/winpkg"
 	"github.com/vivaui/viva/tools/winres"
+	"github.com/vivaui/viva/update"
 )
 
 const logoAssets = "internal/brand/assets"
@@ -75,6 +77,13 @@ func build() error {
 		}
 	}
 	facts := packageBuildFactsFromEnvironment(os.Getenv, time.Now().UTC())
+	if key := strings.TrimSpace(os.Getenv("GOIM_UPDATE_PUBLIC_KEY")); key != "" {
+		parsed, err := update.ParsePublicKey(key)
+		if err != nil {
+			return fmt.Errorf("invalid GOIM_UPDATE_PUBLIC_KEY: %w", err)
+		}
+		facts.updateKey = base64.StdEncoding.EncodeToString(parsed)
+	}
 	facts.commitTime = localCommitTime(sourceCommit)
 	if value := strings.TrimSpace(*source); value != "" {
 		facts.source = value
@@ -193,7 +202,7 @@ func build() error {
 		"version": *version, "commit": sourceCommit, "commit_time": facts.commitTime,
 		"viva": vivaVersion, "go": linked.GoVersion, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"source": facts.source, "source_ref": facts.ciRef, "run_id": facts.ciRunID,
-		"build_time": facts.buildTime, "ci_url": facts.ciURL,
+		"build_time": facts.buildTime, "ci_url": facts.ciURL, "update_public_key": facts.updateKey,
 		"desktop_validation": "Windows loopback and offscreen tests; native shortcut lifecycle tests; physical multi-device desktop validation pending",
 	}
 	b, err := json.MarshalIndent(info, "", "  ")
@@ -244,6 +253,7 @@ func writeChecksum(path string) error {
 }
 
 type packageBuildFacts struct {
+	updateKey  string
 	source     string
 	ciRef      string
 	ciRunID    string
@@ -282,6 +292,9 @@ func packageLinkerFlags(version, commit string, facts packageBuildFacts, windows
 		"-X", "goim/internal/buildinfo.CIRef=" + facts.ciRef,
 		"-X", "goim/internal/buildinfo.CIRunID=" + facts.ciRunID,
 		"-X", "goim/internal/buildinfo.CIURL=" + facts.ciURL,
+	}
+	if facts.updateKey != "" {
+		parts = append(parts, "-X", "goim/internal/buildinfo.UpdatePublicKey="+facts.updateKey)
 	}
 	if windowsGUI {
 		parts = append(parts, "-H=windowsgui")

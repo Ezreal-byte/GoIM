@@ -307,7 +307,6 @@ var en = map[string]string{
 	"管理外观、消息发送与窗口行为":            "Manage appearance, sending, and window behavior",
 	"设置接收方式和文件保存位置":             "Set how and where incoming files are saved",
 	"已保存":                       "Saved",
-	"保存中":                       "Saving…",
 	"保存失败":                      "Could not save",
 	"录制后点击保存":                   "Click Save after recording",
 	"消息通知":                      "Message notifications",
