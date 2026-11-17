@@ -43,14 +43,15 @@ type panelInterfaceFontPicker struct {
 	supported    bool
 	supportKnown bool
 
-	entries   []interfaceFontEntry
-	filtered  []int
-	selected  int
-	scroll    float32
-	built     bool
-	builtRaw  string
-	builtList int
-	missing   bool
+	entries      []interfaceFontEntry
+	filtered     []int
+	selected     int
+	scroll       float32
+	scrollManual bool
+	built        bool
+	builtRaw     string
+	builtList    int
+	missing      bool
 
 	state    domain.State
 	submit   func(domain.Command)
@@ -163,11 +164,13 @@ func (f *panelInterfaceFontPicker) selectFamily(family string) {
 		if f.entries[index].family == family {
 			f.selected = row
 			f.scroll = min(max(float32(max(row-interfaceFontVisibleRows/2, 0))*interfaceFontRowStep, 0), f.maxScroll())
+			f.scrollManual = true
 			return
 		}
 	}
 	f.selected = 0
 	f.scroll = 0
+	f.scrollManual = true
 }
 
 func (f *panelInterfaceFontPicker) move(delta int) {
@@ -178,6 +181,7 @@ func (f *panelInterfaceFontPicker) move(delta int) {
 	top := float32(f.selected) * interfaceFontRowStep
 	f.scroll = min(max(f.scroll, top+interfaceFontRowStep-interfaceFontListHeight), top)
 	f.scroll = min(max(f.scroll, 0), f.maxScroll())
+	f.scrollManual = true
 }
 
 func (f *panelInterfaceFontPicker) contentHeight() float32 {
@@ -219,12 +223,6 @@ func (f *panelInterfaceFontPicker) key(event gfx.KeyEvent, confirm func()) (gfx.
 		return handled, true
 	}
 	return gfx.EventResult{}, false
-}
-
-func (f *panelInterfaceFontPicker) wheel(event gfx.ScrollEvent) gfx.EventResult {
-	before := f.scroll
-	f.scroll = min(max(before+event.StepY(interfaceFontRowStep), 0), f.maxScroll())
-	return gfx.EventResult{Handled: true, Repaint: f.scroll != before}
 }
 
 func (p *Panels) drawInterfaceFontPicker(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
@@ -314,9 +312,15 @@ func (p *Panels) drawInterfaceFontPicker(f ui.C, theme ui.Theme, state domain.St
 }
 
 func (p *Panels) drawInterfaceFontRows(f ui.C, theme ui.Theme, font *panelInterfaceFontPicker) {
+	area := ui.Scroll(f.Part("interface-font-list")).Scrollbars()
+	if font.scrollManual {
+		area.ScrollState().ScrollTo(font.scroll)
+		font.scrollManual = false
+	}
+	font.scroll = area.ScrollState().Offset
 	first := int(font.scroll / interfaceFontRowStep)
 	last := min(len(font.filtered), first+interfaceFontVisibleRows+1)
-	ui.ScrollAt(f, font.scroll).Fill().Children(func() {
+	area.Fill().Children(func() {
 		if top := float32(first) * interfaceFontRowStep; top > 0 {
 			ui.Slot(f).Height(top)
 		}
@@ -348,6 +352,7 @@ func (p *Panels) drawInterfaceFontRows(f ui.C, theme ui.Theme, font *panelInterf
 			ui.Slot(f).Height(rest)
 		}
 	})
+	font.scroll = area.ScrollState().Offset
 }
 
 func (p *Panels) drawInterfaceFontPreview(f ui.C, theme ui.Theme, font *panelInterfaceFontPicker) {

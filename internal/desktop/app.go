@@ -97,10 +97,20 @@ type confirmation struct {
 }
 
 type conversationDragState struct {
-	id       string
-	startX   float32
-	startY   float32
-	dragging bool
+	id              string
+	title           string
+	startX          float32
+	startY          float32
+	currentX        float32
+	currentY        float32
+	dragging        bool
+	preview         conversationDragPreview
+	previewOpenFail bool
+}
+
+type conversationDragPreview interface {
+	MoveTo(gfx.Point)
+	Close()
 }
 
 type profileState struct {
@@ -171,6 +181,7 @@ type appIDs struct {
 	navTheme      gfx.ID
 	navSettings   gfx.ID
 	profileAvatar gfx.ID
+	detachedPin   gfx.ID
 
 	sidebarCreate  gfx.ID
 	sidebarConnect gfx.ID
@@ -383,6 +394,7 @@ type UI struct {
 	fullscreenViewer  func(bool) bool
 	dismissViewer     func()
 	presentDetached   func(string) bool
+	openDragPreview   func(app.DragPreviewConfig) (conversationDragPreview, error)
 	chatInput         app.TextInput
 	chatLayout        components.TextareaLayout
 	drafts            map[string]string
@@ -494,6 +506,8 @@ type UI struct {
 
 	avatarImagePaths map[string]bool
 	detachedWindow   bool
+	detachedPinned   bool
+	detachedBlank    bool
 
 	media               *mediaWorker
 	mediaImageGen       uint64
@@ -786,6 +800,7 @@ func (u *UI) watchUpdates() {
 
 func (u *UI) onWake() {
 	u.refresh()
+	u.updater.setAutomatic(!u.state.Settings.DisableAutoUpdateCheck)
 	u.observeUpdate()
 	u.applyMediaResults()
 	u.panels.updateLists(u.state)
@@ -816,6 +831,12 @@ func (u *UI) refresh() {
 }
 
 func (u *UI) presentStateNotice() {
+	// The backend notice belongs to the primary GoIM shell. Detached chats share
+	// the same backend and state revision, so allowing each shell to consume the
+	// notice would display the same success message once per open conversation.
+	if u.detachedWindow {
+		return
+	}
 	notice := strings.TrimSpace(u.state.Notice)
 	if notice == "" || u.noticeRevision == u.state.Revision {
 		return
@@ -1040,6 +1061,7 @@ func (u *UI) initIDs() {
 	u.ids.navTheme = u.tree.ID(u.ids.nav, "appearance")
 	u.ids.navSettings = u.tree.ID(u.ids.nav, "settings")
 	u.ids.profileAvatar = u.tree.ID(u.ids.nav, "profile-avatar")
+	u.ids.detachedPin = u.tree.ID(u.ids.page, "detached-pin")
 
 	u.ids.sidebarCreate = u.tree.ID(u.ids.side, "create")
 	u.ids.sidebarConnect = u.tree.ID(u.ids.side, "connect")
@@ -1222,6 +1244,7 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	}
 
 	u.drawMainBody(canvas, body)
+	u.drawConversationDragGhost(canvas, body)
 
 	if u.chatFind.focus && u.chatFind.open {
 		canvas.RequestFocus(u.ids.chatSearchField)
@@ -1780,22 +1803,13 @@ func (u *UI) drawConversationList(f ui.C) {
 	u.drawInvitations(f)
 	query := strings.TrimSpace(u.sidebarSearch.Text())
 	shown := 0
-	available := 0
 	for _, conversation := range u.conversations {
-		if u.detached[conversation.ID] {
-			continue
-		}
-		available++
 		title := u.conversationTitle(conversation)
 		if query != "" && !containsFold(title, query) && !containsFold(conversation.Preview, query) {
 			continue
 		}
 		shown++
 		u.conversationRow(f, conversation)
-	}
-	if available == 0 && len(u.conversations) > 0 {
-		u.emptyListMessage(f, i18n.T("会话已在独立窗口打开"), i18n.T("关闭独立窗口后，会话会回到这里。"))
-		return
 	}
 	if len(u.conversations) == 0 {
 		u.emptySidebar(f, i18n.T("还没有会话"), i18n.T("发现联系人后开始聊天，或手动连接一个已知地址。"), true)
@@ -1866,6 +1880,18 @@ func (u *UI) conversationRow(f ui.C, conversation domain.Conversation) {
 		f.Canvas().Consume()
 	}
 	if row.Clicked() {
+		if u.detached[conversation.ID] {
+			u.saveCurrentDraft()
+			u.selected = ""
+			u.detachedBlank = true
+			u.loadDraft("")
+			u.rebuildSelection()
+			if u.presentDetached != nil {
+				u.presentDetached(conversation.ID)
+			}
+			u.invalidator.Invalidate()
+			return
+		}
 		u.selectConversation(conversation.ID)
 	}
 }
@@ -2149,7 +2175,7 @@ func (u *UI) selectAfterSnapshot(oldSelected string) {
 	if !found {
 		target = ""
 	}
-	if target == "" && len(u.conversations) > 0 {
+	if target == "" && len(u.conversations) > 0 && !u.detachedBlank {
 		target = u.conversations[0].ID
 	}
 	if target != oldSelected {
@@ -2280,6 +2306,7 @@ func (u *UI) selectConversation(id string) {
 	if id == "" {
 		return
 	}
+	u.detachedBlank = false
 	u.closeShellMenu()
 	if id == u.selected {
 		u.pendingPeer, u.pendingGroup = "", ""
@@ -2612,6 +2639,11 @@ func (u *UI) onPointer(event gfx.PointerEvent) gfx.EventResult {
 		state, result := u.profile.crop.layout.Pointer(event, u.profile.crop.state)
 		u.profile.crop.state = state
 		if result.Handled {
+			return result
+		}
+	}
+	if u.isPanelSection() {
+		if result := u.panels.Pointer(event); result.Handled {
 			return result
 		}
 	}

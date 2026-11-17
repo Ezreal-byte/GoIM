@@ -122,11 +122,14 @@ func TestAboutExternalLinksAndCommunityAvailability(t *testing.T) {
 		t.Fatalf("WeChat link = %q, %v", target, ok)
 	}
 	h.click(aboutTestID(h, "community-qq"))
-	if h.driver.Clipboard() != aboutQQ {
-		t.Fatal("QQ card did not copy the group number")
+	if target, ok := h.driver.LastOpenedURL(); !ok || target != aboutQQURL {
+		t.Fatalf("QQ link = %q, %v; want %q", target, ok, aboutQQURL)
 	}
 	if h.hasText("CI 运行") || !h.hasText("加入交流") || !h.hasText("项目") {
 		t.Fatal("about page sections were not updated")
+	}
+	if h.hasText("系统诊断报告") || !h.hasText("导出脱敏报告") || !h.hasText("不含聊天内容") {
+		t.Fatal("diagnostics and feedback were not merged into one redacted report row")
 	}
 }
 
@@ -262,6 +265,23 @@ func TestAboutExportsPrivacySafeDiagnostics(t *testing.T) {
 		if !strings.Contains(report, want) {
 			t.Errorf("diagnostic report lacks %q:\n%s", want, report)
 		}
+	}
+}
+
+func TestAboutAutomaticUpdateCheckSwitchDefaultsOn(t *testing.T) {
+	state := panelTestDefaultState(t)
+	h := aboutTestOpen(t, state, ui.LightTheme(), i18n.Chinese, ui.Rect{
+		X: 68, Y: 0, Width: 1372, Height: 1800,
+	})
+	hit, ok := h.findHit(h.panels.ids.aboutAutoUpdate)
+	if !ok || hit.Checked {
+		t.Fatalf("automatic update switch = %+v, found=%v", hit, ok)
+	}
+	h.requireLayout()
+	h.click(h.panels.ids.aboutAutoUpdate)
+	command := h.requireLastCommand()
+	if command.Kind != domain.SetSetting || command.Setting != "disable_auto_update_check" || !command.Bool {
+		t.Fatalf("automatic update command = %+v", command)
 	}
 }
 

@@ -57,13 +57,23 @@ func (u *UI) drawUpdateTitlebar(f ui.C, wide bool) {
 		return
 	}
 	label := i18n.T("有更新")
-	if !wide {
-		if u.iconButton(f, u.updateIDs.chrome, u.iconDownload, label, 26).Clicked() {
-			u.showUpdates(false)
-		}
-		return
+	size := float32(26)
+	if wide {
+		size = 28
 	}
-	if namedButton(f, u.updateIDs.chrome, label).Small().Ghost().Clicked() {
+	button := ui.Stack(f).Size(size, size).Radius(7).Items(ui.Center).Justify(ui.Center).
+		Background(panelTint(u.palette.success, 0.16, u.palette.rail)).
+		Hover(ui.Look{}.Background(panelTint(u.palette.success, 0.24, u.palette.rail))).
+		HitWith(u.updateIDs.chrome, label, gfx.HitOptions{
+			Role: gfx.RoleButton, Hint: label, Cursor: gfx.PointerCursorHand,
+		}).
+		Children(func() {
+			ui.Icon(f, u.iconDownload).Size(15, 15).Color(u.palette.success)
+		})
+	if f.Canvas().FocusVisible() == u.updateIDs.chrome {
+		button.Stroke(1.5, u.theme.Ring)
+	}
+	if button.Clicked() {
 		u.showUpdates(false)
 	}
 }
@@ -73,6 +83,8 @@ func (v updateView) status() string {
 		return i18n.T(v.problem)
 	}
 	switch v.phase {
+	case updateIdle:
+		return i18n.T("自动检查已关闭，可随时手动检查更新。")
 	case updateChecking:
 		return i18n.T("正在检查更新…")
 	case updateCurrent:
@@ -93,8 +105,17 @@ func (v updateView) status() string {
 	}
 }
 
-func (p *Panels) drawUpdateSettings(f ui.C, theme ui.Theme) {
+func (p *Panels) drawUpdateSettings(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	panelSection(f, i18n.T("软件更新"), "", func() {
+		p.settingsRow(f, theme, i18n.T("自动检查更新"), i18n.T("启动 GoIM 时在后台检查新版本"), func() {
+			p.settingsControl(f, 80, func() {
+				disabled := ui.State[bool](f, "disable-auto-update-check")
+				*disabled = state.Settings.DisableAutoUpdateCheck
+				if ui.Switch(f, disabled, "").Hit(p.ids.aboutAutoUpdate, i18n.T("自动检查更新")).Changed() {
+					p.submitBool(submit, state, "disable_auto_update_check", *disabled)
+				}
+			})
+		})
 		p.settingsRow(f, theme, i18n.T("检查更新"), p.update.status(), func() {
 			check := p.update.offer.Version == ""
 			label := i18n.T("检查更新")
@@ -127,6 +148,23 @@ func (u *UI) drawUpdateDialog(c *gfx.Canvas, viewport gfx.Rect) {
 					ui.Text(f, title).Weight(gfx.WeightSemibold)
 				}
 				ui.Paragraph(f, view.status(), 3).Muted()
+				if view.offer.Version != "" && (view.notesLoading || view.notes != "" || view.notesProblem != "") {
+					ui.Text(f, i18n.T("更新说明")).Weight(gfx.WeightMedium)
+					switch {
+					case view.notes != "":
+						ui.Column(f).FillWidth().Height(190).Shrink(0).PadSides(12, 12, 10, 10).
+							Background(u.theme.Muted).Border(1, u.theme.Border).
+							Radius(u.theme.Metrics.RadiusControl).Children(func() {
+							ui.Scroll(f).Scrollbars().Fill().Children(func() {
+								ui.Paragraph(f, view.notes, 80).FontSize(u.theme.Metrics.FontSizeS + 1)
+							})
+						})
+					case view.notesProblem != "":
+						ui.Paragraph(f, i18n.T(view.notesProblem), 2).Muted()
+					default:
+						ui.Text(f, i18n.T("正在加载发布说明…")).Muted()
+					}
+				}
 				if view.phase == updateDownloading || view.phase == updateReady {
 					ui.Progress(f, view.progress).FillWidth()
 					if view.phase == updateDownloading {

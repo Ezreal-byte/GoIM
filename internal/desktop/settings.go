@@ -224,18 +224,10 @@ func (p *Panels) drawSettingsHeader(f ui.C, theme ui.Theme) {
 		description = i18n.T("设置锁定密码与启动保护")
 	}
 	panelPageHeader(f, theme, title, description, func() {
-		if p.settingsTab != panelSettingsAbout && (p.pending != nil || p.saveFailed) {
-			p.drawSettingsSaveStatus(f, theme)
+		if p.saveFailed {
+			ui.Text(f, i18n.T("保存失败")).FontSize(theme.Metrics.FontSizeS + 1).Color(theme.Danger)
 		}
 	})
-}
-
-func (p *Panels) drawSettingsSaveStatus(f ui.C, theme ui.Theme) {
-	text, tone := i18n.T("保存中"), theme.MutedForeground
-	if p.saveFailed {
-		text, tone = i18n.T("保存失败"), theme.Danger
-	}
-	ui.Text(f, text).FontSize(theme.Metrics.FontSizeS + 1).Color(tone)
 }
 
 func (p *Panels) settingsFooterText() string {

@@ -102,6 +102,7 @@ type panelIDs struct {
 	aboutBack        gfx.ID
 	aboutCopyLicense gfx.ID
 	aboutDiagnostics gfx.ID
+	aboutAutoUpdate  gfx.ID
 	aboutCards       gfx.Scope
 
 	transferActions     gfx.Scope
@@ -371,6 +372,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.aboutBack = tree.ID(settings, "about-back")
 	p.ids.aboutCopyLicense = tree.ID(settings, "copy-license")
 	p.ids.aboutDiagnostics = tree.ID(settings, "export-diagnostics")
+	p.ids.aboutAutoUpdate = tree.ID(settings, "auto-check-updates")
 	p.ids.aboutCards = tree.Sub(settings, tree.Name("about-card"))
 
 	transfers := tree.Feature("transfers-panel")
@@ -647,11 +649,18 @@ func (p *Panels) Shortcut(event gfx.KeyEvent) gfx.EventResult {
 	return p.Key(event)
 }
 
+// Pointer lets Viva update hover and custom pointer state for the panel page.
+// This is required by stateful controls such as scrollbar drag targets and
+// dialogs whose native hit regions extend beyond ordinary Clicked handling.
+func (p *Panels) Pointer(event gfx.PointerEvent) gfx.EventResult {
+	return p.page.Pointer(event)
+}
+
 // Wheel routes the wheel to an open settings dropdown first, then to the panel
 // scroll area under the pointer.
 func (p *Panels) Wheel(event gfx.ScrollEvent) gfx.EventResult {
 	if p.module == panelModuleSettings && p.settingsExtra.interfaceFont.open {
-		return p.settingsExtra.interfaceFont.wheel(event)
+		return p.page.Wheel(event)
 	}
 	if p.module == panelModuleTransfers && p.transferMenu != "" {
 		p.transferMenu = ""

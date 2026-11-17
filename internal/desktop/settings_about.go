@@ -30,6 +30,7 @@ type panelBuildInfo struct {
 const (
 	aboutSite   = "https://ezreal-byte.github.io/GoIM/"
 	aboutQQ     = "1084364974"
+	aboutQQURL  = "https://qm.qq.com/cgi-bin/qm/qr?k=&group_code=" + aboutQQ
 	aboutWeChat = "https://www.kdocs.cn/l/cdcdb0XI3TTt"
 )
 
@@ -82,17 +83,15 @@ func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, s
 	})
 
 	panelSectionGap(f)
-	p.drawUpdateSettings(f, theme)
+	p.drawUpdateSettings(f, theme, state, submit)
 	panelSectionGap(f)
-	panelSection(f, i18n.T("诊断与反馈"), i18n.T("遇到问题时导出报告，发送给开发者排查。"), func() {
-		p.settingsRow(f, theme, i18n.T("系统诊断报告"),
-			i18n.T("包含版本、协议状态、适配器和数据计数；不包含聊天内容、联系人、完整地址或文件路径。"),
-			func() {
-				if namedButton(f, p.ids.aboutDiagnostics, i18n.T("导出报告")).Small().Outline().Clicked() {
-					p.exportDiagnostics(f.Canvas(), state)
-				}
-			})
-	})
+	p.settingsRow(f, theme, i18n.T("诊断与反馈"),
+		i18n.T("遇到问题时导出脱敏报告，仅保留版本、协议状态、适配器和数据计数，不含聊天内容、联系人、完整地址、文件路径或凭据。"),
+		func() {
+			if namedButton(f, p.ids.aboutDiagnostics, i18n.T("导出脱敏报告")).Small().Outline().Clicked() {
+				p.exportDiagnostics(f.Canvas(), state)
+			}
+		})
 	panelSectionGap(f)
 	panelSection(f, i18n.T("构建信息"), i18n.T("点击任一卡片可复制完整的构建信息。"), func() {
 		facts := []aboutFact{
@@ -112,7 +111,7 @@ func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, s
 	panelSectionGap(f)
 	panelSection(f, i18n.T("加入交流"), "", func() {
 		p.aboutLinkGrid(f, theme, []aboutLinkItem{
-			{id: "community-qq", name: i18n.T("QQ 群"), desc: aboutQQ, copy: aboutQQ, mark: aboutQQLinkMark},
+			{id: "community-qq", name: i18n.T("QQ 群"), desc: aboutQQ, url: aboutQQURL, mark: aboutQQLinkMark},
 			{id: "community-wechat", name: i18n.T("微信群"), desc: i18n.T("查看入群方式"), url: aboutWeChat, mark: aboutWeChatLinkMark},
 		})
 	})

@@ -430,6 +430,8 @@ func (n *Node) setting(c domain.Command) error {
 		settings.DisableAutoDiscovery = c.Bool
 	case "auto_accept_images":
 		settings.AutoAcceptImages = c.Bool
+	case "disable_auto_update_check":
+		settings.DisableAutoUpdateCheck = c.Bool
 	case "language":
 		if c.Value != "zh-CN" && c.Value != "en" {
 			return errors.New("仅支持简体中文和英语")

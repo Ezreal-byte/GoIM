@@ -15,6 +15,7 @@ type updatePhase uint8
 
 const (
 	updateDisabled updatePhase = iota
+	updateIdle
 	updateChecking
 	updateCurrent
 	updateOffered
@@ -28,6 +29,9 @@ const (
 type updateView struct {
 	phase         updatePhase
 	offer         selfupdate.Offer
+	notes         string
+	notesProblem  string
+	notesLoading  bool
 	progress      float32
 	problem       string
 	previous      string
@@ -40,6 +44,7 @@ func (s updateView) busy() bool {
 
 type updateClient interface {
 	Check(context.Context) (selfupdate.Offer, error)
+	ReleaseNotes(context.Context, selfupdate.Offer) (string, error)
 	Download(context.Context, selfupdate.Offer, func(int64, int64)) (string, error)
 	Install(selfupdate.Offer, string, []string, func()) error
 }
@@ -48,19 +53,22 @@ type updateController struct {
 	mu                 sync.Mutex
 	view               updateView
 	client             updateClient
+	automatic          bool
 	artifact           string
 	ctx                context.Context
 	stop, stopDownload context.CancelFunc
 	wake               func()
 }
 
-func newUpdateController(version, key string, wake func()) *updateController {
+func newUpdateController(version, key string, automatic bool, wake func()) *updateController {
 	ctx, stop := context.WithCancel(context.Background())
-	u := &updateController{ctx: ctx, stop: stop, wake: wake}
+	u := &updateController{ctx: ctx, stop: stop, wake: wake, automatic: automatic}
 	if key == "" {
 		return u
 	}
-	u.view.phase = updateChecking
+	if automatic {
+		u.view.phase = updateChecking
+	}
 	go func() {
 		client, err := selfupdate.Open(version, key)
 		if err != nil || client == nil {
@@ -73,10 +81,39 @@ func newUpdateController(version, key string, wake func()) *updateController {
 		u.mu.Lock()
 		u.client = client
 		u.view.previous, u.view.success = previous, succeeded
+		automatic := u.automatic
+		if automatic {
+			u.view.phase = updateChecking
+		} else {
+			u.view.phase = updateIdle
+		}
 		u.mu.Unlock()
-		u.check()
+		if automatic {
+			u.check()
+		} else {
+			u.wake()
+		}
 	}()
 	return u
+}
+
+func (u *updateController) setAutomatic(enabled bool) {
+	if u == nil {
+		return
+	}
+	u.mu.Lock()
+	previous := u.automatic
+	u.automatic = enabled
+	check := enabled && !previous && u.client != nil && u.view.phase == updateIdle
+	if check {
+		u.view.phase, u.view.problem = updateChecking, ""
+	}
+	u.mu.Unlock()
+	if !check {
+		return
+	}
+	u.wake()
+	go u.check()
 }
 
 func (u *updateController) snapshot() updateView {
@@ -113,14 +150,32 @@ func (u *updateController) check() {
 	offer, err := u.client.Check(ctx)
 	u.change(func(v *updateView) {
 		v.progress = 0
+		v.notes, v.notesProblem, v.notesLoading = "", "", false
 		switch {
 		case err != nil:
 			v.phase, v.problem, v.offer = updateCheckFailed, updateProblem(err, "暂时无法检查更新"), selfupdate.Offer{}
 		case offer.Version == "":
 			v.phase, v.problem, v.offer = updateCurrent, "", selfupdate.Offer{}
 		default:
-			v.phase, v.problem, v.offer = updateOffered, "", offer
+			v.phase, v.problem, v.offer, v.notesLoading = updateOffered, "", offer, true
 		}
+	})
+	if err != nil || offer.Version == "" {
+		return
+	}
+	notesCtx, cancelNotes := context.WithTimeout(u.ctx, 8*time.Second)
+	defer cancelNotes()
+	notes, notesErr := u.client.ReleaseNotes(notesCtx, offer)
+	u.change(func(v *updateView) {
+		v.notesLoading = false
+		if v.offer.Version != offer.Version || v.phase != updateOffered {
+			return
+		}
+		if notesErr != nil {
+			v.notesProblem = "暂时无法加载发布说明"
+			return
+		}
+		v.notes = notes
 	})
 }
 

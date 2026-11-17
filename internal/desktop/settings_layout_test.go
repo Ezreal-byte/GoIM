@@ -314,15 +314,24 @@ func TestDesktopFeatureEnglishCopy(t *testing.T) {
 	t.Cleanup(func() { i18n.SetLanguage(previous) })
 	i18n.SetLanguage(i18n.English)
 	for source, want := range map[string]string{
-		"开机自启":       "Launch at login",
-		"诊断与反馈":      "Diagnostics and feedback",
-		"系统诊断报告":     "System diagnostic report",
-		"导出报告":       "Export report",
-		"会话已在独立窗口打开": "Chats are open in detached windows",
-		"关闭独立窗口后，会话会回到这里。": "Close a detached window to return its chat here.",
+		"开机自启":   "Launch at login",
+		"诊断与反馈":  "Diagnostics and feedback",
+		"导出脱敏报告": "Export redacted report",
 	} {
 		if got := i18n.T(source); got != want {
 			t.Errorf("%q = %q, want %q", source, got, want)
 		}
+	}
+}
+
+func TestSettingsHeaderDoesNotShowTransientSavingStatus(t *testing.T) {
+	h := panelTestNewHarness(t, panelModuleSettings, panelTestDefaultState(t))
+	h.panels.pending = &panelPendingSetting{kind: panelPendingValue, setting: "theme", value: "dark"}
+	h.publish(h.state)
+	if h.hasText("保存中") {
+		t.Fatal("automatic settings save exposed a transient saving status in the header")
+	}
+	if !h.hasText("修改后自动保存") {
+		t.Fatal("automatic-save explanation is missing")
 	}
 }

@@ -6,8 +6,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/vivaui/viva/update"
 	"goim/internal/buildinfo"
@@ -26,6 +29,9 @@ const (
 	Releases = buildinfo.RepositoryURL + "/releases"
 	FeedName = "goim-update.json"
 	FeedURL  = Releases + "/latest/download/" + FeedName
+	// ReleaseNotesBytes bounds untrusted release-note text before it reaches
+	// the UI. Notes are plain text from GitHub's JSON API.
+	ReleaseNotesBytes = 512 << 10
 )
 
 var stableVersion = regexp.MustCompile("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
@@ -58,6 +64,10 @@ func (t Target) automatic() bool {
 }
 
 func ReleaseURL(version string) string { return Releases + "/tag/v" + version }
+
+func ReleaseNotesURL(version string) string {
+	return "https://api.github.com/repos/Ezreal-byte/GoIM/releases/tags/v" + version
+}
 
 func AssetName(version, goos, arch, suffix string) string {
 	return "GoIM_" + version + "_" + goos + "_" + arch + suffix
@@ -123,10 +133,11 @@ func selectOffer(feed *update.Feed, target Target) (Offer, error) {
 }
 
 type Client struct {
-	client  *update.Client
-	target  Target
-	cache   string
-	version string
+	client      *update.Client
+	notesClient *http.Client
+	target      Target
+	cache       string
+	version     string
 }
 
 // Open constructs the updater for this installation. An unconfigured build
@@ -163,7 +174,7 @@ func newClient(version, publicKey, cache string, target Target, transport http.R
 		return nil, err
 	}
 	httpClient := &http.Client{Transport: transport, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 10 || !releaseHost(req.URL) {
+		if len(via) >= 10 || !trustedUpdateHost(req.URL) {
 			return errors.New("update redirect is outside GitHub releases")
 		}
 		return nil
@@ -173,16 +184,16 @@ func newClient(version, publicKey, cache string, target Target, transport http.R
 	if err != nil {
 		return nil, err
 	}
-	return &Client{client: client, target: target, cache: cache, version: version}, nil
+	return &Client{client: client, notesClient: httpClient, target: target, cache: cache, version: version}, nil
 }
 
-func releaseHost(u *url.URL) bool {
+func trustedUpdateHost(u *url.URL) bool {
 	if u.Scheme != "https" || u.User != nil || (u.Port() != "" && u.Port() != "443") {
 		return false
 	}
 	switch strings.ToLower(u.Hostname()) {
 	case "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com",
-		"github-releases.githubusercontent.com":
+		"github-releases.githubusercontent.com", "api.github.com":
 		return true
 	default:
 		return false
@@ -195,6 +206,56 @@ func (c *Client) Check(ctx context.Context) (Offer, error) {
 		return Offer{}, err
 	}
 	return selectOffer(feed, c.target)
+}
+
+// ReleaseNotes returns plain-text release notes. It never interprets markup or
+// HTML, caps the response body, and only follows HTTPS GitHub redirects.
+func (c *Client) ReleaseNotes(ctx context.Context, offer Offer) (string, error) {
+	version, ok := StableVersion(offer.Version)
+	if !ok || version != offer.Version || c == nil || c.notesClient == nil {
+		return "", errors.New("invalid release notes request")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, ReleaseNotesURL(version), nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("User-Agent", "GoIM updater")
+	response, err := c.notesClient.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("release notes returned HTTP %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, ReleaseNotesBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(body) > ReleaseNotesBytes {
+		return "", errors.New("release notes are too large")
+	}
+	var payload struct {
+		Body string `json:"body"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", err
+	}
+	notes := strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			return r
+		case r < 0x20 || r == 0x7f:
+			return -1
+		default:
+			return r
+		}
+	}, strings.TrimSpace(payload.Body))
+	if utf8.RuneCountInString(notes) > 32_000 {
+		notes = string([]rune(notes)[:32_000]) + "…"
+	}
+	return notes, nil
 }
 
 func (c *Client) Download(ctx context.Context, offer Offer, progress func(done, total int64)) (string, error) {

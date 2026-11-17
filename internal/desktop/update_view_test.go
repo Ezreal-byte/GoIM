@@ -19,10 +19,36 @@ func TestManualUpdateOpensTheMatchingPackage(t *testing.T) {
 	if !h.hasHit(h.ui.updateIDs.chrome) || !h.hasText("发现新版本") {
 		t.Fatal("update availability is not surfaced")
 	}
+	for _, label := range h.driver.Snapshot().Labels {
+		if label.Value == "有更新" {
+			t.Fatal("wide titlebar still renders update text instead of the compact green control")
+		}
+	}
 	h.clickID(h.ui.updateIDs.chrome)
 	h.clickID(h.ui.updateIDs.action)
 	if opened, ok := h.driver.LastOpenedURL(); !ok || opened != url {
 		t.Fatalf("manual update opened %q, want %q", opened, url)
+	}
+}
+
+func TestUpdateDialogShowsReleaseNotes(t *testing.T) {
+	h := newShellTestHarness(t, shellMinimalState(t))
+	h.ui.updater = &updateController{view: updateView{
+		phase: updateOffered,
+		offer: selfupdate.Offer{
+			Version: "0.1.6", Automatic: true,
+			NotesURL: selfupdate.ReleaseURL("0.1.6"),
+		},
+		notes: "- 修复独立会话窗口\n- 新增自动更新开关",
+	}}
+	if err := h.driver.Paint(); err != nil {
+		t.Fatal(err)
+	}
+	h.clickID(h.ui.updateIDs.chrome)
+	h.settle()
+	requireShellLayout(t, h.snapshot())
+	if !h.hasText("更新说明") || !h.hasText("修复独立会话窗口") || !h.hasText("新增自动更新开关") {
+		t.Fatal("update dialog did not render release notes")
 	}
 }
 

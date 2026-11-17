@@ -232,16 +232,19 @@ type Settings struct {
 	HideOfflineContacts          bool
 	DisableAutoDiscovery         bool
 	AutoAcceptImages             bool
-	DesktopNotifications         bool
-	Sound                        bool
-	DownloadDir                  string
-	DuplicatePolicy              string
-	AutoAccept                   bool
-	Network                      string
-	PendingNetwork               string
-	CloseToTray                  bool
-	SendKey                      string
-	Shortcuts                    []Shortcut
+	// DisableAutoUpdateCheck preserves the zero value as the desired default:
+	// existing profiles keep checking for updates unless the user opts out.
+	DisableAutoUpdateCheck bool
+	DesktopNotifications   bool
+	Sound                  bool
+	DownloadDir            string
+	DuplicatePolicy        string
+	AutoAccept             bool
+	Network                string
+	PendingNetwork         string
+	CloseToTray            bool
+	SendKey                string
+	Shortcuts              []Shortcut
 }
 
 func DefaultSettings(downloadDir string) Settings {

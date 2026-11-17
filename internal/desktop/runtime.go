@@ -79,7 +79,12 @@ func Run(backend domain.Backend, restartArguments []string) error {
 	if dataDir, ok := backend.(interface{ DataDir() string }); ok {
 		shell.panels.diagnosticDataDir = dataDir.DataDir
 	}
-	shell.updater = newUpdateController(buildinfo.Current().Version, buildinfo.UpdatePublicKey, shell.invalidator.Invalidate)
+	shell.updater = newUpdateController(
+		buildinfo.Current().Version,
+		buildinfo.UpdatePublicKey,
+		!shell.state.Settings.DisableAutoUpdateCheck,
+		shell.invalidator.Invalidate,
+	)
 	shell.screenshotActive = r.screenshotRunning.Load
 	shell.restartArguments = restartArguments
 	defer shell.updater.stop()
@@ -102,6 +107,9 @@ func Run(backend domain.Backend, restartArguments []string) error {
 	}()
 	return app.RunApplication(func(application *app.Application) error {
 		r.application = application
+		shell.openDragPreview = func(config app.DragPreviewConfig) (conversationDragPreview, error) {
+			return application.OpenDragPreview(config)
+		}
 		supported := app.SetInterfaceFontFamily(strings.TrimSpace(shell.state.Settings.InterfaceFont))
 		shell.panels.settingsExtra.interfaceFont.supportKnown = true
 		shell.panels.settingsExtra.interfaceFont.supported = supported

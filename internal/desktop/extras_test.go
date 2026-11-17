@@ -269,6 +269,16 @@ func TestEmojiPickerInsertsUnicodeTextWithoutSending(t *testing.T) {
 	if harness.ui.emojiOpen {
 		t.Fatal("emoji picker stayed open after selection")
 	}
+	emojiLabels := 0
+	for _, label := range harness.snapshot().Labels {
+		if label.Value == "😀" {
+			emojiLabels++
+		}
+	}
+	if emojiLabels != 1 {
+		t.Fatalf("focused composer painted %d copies of the selected emoji", emojiLabels)
+	}
+	requireShellLayout(t, harness.snapshot())
 	if cmd := harness.lastCommand(); cmd.Kind != domain.RememberEmoji || cmd.Text != "😀" {
 		t.Fatalf("recent emoji was not persisted: %+v", cmd)
 	}
