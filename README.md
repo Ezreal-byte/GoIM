@@ -1,83 +1,102 @@
-<!-- The gallery uses GoIM's native headless renderer with synthetic demo data. -->
+<!-- README 中的产品截图由 GoIM 原生无头渲染器使用合成演示数据生成。 -->
 <div align="center">
-  <p>English · <a href="README.zh-CN.md">简体中文</a></p>
-  <img src="website/assets/goim.png" width="84" height="84" alt="GoIM logo" />
+  <p>简体中文 · <a href="README.en.md">English</a></p>
+  <img src="website/assets/goim.png" width="84" height="84" alt="GoIM 标志" />
   <h1>GoIM</h1>
-  <p><strong>Local network messaging and file sharing</strong></p>
+  <p><strong>局域网里的即时通讯与文件共享</strong></p>
   <p>
-    <a href="https://ezreal-byte.github.io/GoIM/en/">Website</a> ·
-    <a href="https://github.com/Ezreal-byte/GoIM/releases/latest">Download</a> ·
-    <a href="#quick-start">Quick start</a> ·
-    <a href="#legacy-compatibility">Compatibility</a>
+    <a href="https://ezreal-byte.github.io/GoIM/">官网</a> ·
+    <a href="https://github.com/Ezreal-byte/GoIM/releases/latest">下载</a> ·
+    <a href="#快速开始">快速开始</a> ·
+    <a href="#旧版客户端兼容">兼容进度</a>
   </p>
   <a href="website/assets/screenshots/chat-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="website/assets/screenshots/chat-dark.png" />
-      <img src="website/assets/screenshots/chat-light.png" alt="GoIM group chat with an inline image and the chat files panel" width="100%" />
+      <img src="website/assets/screenshots/chat-light.png" alt="GoIM 群聊、图片消息与聊天文件" width="100%" />
     </picture>
   </a>
-  <p><sub>The native GoIM interface, rendered headlessly with demo data.</sub></p>
+  <p><sub>GoIM 原生界面，由无头脚本使用演示数据渲染。</sub></p>
 </div>
 
-GoIM is a desktop messenger built with Go and [Viva](https://github.com/vivaui/viva). Devices discover each other on the LAN, exchange messages and files directly, and keep their chat history locally. Recipients can open file shares in a browser.
+GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通讯工具。同一局域网内的设备可以直接发现彼此、聊天和传文件，聊天记录保存在本机。浏览器也可以打开分享链接，无需安装客户端。
 
 <table>
   <tr>
-    <td width="50%"><a href="website/assets/screenshots/contacts-light.png"><img src="website/assets/screenshots/contacts-light.png" alt="Grouped contacts and presence" /></a><strong>Contacts</strong></td>
-    <td width="50%"><a href="website/assets/screenshots/transfers-dark.png"><img src="website/assets/screenshots/transfers-dark.png" alt="The incoming queue and active transfers in dark mode" /></a><strong>Transfers</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/contacts-light.png"><img src="website/assets/screenshots/contacts-light.png" alt="联系人分组与在线状态" /></a><strong>联系人与分组</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/transfers-dark.png"><img src="website/assets/screenshots/transfers-dark.png" alt="暗色外观下的待接收与传输队列" /></a><strong>文件传输</strong></td>
   </tr>
   <tr>
-    <td width="50%"><a href="website/assets/screenshots/shares-light.png"><img src="website/assets/screenshots/shares-light.png" alt="File shares with access protection indicators" /></a><strong>File sharing</strong></td>
-    <td width="50%"><a href="website/assets/screenshots/chat-dark.png"><img src="website/assets/screenshots/chat-dark.png" alt="Group chat and the file panel in dark mode" /></a><strong>Dark appearance</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/shares-light.png"><img src="website/assets/screenshots/shares-light.png" alt="文件分享列表及密码保护状态" /></a><strong>文件共享</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/chat-dark.png"><img src="website/assets/screenshots/chat-dark.png" alt="暗色外观下的群聊和聊天文件" /></a><strong>暗色外观</strong></td>
   </tr>
 </table>
 
-## Features
+## 功能
 
-| Messaging | Transfers and sharing |
+| 聊天 | 传输与分享 |
 | --- | --- |
-| Direct and group chats, invitations, and membership controls | Receive prompts, Save As, cancel, retry, and resume |
-| Text, emoji, and inline images with a separate viewer for zoom, rotate, and save | TLS and SHA-256 verification between GoIM clients |
-| Local history, search, unread counts, pinned conversations, and offline retry | File and folder links, QR codes, and per-project passwords |
-| Contact groups, profiles, app lock, light and dark appearances, and Chinese and English UI | Device share homepage with browser uploads |
+| 单聊、群聊、邀请和成员管理 | 普通附件由接收方确认，支持另存、取消、重试和续传 |
+| 文字、表情和聊天图片，图片可在独立窗口缩放、旋转和保存 | GoIM 设备之间使用 TLS，并校验文件的 SHA-256 |
+| 本地记录、会话搜索、未读、置顶与离线补发 | 文件和文件夹可生成链接及二维码，按项目设置访问密码 |
+| 联系人分组、个人资料、应用锁、两种主题与中英界面 | 设备分享主页可展示公开分享项目，并接收浏览器上传 |
 
-Capture a region, resize it, annotate it, and copy at the original resolution. Use the scissors in the composer or the default `Alt+A` shortcut.
+截图支持自由框选、移动和缩放选区、标注与原分辨率复制。默认快捷键为 `Alt+A`，也可使用聊天输入框里的剪刀图标。
 
-## Install
+## 安装
 
-Choose your platform and architecture from [GitHub Releases](https://github.com/Ezreal-byte/GoIM/releases/latest). v0.1.1 ships 14 installers and archives in the formats below.
+从 [GitHub Releases](https://github.com/Ezreal-byte/GoIM/releases/latest) 选择系统和架构。v0.1.2 提供以下 14 个安装包和压缩包。
 
-| Platform | Architecture | Package formats |
+| 系统 | 架构 | 下载格式 |
 | --- | --- | --- |
-| Windows | x64, ARM64 | `Setup.exe`, `.msi`, `.zip` |
-| macOS 13 or later | Intel, Apple silicon | `.dmg`, `.zip` |
-| Linux (X11 or XWayland) | x64, ARM64 | `.deb`, `.tar.gz` |
+| Windows | x64、ARM64 | `Setup.exe`、`.msi`、`.zip` |
+| macOS 13 或更新版本 | Intel、Apple 芯片 | `.dmg`、`.zip` |
+| Linux（X11 或 XWayland） | x64、ARM64 | `.deb`、`.tar.gz` |
 
-Choose either Setup or MSI on Windows. For archives, extract the full package so GoIM can find its screenshot tool. Windows packages have no commercial code signature. macOS uses ad-hoc signing and requires the usual local approval for unnotarized apps. Verify downloads with the release's `SHA256SUMS`.
+Windows 的 Setup 和 MSI 使用同一套安装内容，任选一种。压缩包需完整解压，保留 GoIM 与截图工具的相对位置。Windows 包未使用商业证书签名，macOS 应用使用 ad-hoc 签名且未经 Apple 公证。可用发布附带的 `SHA256SUMS` 校验下载。
 
-## Quick start
+## 快速开始
 
-1. Run GoIM on two devices on the same reachable LAN.
-2. Select the other device in **Contacts**. If discovery is unavailable, use **Connect manually** with its IP or `IP:47842`.
-3. Send a message or image. Receive other attachments in the conversation or on the **Transfers** page.
-4. To share with a phone or a browser, add a file or folder in **File Sharing**, then copy its link or QR code. The optional device homepage also accepts uploads.
+1. 两台设备连入同一个可互通的局域网并运行 GoIM。
+2. 在「联系人」选中发现的设备。自动发现受限时，使用「手动连接」，输入对方 IP 或 `IP:47842`。
+3. 发送文字、图片或文件。普通文件可在聊天或「传输」中接收。
+4. 要让手机或其他电脑用浏览器获取文件，在「文件共享」里添加文件或文件夹，然后复制项目链接或二维码。设备分享主页启用后也可接收上传。
 
-Native chat uses TCP 47842 and IPv4 multicast at `239.192.77.77:47841` for discovery. Browser sharing uses LAN HTTP on trusted networks.
+原生通信默认使用 TCP 47842，自动发现使用 IPv4 多播 `239.192.77.77:47841`。网页分享通过局域网 HTTP 提供，适用于可信网络。
 
-## Legacy compatibility
+## 旧版客户端兼容
 
-| Client | Verified | Limits |
+GoIM 会根据对端自动选择通信协议，不需要为联系人选择“兼容连接”，也不用手工关联同一设备的两套身份。
+
+| 对端 | 自动使用的协议 |
+| --- | --- |
+| GoIM | GoIM 原生 TLS 协议 |
+| 内网通 | 内网通原生协议：UDP 9011 发现、ENet 9012 控制、TCP 9013 头像与文件流 |
+| 飞鸽／飞秋 | 端口 `2425` 的标准 IPMSG |
+
+以下进度只记录原版内网通 3.4.3055 的实际验收范围。“通过”表示相应场景已经由自动脚本核对结果文件、持久化会话、哈希或协议回执；抓包本身不计为通过。
+
+| 能力 | 当前进度 | 自动验收依据 |
 | --- | --- | --- |
-| Neiwangtong (内网通) 3.4.3055 | Initial Windows/VMware tests verified discovery, text and individual files in both directions. Regression tests cover the TCP request format and chat attachment cards. | Images can travel as ordinary attachments. Proprietary inline media, screenshots, stickers, native share browsing and group chats are outside the adapter. |
-| FeiQ (飞秋) | Automated coverage for the extended header, Chinese encoding, discovery, and the standard IPMSG file path. | The FeiQ desktop client and version-specific extensions still need hands-on verification. |
+| 发现、资料交换、原生头像下载 | 原版通过 | 握手结果和图片摘要核对 |
+| 单聊文字、中文、特殊字符、应用回执 | 原版双向通过 | 消息记录与应用回执匹配 |
+| 在线单文件、拒收、撤回和取消 | 原版双向通过 | 实际文件 SHA-256 核对 |
+| PNG、JPEG、GIF 内联图片 | 原版双向通过 | 原版缓存与接收字节逐项一致 |
+| 文件夹直传 | 原版双向通过 | 多层中文路径、空子目录和 0 字节文件均保留 |
+| 断点续传 | 原版双向通过 | 非零偏移和最终 SHA-256 核对 |
+| 离线文字和文件补投 | 原版双向通过 | 两端均使用独立档案重启验证 |
+| 原版创建的群聊 | 群文字双向通过 | GoIM 收到成员；原版会话中读回 GoIM 回复 |
+| 4 GiB 以上单文件 | 原版→GoIM 通过 | 4,295,032,849 字节文件完整落盘并核对哈希 |
 
-GoIM peers use the native TLS protocol. New profiles enable **Neiwangtong** (UDP 9011 discovery, ENet 9012 control, and TCP 9013 avatar/file streaming) and **IP Messenger / FeiQ** (port 2425). Manage the adapters independently under **Settings → Network**, or start GoIM with `--no-compatibility` for a GoIM-only run.
+仍需补齐的范围：GoIM 向原版发送 4 GiB 以上单文件、目录断点续传、完全空的根目录、GoIM 创建或管理原版群、群文件与群图片、原版表情、消息撤回、原生文件共享和远程协助。
 
-See the [Neiwangtong test guide](docs/neiwangtong-testing.md) for automated loopback regression and checks against the original client.
+飞鸽／飞秋已有扩展报头、中文编码、发现和标准 IPMSG 文件路径的自动化覆盖；真实飞鸽、飞秋客户端和不同版本仍需继续验收。
 
-## Build from source
+完整范围和后续顺序见[内网通适配进度](docs/neiwangtong-compatibility-progress.md)，无需抓包的回环测试和原版客户端自动验证见[内网通互通验证](docs/neiwangtong-testing.md)。互通能力可在「设置 → 网络」中管理，也可用 `--no-compatibility` 启动仅使用 GoIM 协议的实例。
 
-Use the Go version pinned by CI (currently 1.27.3). Go downloads the exact Viva revision from [`go.mod`](go.mod). When working on Viva itself, you can make a local Go workspace that includes both repositories.
+## 从源码构建
+
+使用 CI 固定的 Go 工具链（当前为 1.27.3）。Go 会按 [`go.mod`](go.mod) 下载固定版本的 Viva。如果需要同时修改 Viva，可在本地创建包含两个仓库的 Go 工作区。
 
 ```sh
 go test ./... -count=1
@@ -85,10 +104,10 @@ go vet ./...
 go run ./cmd/goim
 ```
 
-On Windows, `pwsh -File scripts/start-temp-dev.ps1` builds and starts a client with its own profile and download directory. Add `-Loopback` to disable LAN discovery and legacy adapters, or run `scripts/start-dual.ps1` for two clients connected over loopback.
+Windows 上，运行 `pwsh -File scripts/start-temp-dev.ps1` 可构建并启动使用独立配置和下载目录的开发客户端。加上 `-Loopback` 可关闭局域网发现和旧协议互通；运行 `scripts/start-dual.ps1` 可启动通过本机回环连接的两个客户端。
 
-`pwsh -File scripts/smoke-headless.ps1` builds a fresh headless client and runs a three-process test of messaging, file transfer, and browser sharing. Use `scripts/build.ps1` to build the desktop app and screenshot companion without starting them, or `scripts/promo-headless.ps1` to regenerate the demo gallery. See [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/build.yml) for platform packaging and validation.
+`pwsh -File scripts/smoke-headless.ps1` 会重新构建无头客户端，使用三个独立进程验证消息、文件传输和网页分享。`scripts/build.ps1` 只构建桌面程序和截图工具，`scripts/promo-headless.ps1` 可重新生成演示截图。发布构建及各平台校验见 [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/build.yml)。
 
-## License
+## 许可证
 
-[MIT](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+[MIT](LICENSE) · [第三方许可](THIRD_PARTY_NOTICES.md)
