@@ -133,13 +133,14 @@ func TestHandsharkFormatAndParse(t *testing.T) {
 	if hs.Net.FileTranTCPPort != 13603 {
 		t.Errorf("Expected the original client's network-order port 13603, got %d", hs.Net.FileTranTCPPort)
 	}
+	if f := hs.Features; f.Share != "" || f.RemoteAssistance != "" || f.LANUpdate != "" || f.HideRecord != "" {
+		t.Errorf("handshake advertises features the adapter does not provide: %+v", f)
+	}
 	for _, element := range []string{
 		"<ACTIVE_SEND>1</ACTIVE_SEND>",
 		"<SYS_FACE>401</SYS_FACE>",
 		"<FOLDER_TRAN>2:1</FOLDER_TRAN>",
 		"<QGROUP>2:1</QGROUP>",
-		"<LAN_UPDATE>1</LAN_UPDATE>",
-		"<HIDE_RECORD>1</HIDE_RECORD>",
 		"<FILE_TRAN_TCP_REVERSE_PORT>",
 		"<FOLDER_TRAN_TCP_PORT>",
 	} {

@@ -13,12 +13,15 @@ import (
 type nativeGroup struct {
 	WireID, Owner               string
 	InfoVersion, MembersVersion uint64
-	SelfLeft                    bool `json:",omitempty"`
+	SelfLeft                    bool   `json:",omitempty"`
+	KickedAtMembersVersion      uint64 `json:",omitempty"`
 }
 
 const (
-	nativeGroupRosterDelivery = "native_group_roster"
-	nativeGroupExitDelivery   = "native_group_exit"
+	nativeGroupRosterDelivery  = "native_group_roster"
+	nativeGroupExitDelivery    = "native_group_exit"
+	nativeGroupDismissDelivery = "native_group_dismiss"
+	nativeGroupKickDelivery    = "native_group_kick"
 )
 
 func nativeGroupID(wireID string) string { return legacyStableID("nwt-group", wireID) }
@@ -138,7 +141,7 @@ func (n *Node) receiveNeiwangtongGroupRoster(peerID string, roster neiwangtong.G
 		}
 		id := nativeGroupID(roster.ID)
 		current, known := p.NativeGroups[id]
-		if known && (current.Owner != peerID || roster.MembersVersion < current.MembersVersion ||
+		if known && (s.Group(id).Dissolved || current.Owner != peerID || roster.MembersVersion < current.MembersVersion ||
 			roster.InfoVersion < current.InfoVersion ||
 			roster.MembersVersion == current.MembersVersion && roster.InfoVersion == current.InfoVersion) {
 			return nil
@@ -177,13 +180,19 @@ func (n *Node) receiveNeiwangtongGroupRoster(peerID string, roster neiwangtong.G
 		if p.NativeGroups == nil {
 			p.NativeGroups = make(map[string]nativeGroup)
 		}
+		kickedAt := current.KickedAtMembersVersion
+		if roster.MembersVersion > kickedAt {
+			kickedAt = 0
+		}
+		notMember := !found || current.SelfLeft || kickedAt != 0
 		p.NativeGroups[id] = nativeGroup{WireID: roster.ID, Owner: roster.OwnerID,
-			InfoVersion: roster.InfoVersion, MembersVersion: roster.MembersVersion, SelfLeft: current.SelfLeft && found}
-		if current.SelfLeft {
+			InfoVersion: roster.InfoVersion, MembersVersion: roster.MembersVersion,
+			SelfLeft: current.SelfLeft && found, KickedAtMembersVersion: kickedAt}
+		if notMember {
 			members = without(members, s.Self.ID)
 		}
 		g := domain.Group{ID: id, Name: roster.Name, OwnerID: owner.ID, Transport: transportNWT, Members: members,
-			Epoch: max(roster.InfoVersion, roster.MembersVersion), Left: !found || current.SelfLeft}
+			Epoch: max(roster.InfoVersion, roster.MembersVersion), Left: notMember}
 		if i < 0 {
 			s.Groups = append(s.Groups, g)
 		} else {
@@ -194,7 +203,7 @@ func (n *Node) receiveNeiwangtongGroupRoster(peerID string, roster neiwangtong.G
 	})
 }
 
-func (n *Node) leaveNativeGroup(groupID string) error {
+func (n *Node) departNativeGroup(groupID string, dismiss bool) error {
 	var rejected error
 	err := n.durable(func(p *persisted) []pending {
 		s := &p.State
@@ -204,32 +213,92 @@ func (n *Node) leaveNativeGroup(groupID string) error {
 			rejected = errors.New("群聊已不可用")
 			return nil
 		}
-		if group.OwnerID == s.Self.ID {
+		if dismiss && group.OwnerID != s.Self.ID {
+			rejected = errors.New("只有群主可以执行此操作")
+			return nil
+		}
+		if !dismiss && group.OwnerID == s.Self.ID {
 			rejected = errors.New("群主需先转让群主或解散群聊")
 			return nil
 		}
-		room.SelfLeft = true
-		p.NativeGroups[groupID] = room
-		group.Left, group.Members = true, without(group.Members, s.Self.ID)
+		kind := nativeGroupExitDelivery
+		if dismiss {
+			group.Dissolved = true
+			kind = nativeGroupDismissDelivery
+		} else {
+			room.SelfLeft = true
+			p.NativeGroups[groupID] = room
+			group.Left, group.Members = true, without(group.Members, s.Self.ID)
+		}
 		s.Groups[index] = group
 		out := n.cancelInvalidGroup(p, group)
 		for _, peer := range group.Members {
+			if peer == s.Self.ID {
+				continue
+			}
 			out = append(out, pending{PeerID: peer, WireTransport: transportNWT, WirePeerID: wireCompatibilityID(p, peer, transportNWT),
-				Envelope: envelope{Type: nativeGroupExitDelivery, Target: room.WireID}})
+				Envelope: envelope{Type: kind, Target: room.WireID}})
 		}
 		return out
 	})
 	return errors.Join(err, rejected)
 }
 
-func (n *Node) receiveNeiwangtongGroupExit(peerID, wireGroupID string) {
+func (n *Node) removeNativeGroupMember(groupID, peer string) error {
+	var rejected error
+	err := n.durable(func(p *persisted) []pending {
+		s := &p.State
+		room, group := p.NativeGroups[groupID], s.Group(groupID)
+		if room.WireID == "" || group.Left || group.Dissolved || group.OwnerID != s.Self.ID {
+			rejected = errors.New("只有群主可以执行此操作")
+			return nil
+		}
+		if peer == s.Self.ID || !contains(group.Members, peer) {
+			rejected = errors.New("请选择要移出群聊的成员")
+			return nil
+		}
+		group.Members = without(group.Members, peer)
+		room.MembersVersion++
+		p.NativeGroups[groupID] = room
+		group.Epoch = max(room.InfoVersion, room.MembersVersion)
+		installGroupState(s, group)
+		out := n.cancelInvalidGroup(p, group)
+		out = append(out, pending{PeerID: peer, WireTransport: transportNWT, WirePeerID: wireCompatibilityID(p, peer, transportNWT),
+			Envelope: envelope{Type: nativeGroupKickDelivery, Target: room.WireID}})
+		return append(out, nativeRosterDeliveries(group)...)
+	})
+	return errors.Join(err, rejected)
+}
+
+func (n *Node) receiveNeiwangtongGroupDeparture(peerID, wireGroupID string, kind uint32) {
 	id := nativeGroupID(wireGroupID)
-	_ = n.durable(func(p *persisted) []pending {
+	_ = n.durableFromReader(func(p *persisted) []pending {
 		s := &p.State
 		room, group := p.NativeGroups[id], s.Group(id)
 		sender := n.compatibilitySenderLocked(transportNWT, peerID).ID
-		if room.WireID == "" || group.Left || group.Dissolved || sender == "" || sender == group.OwnerID ||
-			!contains(group.Members, sender) {
+		index := groupIndex(s, id)
+		if index < 0 || room.WireID == "" || group.Left || group.Dissolved || sender == "" || !contains(group.Members, sender) {
+			return nil
+		}
+		switch kind {
+		case neiwangtong.CmdGroupDismiss, neiwangtong.CmdGroupKick:
+			if room.Owner != peerID || sender != group.OwnerID {
+				return nil
+			}
+			if kind == neiwangtong.CmdGroupDismiss {
+				group.Dissolved = true
+			} else {
+				group.Left, group.Members = true, without(group.Members, s.Self.ID)
+				room.KickedAtMembersVersion = room.MembersVersion
+				p.NativeGroups[id] = room
+			}
+			s.Groups[index] = group
+			return n.cancelInvalidGroup(p, group)
+		case neiwangtong.CmdGroupExit:
+			if sender == group.OwnerID {
+				return nil
+			}
+		default:
 			return nil
 		}
 		group.Members = without(group.Members, sender)

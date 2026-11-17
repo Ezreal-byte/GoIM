@@ -79,9 +79,13 @@ func TestNativeGroupSelfExitDoesNotRestoreAccessFromStaleRoster(t *testing.T) {
 		Members: []neiwangtong.GroupMember{{ID: owner}, {ID: member}, {ID: keyIDFromNative(nativeIDForGoIM(self))}}}
 	id := nativeGroupID(room)
 	n.receiveNeiwangtongGroupRoster(owner, roster)
-	n.receiveNeiwangtongGroupExit(outsider, room)
+	n.receiveNeiwangtongGroupDeparture(outsider, room, neiwangtong.CmdGroupExit)
 	if group := n.Snapshot().Group(id); group.Left || !contains(group.Members, member) {
 		t.Fatalf("an outsider changed the membership: %+v", group)
+	}
+	n.receiveNeiwangtongGroupDeparture(member, room, neiwangtong.CmdGroupDismiss)
+	if n.Snapshot().Group(id).Dissolved {
+		t.Fatal("a regular member dissolved someone else's group")
 	}
 	if err := n.manageGroup(domain.Command{Kind: domain.LeaveGroup, GroupID: id}); err != nil {
 		t.Fatal(err)
@@ -135,6 +139,23 @@ func TestNativeGroupRosterAndMessageAuthorization(t *testing.T) {
 	n.receiveNeiwangtongGroupRoster(owner, roster)
 	if err := n.receiveNeiwangtongGroupText(owner, msg); err == nil || !n.Snapshot().Group(id).Left {
 		t.Fatal("the removed local client kept receiving group messages")
+	}
+	roster.MembersVersion++
+	roster.Members = append(roster.Members, neiwangtong.GroupMember{ID: keyIDFromNative(nativeIDForGoIM(self))})
+	n.receiveNeiwangtongGroupRoster(owner, roster)
+	n.receiveNeiwangtongGroupDeparture(owner, room, neiwangtong.CmdGroupKick)
+	roster.InfoVersion++
+	n.receiveNeiwangtongGroupRoster(owner, roster)
+	if err := n.receiveNeiwangtongGroupText(owner, msg); err == nil || !n.Snapshot().Group(id).Left {
+		t.Fatal("a rename restored membership after the owner removed GoIM")
+	}
+	roster.MembersVersion++
+	n.receiveNeiwangtongGroupRoster(owner, roster)
+	n.receiveNeiwangtongGroupDeparture(owner, room, neiwangtong.CmdGroupDismiss)
+	roster.InfoVersion++
+	n.receiveNeiwangtongGroupRoster(owner, roster)
+	if err := n.receiveNeiwangtongGroupText(owner, msg); err == nil || !n.Snapshot().Group(id).Dissolved {
+		t.Fatal("an old roster reactivated the dissolved group")
 	}
 }
 

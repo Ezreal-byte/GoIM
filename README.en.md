@@ -92,6 +92,7 @@ The adapter state below is scoped to the original Neiwangtong 3.4.3055 client. �
 | Offline text and file replay | Verified in both directions | Both clients restarted with isolated profiles |
 | Original-client-created group chat | Text and inline PNG, JPEG, and GIF verified in both directions | Text matched the original transcript; the original cache and GoIM downloads matched the image samples |
 | Neiwangtong group created in GoIM | Creation, member addition, renaming, three-client text and original-client exit verified | Two originals and GoIM exchanged messages. Renaming kept the conversation, and when one original left the other stayed in the group |
+| Group dismissal and member removal | Verified against the original for GoIM-initiated actions; original commands and GoIM state also tested | The original closed the affected group window. GoIM accepts these actions only from the owner and retains local history |
 | Files larger than 4 GiB | Original → GoIM verified | 4,295,032,849-byte file downloaded and hashed |
 
 Known gaps include GoIM → original transfers of 4 GiB or more, resuming directories, fully empty root directories, ordinary files in groups, some group management actions, original-client expressions, native file sharing and remote assistance.

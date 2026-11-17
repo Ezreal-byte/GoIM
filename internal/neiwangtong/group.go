@@ -11,9 +11,11 @@ import (
 )
 
 const (
-	CmdGroupRoster uint32 = 3003
-	CmdGroupExit   uint32 = 3009
-	CmdGroupText   uint32 = 3011
+	CmdGroupRoster  uint32 = 3003
+	CmdGroupDismiss uint32 = 3008
+	CmdGroupExit    uint32 = 3009
+	CmdGroupKick    uint32 = 3010
+	CmdGroupText    uint32 = 3011
 )
 
 type GroupMember struct {
@@ -33,6 +35,20 @@ type GroupMessage struct {
 }
 
 func (s *Service) SendGroupExit(peerID, groupID string) error {
+	return s.sendGroupDeparture(peerID, groupID, CmdGroupExit)
+}
+
+func (s *Service) SendGroupDismiss(peerID, groupID string) error {
+	return s.sendGroupDeparture(peerID, groupID, CmdGroupDismiss)
+}
+
+func (s *Service) SendGroupKick(peerID, groupID string) error {
+	// The original sends this only to the removed member. Other members
+	// receive an updated roster from the owner.
+	return s.sendGroupDeparture(peerID, groupID, CmdGroupKick)
+}
+
+func (s *Service) sendGroupDeparture(peerID, groupID string, kind uint32) error {
 	if !validNativeID(groupID) {
 		return errors.New("invalid native group ID")
 	}
@@ -40,15 +56,27 @@ func (s *Service) SendGroupExit(peerID, groupID string) error {
 	if err != nil {
 		return err
 	}
-	body := []byte(fmt.Sprintf(`<X_QGROUP_EXIT docver="1"><QGROUP_ID>%s</QGROUP_ID></X_QGROUP_EXIT>`, groupID))
-	return s.enet.SendAppCommand(control, CmdGroupExit, body)
+	root := groupDepartureRoot(kind)
+	body := []byte(fmt.Sprintf(`<%s docver="1"><QGROUP_ID>%s</QGROUP_ID></%s>`, root, groupID, root))
+	return s.enet.SendAppCommand(control, kind, body)
 }
 
-func parseGroupExit(data []byte) (string, error) {
+func groupDepartureRoot(kind uint32) string {
+	switch kind {
+	case CmdGroupDismiss:
+		return "X_QGROUP_DISMISS"
+	case CmdGroupKick:
+		return "X_QGROUP_KICK"
+	default:
+		return "X_QGROUP_EXIT"
+	}
+}
+
+func parseGroupDeparture(data []byte, kind uint32) (string, error) {
 	var body struct {
 		ID string `xml:"QGROUP_ID"`
 	}
-	if err := decodeNativeXML(data, "X_QGROUP_EXIT", &body); err != nil {
+	if err := decodeNativeXML(data, groupDepartureRoot(kind), &body); err != nil {
 		return "", err
 	}
 	if !validNativeID(body.ID) {

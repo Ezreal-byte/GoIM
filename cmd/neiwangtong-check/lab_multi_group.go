@@ -142,6 +142,22 @@ func verifyMultiGroup(ctx context.Context, opt options) report {
 		}
 		return "the original left the group and GoIM kept the other original member", nil
 	})
+	if r.Passed {
+		r.Passed = r.run("goim_owner_removes_original_member", func() (string, error) {
+			roomName = node.Snapshot().Group(room).Name
+			if err := secondDriver("group-open"); err != nil {
+				return "", err
+			}
+			node.Submit(domain.Command{Kind: domain.RemoveMember, GroupID: room, PeerID: second.ID})
+			if _, err := waitCoreState(ctx, node, 6*time.Second, func(s domain.State) bool {
+				g := s.Group(room)
+				return !slices.Contains(g.Members, second.ID) && !g.Dissolved
+			}); err != nil {
+				return "", err
+			}
+			return "the original closed its group after GoIM removed it", secondDriver("group-await-closed")
+		})
+	}
 	return r
 }
 

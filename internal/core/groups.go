@@ -141,6 +141,9 @@ func (n *Node) cancelInvalidGroup(p *persisted, g domain.Group) []pending {
 		if d.Envelope.Type == "file_offer" {
 			conv = d.Envelope.File.ConversationID
 		}
+		if d.Envelope.Type == nativeGroupRosterDelivery {
+			conv = "group:" + d.Envelope.Target
+		}
 		if conv == "group:"+g.ID && (g.Dissolved || local.Left || !contains(g.Members, d.PeerID)) {
 			delete(p.Outbox, id)
 		}
@@ -316,8 +319,11 @@ func (n *Node) manageGroup(c domain.Command) error {
 		return errors.New("群聊已不可用")
 	}
 	if n.isNativeGroup(g.ID) {
-		if c.Kind == domain.LeaveGroup {
-			return n.leaveNativeGroup(g.ID)
+		if c.Kind == domain.LeaveGroup || c.Kind == domain.DissolveGroup {
+			return n.departNativeGroup(g.ID, c.Kind == domain.DissolveGroup)
+		}
+		if c.Kind == domain.RemoveMember {
+			return n.removeNativeGroupMember(g.ID, c.PeerID)
 		}
 		if c.Kind == domain.RenameGroup {
 			name := strings.TrimSpace(c.Name)

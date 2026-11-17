@@ -208,6 +208,36 @@ static int exit_fixture_group(const wchar_t *exe, HWND chat) {
     return click_fixture_screen(accept, confirm, FALSE) ? 0 : fail("could not confirm the fixture group exit");
 }
 
+static int remove_fixture_member(const wchar_t *exe, HWND chat) {
+    dismiss_guide(exe);
+    ShowWindow(chat, SW_RESTORE);
+    if (!SetWindowPos(chat, HWND_TOPMOST, 180, 82, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW) || !focus_chat(chat))
+        return fail("could not show the original's private group");
+    Sleep(550);
+    // The original owns this fresh group and GoIM is the only other member.
+    POINT row = {1008, 416};
+    if (!click_fixture_screen(row, chat, TRUE)) return fail("could not open the fixture member menu");
+    Sleep(320);
+    POINT inside = {row.x + 28, row.y + 25};
+    HWND popup = GetAncestor(WindowFromPoint(inside), GA_ROOT);
+    DWORD expected = 0, actual = 0;
+    RECT r;
+    GetWindowThreadProcessId(chat, &expected);
+    if (!popup || popup == chat || !GetWindowThreadProcessId(popup, &actual) || expected != actual ||
+        !GetWindowRect(popup, &r) || r.right - r.left != 174 || r.bottom - r.top != 236)
+        return fail("expected the original owner menu with member removal");
+    POINT item = {r.left + 42, r.bottom - 28};
+    if (!click_fixture_screen(item, popup, FALSE)) return fail("could not select fixture member removal");
+    Sleep(440);
+    SetWindowPos(chat, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+    if (IsWindowEnabled(chat)) return 0;
+    HWND confirm = wait_for_window(exe, L"内网通", L"SkinDialog");
+    if (!confirm || !GetWindowRect(confirm, &r) || r.bottom - r.top < 145 || r.bottom - r.top > 195 ||
+        r.right - r.left < 210 || r.right - r.left > 470) return fail("expected the private member removal confirmation");
+    POINT accept = {(r.left + r.right) / 2 - 50, r.bottom - 45};
+    return click_fixture_screen(accept, confirm, FALSE) ? 0 : fail("could not confirm removal of the fixture member");
+}
+
 static BOOL CALLBACK match_filename_edit(HWND window, LPARAM arg) {
     wchar_t class_name[32];
     if (GetDlgCtrlID(window) != 1148 || !IsWindowVisible(window) ||
@@ -358,9 +388,12 @@ int wmain(int argc, wchar_t **argv) {
     BOOL group_reply = !wcscmp(action, L"group-reply"), group_check = !wcscmp(action, L"group-check");
     BOOL group_image = !wcscmp(action, L"group-image"), group_open = !wcscmp(action, L"group-open");
     BOOL group_close = !wcscmp(action, L"group-close");
+    BOOL group_await_closed = !wcscmp(action, L"group-await-closed");
     BOOL group_exit = !wcscmp(action, L"group-exit"), group_exit_seen = !wcscmp(action, L"group-exit-seen");
+    BOOL group_kick = !wcscmp(action, L"group-kick-goim");
     BOOL group_recall = !wcsncmp(action, L"group-recall-", 13);
-    if (group_reply || group_check || group_image || group_open || group_close || group_recall || group_exit || group_exit_seen) {
+    if (group_reply || group_check || group_image || group_open || group_close || group_await_closed || group_recall ||
+        group_exit || group_exit_seen || group_kick) {
         const wchar_t *prefix = L"GOIM-NWT，GoIM QA";
         const wchar_t *owned = L"GoIM QA 群聊 ";
         BOOL owned_name = FALSE;
@@ -389,6 +422,15 @@ int wmain(int argc, wchar_t **argv) {
         EnumWindows(describe_window, (LPARAM)exe);
         return fail("the GoIM group's chat did not open");
     }
+    if (group_await_closed && argc == 4) {
+        for (int i = 0; i < 45; ++i) {
+            struct window_query query = {exe, chat_name, L"SkinDialog", NULL};
+            EnumWindows(match_window, (LPARAM)&query);
+            if (!query.result && wait_for_window(exe, L"单位名称", L"SkinDialog")) return 0;
+            Sleep(100);
+        }
+        return fail("the original group chat stayed open after dismissal");
+    }
     HWND chat = wait_for_window(exe, chat_name, L"SkinDialog");
     RECT client = {0};
     if (!chat || !GetClientRect(chat, &client) ||
@@ -401,6 +443,7 @@ int wmain(int argc, wchar_t **argv) {
     // Locations come from the stock chat skin at 96 dpi with a new profile.
     const int composer_x = 230, composer_y = 535, button_y = 581;
     if (argc == 4 && group_exit) return exit_fixture_group(exe, chat);
+    if (argc == 4 && group_kick && !wcsncmp(chat_name, L"GOIM-NWT，GoIM QA", 15)) return remove_fixture_member(exe, chat);
     if (argc == 4 && group_exit_seen) {
         if (!focus_chat(chat)) return fail("could not read the private group transcript");
         const int positions[] = {220, 135, 320};
@@ -525,7 +568,7 @@ int wmain(int argc, wchar_t **argv) {
         HWND wizard = wait_for_window(exe, L"创建群", L"SkinDialog");
         if (!wizard || !GetClientRect(wizard, &bounds) || bounds.right != 564 || bounds.bottom != 439)
             return fail("expected the original group member picker");
-        if (!activate_control(wizard, 105, 368) || !enter_fixture_text(wizard, chat_name))
+        if (!focus_chat(wizard) || !activate_control(wizard, 105, 368) || !enter_fixture_text(wizard, chat_name))
             return fail("could not search for the named test contact");
         Sleep(700);
         PostMessageW(wizard, WM_KEYDOWN, VK_DOWN, 1);

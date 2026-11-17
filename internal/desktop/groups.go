@@ -186,11 +186,11 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		})
 	})
 
-	if owner && !native {
+	if owner {
 		drawer.Actions(layout, components.ButtonAction{
 			ID: u.ids.memberDissolve, Label: i18n.T("解散群聊"), Variant: components.ButtonDestructiveOutline,
 		})
-	} else if !owner {
+	} else {
 		drawer.Actions(layout, components.ButtonAction{
 			ID: u.ids.memberLeave, Label: i18n.T("退出群聊"), Variant: components.ButtonDestructiveOutline,
 		})
@@ -201,7 +201,7 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.requestCloseDrawer()
 		return
 	}
-	if owner && !native && canvas.Clicked(u.ids.memberDissolve) {
+	if owner && canvas.Clicked(u.ids.memberDissolve) {
 		u.requestDissolve(group)
 		return
 	}
@@ -225,11 +225,12 @@ func (u *UI) drawMemberMenu(canvas *gfx.Canvas, viewport ui.Rect, group domain.G
 		u.memberMenu = ""
 		return
 	}
-	owner := group.Transport == domain.TransportGoIM && group.OwnerID == u.state.Self.ID
+	owner := group.OwnerID == u.state.Self.ID
+	canTransfer := owner && group.Transport == domain.TransportGoIM && peerOnline(u, peer.ID)
 	items := 2
 	if owner {
 		items++
-		if peerOnline(u, peer.ID) {
+		if canTransfer {
 			items++
 		}
 	}
@@ -249,7 +250,7 @@ func (u *UI) drawMemberMenu(canvas *gfx.Canvas, viewport ui.Rect, group domain.G
 	menu.AddItem(components.ContextMenuItem{
 		ID: u.memberMessageIDs[peer.ID], Label: i18n.T("发消息"), Icon: u.iconMessage,
 	})
-	if owner && peerOnline(u, peer.ID) {
+	if canTransfer {
 		menu.AddItem(components.ContextMenuItem{
 			ID: u.memberTransferIDs[peer.ID], Label: i18n.T("转让群主"), Icon: u.iconCrown,
 		})
@@ -1040,7 +1041,7 @@ func (u *UI) drawChatMenu(canvas *gfx.Canvas) {
 	}
 	group := u.state.Group(conversation.GroupID)
 	items := 3
-	if conversation.Kind == "group" && group.ID != "" && group.Transport == domain.TransportGoIM && !group.Left && !group.Dissolved {
+	if conversation.Kind == "group" && group.ID != "" && !group.Left && !group.Dissolved {
 		items = 4
 	}
 	height := float32(12 + items*32 + 9)

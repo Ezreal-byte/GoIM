@@ -64,6 +64,11 @@ type labRoomMessage struct {
 	message neiwangtong.GroupMessage
 }
 
+type labDeparture struct {
+	peer, room string
+	kind       uint32
+}
+
 type labProgress struct {
 	peer        string
 	task        uint64
@@ -111,6 +116,7 @@ type labChecks struct {
 	folderDone  chan labDirectoryResult
 	rosters     chan labRoster
 	groupTexts  chan labRoomMessage
+	departures  chan labDeparture
 	peerEvents  chan neiwangtong.Peer
 	gate        atomic.Pointer[labSendGate]
 	folderGate  atomic.Pointer[labDirectoryGate]
@@ -125,7 +131,8 @@ func newLabChecks(opt options, qaName, runID string) *labChecks {
 		progress: make(chan labProgress, 16), ops: make(chan labOperation, 32),
 		cancelled: make(chan labCancellation, 8), imageRefs: make(chan labImage, 8), avatars: make(chan labAvatar, 8),
 		folders: make(chan labDirectory, 8), folderDone: make(chan labDirectoryResult, 4),
-		rosters: make(chan labRoster, 4), groupTexts: make(chan labRoomMessage, 8), peerEvents: make(chan neiwangtong.Peer, 16)}
+		rosters: make(chan labRoster, 4), groupTexts: make(chan labRoomMessage, 8), departures: make(chan labDeparture, 4),
+		peerEvents: make(chan neiwangtong.Peer, 16)}
 }
 
 func (l *labChecks) attach(cfg *neiwangtong.Config) {
@@ -183,6 +190,11 @@ func (l *labChecks) attach(cfg *neiwangtong.Config) {
 	cfg.Callbacks.GroupText = func(peer string, message neiwangtong.GroupMessage) error {
 		publish(l.groupTexts, labRoomMessage{peer, message})
 		return nil
+	}
+	if l.opt.labGroupDismiss || l.opt.labGroupKick {
+		cfg.Callbacks.GroupDeparture = func(peer, room string, kind uint32) {
+			publish(l.departures, labDeparture{peer, room, kind})
+		}
 	}
 	cfg.Callbacks.Files = func(peer string, offer neiwangtong.XMLSendFile) {
 		publish(l.offers, labOffer{peer, offer})
@@ -305,6 +317,9 @@ func (l *labChecks) run(ctx context.Context, r *report, service *neiwangtong.Ser
 	})
 	dirs := l.checkDirectories(ctx, r, service, reference.ID)
 	groups := l.checkGroup(ctx, r, service, reference.ID)
+	if l.opt.labGroupDismiss || l.opt.labGroupKick {
+		return text && sent && received && rejected && cancelled && stopped && withdrawn && declined && images && resumed && dirs && groups
+	}
 	presence := r.run("native_presence_from_original", func() (string, error) {
 		return l.checkOriginalPresence(ctx, reference.ID)
 	})

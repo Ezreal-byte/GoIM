@@ -12,6 +12,7 @@
 | GoIM 离线补投给原版 | GoIM 自动发现原版。关闭原版，确认仍在运行的 GoIM 标记同一联系人离线；排队发送后重启 GoIM。原版重开时自动恢复在线，核对补投的回执、原版会话的文字和文件的 SHA-256。 | 独立的 `sandbox.json`；整个过程没有手动连接命令。 |
 | 三方内网通群 | 在同一隔离网段启动两台原版和真实 GoIM 后端。核对建群、添加成员、群消息和改名后回复；让一台原版实际退群，再核对 GoIM 的名单。 | `sandbox.json` 单独记录创建、添加、群消息、改名和原版主动退出。 |
 | 单聊和群聊文字撤回 | 让原版和 GoIM 分别发送并撤回一条文字。检查被撤回的正文消失，且相邻的对照消息仍在。 | 单聊和群聊分别有一份 `sandbox.json`。 |
+| 解散与移出群成员 | 让 GoIM 操作，原版检查对应群窗口关闭；另用全新的原版群验证原版发出的群主操作与群 ID。Go 侧回归检查成员权限和历史记录。 | 三方群、群撤回和两个原版群主操作的报告分别保存。 |
 | 原版接收端续传专项 | 让原版真实落盘第一块，再断开并重启 GoIM 服务。复发同一任务，验证原版请求的非零偏移及最终 SHA-256。 | 独立的 `sandbox.json`。 |
 | 原版参考实例 | 对指定的隔离测试地址验证 UDP 发现、控制连接和资料握手，并核对原版报告的版本。可要求核验真实头像，或向指定测试昵称发送一条样例并等待匹配的应用层回执。 | `reference.json` 给出逐项结果。回执证明原版协议端已回应，不代表用户已读。 |
 
@@ -52,6 +53,12 @@ pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -MultiGroup
 
 ```powershell
 pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -TextRecall
+```
+
+验收三方群里的退群、移出成员和群主解散：
+
+```powershell
+pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -GroupManagement
 ```
 
 单独验收原版作为收件人时的断点续传：

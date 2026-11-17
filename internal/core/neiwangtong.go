@@ -114,9 +114,9 @@ func (n *Node) newNeiwangtong(port int, live *atomic.Bool) (*neiwangtong.Service
 					n.receiveNeiwangtongGroupRoster(peerID, roster)
 				}
 			},
-			GroupExit: func(peerID, groupID string) {
+			GroupDeparture: func(peerID, groupID string, kind uint32) {
 				if live.Load() {
-					n.async(func() { n.receiveNeiwangtongGroupExit(peerID, groupID) })
+					n.receiveNeiwangtongGroupDeparture(peerID, groupID, kind)
 				}
 			},
 			GroupText: func(peerID string, message neiwangtong.GroupMessage) error {
@@ -378,6 +378,10 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 	switch e.Type {
 	case nativeGroupExitDelivery:
 		return service.SendGroupExit(peer, e.Target)
+	case nativeGroupDismissDelivery:
+		return service.SendGroupDismiss(peer, e.Target)
+	case nativeGroupKickDelivery:
+		return service.SendGroupKick(peer, e.Target)
 	case "message_recall":
 		if groupID, ok := strings.CutPrefix(e.Message.ConversationID, "group:"); ok {
 			room, err := n.activeNativeGroup(groupID, value.PeerID)

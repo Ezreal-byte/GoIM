@@ -41,6 +41,21 @@ func (l *labChecks) checkGroup(ctx context.Context, r *report, service *neiwangt
 		})
 		passed = passed && received && sent
 	}
+	if l.opt.labGroupDismiss || l.opt.labGroupKick {
+		action, label, kind := "group-exit", "original_owner_dismisses_group", neiwangtong.CmdGroupDismiss
+		if l.opt.labGroupKick {
+			action, label, kind = "group-kick-goim", "original_owner_removes_goim", neiwangtong.CmdGroupKick
+		}
+		return passed && r.run(label, func() (string, error) {
+			if err := l.driveFor(ctx, action, event.roster.Name); err != nil {
+				return "", err
+			}
+			_, err := wait(ctx, 6*time.Second, l.departures, func(d labDeparture) bool {
+				return d.peer == peer && d.room == event.roster.ID && d.kind == kind
+			})
+			return "received the original owner's exact lifecycle command for the test group", err
+		})
+	}
 	return passed && r.run("native_group_exit_to_reference", func() (string, error) {
 		if err := service.SendGroupExit(peer, event.roster.ID); err != nil {
 			return "", err

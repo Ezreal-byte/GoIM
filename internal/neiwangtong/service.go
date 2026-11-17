@@ -30,10 +30,10 @@ type Callbacks struct {
 	Peer func(Peer)
 	Text func(peerID string, packetID uint64, text string)
 	// Message commits received chat content before the application receipt.
-	Message     func(peerID string, message DirectMessage) error
-	GroupRoster func(peerID string, roster GroupRoster)
-	GroupExit   func(peerID, groupID string)
-	GroupText   func(peerID string, message GroupMessage) error
+	Message        func(peerID string, message DirectMessage) error
+	GroupRoster    func(peerID string, roster GroupRoster)
+	GroupDeparture func(peerID, groupID string, kind uint32)
+	GroupText      func(peerID string, message GroupMessage) error
 	// TextAcknowledged reports the application's receipt from an established peer.
 	// An ENet acknowledgement alone only confirms transport delivery.
 	TextAcknowledged func(peerID string, packetID uint64)
@@ -681,9 +681,9 @@ func (s *Service) onENetCommand(remote netip.AddrPort, kind uint32, plain []byte
 		if roster, err := ParseGroupRoster(plain); err == nil && s.cfg.Callbacks.GroupRoster != nil {
 			s.cfg.Callbacks.GroupRoster(id, roster)
 		}
-	case CmdGroupExit:
-		if group, err := parseGroupExit(plain); err == nil && s.cfg.Callbacks.GroupExit != nil {
-			s.cfg.Callbacks.GroupExit(id, group)
+	case CmdGroupExit, CmdGroupDismiss, CmdGroupKick:
+		if group, err := parseGroupDeparture(plain, kind); err == nil && s.cfg.Callbacks.GroupDeparture != nil {
+			s.cfg.Callbacks.GroupDeparture(id, group, kind)
 		}
 	case CmdGroupText:
 		if message, err := ParseGroupMessage(plain); err == nil && s.cfg.Callbacks.GroupText != nil {

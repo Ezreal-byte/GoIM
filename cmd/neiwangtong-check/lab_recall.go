@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"goim/internal/core"
@@ -135,5 +136,17 @@ func verifyTextRecall(ctx context.Context, opt options) report {
 		}
 		return "the original transcript kept the control message and removed the exact recalled body", lab.driveFor(ctx, driver+"gone", name, runID)
 	})
+	if r.Passed && opt.labGroupRecall {
+		room := strings.TrimPrefix(chat, "group:")
+		r.Passed = r.run("goim_owner_dismisses_group", func() (string, error) {
+			node.Submit(domain.Command{Kind: domain.DissolveGroup, GroupID: room})
+			if _, err := waitCoreState(ctx, node, 6*time.Second, func(s domain.State) bool {
+				return s.Group(room).Dissolved && len(s.ChatMessages(chat)) > 0
+			}); err != nil {
+				return "", err
+			}
+			return "the original closed the dismissed group; GoIM kept its history", lab.driveFor(ctx, "group-await-closed", name)
+		})
+	}
 	return r
 }

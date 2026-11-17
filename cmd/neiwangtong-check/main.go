@@ -41,6 +41,8 @@ type options struct {
 	labAvatarUpdate bool
 	labTextRecall   bool
 	labGroupRecall  bool
+	labGroupDismiss bool
+	labGroupKick    bool
 	labResume       bool
 	labDirectory    bool
 	labFolderResend bool
@@ -97,6 +99,8 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opt.labAvatarUpdate, "lab-avatar-update", false, "Check whether the original downloads a GoIM avatar after a profile update")
 	flags.BoolVar(&opt.labTextRecall, "lab-text-recall", false, "Verify both directions of direct text recall against the original")
 	flags.BoolVar(&opt.labGroupRecall, "lab-group-recall", false, "Verify both directions of group text recall against the original")
+	flags.BoolVar(&opt.labGroupDismiss, "lab-group-dismiss", false, "Verify that GoIM accepts dismissal from the original group owner")
+	flags.BoolVar(&opt.labGroupKick, "lab-group-kick", false, "Verify that GoIM accepts removal from the original group owner")
 	flags.BoolVar(&opt.labResume, "lab-resume-receive", false, "Interrupt a real file transfer to the original and verify its resumption offset")
 	flags.BoolVar(&opt.labDirectory, "lab-directory-retry", false, "Measure whether the original can resume a directory after interruption")
 	flags.BoolVar(&opt.labFolderResend, "lab-directory-resend", false, "Verify a fresh directory offer after an interrupted transfer")
@@ -121,7 +125,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	}
 	special := 0
 	for _, enabled := range []bool{opt.labLargeFile, opt.labOffline, opt.labOfflineSend, opt.labMultiGroup, opt.labAvatarUpdate,
-		opt.labTextRecall, opt.labGroupRecall, opt.labResume, opt.labDirectory, opt.labFolderResend} {
+		opt.labTextRecall, opt.labGroupRecall, opt.labGroupDismiss, opt.labGroupKick, opt.labResume, opt.labDirectory, opt.labFolderResend} {
 		if enabled {
 			special++
 		}
@@ -213,7 +217,8 @@ func wait[T any](ctx context.Context, timeout time.Duration, events <-chan T, ma
 }
 
 func verify(ctx context.Context, opt options) report {
-	if opt.labOfflineSend || opt.labMultiGroup || opt.labTextRecall || opt.labGroupRecall {
+	groupCheck := opt.labTextRecall || opt.labGroupRecall
+	if opt.labOfflineSend || opt.labMultiGroup || groupCheck {
 		if err := requireSandboxLink(opt.bind); err != nil {
 			r := report{Mode: "sandbox", Target: opt.target.String()}
 			r.run("sandbox_link", func() (string, error) { return "", err })
@@ -226,7 +231,7 @@ func verify(ctx context.Context, opt options) report {
 	if opt.labMultiGroup {
 		return verifyMultiGroup(ctx, opt)
 	}
-	if opt.labTextRecall || opt.labGroupRecall {
+	if groupCheck {
 		return verifyTextRecall(ctx, opt)
 	}
 	r := report{Mode: "reference", Target: opt.target.String()}
