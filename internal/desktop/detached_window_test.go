@@ -144,17 +144,6 @@ func TestDetachedConversationViewRendersOnlyItsConversation(t *testing.T) {
 	if !movesWindow {
 		t.Fatal("detached custom titlebar has no window move region")
 	}
-	for _, text := range snapshot.Texts {
-		if text.Bounds.Y < 110 {
-			t.Logf("detached text %q bounds=%+v style=%+v clip=%v clipOf=%+v",
-				text.Value, text.Bounds, text.Style, text.HasClip, text.ClipOf)
-		}
-	}
-	for _, hit := range snapshot.Hits {
-		if hit.Bounds.Y < 110 {
-			t.Logf("detached hit %q bounds=%+v layer=%d", hit.Label, hit.Bounds, hit.Layer)
-		}
-	}
 	driver.Close()
 	if !closed {
 		t.Fatal("detached window close did not run its return lifecycle")

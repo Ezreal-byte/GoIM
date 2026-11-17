@@ -318,7 +318,7 @@ func (u *UI) chatPeerAvatar(f ui.C, hit gfx.ID, peerID, name, path string, size 
 		u.avatarWithPresence(f, name, path, size, false, false, u.palette.chat)
 		return
 	}
-	ui.Stack(f).Size(size, size).Shrink(0).
+	ui.Stack(f).Size(size, size).
 		HitWith(hit, i18n.T("查看资料")+" · "+name, gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true}).
 		Children(func() { u.avatarWithPresence(f, name, path, size, false, false, u.palette.chat) })
 	if event, ok := f.Canvas().PointerOn(hit); ok && event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {

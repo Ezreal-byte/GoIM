@@ -607,7 +607,7 @@ func (u *UI) avatarWithPresence(f ui.C, name, path string, size float32, online,
 	if name == "" {
 		name = "?"
 	}
-	ui.Stack(f).Size(size, size).Shrink(0).Children(func() {
+	ui.Stack(f).Size(size, size).Children(func() {
 		avatar := ui.Stack(f).Size(size, size).Radius(size / 2).Clip().
 			Background(u.palette.mutedAvatar)
 		avatar.Children(func() {
@@ -619,7 +619,9 @@ func (u *UI) avatarWithPresence(f ui.C, name, path string, size float32, online,
 				ui.Image(f, bitmap).Fill()
 				return
 			}
-			u.avatarInitial(f, name, size)
+			ui.Row(f).Fill().Items(ui.Center).Justify(ui.Center).Children(func() {
+				u.avatarInitial(f, name, size)
+			})
 		})
 		if !presence {
 			return
