@@ -87,7 +87,7 @@ try {
     Send-Command $taskAlice 'key esc'
     Send-Command $taskAlice 'expect absent "textfield:设备地址"'
     Send-Command $taskAlice 'click "林晓"'
-    Send-Command $taskAlice 'expect text "用户类型"'
+    Send-Command $taskAlice 'expect text "设备信息"'
     Send-Command $taskAlice 'click "button:发消息"'
     Send-Command $taskAlice 'waitfor "发送" 10000'
     Send-Command $taskAlice 'click "消息输入框"'
