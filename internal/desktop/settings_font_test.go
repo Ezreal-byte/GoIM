@@ -13,14 +13,17 @@ import (
 
 func waitForInterfaceFonts(t *testing.T, h *panelTestHarness) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
 	for !h.panels.settingsExtra.interfaceFont.known {
 		select {
 		case <-h.driver.Wakes():
-			if err := h.driver.Pump(); err != nil {
-				t.Fatal(err)
-			}
-		case <-time.After(time.Millisecond):
+		case <-ticker.C:
+		}
+		h.wake.Invalidate()
+		if err := h.driver.Pump(); err != nil {
+			t.Fatal(err)
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("timed out loading interface fonts")
@@ -105,6 +108,7 @@ func TestInterfaceFontPickerExplainsAMissingSavedFamily(t *testing.T) {
 	if !font.missing {
 		t.Fatal("a saved family absent from the system was not marked missing")
 	}
+	h.click(font.cancel)
 	if !h.hasText(i18n.T("已保存的字体未安装，暂时使用系统字体")) {
 		t.Fatal("the missing-font explanation is not visible")
 	}

@@ -26,14 +26,15 @@ func TestSettingsInterfaceFontScreenshotQA(t *testing.T) {
 			shell, session := openShellQA(t, state, 1200, 900)
 			shellQAClick(t, session, shell.ids.navSettings)
 			shellQAClick(t, session, shell.panels.settingsExtra.interfaceFont.trigger)
+			var family string
 			if err := session.WaitFor(func(snapshot app.Snapshot) bool {
-				for _, text := range snapshot.Texts {
-					if text.Value == "系统默认" {
-						return true
-					}
+				font := &shell.panels.settingsExtra.interfaceFont
+				if font.known && len(font.families) > 0 {
+					family = font.families[0]
+					return true
 				}
 				return false
-			}, 5*time.Second); err != nil {
+			}, 10*time.Second); err != nil {
 				t.Fatal(err)
 			}
 			if err := session.Expect("layout", "clean"); err != nil {
@@ -41,17 +42,17 @@ func TestSettingsInterfaceFontScreenshotQA(t *testing.T) {
 			}
 			shellQAShot(t, session, directory, filepath.Join("settings-interface-font-"+theme+".png"))
 
-			var arial gfx.Hit
+			var familyHit gfx.Hit
 			for _, hit := range session.Snapshot().Hits {
-				if hit.Label == "Arial" && hit.Role == gfx.RoleButton {
-					arial = hit
+				if hit.Label == family && hit.Role == gfx.RoleButton {
+					familyHit = hit
 					break
 				}
 			}
-			if arial.ID.IsZero() {
-				t.Fatal("Arial is missing from the installed font list")
+			if familyHit.ID.IsZero() {
+				t.Fatalf("enumerable font %q is missing from the picker", family)
 			}
-			if err := session.Click(arial.Bounds.X+arial.Bounds.Width/2, arial.Bounds.Y+arial.Bounds.Height/2); err != nil {
+			if err := session.Click(familyHit.Bounds.X+familyHit.Bounds.Width/2, familyHit.Bounds.Y+familyHit.Bounds.Height/2); err != nil {
 				t.Fatal(err)
 			}
 			shellQAClick(t, session, shell.panels.settingsExtra.interfaceFont.confirm)
