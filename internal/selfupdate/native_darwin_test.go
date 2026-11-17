@@ -22,6 +22,9 @@ func prepareNativeUpgrade(t *testing.T, root, binary string) (string, string) {
 		}
 		mac := filepath.Join(bundle, "Contents", "MacOS")
 		resources := filepath.Join(bundle, "Contents", "Resources")
+		if err := os.MkdirAll(resources, 0700); err != nil {
+			t.Fatal(err)
+		}
 		for name, value := range map[string]string{"fixture-version": version, "goim-snip": "companion " + version} {
 			dest := filepath.Join(mac, name)
 			if name == "fixture-version" {
