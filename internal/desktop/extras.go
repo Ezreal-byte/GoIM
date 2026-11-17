@@ -607,7 +607,7 @@ func (u *UI) avatarWithPresence(f ui.C, name, path string, size float32, online,
 	if name == "" {
 		name = "?"
 	}
-	ui.Stack(f).Size(size, size).Children(func() {
+	ui.Stack(f).Size(size, size).Shrink(0).Children(func() {
 		avatar := ui.Stack(f).Size(size, size).Radius(size / 2).Clip().
 			Background(u.palette.mutedAvatar)
 		avatar.Children(func() {
