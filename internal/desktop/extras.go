@@ -246,41 +246,53 @@ func (u *UI) closeProfileAvatarEditor() {
 func (u *UI) drawProfileAvatarEditor(canvas *gfx.Canvas, viewport ui.Rect) {
 	crop := &u.profile.crop
 	bitmap := u.imageCache[crop.source]
+	stageSize := float32(456)
+	controlHeight := max(float32(32), u.theme.Metrics.ControlHeight)
+	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
+		Layer:          78,
+		Scope:          u.ids.profileCropScope,
+		DismissID:      u.ids.profileCropDismiss,
+		CloseID:        u.ids.profileCropClose,
+		InitialFocusID: u.ids.profileCropCanvas,
+		ContentSize:    ui.Size{Width: 520},
+		FitBody:        true,
+		BodyHeight:     stageSize + controlHeight + 12,
+		ButtonSize:     components.ButtonSizeDefault,
+	})
+	dialogLayout := dialog.Begin(i18n.T("裁剪图片"), "")
 	options := components.AvatarEditorOptions{
 		IDs: components.AvatarEditorIDs{
-			Scope: u.ids.profileCropScope, Dismiss: u.ids.profileCropDismiss, Close: u.ids.profileCropClose,
 			Canvas: u.ids.profileCropCanvas, Zoom: u.ids.profileCropZoom,
 			ZoomOut: u.ids.profileCropOut, ZoomIn: u.ids.profileCropIn, Reset: u.ids.profileCropReset,
-			Cancel: u.ids.profileCropCancel, Confirm: u.ids.profileCropConfirm,
 		},
 		Labels: components.AvatarEditorLabels{
-			Title:       i18n.T("裁剪图片"),
-			Description: i18n.T("拖动图片调整位置，滚轮、滑杆或按钮缩放；方形区域将作为头像。"),
+			Hint:        i18n.T("拖动图片调整位置，滚轮、滑杆或按钮缩放；方形区域将作为头像。"),
 			Canvas:      i18n.T("头像裁切区域"),
 			Zoom:        i18n.T("缩放"),
 			ZoomOut:     i18n.T("缩小"),
 			ZoomIn:      i18n.T("放大"),
 			Reset:       i18n.T("重置"),
-			Cancel:      i18n.T("取消"),
-			Confirm:     i18n.T("保存"),
 			Loading:     i18n.T("正在读取图片…"),
 			Unavailable: i18n.T("无法读取这张图片"),
 		},
-		Bitmap:          bitmap,
-		State:           crop.state,
-		AspectRatio:     1,
-		MinZoom:         1,
-		MaxZoom:         8,
-		StageSize:       456,
-		Circular:        true,
-		HideDescription: true,
-		Loading:         !bitmapReady(bitmap) && crop.err == "",
-		Error:           crop.err,
-		Viewport:        viewport,
-		Layer:           78,
+		Bitmap:       bitmap,
+		State:        crop.state,
+		Backdrop:     u.theme.Popover,
+		AspectRatio:  1,
+		MinZoom:      1,
+		MaxZoom:      8,
+		MaxStageSize: stageSize,
+		Circular:     true,
+		Loading:      !bitmapReady(bitmap) && crop.err == "",
+		Error:        crop.err,
 	}
-	layout := components.BeginAvatarEditor(canvas, u.theme, viewport, options).Paint()
+	layout := components.BeginAvatarEditor(canvas, u.theme, dialogLayout.Body, options).Paint()
 	crop.state, crop.layout = layout.State, layout
+	dialog.Actions(dialogLayout,
+		components.ButtonAction{ID: u.ids.profileCropConfirm, Label: i18n.T("保存"), Disabled: !layout.Ready},
+		components.ButtonAction{ID: u.ids.profileCropCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},
+	)
+	dialog.End()
 	switch {
 	case canvas.Clicked(u.ids.profileCropDismiss), canvas.Clicked(u.ids.profileCropClose),
 		canvas.Clicked(u.ids.profileCropCancel):
