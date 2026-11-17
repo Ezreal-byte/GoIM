@@ -76,6 +76,24 @@ func TestStockTextRecallDecodesAsControl(t *testing.T) {
 	}
 }
 
+func TestStockGroupRegularFileDecodesWithoutCompatibilityNotice(t *testing.T) {
+	const id = "0123456789abcdef0123456789abcdef"
+	const ref = "fedcba9876543210fedcba9876543210"
+	body := `{"app":"shiyeline","dt":[{"txt":{"t":"compatible","v":"update required"}},{"file2":{"i":"` + ref +
+		`","s":"47","t":"offline_file","a":"false","v":"C:\\QA\\fixture.txt"}}],"type":"0","id":"` + id + `","ver":"6.0"}`
+	wire, err := formatGroupBody(id, 9, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := ParseGroupMessage(wire)
+	if err != nil || group.GroupID != id || group.Message.Text() != "" || len(group.Message.Parts) != 1 {
+		t.Fatalf("unexpected group file message: %+v, %v", group, err)
+	}
+	part := group.Message.Parts[0].File
+	if part == nil || part.ID != ref || part.Size != 47 {
+		t.Fatalf("file reference was lost: %+v", part)
+	}
+}
 func TestSendFileFormatAndParse(t *testing.T) {
 	formatted := FormatSendFile(101, 202, "test.txt", 12345, 1700000000)
 	sf, err := ParseSendFile(formatted)

@@ -88,6 +88,9 @@ func (n *Node) newNeiwangtong(port int, live *atomic.Bool) (*neiwangtong.Service
 		AllowRemote: func(remote netip.AddrPort) bool {
 			return n.allowedRemote(net.UDPAddrFromAddrPort(remote))
 		},
+		CanServeGroupFile: func(peer, group string) bool {
+			return live.Load() && n.canServeNativeGroupFile(peer, group)
+		},
 		Interface: func() string {
 			n.mu.Lock()
 			defer n.mu.Unlock()
@@ -455,6 +458,14 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 			}
 			return n.sendNeiwangtongImage(service, peer, room, value, taskID, fileID, f)
 		}
+		if groupID, ok := strings.CutPrefix(t.ConversationID, "group:"); ok {
+			room, err := n.activeNativeGroup(groupID, value.PeerID)
+			if err != nil {
+				return err
+			}
+			ref := neiwangtong.GroupFileRef{ID: legacyStableID("nwt-group-file", f.ID), Name: f.Name, Size: f.Size}
+			return service.SendGroupFile(peer, room, nativeMessagePacket(value), f.ID, ref, taskID, fileID, f.SourcePath)
+		}
 		info, err := os.Stat(f.SourcePath)
 		if err != nil {
 			return err
@@ -536,13 +547,26 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 	if f.Folder {
 		return n.downloadNeiwangtongDirectory(ctx, service, wireID, t, f, destination)
 	}
-	taskID, err := strconv.ParseUint(t.RemotePacket, 10, 64)
-	if err != nil {
-		return fmt.Errorf("无效的内网通任务编号: %s", t.RemotePacket)
-	}
-	fileID, err := strconv.ParseUint(t.RemoteFile, 10, 32)
-	if err != nil || fileID == 0 {
-		return errors.New("内网通文件编号无效")
+	isGroupFile := t.RemoteShareID != ""
+	var taskID, fileID uint64
+	var err error
+	if isGroupFile {
+		groupID, ok := strings.CutPrefix(t.ConversationID, "group:")
+		if !ok {
+			return errors.New("内网通群文件引用无效")
+		}
+		if _, err := n.activeNativeGroup(groupID, t.PeerID); err != nil {
+			return err
+		}
+	} else {
+		taskID, err = strconv.ParseUint(t.RemotePacket, 10, 64)
+		if err != nil {
+			return fmt.Errorf("无效的内网通任务编号: %s", t.RemotePacket)
+		}
+		fileID, err = strconv.ParseUint(t.RemoteFile, 10, 32)
+		if err != nil || fileID == 0 {
+			return errors.New("内网通文件编号无效")
+		}
 	}
 
 	s := n.snapshot(false)
@@ -589,6 +613,14 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 	if info, err := os.Lstat(partial); err == nil && info.Mode().IsRegular() {
 		have = info.Size()
 	}
+	if isGroupFile && (have == 0 || have != t.Size) {
+		// Only a fresh group download has been verified. Discard an
+		// interrupted prefix before requesting a new data selector.
+		if err := os.Remove(partial); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		have = 0
+	}
 	if err := n.change(func(s *domain.State) {
 		if i := transferIndex(s, t.ID); i >= 0 && !terminalTransfer(s.Transfers[i].Status) {
 			task := &s.Transfers[i]
@@ -600,12 +632,17 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 	}
 	lastProgress := time.Now()
 	if have == 0 || have != t.Size {
-		err = service.ResumeFile(ctx, wireID, taskID, fileID, t.Size, partial, func(done int64) {
+		progress := func(done int64) {
 			if done == t.Size || time.Since(lastProgress) >= 150*time.Millisecond {
 				n.setTransfer(t.ID, "transferring", done, 0, "")
 				lastProgress = time.Now()
 			}
-		})
+		}
+		if isGroupFile {
+			err = service.DownloadGroupFile(ctx, wireID, t.RemoteShareID, t.Size, partial, func(done, _ int64) { progress(done) })
+		} else {
+			err = service.ResumeFile(ctx, wireID, taskID, fileID, t.Size, partial, progress)
+		}
 		if err != nil {
 			return err
 		}

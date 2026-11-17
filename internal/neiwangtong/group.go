@@ -142,7 +142,7 @@ func ParseGroupMessage(data []byte) (GroupMessage, error) {
 	if !validNativeID(wire.ID) || wire.Packet == 0 {
 		return GroupMessage{}, errors.New("invalid native group message")
 	}
-	message, err := parseChatPayload(wire.Packet, wire.Content)
+	message, err := parseChatParts(wire.Packet, wire.Content, true)
 	return GroupMessage{strings.ToLower(wire.ID), message}, err
 }
 

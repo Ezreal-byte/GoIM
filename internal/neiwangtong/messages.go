@@ -69,6 +69,7 @@ type MsgDataTxt struct {
 	Txt      *MsgTxt       `json:"txt,omitempty"`
 	Img      *MsgTxt       `json:"img,omitempty"`
 	Retrieve *recallTarget `json:"retrieve,omitempty"`
+	File     *chatFileWire `json:"file2,omitempty"`
 }
 
 type recallTarget struct {
@@ -89,6 +90,7 @@ type ChatImageRef struct {
 type MessagePart struct {
 	Text  string
 	Image *ChatImageRef
+	File  *GroupFileRef
 }
 
 type DirectMessage struct {
@@ -207,6 +209,10 @@ func ParseDirectMessage(data []byte) (DirectMessage, error) {
 }
 
 func parseChatPayload(packet uint64, content string) (DirectMessage, error) {
+	return parseChatParts(packet, content, false)
+}
+
+func parseChatParts(packet uint64, content string, group bool) (DirectMessage, error) {
 	m := DirectMessage{PacketID: packet}
 	var mj struct {
 		Dt   []MsgDataTxt `json:"dt"`
@@ -239,13 +245,27 @@ func parseChatPayload(packet uint64, content string) (DirectMessage, error) {
 		}
 		return m, nil // A recall's compatibility notice is not a new chat message.
 	}
+	var hasFile bool
+	if group {
+		for _, dt := range mj.Dt {
+			if _, ok := dt.File.reference(); ok {
+				hasFile = true
+				break
+			}
+		}
+	}
 	for _, dt := range mj.Dt {
-		if dt.Txt != nil && dt.Txt.V != "" {
+		if dt.Txt != nil && dt.Txt.V != "" && !(hasFile && dt.Txt.T == "compatible") {
 			m.Parts = append(m.Parts, MessagePart{Text: dt.Txt.V})
 		}
 		if dt.Img != nil && dt.Img.T == "feihu" {
 			if ref, ok := parseChatImageRef(dt.Img.V); ok {
 				m.Parts = append(m.Parts, MessagePart{Image: &ref})
+			}
+		}
+		if hasFile {
+			if ref, ok := dt.File.reference(); ok {
+				m.Parts = append(m.Parts, MessagePart{File: &ref})
 			}
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -99,10 +100,26 @@ func applyNativeChat(p *persisted, target nativeChatTarget, message neiwangtong.
 		entry := domain.Message{ID: id, ConversationID: target.conversation, SenderID: target.sender,
 			Status: "delivered", CreatedAt: stamp.Add(time.Duration(index)), Kind: "text"}
 		index++
+		if part.File != nil {
+			name := filepath.Base(strings.ReplaceAll(part.File.Name, "\\", "/"))
+			file := domain.File{ID: id, Name: name, Size: part.File.Size, Hash: strings.Repeat("0", 64),
+				MIME:     mime.TypeByExtension(strings.ToLower(filepath.Ext(name))),
+				SenderID: target.sender, ConversationID: target.conversation, CreatedAt: entry.CreatedAt}
+			if !validFile(file) || fileIndex(s, id) >= 0 {
+				continue
+			}
+			s.Files = append(s.Files, file)
+			s.Transfers = append(s.Transfers, domain.Transfer{ID: id, FileID: id, ConversationID: target.conversation,
+				PeerID: target.sender, Direction: "receive", Status: "offered", Name: name, Size: file.Size, UpdatedAt: now,
+				LegacyTransport: transportNWT, RemotePeerID: target.wirePeer, RemoteShareID: part.File.ID})
+			entry.Kind, entry.Text, entry.FileID = "file", name, id
+			addMessageState(s, entry)
+			continue
+		}
 		if part.Image == nil {
 			var span strings.Builder
 			span.WriteString(part.Text)
-			for index < len(message.Parts) && message.Parts[index].Image == nil {
+			for index < len(message.Parts) && message.Parts[index].Image == nil && message.Parts[index].File == nil {
 				span.WriteString(message.Parts[index].Text)
 				index++
 			}

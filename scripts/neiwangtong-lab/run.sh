@@ -7,7 +7,7 @@ lab_path=/usr/sbin:/usr/bin:/sbin:/bin
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
 case "${1:-}" in
-    reply|queue-text|send-file|accept-file|cancel-file|send-image|send-folder|probe-group|group-open|group-close|group-await-closed|group-reply|group-check|group-image|group-exit|group-exit-seen|group-kick-goim|chat-check|chat-recall-stock|chat-recall-check|chat-recall-gone|group-recall-stock|group-recall-check|group-recall-gone|stock-open-chat|stock-reply|stock-chat-check|stock-send-file|stock-accept-file|stock-presence|stock-avatar)
+    reply|queue-text|send-file|accept-file|cancel-file|send-image|send-folder|probe-group|group-open|group-close|group-await-closed|group-reply|group-check|group-image|group-exit|group-exit-seen|group-kick-goim|group-file-send|group-file-receive|chat-check|chat-recall-stock|chat-recall-check|chat-recall-gone|group-recall-stock|group-recall-check|group-recall-gone|stock-open-chat|stock-reply|stock-chat-check|stock-send-file|stock-accept-file|stock-presence|stock-avatar)
         # Launched by the checker as the lab user. Wine and X11 connect to
         # the same private session over local sockets, not over the veth.
         original=$(winepath -w "$GOIM_NWT_ORIGINAL/ShiYeLine.exe")
@@ -63,7 +63,7 @@ esac
 [ "$#" -gt 0 ] && [ "$#" -le 2 ] || fail 'Specify the Linux path to the original client directory and at most one check mode.'
 mode=${2:-}
 case "$mode" in
-    ''|--offline-replay|--offline-send|--resume-receive|--large-from-reference|--large-to-reference|--large-stock-control|--large-stock-boundary|--directory-from-reference|--directory-to-reference|--directory-resend-from-reference|--directory-resend-to-reference|--multi-group|--avatar-update|--text-recall|--group-recall|--group-dismiss|--group-kick) ;;
+    ''|--offline-replay|--offline-send|--resume-receive|--large-from-reference|--large-to-reference|--large-stock-control|--large-stock-boundary|--directory-from-reference|--directory-to-reference|--directory-resend-from-reference|--directory-resend-to-reference|--multi-group|--avatar-update|--text-recall|--group-recall|--group-dismiss|--group-kick|--group-file) ;;
     *) fail 'Unknown sandbox option.' ;;
 esac
 [ "$(id -u)" -eq 0 ] || fail 'Use root in the dedicated lab distro to create its isolated links.'
@@ -223,7 +223,7 @@ case "$mode" in
 --avatar-update)
     set -- "$@" -timeout 20s -lab-avatar-update
     ;;
---text-recall|--group-recall|--group-dismiss|--group-kick)
+--text-recall|--group-recall|--group-dismiss|--group-kick|--group-file)
     set -- "$@" -timeout 60s "-lab-${mode#--}"
     ;;
 *)

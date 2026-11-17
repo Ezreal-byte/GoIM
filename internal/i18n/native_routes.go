@@ -20,7 +20,10 @@ func init() {
 		"内网通群聊已创建":                    "Neiwangtong group created",
 		"内网通只能撤回两分钟内已发送的文字，且对方需要在线":   "You can recall sent Neiwangtong text for two minutes while the recipient is online",
 		"内网通群暂不支持在 GoIM 中管理成员":        "Member management for Neiwangtong groups is unavailable in GoIM",
-		"内网通群暂只支持发送文字和聊天图片":           "Neiwangtong groups currently support only text and inline images",
+		"内网通群暂不支持发送文件夹":               "Neiwangtong groups do not support sending folders yet",
+		"对方的内网通群文件已不可用":               "The sender's Neiwangtong group file is no longer available",
+		"等待内网通群文件响应超时":                "Timed out waiting for the Neiwangtong group file",
+		"内网通群文件下载响应与邀请不匹配":            "The Neiwangtong group file response does not match the offer",
 		"已填写的资料对已连接的 GoIM 和内网通联系人可见。": "Your profile is visible to connected GoIM and Neiwangtong contacts.",
 	} {
 		en[label] = english

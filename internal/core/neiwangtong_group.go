@@ -361,3 +361,13 @@ func (n *Node) activeNativeGroup(id, recipient string) (string, error) {
 	}
 	return room.WireID, nil
 }
+
+func (n *Node) canServeNativeGroupFile(wirePeer, wireGroup string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	id := nativeGroupID(wireGroup)
+	sender := n.compatibilitySenderLocked(transportNWT, wirePeer).ID
+	group := n.data.State.Group(id)
+	return !n.closing && n.data.NativeGroups[id].WireID == wireGroup && !group.Left && !group.Dissolved &&
+		sender != "" && contains(group.Members, sender) && contains(group.Members, n.data.State.Self.ID)
+}

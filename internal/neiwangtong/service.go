@@ -67,6 +67,7 @@ type Config struct {
 	AvatarPNG         []byte
 	DisableBroadcast  bool
 	AllowRemote       func(netip.AddrPort) bool
+	CanServeGroupFile func(peerID, groupID string) bool
 	Interface         func() string
 	Trace             func(string) // optional developer diagnostics, no message bodies
 	TraceEvent        func(kind uint32, payload []byte)
@@ -89,16 +90,19 @@ type nativePeer struct {
 }
 
 type Service struct {
-	receipts    map[receiptKey]chan struct{} // protected by mu
-	cfg         Config
-	ctx         context.Context
-	cancel      context.CancelFunc
-	enet        *ENetTransport
-	profileENet *ENetTransport
-	transfer    *TransferServer
-	directories *directoryTransport
-	selfID      string
-	messageSeq  atomic.Uint32
+	receipts         map[receiptKey]chan struct{} // protected by mu
+	groupFiles       map[groupFileKey]groupFileOffer
+	groupFileReplies map[receiptKey]chan groupFileResponse
+	groupFileWorkers chan struct{}
+	cfg              Config
+	ctx              context.Context
+	cancel           context.CancelFunc
+	enet             *ENetTransport
+	profileENet      *ENetTransport
+	transfer         *TransferServer
+	directories      *directoryTransport
+	selfID           string
+	messageSeq       atomic.Uint32
 
 	discMu    sync.Mutex
 	discConn  *net.UDPConn
@@ -154,8 +158,10 @@ func Start(cfg Config) (*Service, error) {
 		peers: make(map[string]*nativePeer), byControl: make(map[netip.AddrPort]string),
 		verified:   make(map[netip.AddrPort]string),
 		handshakes: make(map[netip.AddrPort]bool), profileSent: make(map[netip.AddrPort]*enetSession),
-		files:     make(map[uint64]fileOffer),
-		broadcast: !cfg.DisableBroadcast}
+		files:      make(map[uint64]fileOffer),
+		groupFiles: make(map[groupFileKey]groupFileOffer), groupFileReplies: make(map[receiptKey]chan groupFileResponse),
+		groupFileWorkers: make(chan struct{}, 16),
+		broadcast:        !cfg.DisableBroadcast}
 	s.selfDisc = Discovery{Kind: Announce, ID: cfg.ID, Broadcast: netip.AddrFrom4([4]byte{255, 255, 255, 255}), Trailer: uint16(cfg.ControlPort)}
 	interfaceName := ""
 	if cfg.Interface != nil {
@@ -685,6 +691,10 @@ func (s *Service) onENetCommand(remote netip.AddrPort, kind uint32, plain []byte
 		if group, err := parseGroupDeparture(plain, kind); err == nil && s.cfg.Callbacks.GroupDeparture != nil {
 			s.cfg.Callbacks.GroupDeparture(id, group, kind)
 		}
+	case cmdGroupFileRequest:
+		s.onGroupFileRequest(remote, id, plain)
+	case cmdGroupFileResponse:
+		s.onGroupFileResponse(id, plain)
 	case CmdGroupText:
 		if message, err := ParseGroupMessage(plain); err == nil && s.cfg.Callbacks.GroupText != nil {
 			if err := s.cfg.Callbacks.GroupText(id, message); err == nil {
@@ -1069,6 +1079,10 @@ func chatImagePart(fileID uint64, size int64, digest [16]byte) (MsgDataTxt, erro
 }
 
 func (s *Service) prepareFileOffer(peerID string, taskID, fileID uint64, size int64, path string) (netip.AddrPort, error) {
+	return s.prepareFileOfferWithAccess(peerID, taskID, fileID, size, path, nil)
+}
+
+func (s *Service) prepareFileOfferWithAccess(peerID string, taskID, fileID uint64, size int64, path string, allowed func() bool) (netip.AddrPort, error) {
 	control, _, err := s.control(peerID)
 	if err != nil {
 		return netip.AddrPort{}, err
@@ -1085,7 +1099,7 @@ func (s *Service) prepareFileOffer(peerID string, taskID, fileID uint64, size in
 		s.mu.Unlock()
 		return netip.AddrPort{}, errors.New("内网通任务编号已被占用")
 	}
-	if err := s.transfer.registerFile(fileID, taskID, path, size, control.Addr(), chunked); err != nil {
+	if err := s.transfer.registerFileWithAccess(fileID, taskID, path, size, control.Addr(), chunked, allowed); err != nil {
 		s.mu.Unlock()
 		return netip.AddrPort{}, err
 	}
@@ -1132,6 +1146,11 @@ func (s *Service) dropFile(task uint64) {
 func (s *Service) dropFileLocked(task uint64) {
 	offer := s.files[task]
 	delete(s.files, task)
+	for key, item := range s.groupFiles {
+		if item.task == task {
+			delete(s.groupFiles, key)
+		}
+	}
 	if p := s.peers[offer.peerID]; p != nil && s.offerCountLocked(offer.peerID) == 0 {
 		stopReverseChannels(p)
 	}
@@ -1250,6 +1269,17 @@ func (s *Service) CancelSend(peerID string, taskID uint64) error {
 		return errors.New("invalid native file task")
 	}
 	s.mu.Lock()
+	for key, item := range s.groupFiles {
+		if item.task == taskID {
+			if key.peer != peerID {
+				s.mu.Unlock()
+				return errors.New("内网通任务与联系人不匹配")
+			}
+			s.dropFileLocked(taskID)
+			s.mu.Unlock()
+			return nil
+		}
+	}
 	if offer, ok := s.files[taskID]; ok {
 		if offer.peerID != peerID {
 			s.mu.Unlock()

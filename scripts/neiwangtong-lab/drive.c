@@ -391,9 +391,11 @@ int wmain(int argc, wchar_t **argv) {
     BOOL group_await_closed = !wcscmp(action, L"group-await-closed");
     BOOL group_exit = !wcscmp(action, L"group-exit"), group_exit_seen = !wcscmp(action, L"group-exit-seen");
     BOOL group_kick = !wcscmp(action, L"group-kick-goim");
+    BOOL group_file_send = !wcscmp(action, L"group-file-send");
+    BOOL group_file_receive = !wcscmp(action, L"group-file-receive");
     BOOL group_recall = !wcsncmp(action, L"group-recall-", 13);
     if (group_reply || group_check || group_image || group_open || group_close || group_await_closed || group_recall ||
-        group_exit || group_exit_seen || group_kick) {
+        group_exit || group_exit_seen || group_kick || group_file_send || group_file_receive) {
         const wchar_t *prefix = L"GOIM-NWT，GoIM QA";
         const wchar_t *owned = L"GoIM QA 群聊 ";
         BOOL owned_name = FALSE;
@@ -402,7 +404,7 @@ int wmain(int argc, wchar_t **argv) {
             owned_name = wcsspn(token, L"0123456789abcdef") == 16 &&
                          (!token[16] || !wcscmp(token + 16, L" 新名"));
         }
-        if (!owned_name && (group_open || group_close || wcsncmp(chat_name, prefix, wcslen(prefix))))
+        if (!owned_name && (group_open || group_close || group_file_send || group_file_receive || wcsncmp(chat_name, prefix, wcslen(prefix))))
             return fail("invalid sandbox group name");
     } else if (!stock_pair && wcsncmp(chat_name, L"GoIM QA ", 8)) return fail("invalid sandbox chat name");
     if (group_open && argc == 4) {
@@ -442,6 +444,40 @@ int wmain(int argc, wchar_t **argv) {
 
     // Locations come from the stock chat skin at 96 dpi with a new profile.
     const int composer_x = 230, composer_y = 535, button_y = 581;
+    if ((group_file_send && argc == 5) || (group_file_receive && argc == 4)) {
+        dismiss_guide(exe);
+        ShowWindow(chat, SW_RESTORE);
+        if (!SetWindowPos(chat, HWND_TOPMOST, 180, 82, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW) || !focus_chat(chat))
+            return fail("could not open the private group file fixture");
+        Sleep(600);
+        if (group_file_receive) {
+            // The fresh group has one incoming file and no other chat items.
+            POINT accept = {596, 349};
+            return click_fixture_screen(accept, chat, FALSE) ? 0 : fail("could not accept the group file fixture");
+        }
+        const wchar_t prefix[] = L"C:\\goim-qa\\原版群文件-";
+        DWORD attributes = GetFileAttributesW(argv[4]);
+        if (wcsncmp(argv[4], prefix, _countof(prefix) - 1) ||
+            wcspbrk(argv[4] + _countof(prefix) - 1, L"/\\:") || attributes == INVALID_FILE_ATTRIBUTES ||
+            (attributes & FILE_ATTRIBUTE_DIRECTORY)) return fail("invalid sender group file fixture");
+        POINT open_point = {520, 579};
+        if (!click_fixture_screen(open_point, chat, FALSE)) return fail("could not open the private group file picker");
+        Sleep(450);
+        SetWindowPos(chat, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+        HWND picker = wait_for_window(exe, L"选择要发送的文件", L"#32770");
+        HWND edit = NULL;
+        if (picker) EnumChildWindows(picker, match_filename_edit, (LPARAM)&edit);
+        HWND open = picker ? GetDlgItem(picker, IDOK) : NULL;
+        DWORD_PTR result = 0;
+        if (!edit || !open || !SendMessageTimeoutW(edit, WM_SETTEXT, 0, (LPARAM)argv[4], SMTO_ABORTIFHUNG, 1000, &result) ||
+            !result || !PostMessageW(picker, WM_COMMAND, IDOK, (LPARAM)open))
+            return fail("could not select the private group file");
+        Sleep(600);
+        if (!SetWindowPos(chat, HWND_TOPMOST, 180, 82, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW) || !focus_chat(chat))
+            return fail("could not restore the group file composer");
+        POINT send = {844, 675};
+        return click_fixture_screen(send, chat, FALSE) ? 0 : fail("could not send the private group file");
+    }
     if (argc == 4 && group_exit) return exit_fixture_group(exe, chat);
     if (argc == 4 && group_kick && !wcsncmp(chat_name, L"GOIM-NWT，GoIM QA", 15)) return remove_fixture_member(exe, chat);
     if (argc == 4 && group_exit_seen) {

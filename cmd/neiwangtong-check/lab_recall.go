@@ -14,7 +14,7 @@ import (
 	"goim/internal/domain"
 )
 
-func verifyTextRecall(ctx context.Context, opt options) report {
+func verifyCoreChat(ctx context.Context, opt options) report {
 	r := report{Mode: "sandbox", Target: opt.target.String()}
 	ctx, cancel := context.WithTimeout(ctx, opt.timeout)
 	defer cancel()
@@ -25,19 +25,19 @@ func verifyTextRecall(ctx context.Context, opt options) report {
 	name := profile
 	lab := newLabChecks(opt, profile, runID)
 	label, driver, reply := "text", "chat-recall-", "reply"
-	if opt.labGroupRecall {
+	if opt.labGroupRecall || opt.labGroupFile {
 		name = "GoIM QA 群聊 " + runID
 		label, driver, reply = "group_text", "group-recall-", "group-reply"
 	}
 	data := filepath.Join(opt.labDir, "goim-recall")
 	node, err := core.New(core.Options{DataDir: data, Name: profile, DownloadDir: filepath.Join(data, "downloads"), Listen: ":0", DisableIPMSG: true})
-	if !r.run("recall_starts_goim", func() (string, error) { return "started the production GoIM backend", err }) {
+	if !r.run("starts_goim", func() (string, error) { return "started the production GoIM backend", err }) {
 		return r
 	}
 	defer node.Close()
 
 	var peer, chat string
-	if !r.run("recall_opens_stock_chat", func() (string, error) {
+	if !r.run("opens_stock_chat", func() (string, error) {
 		_, err := waitCoreState(ctx, node, 16*time.Second, func(s domain.State) bool {
 			for _, p := range s.Peers {
 				address, _ := netip.ParseAddrPort(p.Address)
@@ -52,7 +52,7 @@ func verifyTextRecall(ctx context.Context, opt options) report {
 		if err != nil {
 			return "", err
 		}
-		if opt.labGroupRecall {
+		if opt.labGroupRecall || opt.labGroupFile {
 			node.Submit(domain.Command{Kind: domain.CreateGroup, Name: name, IDs: []string{peer}})
 			if _, err := waitCoreState(ctx, node, 4*time.Second, func(s domain.State) bool {
 				for _, group := range s.Groups {
@@ -79,6 +79,10 @@ func verifyTextRecall(ctx context.Context, opt options) report {
 		})
 		return "opened a discovered stock contact", err
 	}) {
+		return r
+	}
+	if opt.labGroupFile {
+		r.Passed = lab.checkGroupFiles(ctx, &r, node, peer, chat, name)
 		return r
 	}
 	waitMessage := func(match func(domain.Message) bool) (domain.Message, error) {

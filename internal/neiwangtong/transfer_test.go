@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -28,6 +29,44 @@ func createTestPNG() []byte {
 	var buf bytes.Buffer
 	_ = png.Encode(&buf, img)
 	return buf.Bytes()
+}
+
+func TestRegisteredGroupFileStopsServingAfterMembershipIsRevoked(t *testing.T) {
+	srv, err := StartTransferServer(loopback, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	dir := t.TempDir()
+	data := []byte("group member's selected file")
+	source := filepath.Join(dir, "source.txt")
+	if err := os.WriteFile(source, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var member atomic.Bool
+	member.Store(true)
+	const selector = 3689
+	if err := srv.registerFileWithAccess(selector, 782, source, int64(len(data)), loopback, true, member.Load); err != nil {
+		t.Fatal(err)
+	}
+	target := netip.AddrPortFrom(loopback, uint16(srv.Port()))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	dest := filepath.Join(dir, "authorized.txt")
+	if err := downloadFile(ctx, loopback, target, selector, int64(len(data)), dest, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if actual, err := os.ReadFile(dest); err != nil || !bytes.Equal(actual, data) {
+		t.Fatalf("authorized transfer failed: %v", err)
+	}
+	member.Store(false)
+	dest = filepath.Join(dir, "removed.txt")
+	if err := downloadFile(ctx, loopback, target, selector, int64(len(data)), dest, true, nil); err == nil {
+		t.Fatal("a removed group member could still retrieve the registered file")
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("the denied request left a download on disk: %v", err)
+	}
 }
 
 func TestTransferServerAvatarAndFile(t *testing.T) {

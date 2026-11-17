@@ -210,6 +210,7 @@ type Transfer struct {
 	RemotePacket    string `json:",omitempty"`
 	RemoteFile      string `json:",omitempty"`
 	RemoteImageMD5  string `json:",omitempty"` // legacy inline image asset digest
+	RemoteShareID   string `json:",omitempty"` // Neiwangtong group attachment
 	FolderMaxPath   int    `json:",omitempty"`
 	FolderMaxItem   int64  `json:",omitempty"`
 	RemotePeerID    string `json:",omitempty"` // wire identity of an existing compatibility transfer

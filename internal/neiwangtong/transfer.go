@@ -23,6 +23,7 @@ type outgoingFile struct {
 	Recipient netip.Addr
 	Info      os.FileInfo
 	chunked   bool
+	allowed   func() bool
 	ctx       context.Context
 	cancel    context.CancelFunc
 }
@@ -151,6 +152,10 @@ func (s *TransferServer) RegisterFile(taskID uint64, path string, size int64) {
 }
 
 func (s *TransferServer) registerFile(fileID, taskID uint64, path string, size int64, recipient netip.Addr, chunked bool) error {
+	return s.registerFileWithAccess(fileID, taskID, path, size, recipient, chunked, nil)
+}
+
+func (s *TransferServer) registerFileWithAccess(fileID, taskID uint64, path string, size int64, recipient netip.Addr, chunked bool, allowed func() bool) error {
 	if fileID == 0 || fileID > maxFileSelector || taskID == 0 || !validFileSize(size, chunked) {
 		return errors.New("invalid native file offer")
 	}
@@ -165,7 +170,7 @@ func (s *TransferServer) registerFile(fileID, taskID uint64, path string, size i
 	defer s.filesMu.Unlock()
 	if existing, ok := s.files[fileID]; ok {
 		if existing.TaskID == taskID && existing.Recipient == recipient && existing.Path == path &&
-			existing.Size == size && existing.chunked == chunked && os.SameFile(existing.Info, info) &&
+			existing.Size == size && existing.chunked == chunked && (existing.allowed == nil) == (allowed == nil) && os.SameFile(existing.Info, info) &&
 			existing.Info.ModTime().Equal(info.ModTime()) {
 			return nil // the same offer was queued again after a reconnect
 		}
@@ -176,7 +181,7 @@ func (s *TransferServer) registerFile(fileID, taskID uint64, path string, size i
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.files[fileID] = outgoingFile{TaskID: taskID, Path: path, Size: size, Recipient: recipient,
-		Info: info, chunked: chunked, ctx: ctx, cancel: cancel}
+		Info: info, chunked: chunked, allowed: allowed, ctx: ctx, cancel: cancel}
 	return nil
 }
 
@@ -401,7 +406,8 @@ func (s *TransferServer) fileForRequest(conn net.Conn, selector uint64) (outgoin
 	file, ok := s.files[selector]
 	s.filesMu.RUnlock()
 	addr, isTCP := conn.RemoteAddr().(*net.TCPAddr)
-	return file, ok && isTCP && (!file.Recipient.IsValid() || file.Recipient == addr.AddrPort().Addr().Unmap())
+	return file, ok && isTCP && (!file.Recipient.IsValid() || file.Recipient == addr.AddrPort().Addr().Unmap()) &&
+		(file.allowed == nil || file.allowed())
 }
 
 func (s *TransferServer) serveFile(conn net.Conn, selector uint64, position int64) (failure error) {
