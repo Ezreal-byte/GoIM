@@ -300,8 +300,8 @@ func (p *Panels) drawInterfaceFontPicker(f ui.C, theme ui.Theme, state domain.St
 		})
 	})
 	dialog.Footer(func() {
-		canceled = namedButton(f, font.cancel, i18n.T("取消")).Small().Outline().Clicked()
-		confirmed = namedButton(f, font.confirm, i18n.T("应用所选字体")).Small().
+		canceled = dialogActionButton(f, font.cancel, i18n.T("取消")).Outline().Clicked()
+		confirmed = dialogActionButton(f, font.confirm, i18n.T("应用所选字体")).
 			Disabled(font.loading || len(font.filtered) == 0).Clicked()
 	})
 	if canceled || dialog.Dismissed() {

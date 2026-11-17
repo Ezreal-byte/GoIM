@@ -150,18 +150,18 @@ func (u *UI) drawUpdateDialog(c *gfx.Canvas, viewport gfx.Rect) {
 			})
 		})
 		dialog.Footer(func() {
-			if view.phase != updateInstalling && namedButton(f, ids.cancel, i18n.T("关闭")).Small().Outline().Clicked() {
+			if view.phase != updateInstalling && dialogActionButton(f, ids.cancel, i18n.T("关闭")).Outline().Clicked() {
 				u.updateOpen = false
 			}
 			switch view.phase {
 			case updateChecking, updateInstalling:
 			case updateDisabled:
-				if namedButton(f, ids.action, i18n.T("打开发布页")).Small().Clicked() {
+				if dialogActionButton(f, ids.action, i18n.T("打开发布页")).Clicked() {
 					open(selfupdate.Releases + "/latest")
 				}
 			case updateOffered, updateDownloadFailed:
 				if !view.offer.Automatic {
-					if namedButton(f, ids.action, i18n.T("官方下载")).Small().Clicked() {
+					if dialogActionButton(f, ids.action, i18n.T("官方下载")).Clicked() {
 						open(view.offer.DownloadURL)
 					}
 				} else {
@@ -169,16 +169,16 @@ func (u *UI) drawUpdateDialog(c *gfx.Canvas, viewport gfx.Rect) {
 					if view.problem != "" {
 						label = i18n.T("继续下载")
 					}
-					if namedButton(f, ids.action, label).Small().Clicked() {
+					if dialogActionButton(f, ids.action, label).Clicked() {
 						u.updater.download()
 					}
 				}
 			case updateDownloading:
-				if namedButton(f, ids.action, i18n.T("暂停下载")).Small().Clicked() {
+				if dialogActionButton(f, ids.action, i18n.T("暂停下载")).Clicked() {
 					u.updater.pauseDownload()
 				}
 			case updateReady:
-				if namedButton(f, ids.action, i18n.T("安装并重启")).Small().Disabled(installBlocked).Clicked() {
+				if dialogActionButton(f, ids.action, i18n.T("安装并重启")).Disabled(installBlocked).Clicked() {
 					c.AfterPaint(func() {
 						// Consult the backend again after the paint pass.
 						// Incoming work can have started since the last wake.
@@ -190,7 +190,7 @@ func (u *UI) drawUpdateDialog(c *gfx.Canvas, viewport gfx.Rect) {
 					})
 				}
 			default:
-				if namedButton(f, ids.action, i18n.T("检查更新")).Small().Clicked() {
+				if dialogActionButton(f, ids.action, i18n.T("检查更新")).Clicked() {
 					u.updater.checkNow()
 				}
 			}

@@ -378,7 +378,7 @@ func (u *UI) drawOrganizeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 		Layer: 75, Scope: u.ids.organizeScope, DismissID: u.ids.organizeDismiss,
 		CloseID: u.ids.organizeClose, InitialFocusID: u.ids.organizeField,
 		ContentSize: ui.Size{Width: 460}, FitBody: true, BodyHeight: 92,
-		ButtonSize: components.ButtonSizeSmall,
+		ButtonSize: dialogActionButtonSize,
 	})
 	title := i18n.T("移动到分组")
 	if mode == domain.CreateContactGroup {
@@ -417,7 +417,7 @@ func (u *UI) drawOrganizeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			}
 		})
 	})
-	dialog.Actions(layout,
+	paintDialogActions(canvas, u.theme, layout.Footer,
 		components.ButtonAction{ID: u.ids.organizeCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},
 		components.ButtonAction{ID: u.ids.organizeSave, Label: i18n.T("保存")},
 	)

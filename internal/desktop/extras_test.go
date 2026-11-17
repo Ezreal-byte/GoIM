@@ -45,6 +45,37 @@ func writeExtraTestPNG(t *testing.T, name string) string {
 	return path
 }
 
+func TestDialogActionsUseComfortableTargets(t *testing.T) {
+	harness := newShellTestHarnessAtSize(t, shellTestState(t), 1000, 700)
+	harness.clickID(harness.ui.ids.profileAvatar)
+
+	for _, id := range []gfx.ID{harness.ui.ids.profileCancel, harness.ui.ids.profileSave} {
+		hit, ok := harness.findHit(id)
+		if !ok {
+			t.Fatalf("profile dialog action %v is not on screen", id)
+		}
+		if hit.Bounds.Height < 40 || hit.Bounds.Width < 72 {
+			t.Fatalf("profile dialog action %v is %.1fx%.1f, want at least 72x40",
+				id, hit.Bounds.Width, hit.Bounds.Height)
+		}
+	}
+
+	confirmationHarness := newShellTestHarnessAtSize(t, shellTestState(t), 1000, 700)
+	confirmationHarness.ui.confirm = confirmation{open: true, title: "退出 GoIM？", body: "确认退出。"}
+	confirmationHarness.ui.invalidator.Invalidate()
+	confirmationHarness.settle()
+	for _, id := range []gfx.ID{confirmationHarness.ui.ids.confirmCancel, confirmationHarness.ui.ids.confirmRun} {
+		hit, ok := confirmationHarness.findHit(id)
+		if !ok {
+			t.Fatalf("confirmation action %v is not on screen", id)
+		}
+		if hit.Bounds.Height < 40 || hit.Bounds.Width < 72 {
+			t.Fatalf("confirmation action %v is %.1fx%.1f, want at least 72x40",
+				id, hit.Bounds.Width, hit.Bounds.Height)
+		}
+	}
+}
+
 func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
 	harness := newShellTestHarnessAtSize(t, shellTestState(t), 1000, 700)
 	avatar := writeExtraTestPNG(t, "头像.png")

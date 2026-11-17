@@ -285,7 +285,7 @@ func (u *UI) drawMemberProfile(canvas *gfx.Canvas, viewport ui.Rect) {
 		Layer: 74, Scope: u.ids.memberProfileScope, DismissID: u.ids.memberProfileDismiss,
 		CloseID: u.ids.memberProfileClose, InitialFocusID: u.ids.memberProfileTalk,
 		ContentSize: ui.Size{Width: 460}, FitBody: true, BodyHeight: min(478, viewport.Height*0.66),
-		ButtonSize: components.ButtonSizeSmall,
+		ButtonSize: dialogActionButtonSize,
 	})
 	title := i18n.T("联系人资料")
 	if group.ID != "" && slices.Contains(group.Members, peer.ID) {
@@ -302,7 +302,8 @@ func (u *UI) drawMemberProfile(canvas *gfx.Canvas, viewport ui.Rect) {
 	if self {
 		action = i18n.T("编辑资料")
 	}
-	dialog.Actions(layout, components.ButtonAction{ID: u.ids.memberProfileTalk, Label: action})
+	paintDialogActions(canvas, u.theme, layout.Footer,
+		components.ButtonAction{ID: u.ids.memberProfileTalk, Label: action})
 	dialog.End()
 	switch {
 	case canvas.Clicked(u.ids.memberProfileDismiss), canvas.Clicked(u.ids.memberProfileClose):
@@ -1104,9 +1105,9 @@ func (u *UI) drawConnectDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			})
 		})
 		dialog.Footer(func() {
-			canceled = namedButton(f, u.ids.connectCancel, i18n.T("取消")).Small().Outline().Clicked()
+			canceled = dialogActionButton(f, u.ids.connectCancel, i18n.T("取消")).Outline().Clicked()
 			enabled := connectionAvailable(u.state, u.connectRoute) && strings.TrimSpace(u.connectField.Text()) != ""
-			submitted = namedButton(f, u.ids.connectSubmit, i18n.T("连接")).Small().Disabled(!enabled).Clicked() || submitted
+			submitted = dialogActionButton(f, u.ids.connectSubmit, i18n.T("连接")).Disabled(!enabled).Clicked() || submitted
 		})
 		if dialog.Dismissed() || canceled {
 			u.connectOpen = false
@@ -1140,7 +1141,7 @@ func (u *UI) drawComposeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 		Layer: 70, Scope: u.ids.composeScope, DismissID: u.ids.composeDismiss,
 		CloseID: u.ids.composeClose, InitialFocusID: initialFocus,
 		ContentSize: ui.Size{Width: 760}, FitBody: true, BodyHeight: bodyHeight,
-		ButtonSize: components.ButtonSizeSmall,
+		ButtonSize: dialogActionButtonSize,
 	})
 	layout := dialog.Begin(title, description)
 	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
@@ -1162,7 +1163,7 @@ func (u *UI) drawComposeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			label = i18n.T("正在邀请…")
 		}
 	}
-	dialog.Actions(layout,
+	paintDialogActions(canvas, u.theme, layout.Footer,
 		components.ButtonAction{
 			ID: u.ids.composeCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline,
 			Disabled: u.compose.pending,
@@ -1343,13 +1344,13 @@ func (u *UI) drawConfirmation(canvas *gfx.Canvas, viewport ui.Rect) {
 		Layer: 76, Scope: u.ids.confirmScope, DismissID: u.ids.confirmDismiss,
 		CloseID: u.ids.confirmClose, InitialFocusID: u.ids.confirmCancel,
 		ContentSize: ui.Size{Width: 440}, FitBody: true, BodyHeight: 8,
-		ButtonSize: components.ButtonSizeSmall,
+		ButtonSize: dialogActionButtonSize,
 	})
 	layout := dialog.Begin(u.confirm.title, u.confirm.body)
 	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
 		ui.Row(f).Fill()
 	})
-	dialog.Actions(layout,
+	paintDialogActions(canvas, u.theme, layout.Footer,
 		components.ButtonAction{ID: u.ids.confirmCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},
 		components.ButtonAction{ID: u.ids.confirmRun, Label: i18n.T("确认"), Variant: components.ButtonDestructive},
 	)

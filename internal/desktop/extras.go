@@ -125,7 +125,7 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 		Layer: 74, Scope: u.ids.profileScope, DismissID: u.ids.profileDismiss,
 		CloseID: u.ids.profileClose, InitialFocusID: u.ids.profileField,
 		ContentSize: ui.Size{Width: 584}, FitBody: true, BodyHeight: 484,
-		ButtonSize: components.ButtonSizeSmall,
+		ButtonSize: dialogActionButtonSize,
 	})
 	layout := dialog.Begin(i18n.T("个人资料"), i18n.T("已填写的资料对已连接的 GoIM 和内网通联系人可见。"))
 	var chooseClicked, submitted bool
@@ -209,7 +209,7 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			}
 		})
 	})
-	dialog.Actions(layout,
+	paintDialogActions(canvas, u.theme, layout.Footer,
 		components.ButtonAction{ID: u.ids.profileCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},
 		components.ButtonAction{ID: u.ids.profileSave, Label: i18n.T("保存")},
 	)
@@ -252,7 +252,7 @@ func (u *UI) drawProfileAvatarEditor(canvas *gfx.Canvas, viewport ui.Rect) {
 		ContentSize:    ui.Size{Width: 520},
 		FitBody:        true,
 		BodyHeight:     stageSize + controlHeight + 12,
-		ButtonSize:     components.ButtonSizeDefault,
+		ButtonSize:     dialogActionButtonSize,
 	})
 	dialogLayout := dialog.Begin(i18n.T("裁剪图片"), "")
 	options := components.AvatarEditorOptions{
@@ -279,7 +279,7 @@ func (u *UI) drawProfileAvatarEditor(canvas *gfx.Canvas, viewport ui.Rect) {
 	}
 	layout := components.BeginAvatarEditor(canvas, u.theme, dialogLayout.Body, options).Paint()
 	crop.state, crop.layout = layout.State, layout
-	dialog.Actions(dialogLayout,
+	paintDialogActions(canvas, u.theme, dialogLayout.Footer,
 		components.ButtonAction{ID: u.ids.profileCropConfirm, Label: i18n.T("保存"), Disabled: !layout.Ready},
 		components.ButtonAction{ID: u.ids.profileCropCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},
 	)

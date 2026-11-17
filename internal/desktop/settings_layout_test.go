@@ -308,3 +308,21 @@ func TestSettingsLayoutLocaleEntriesLoadAfterMainCatalog(t *testing.T) {
 		t.Fatalf("record shortcut = %q", got)
 	}
 }
+
+func TestDesktopFeatureEnglishCopy(t *testing.T) {
+	previous := i18n.Language()
+	t.Cleanup(func() { i18n.SetLanguage(previous) })
+	i18n.SetLanguage(i18n.English)
+	for source, want := range map[string]string{
+		"开机自启":       "Launch at login",
+		"诊断与反馈":      "Diagnostics and feedback",
+		"系统诊断报告":     "System diagnostic report",
+		"导出报告":       "Export report",
+		"会话已在独立窗口打开": "Chats are open in detached windows",
+		"关闭独立窗口后，会话会回到这里。": "Close a detached window to return its chat here.",
+	} {
+		if got := i18n.T(source); got != want {
+			t.Errorf("%q = %q, want %q", source, got, want)
+		}
+	}
+}

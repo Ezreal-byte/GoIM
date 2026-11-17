@@ -15,36 +15,45 @@ import (
 	"goim/internal/buildinfo"
 	"goim/internal/domain"
 	"goim/internal/i18n"
+	"goim/internal/selfupdate"
 )
 
 type desktopRuntime struct {
-	ui                 *UI
-	backend            domain.Backend
-	application        *app.Application
-	window             *app.Window
-	tray               *app.StatusItem
-	seen               map[string]bool
-	badge              int
-	trayLanguage       string
-	global             string
-	globalRejected     string
-	stopGlobal         func()
-	screenshotGlobal   string
-	screenshotRejected string
-	stopScreenshot     func()
-	notificationError  bool
-	trayNormal         app.StatusIcon
-	trayFlash          app.StatusIcon
-	flashTimer         *time.Timer
-	flashDue           time.Time
-	flashUntil         time.Time
-	flashOn            bool
-	screenshotRunning  atomic.Bool
-	viewerWindow       *app.Window
-	viewerWake         app.Invalidator
-	viewerPending      bool
-	viewerSavePath     string
-	viewerSaving       bool
+	ui                  *UI
+	backend             domain.Backend
+	application         *app.Application
+	window              *app.Window
+	conversationWindows map[string]*detachedConversationWindow
+	tray                *app.StatusItem
+	seen                map[string]bool
+	badge               int
+	trayLanguage        string
+	global              string
+	globalRejected      string
+	stopGlobal          func()
+	screenshotGlobal    string
+	screenshotRejected  string
+	stopScreenshot      func()
+	notificationError   bool
+	trayNormal          app.StatusIcon
+	trayFlash           app.StatusIcon
+	flashTimer          *time.Timer
+	flashDue            time.Time
+	flashUntil          time.Time
+	flashOn             bool
+	screenshotRunning   atomic.Bool
+	viewerWindow        *app.Window
+	viewerWake          app.Invalidator
+	viewerPending       bool
+	viewerSavePath      string
+	viewerSaving        bool
+	detachedRevision    uint64
+}
+
+type detachedConversationWindow struct {
+	id     string
+	ui     *UI
+	window *app.Window
 }
 
 // Run owns the native window and optional tray. The same lifecycle is exercised
@@ -53,7 +62,23 @@ func Run(backend domain.Backend, restartArguments []string) error {
 	shell := New(backend)
 	defer shell.Close()
 	icon, statusIcon := windowIcon(), trayIcon()
-	r := &desktopRuntime{ui: shell, backend: backend, seen: make(map[string]bool), badge: -1, trayNormal: statusIcon, trayFlash: attentionIcon(statusIcon)}
+	r := &desktopRuntime{
+		ui: shell, backend: backend, seen: make(map[string]bool), badge: -1,
+		trayNormal: statusIcon, trayFlash: attentionIcon(statusIcon),
+		conversationWindows: make(map[string]*detachedConversationWindow),
+	}
+	shell.panels.setAutostartProvider(
+		func() (bool, error) { return app.AutostartEnabled(selfupdate.AppID) },
+		func(enabled bool) error {
+			return app.SetAutostart(app.Autostart{
+				ID: selfupdate.AppID, Name: "GoIM",
+			}, enabled)
+		},
+	)
+	shell.panels.loadAutostart()
+	if dataDir, ok := backend.(interface{ DataDir() string }); ok {
+		shell.panels.diagnosticDataDir = dataDir.DataDir
+	}
 	shell.updater = newUpdateController(buildinfo.Current().Version, buildinfo.UpdatePublicKey, shell.invalidator.Invalidate)
 	shell.screenshotActive = r.screenshotRunning.Load
 	shell.restartArguments = restartArguments
@@ -85,6 +110,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 			r.viewerPending = true
 			shell.invalidator.Invalidate()
 		}
+		shell.presentDetached = r.openDetachedConversation
 		shell.dismissViewer = r.closeViewer
 		shell.pinViewer = r.pinViewer
 		shell.saveViewer = r.requestSaveViewer
@@ -96,6 +122,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		closed := config.OnClosed
 		config.OnClosed = func() {
 			r.closeViewer()
+			r.closeDetachedConversations()
 			if closed != nil {
 				closed()
 			}
@@ -166,6 +193,12 @@ func (r *desktopRuntime) observe() {
 		return
 	}
 	s := r.ui.state
+	if s.Revision != r.detachedRevision {
+		r.detachedRevision = s.Revision
+		for _, detached := range r.conversationWindows {
+			detached.ui.invalidator.Invalidate()
+		}
+	}
 	r.applyGlobal(s)
 	attention := false
 	unread := 0
@@ -199,6 +232,7 @@ func (r *desktopRuntime) observe() {
 	} else {
 		r.application.SetProgress(-1)
 	}
+	mainForeground := mainWindowForeground(r.window)
 	for _, m := range s.Messages {
 		if r.seen[m.ID] {
 			continue
@@ -211,7 +245,13 @@ func (r *desktopRuntime) observe() {
 		if conv.Muted {
 			continue
 		}
-		if !s.Locked && !r.window.Hidden() && !r.window.Minimized() && mainWindowForeground() && !r.ui.isPanelSection() && r.ui.selected == m.ConversationID {
+		if !s.Locked && !r.window.Hidden() && !r.window.Minimized() && mainForeground &&
+			!r.ui.isPanelSection() && r.ui.selected == m.ConversationID {
+			continue
+		}
+		if detached := r.conversationWindows[m.ConversationID]; detached != nil &&
+			windowForeground(detached.window) &&
+			!detached.window.Hidden() && !detached.window.Minimized() {
 			continue
 		}
 		attention = true

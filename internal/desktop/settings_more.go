@@ -1,9 +1,11 @@
 package desktop
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -25,8 +27,109 @@ type panelSettingsExtra struct {
 	passwordRequest                                                                                       uint64
 	passwordTrigger, passwordScope, passwordDismiss, passwordClose, passwordCancel                        gfx.ID
 	interfaceFont                                                                                         panelInterfaceFontPicker
+	autostart                                                                                             panelAutostartState
 	openProfile                                                                                           func()
 	chooseBackground                                                                                      func(*gfx.Canvas)
+}
+
+type panelAutostartState struct {
+	enabled func() (bool, error)
+	set     func(bool) error
+
+	known     bool
+	available bool
+	pending   bool
+	on        bool
+	err       string
+}
+
+func (p *Panels) setAutostartProvider(enabled func() (bool, error), set func(bool) error) {
+	p.settingsExtra.autostart.enabled = enabled
+	p.settingsExtra.autostart.set = set
+	p.settingsExtra.autostart.known = false
+	p.settingsExtra.autostart.available = enabled != nil && set != nil
+	p.settingsExtra.autostart.pending = false
+	p.settingsExtra.autostart.on = false
+	p.settingsExtra.autostart.err = ""
+}
+
+// loadAutostart performs the operating-system read outside Viva's paint path.
+func (p *Panels) loadAutostart() {
+	a := &p.settingsExtra.autostart
+	a.known, a.pending, a.on, a.err = false, false, false, ""
+	a.available = a.enabled != nil && a.set != nil
+	if !a.available {
+		return
+	}
+	on, err := a.enabled()
+	if err != nil {
+		if errors.Is(err, app.ErrAutostartUnsupported) {
+			a.available = false
+		}
+		a.err = i18n.T("无法读取开机自启状态：") + err.Error()
+		if p.invalidate != nil {
+			p.invalidate()
+		}
+		return
+	}
+	a.known, a.on = true, on
+	if p.invalidate != nil {
+		p.invalidate()
+	}
+}
+
+func (p *Panels) changeAutostart(canvas *gfx.Canvas, desired bool) {
+	a := &p.settingsExtra.autostart
+	if !a.known || !a.available || a.pending || a.set == nil {
+		return
+	}
+	previous := a.on
+	a.pending, a.on, a.err = true, desired, ""
+	canvas.AfterPaint(func() {
+		err := a.set(desired)
+		a.pending = false
+		if err != nil {
+			a.on = previous
+			a.err = i18n.T("无法修改开机自启设置：") + err.Error()
+		}
+		if p.invalidate != nil {
+			p.invalidate()
+		}
+	})
+}
+
+func (p *Panels) autostartDescription() string {
+	a := &p.settingsExtra.autostart
+	switch {
+	case a.err != "":
+		return a.err
+	case a.pending:
+		return i18n.T("正在更新系统登录项…")
+	case !a.available:
+		return i18n.T("当前系统或运行环境不支持开机自启")
+	case !a.known:
+		return i18n.T("正在读取系统登录项…")
+	default:
+		return i18n.T("登录系统后自动启动 GoIM")
+	}
+}
+
+func (p *Panels) autostartDiagnosticState() string {
+	a := &p.settingsExtra.autostart
+	switch {
+	case a.err != "":
+		return "error"
+	case a.pending:
+		return "updating"
+	case !a.available:
+		return "unsupported"
+	case !a.known:
+		return "unknown"
+	case a.on:
+		return "enabled"
+	default:
+		return "disabled"
+	}
 }
 
 var panelIconGeneral = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
@@ -125,7 +228,7 @@ func (p *Panels) drawSettingsProfile(f ui.C, theme ui.Theme, state domain.State,
 	s := &p.settingsExtra
 	panelSection(f, i18n.T("个人资料"), "", func() {
 		p.settingsRow(f, theme, state.Self.Name, i18n.T("本机昵称和头像"), func() {
-			if namedButton(f, s.profile, i18n.T("编辑资料…")).Small().Outline().Clicked() && s.openProfile != nil {
+			if namedButton(f, s.profile, i18n.T("编辑资料")).Small().Outline().Clicked() && s.openProfile != nil {
 				s.openProfile()
 			}
 		})
@@ -245,8 +348,8 @@ func (p *Panels) drawPasswordDialog(f ui.C, theme ui.Theme, state domain.State, 
 		})
 	})
 	dialog.Footer(func() {
-		cancel = namedButton(f, s.passwordCancel, i18n.T("取消")).Small().Outline().Disabled(s.passwordPending).Clicked()
-		save = namedButton(f, s.passwordSave, i18n.T("保存密码")).Small().Disabled(s.passwordPending).Clicked() || save
+		cancel = dialogActionButton(f, s.passwordCancel, i18n.T("取消")).Outline().Disabled(s.passwordPending).Clicked()
+		save = dialogActionButton(f, s.passwordSave, i18n.T("保存密码")).Disabled(s.passwordPending).Clicked() || save
 	})
 	if s.passwordPending {
 		return

@@ -1,14 +1,17 @@
 package desktop
 
 import (
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/buildinfo"
+	"goim/internal/diagnostics"
 	"goim/internal/domain"
 	"goim/internal/i18n"
 )
@@ -81,6 +84,16 @@ func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, s
 	panelSectionGap(f)
 	p.drawUpdateSettings(f, theme)
 	panelSectionGap(f)
+	panelSection(f, i18n.T("诊断与反馈"), i18n.T("遇到问题时导出报告，发送给开发者排查。"), func() {
+		p.settingsRow(f, theme, i18n.T("系统诊断报告"),
+			i18n.T("包含版本、协议状态、适配器和数据计数；不包含聊天内容、联系人、完整地址或文件路径。"),
+			func() {
+				if namedButton(f, p.ids.aboutDiagnostics, i18n.T("导出报告")).Small().Outline().Clicked() {
+					p.exportDiagnostics(f.Canvas(), state)
+				}
+			})
+	})
+	panelSectionGap(f)
 	panelSection(f, i18n.T("构建信息"), i18n.T("点击任一卡片可复制完整的构建信息。"), func() {
 		facts := []aboutFact{
 			{label: i18n.T("应用版本"), value: version},
@@ -119,6 +132,68 @@ func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, s
 
 	ui.Paragraph(f, i18n.T("复制的内容只包含版本与构建信息，不包含聊天内容、联系人、文件路径或本机地址。"), 3).
 		Muted().FontSize(theme.Metrics.FontSizeS)
+}
+
+func (p *Panels) exportDiagnostics(canvas *gfx.Canvas, state domain.State) {
+	canvas.AfterPaint(func() {
+		now := time.Now()
+		path, err := app.SaveFile(app.SaveFileOptions{
+			Title:            i18n.T("保存系统诊断报告"),
+			SuggestedName:    "goim-diagnostics-" + now.In(aboutTZ).Format("20060102-1504") + ".txt",
+			DefaultExtension: "txt",
+			Filters:          []app.FileFilter{{Name: i18n.T("文本文件"), Pattern: "*.txt"}},
+		})
+		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) {
+			return
+		}
+		if err != nil {
+			p.localError = i18n.T("无法创建诊断报告：") + err.Error()
+			p.invalidateDiagnostics()
+			return
+		}
+		dataDir := ""
+		if p.diagnosticDataDir != nil {
+			dataDir = p.diagnosticDataDir()
+		}
+		report := diagnostics.Build(diagnostics.Input{
+			Now:                    now,
+			Build:                  diagnosticsBuildInfo(p.build),
+			State:                  state,
+			Autostart:              p.autostartDiagnosticState(),
+			InterfaceFontSupported: p.settingsExtra.interfaceFont.supported,
+			DataDir:                dataDir,
+		})
+		if err := diagnostics.WritePrivateFile(path, report); err != nil {
+			p.localError = i18n.T("无法保存诊断报告：") + err.Error()
+			p.invalidateDiagnostics()
+			return
+		}
+		p.localError = ""
+		if p.toast != nil {
+			p.toast(i18n.T("诊断报告已保存"), i18n.T("可发送给开发者协助排查问题。"), components.ToastSuccess)
+		} else {
+			p.invalidateDiagnostics()
+		}
+	})
+}
+
+func (p *Panels) invalidateDiagnostics() {
+	if p.invalidate != nil {
+		p.invalidate()
+	}
+}
+
+func diagnosticsBuildInfo(build panelBuildInfo) buildinfo.Info {
+	return buildinfo.Info{
+		Version:     build.version,
+		Platform:    build.platform,
+		Source:      build.source,
+		Revision:    build.revision,
+		CommitTime:  build.revisionDay,
+		GoVersion:   build.goVersion,
+		VivaVersion: build.vivaVersion,
+		BuildTime:   build.buildTime,
+	}
 }
 
 func (p *Panels) aboutFactGrid(f ui.C, theme ui.Theme, facts []aboutFact, copyAll func()) {

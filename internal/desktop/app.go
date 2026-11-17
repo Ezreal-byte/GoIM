@@ -38,6 +38,11 @@ const (
 	railWidth         = float32(68)
 	sidebarWidth      = float32(300)
 	minimumWindowSize = float32(1000)
+
+	sidebarConversationHeight = float32(64)
+	sidebarContactHeight      = float32(54)
+	sidebarSelfHeight         = float32(52)
+	sidebarGroupHeight        = float32(52)
 )
 
 type palette struct {
@@ -89,6 +94,13 @@ type confirmation struct {
 	title  string
 	body   string
 	action func()
+}
+
+type conversationDragState struct {
+	id       string
+	startX   float32
+	startY   float32
+	dragging bool
 }
 
 type profileState struct {
@@ -370,6 +382,7 @@ type UI struct {
 	saveViewer        func(string)
 	fullscreenViewer  func(bool) bool
 	dismissViewer     func()
+	presentDetached   func(string) bool
 	chatInput         app.TextInput
 	chatLayout        components.TextareaLayout
 	drafts            map[string]string
@@ -425,6 +438,8 @@ type UI struct {
 	readMarkCount int
 
 	conversations    []domain.Conversation
+	detached         map[string]bool
+	conversationDrag conversationDragState
 	groupChats       []domain.Conversation
 	contacts         []contactGroupView
 	invitations      []domain.Invitation
@@ -478,6 +493,7 @@ type UI struct {
 	nextImageID uint64
 
 	avatarImagePaths map[string]bool
+	detachedWindow   bool
 
 	media               *mediaWorker
 	mediaImageGen       uint64
@@ -545,6 +561,10 @@ type UI struct {
 // New creates the shell from an already-running backend. It takes the first
 // snapshot before the first paint and then refreshes only on OnWake.
 func New(backend domain.Backend) *UI {
+	return newUIShell(backend, true)
+}
+
+func newUIShell(backend domain.Backend, watch bool) *UI {
 	u := &UI{
 		backend:             backend,
 		theme:               ui.LightTheme(),
@@ -561,6 +581,7 @@ func New(backend domain.Backend) *UI {
 		fileLocalPath:       make(map[string]string),
 		fileAvailable:       make(map[string]bool),
 		mediaFiles:          make(map[string]mediaFileRequest),
+		detached:            make(map[string]bool),
 		peerRowIDs:          make(map[string]gfx.ID),
 		convRowIDs:          make(map[string]gfx.ID),
 		groupHeadIDs:        make(map[string]gfx.ID),
@@ -676,13 +697,16 @@ func New(backend domain.Backend) *UI {
 	u.panels.openUpdates = u.showUpdates
 	u.panels.setMediaSubmit(u.media.submitOne)
 	u.panels.setToast(u.showToast)
+	u.panels.setInvalidator(func() { u.invalidator.Invalidate() })
 	u.panels.settingsExtra.chooseBackground = u.requestBackgroundPicker
 	u.panels.shareQRWorker.setNotify(u.invalidator.Invalidate)
 	if backend != nil {
 		u.refresh()
 		u.recentEmoji = append([]string(nil), u.state.Settings.RecentEmoji...)
 		u.queueMediaJobs()
-		go u.watchUpdates()
+		if watch {
+			go u.watchUpdates()
+		}
 	}
 	u.panels.updateLists(u.state)
 	return u
@@ -956,7 +980,7 @@ func (u *UI) markSelectedConversationRead() {
 	if u.readMarkID == conversation.ID && u.readMarkCount == conversation.Unread {
 		return
 	}
-	if u.nativeWindow != nil && !mainWindowForeground() {
+	if u.nativeWindow != nil && !mainWindowForeground(u.nativeWindow) {
 		return
 	}
 	u.readMarkID = conversation.ID
@@ -1522,13 +1546,13 @@ func (u *UI) selfContactRow(f ui.C) {
 		!containsFold(i18n.T("个人资料"), query) {
 		return
 	}
-	row := ui.Row(f).FillWidth().Height(58).PadSides(8, 9, 8, 9).Radius(9).Gap(10).
+	row := ui.Row(f).FillWidth().Height(sidebarSelfHeight).PadSides(8, 7, 8, 7).Radius(9).Gap(9).
 		Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(u.ids.selfRow, name+i18n.T("，个人资料"),
 			gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("编辑个人资料")}).
 		Children(func() {
-			u.avatarStatus(f, name, u.selfAvatarPath(), 38, true)
-			ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
+			u.avatarStatus(f, name, u.selfAvatarPath(), 34, true)
+			ui.Column(f).Grow(1).Gap(2).Justify(ui.Center).Children(func() {
 				ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
 					ui.Text(f, name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
 					ui.Stack(f).Size(6, 6).Radius(3).Background(u.palette.success)
@@ -1702,12 +1726,12 @@ func (u *UI) contactRow(f ui.C, peer domain.Peer) {
 	if selected {
 		background = u.palette.selected
 	}
-	row := ui.Row(f).FillWidth().Height(62).PadSides(8, 9, 8, 9).Radius(9).Gap(10).
+	row := ui.Row(f).FillWidth().Height(sidebarContactHeight).PadSides(8, 7, 8, 7).Radius(9).Gap(9).
 		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(id, peer.Name, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
-			u.avatarStatus(f, peer.Name, peer.Avatar, 38, peer.VisibleOnline())
-			ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
+			u.avatarStatus(f, peer.Name, peer.Avatar, 34, peer.VisibleOnline())
+			ui.Column(f).Grow(1).Gap(2).Justify(ui.Center).Children(func() {
 				ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
 					ui.Text(f, peer.Name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
 				})
@@ -1756,13 +1780,22 @@ func (u *UI) drawConversationList(f ui.C) {
 	u.drawInvitations(f)
 	query := strings.TrimSpace(u.sidebarSearch.Text())
 	shown := 0
+	available := 0
 	for _, conversation := range u.conversations {
+		if u.detached[conversation.ID] {
+			continue
+		}
+		available++
 		title := u.conversationTitle(conversation)
 		if query != "" && !containsFold(title, query) && !containsFold(conversation.Preview, query) {
 			continue
 		}
 		shown++
-		u.conversationRow(f, conversation, 74)
+		u.conversationRow(f, conversation)
+	}
+	if available == 0 && len(u.conversations) > 0 {
+		u.emptyListMessage(f, i18n.T("会话已在独立窗口打开"), i18n.T("关闭独立窗口后，会话会回到这里。"))
+		return
 	}
 	if len(u.conversations) == 0 {
 		u.emptySidebar(f, i18n.T("还没有会话"), i18n.T("发现联系人后开始聊天，或手动连接一个已知地址。"), true)
@@ -1773,7 +1806,7 @@ func (u *UI) drawConversationList(f ui.C) {
 	}
 }
 
-func (u *UI) conversationRow(f ui.C, conversation domain.Conversation, height float32) {
+func (u *UI) conversationRow(f ui.C, conversation domain.Conversation) {
 	id := u.convRowIDs[conversation.ID]
 	selected := conversation.ID == u.selected
 	background := ui.Color{}
@@ -1781,7 +1814,7 @@ func (u *UI) conversationRow(f ui.C, conversation domain.Conversation, height fl
 		background = u.palette.selected
 	}
 	title := u.conversationTitle(conversation)
-	row := ui.Row(f).FillWidth().Height(height).PadSides(9, 9, 9, 9).Radius(9).Gap(10).
+	row := ui.Row(f).FillWidth().Height(sidebarConversationHeight).PadSides(8, 7, 8, 7).Radius(9).Gap(9).
 		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(id, title, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
@@ -1799,8 +1832,8 @@ func (u *UI) conversationRow(f ui.C, conversation domain.Conversation, height fl
 					avatarName = peer.Name
 				}
 			}
-			u.avatarStatus(f, avatarName, avatar, 42, online)
-			ui.Column(f).Grow(1).Gap(4).Justify(ui.Center).Children(func() {
+			u.avatarStatus(f, avatarName, avatar, 38, online)
+			ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
 				ui.Row(f).Items(ui.Center).Gap(5).Children(func() {
 					ui.Text(f, title).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
 					if conversation.Pinned {
@@ -2572,6 +2605,9 @@ func (u *UI) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 }
 
 func (u *UI) onPointer(event gfx.PointerEvent) gfx.EventResult {
+	if result, handled := u.dragConversationPointer(event); handled {
+		return result
+	}
 	if u.profile.crop.open {
 		state, result := u.profile.crop.layout.Pointer(event, u.profile.crop.state)
 		u.profile.crop.state = state

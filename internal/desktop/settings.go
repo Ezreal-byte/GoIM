@@ -290,6 +290,17 @@ func (p *Panels) drawSettingsGeneral(f ui.C, theme ui.Theme, state domain.State,
 	})
 	panelSectionGap(f)
 	panelSection(f, i18n.T("启动与关闭"), "", func() {
+		p.settingsRow(f, theme, i18n.T("开机自启"), p.autostartDescription(), func() {
+			p.settingsControl(f, 80, func() {
+				a := &p.settingsExtra.autostart
+				enabled := ui.State[bool](f, "launch-at-login")
+				*enabled = a.on
+				if ui.Switch(f, enabled, "").Hit(p.ids.settingsLaunchAtLogin, i18n.T("开机自启")).
+					Disabled(!a.known || !a.available || a.pending).Changed() {
+					p.changeAutostart(f.Canvas(), *enabled)
+				}
+			})
+		})
 		description := i18n.T("关闭主窗口时退出应用")
 		if settings.CloseToTray {
 			description = i18n.T("关闭主窗口后继续在托盘接收消息")
@@ -580,19 +591,19 @@ func (p *Panels) drawShortcutDialog(f ui.C, theme ui.Theme, state domain.State, 
 		})
 	})
 	dialog.Footer(func() {
-		if namedButton(f, p.ids.shortcutDialogReset.At(index), i18n.T("使用默认")).Small().Outline().Clicked() {
+		if dialogActionButton(f, p.ids.shortcutDialogReset.At(index), i18n.T("使用默认")).Outline().Clicked() {
 			p.shortcutKeys = panelShortcutDefaultKeys(state.Settings, shortcut.Action)
 			p.shortcutError = ""
 		}
-		if namedButton(f, p.ids.shortcutDialogClear.At(index), i18n.T("清除")).Small().Ghost().Clicked() {
+		if dialogActionButton(f, p.ids.shortcutDialogClear.At(index), i18n.T("清除")).Ghost().Clicked() {
 			p.shortcutKeys = ""
 			p.shortcutError = ""
 		}
-		if namedButton(f, p.ids.shortcutDialogCancel.At(index), i18n.T("取消")).Small().Ghost().Clicked() {
+		if dialogActionButton(f, p.ids.shortcutDialogCancel.At(index), i18n.T("取消")).Ghost().Clicked() {
 			p.cancelShortcutEdit()
 			return
 		}
-		save := namedButton(f, p.ids.shortcutDialogSave.At(index), i18n.T("保存")).Small()
+		save := dialogActionButton(f, p.ids.shortcutDialogSave.At(index), i18n.T("保存"))
 		if problem != "" {
 			save = save.Disabled(true)
 		}

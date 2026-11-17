@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"math"
+	"os"
 	"strings"
 	"testing"
 
@@ -219,6 +220,48 @@ func TestAboutCardsAdaptAndKeepLightDarkLanguages(t *testing.T) {
 			}
 			h.requireLayout()
 		})
+	}
+}
+
+func TestAboutExportsPrivacySafeDiagnostics(t *testing.T) {
+	state := panelTestDefaultState(t)
+	state.Peers = []domain.Peer{{
+		ID: "peer-private", Name: "Private Contact", Address: "192.168.50.20:47842",
+	}}
+	state.Messages = []domain.Message{{ID: "message-private", Kind: "text", Text: "private chat body"}}
+	state.Error = "connection to 192.168.50.20 failed for Private Contact"
+	state.Settings.DownloadDir = t.TempDir()
+	h := aboutTestOpen(t, state, ui.LightTheme(), i18n.Chinese, ui.Rect{
+		X: 68, Y: 0, Width: 1372, Height: 1800,
+	})
+	h.panels.diagnosticDataDir = func() string { return t.TempDir() }
+	destination := t.TempDir() + string(os.PathSeparator) + "goim-diagnostics.txt"
+	if err := h.driver.QueueSaveFile(destination, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	h.click(h.panels.ids.aboutDiagnostics)
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	request, ok := h.driver.LastSaveFileRequest()
+	if !ok || request.DefaultExtension != "txt" || !strings.HasPrefix(request.SuggestedName, "goim-diagnostics-") {
+		t.Fatalf("save request = %+v, observed=%v", request, ok)
+	}
+	data, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := string(data)
+	for _, private := range []string{"Private Contact", "private chat body", "192.168.50.20", state.Settings.DownloadDir} {
+		if strings.Contains(report, private) {
+			t.Errorf("diagnostic report leaked %q:\n%s", private, report)
+		}
+	}
+	for _, want := range []string{"== GoIM diagnostics ==", "kind: network", "peers: total=1", "Excluded: message text"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("diagnostic report lacks %q:\n%s", want, report)
+		}
 	}
 }
 
