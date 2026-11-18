@@ -189,6 +189,22 @@ func TestAppLockSurvivesRestartAndRequiresCurrentPassword(t *testing.T) {
 	}
 }
 
+func TestThemeSettingDoesNotPublishSavedNotice(t *testing.T) {
+	n := testOptimizationNode(t, t.TempDir())
+	defer n.Close()
+
+	if err := n.execute(domain.Command{Kind: domain.SetSetting, Setting: "theme", Value: "dark"}); err != nil {
+		t.Fatal(err)
+	}
+	state := n.Snapshot()
+	if state.Settings.Theme != "dark" {
+		t.Fatalf("theme = %q, want dark", state.Settings.Theme)
+	}
+	if state.Notice != "" {
+		t.Fatalf("theme change published notice %q", state.Notice)
+	}
+}
+
 func TestSystemUnlockRequiresCurrentPasswordAndPersists(t *testing.T) {
 	dir := t.TempDir()
 	n := testOptimizationNode(t, dir)

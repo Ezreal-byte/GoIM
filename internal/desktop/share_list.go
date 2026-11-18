@@ -70,7 +70,8 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 		p.drawShareToolbar(f, theme, state.DeviceShare, bounds.Width)
 		ui.Row(f).FillWidth().PadSides(18, 0, 0, 0).Items(ui.Center).Children(func() {
 			if ui.Tabs(f.Part("share-filter"), &p.shareFilter, shareFilters[:],
-				func(filter shareFilter) string { return p.shareLabels[filter] }).Line().Changed() {
+				func(filter shareFilter) string { return p.shareLabels[filter] }).Line().
+				FontSize(panelTabFontSize).Changed() {
 				p.shareSelected = ""
 				p.shareMenu = shareMenuState{}
 				if p.shareFilter == panelSharesRemote {

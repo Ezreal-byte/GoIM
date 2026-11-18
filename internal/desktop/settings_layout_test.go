@@ -334,4 +334,7 @@ func TestSettingsHeaderDoesNotShowTransientSavingStatus(t *testing.T) {
 	if !h.hasText("修改后自动保存") {
 		t.Fatal("automatic-save explanation is missing")
 	}
+	if h.hasText("设置自动保存在本机") {
+		t.Fatal("sidebar duplicates the automatic-save explanation")
+	}
 }

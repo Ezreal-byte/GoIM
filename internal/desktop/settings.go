@@ -196,13 +196,7 @@ func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme) {
 			}
 		}
 		ui.Spacer(f)
-		p.drawSettingsSidebarFooter(f, theme)
 	})
-}
-
-func (p *Panels) drawSettingsSidebarFooter(f ui.C, theme ui.Theme) {
-	ui.Divider(f).FillWidth()
-	ui.Text(f, i18n.T("设置自动保存在本机")).Muted().FontSize(theme.Metrics.FontSizeS)
 }
 
 func (p *Panels) drawSettingsHeader(f ui.C, theme ui.Theme) {

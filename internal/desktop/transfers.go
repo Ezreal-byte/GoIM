@@ -13,7 +13,10 @@ import (
 	"goim/internal/i18n"
 )
 
-const panelPageTop = 32
+const (
+	panelPageTop     = 32
+	panelTabFontSize = float32(16)
+)
 
 func panelPageInset(width float32) float32 {
 	if width < 760 {
@@ -101,15 +104,14 @@ func (p *Panels) drawTransferTabs(f ui.C, compact bool) {
 	if compact || len(p.transferIncoming) == 0 {
 		top = 21
 	}
-	const size = 16
 	var widest float32
 	for _, label := range p.transferLabels {
-		widest = max(widest, f.Canvas().TextWidthWeight(label, size, gfx.WeightMedium))
+		widest = max(widest, f.Canvas().TextWidthWeight(label, panelTabFontSize, gfx.WeightMedium))
 	}
 	ui.Row(f).FillWidth().PadSides(top, 0, 0, 0).Children(func() {
 		tabs := ui.Tabs(f.Part("transfer-filter"), &p.transferFilter, transferFilters[:],
 			func(filter transferFilter) string { return p.transferLabels[filter] }).
-			Line().FontSize(size).Width(2*max(104, widest+24) + 4)
+			Line().FontSize(panelTabFontSize).Width(2*max(104, widest+24) + 4)
 		if tabs.Changed() {
 			p.transferMenu = ""
 		}

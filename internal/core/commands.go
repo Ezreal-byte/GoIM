@@ -531,7 +531,12 @@ func (n *Node) setting(c domain.Command) error {
 		settings.CompatibilityConfigured = s.Settings.CompatibilityConfigured
 		settings.CompatibilityDefaultsVersion = s.Settings.CompatibilityDefaultsVersion
 		s.Settings = settings
-		s.Notice, s.Error = "已保存", ""
+		if c.Setting == "theme" {
+			s.Notice = ""
+		} else {
+			s.Notice = "已保存"
+		}
+		s.Error = ""
 	}); err != nil {
 		return err
 	}

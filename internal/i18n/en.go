@@ -303,7 +303,6 @@ var en = map[string]string{
 	"关闭主窗口时退出应用":                "Quit the app when the main window closes",
 	"关闭主窗口后继续在托盘接收消息":           "Keep receiving messages in the system tray",
 	"关闭主窗口时最小化到托盘":              "Minimize to tray on close",
-	"设置自动保存在本机":                 "Settings are saved on this device",
 	"管理外观、消息发送与窗口行为":            "Manage appearance, sending, and window behavior",
 	"设置接收方式和文件保存位置":             "Set how and where incoming files are saved",
 	"已保存":                       "Saved",

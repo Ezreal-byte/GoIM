@@ -234,6 +234,34 @@ func (h *panelTestHarness) hasText(value string) bool {
 	return false
 }
 
+func (h *panelTestHarness) findText(value string) (gfx.Text, bool) {
+	h.t.Helper()
+	for _, text := range h.driver.Snapshot().Texts {
+		if text.Value == value {
+			return text, true
+		}
+	}
+	return gfx.Text{}, false
+}
+
+func TestTransferAndShareTabsUseTheSameFontSize(t *testing.T) {
+	state := transferDesignState(t.TempDir())
+	h := panelTestNewHarness(t, panelModuleTransfers, state)
+	transfer, ok := h.findText(h.panels.transferLabels[panelTransferPending])
+	if !ok {
+		t.Fatal("transfer tab is not visible")
+	}
+
+	h.showModule(panelModuleShares)
+	share, ok := h.findText(h.panels.shareLabels[panelSharesMine])
+	if !ok {
+		t.Fatal("share tab is not visible")
+	}
+	if share.Style.Size != transfer.Style.Size {
+		t.Fatalf("share tab font size = %.1f, transfer tab = %.1f", share.Style.Size, transfer.Style.Size)
+	}
+}
+
 func (h *panelTestHarness) requireLastCommand() domain.Command {
 	h.t.Helper()
 	if len(h.commands) == 0 {
