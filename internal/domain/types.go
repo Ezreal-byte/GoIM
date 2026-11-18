@@ -191,29 +191,30 @@ type File struct {
 }
 
 type Transfer struct {
-	Revoked         bool
-	FromShare       bool
-	ID              string
-	FileID          string
-	ConversationID  string
-	PeerID          string
-	Direction       string // send or receive
-	Status          string // offered, transferring, verifying, completed, rejected, waiting, cancelled, failed
-	Name            string
-	Size            int64
-	Done            int64
-	Speed           float64
-	Path            string
-	Error           string
-	UpdatedAt       time.Time
-	LegacyTransport string `json:",omitempty"`
-	RemotePacket    string `json:",omitempty"`
-	RemoteFile      string `json:",omitempty"`
-	RemoteImageMD5  string `json:",omitempty"` // legacy inline image asset digest
-	RemoteShareID   string `json:",omitempty"` // Neiwangtong group attachment
-	FolderMaxPath   int    `json:",omitempty"`
-	FolderMaxItem   int64  `json:",omitempty"`
-	RemotePeerID    string `json:",omitempty"` // wire identity of an existing compatibility transfer
+	Revoked           bool
+	FromShare         bool
+	ID                string
+	FileID            string
+	ConversationID    string
+	PeerID            string
+	Direction         string // send or receive
+	Status            string // offered, transferring, verifying, completed, rejected, waiting, cancelled, failed
+	Name              string
+	Size              int64
+	Done              int64
+	Speed             float64
+	Path              string
+	Error             string
+	UpdatedAt         time.Time
+	LegacyTransport   string `json:",omitempty"`
+	RemotePacket      string `json:",omitempty"`
+	RemoteFile        string `json:",omitempty"`
+	RemoteImageMD5    string `json:",omitempty"` // legacy inline image asset digest
+	RemoteShareID     string `json:",omitempty"` // Neiwangtong group attachment
+	RemoteFileModTime int64  `json:",omitempty"` // sender revision for a partially downloaded group file
+	FolderMaxPath     int    `json:",omitempty"`
+	FolderMaxItem     int64  `json:",omitempty"`
+	RemotePeerID      string `json:",omitempty"` // wire identity of an existing compatibility transfer
 }
 
 type Shortcut struct {

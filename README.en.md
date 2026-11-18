@@ -101,7 +101,7 @@ The adapter state below is scoped to the original Neiwangtong 3.4.3055 client. �
 
 Group folders also passed both directions against the original, preserving nested Chinese paths, empty subdirectories and zero-byte files. Group file invitations remain downloadable after GoIM restarts.
 
-Known gaps include GoIM → original transfers of 4 GiB or more, resuming directories, fully empty root directories, group file and folder resume, group ownership transfer, custom expression packs, native shared-directory browsing and remote assistance.
+GoIM can resume an interrupted group file download from the original. Known gaps include GoIM → original transfers of 4 GiB or more, resuming group files on the original, resuming directories, fully empty root directories, group ownership transfer, custom expression packs, native shared-directory browsing and remote assistance.
 
 FeiQ/IP Messenger uses standard IPMSG. Original IP Messenger `5.9.1` passed automatic discovery, Chinese messages in both directions, and real file downloads. Development after `0.1.7` adds matched delivery receipts and stable packet numbers across restarts. Specific FeiQ versions still need validation; see the [compatibility progress](docs/ipmsg-compatibility-progress.md). These later changes are not included in the `0.1.7` packages.
 

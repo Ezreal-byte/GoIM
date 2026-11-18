@@ -45,11 +45,15 @@ func TestRestoredGroupFileKeepsTheRecipientAndMembershipScope(t *testing.T) {
 		t.Fatal("a restored invitation was not retained")
 	}
 	unknown := "00000000000000000000000000000001"
-	if err := receiver.DownloadGroupFile(ctx, sender.selfID, unknown, ref.Size, filepath.Join(dir, "unknown.bin"), nil); err == nil {
+	if _, err := receiver.RequestGroupFile(ctx, sender.selfID, unknown, ref.Size); err == nil {
 		t.Fatal("an unoffered file identifier was accepted")
 	}
 	dest := filepath.Join(dir, "received.bin")
-	if err := receiver.DownloadGroupFile(ctx, sender.selfID, ref.ID, ref.Size, dest, nil); err != nil {
+	download, err := receiver.RequestGroupFile(ctx, sender.selfID, ref.ID, ref.Size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := download.Resume(ctx, dest, nil); err != nil {
 		t.Fatal(err)
 	}
 	if actual, err := os.ReadFile(dest); err != nil || !bytes.Equal(actual, data) {
@@ -59,7 +63,7 @@ func TestRestoredGroupFileKeepsTheRecipientAndMembershipScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	permitted.Store(false)
-	if err := receiver.DownloadGroupFile(ctx, sender.selfID, ref.ID, ref.Size, filepath.Join(dir, "removed.bin"), nil); err == nil {
+	if _, err := receiver.RequestGroupFile(ctx, sender.selfID, ref.ID, ref.Size); err == nil {
 		t.Fatal("a removed group member could download a restored invitation")
 	}
 

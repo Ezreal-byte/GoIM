@@ -219,13 +219,30 @@ func (s *Service) onGroupFileResponse(peer string, data []byte) {
 	}
 }
 
-func (s *Service) DownloadGroupFile(ctx context.Context, peer, id string, size int64, destination string, progress func(int64, int64)) error {
+// GroupFileDownload is the data endpoint authorized by a reply for an exact
+// group invitation. The selector may change when the invitation is requested again.
+type GroupFileDownload struct {
+	ModTime  int64
+	bind     netip.Addr
+	endpoint netip.AddrPort
+	fileID   uint64
+	size     int64
+}
+
+func (d GroupFileDownload) Resume(ctx context.Context, partial string, progress func(int64, int64)) error {
+	return downloadFileTo(ctx, d.bind, d.endpoint, d.fileID, d.size, partial, true, true, progress)
+}
+
+func (s *Service) RequestGroupFile(ctx context.Context, peer, id string, size int64) (GroupFileDownload, error) {
 	if !validNativeID(id) || size < 0 {
-		return errors.New("内网通群文件引用无效")
+		return GroupFileDownload{}, errors.New("内网通群文件引用无效")
+	}
+	if err := ctx.Err(); err != nil {
+		return GroupFileDownload{}, err
 	}
 	control, endpoint, err := s.control(peer)
 	if err != nil {
-		return err
+		return GroupFileDownload{}, err
 	}
 	requestID := uint64(s.messageSeq.Add(1))
 	if requestID == 0 {
@@ -243,24 +260,24 @@ func (s *Service) DownloadGroupFile(ctx context.Context, peer, id string, size i
 	}()
 	req, _ := xml.Marshal(groupFileRequest{DocVer: "1", ID: requestID, ShareID: strings.ToLower(id)})
 	if err := s.enet.SendAppCommand(control, cmdGroupFileRequest, req); err != nil && !errors.Is(err, ErrDeliveryUncertain) {
-		return err
+		return GroupFileDownload{}, err
 	}
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
 	select {
 	case rsp := <-reply:
 		if rsp.Error != 0 {
-			return errors.New("对方的内网通群文件已不可用")
+			return GroupFileDownload{}, errors.New("对方的内网通群文件已不可用")
 		}
 		if rsp.Size != size || rsp.FileID == 0 || rsp.FileID > maxFileSelector || rsp.FileID == avatarSelector {
-			return errors.New("内网通群文件下载响应与邀请不匹配")
+			return GroupFileDownload{}, errors.New("内网通群文件下载响应与邀请不匹配")
 		}
-		return downloadFile(ctx, s.cfg.BindIP, endpoint, rsp.FileID, size, destination, true, progress)
+		return GroupFileDownload{ModTime: rsp.ModTime, bind: s.cfg.BindIP, endpoint: endpoint, fileID: rsp.FileID, size: size}, nil
 	case <-timeout.C:
-		return errors.New("等待内网通群文件响应超时")
+		return GroupFileDownload{}, errors.New("等待内网通群文件响应超时")
 	case <-s.ctx.Done():
-		return s.ctx.Err()
+		return GroupFileDownload{}, s.ctx.Err()
 	case <-ctx.Done():
-		return ctx.Err()
+		return GroupFileDownload{}, ctx.Err()
 	}
 }

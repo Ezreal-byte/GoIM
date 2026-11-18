@@ -20,6 +20,7 @@ param(
     [switch]$MultiGroup,
     [switch]$GroupManagement,
     [switch]$GroupFile,
+    [switch]$GroupFileResume,
     [switch]$GroupFolder,
     [switch]$Emoticons,
     [switch]$AvatarUpdate,
@@ -30,7 +31,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
-$special = @($LargeFile, $StockLargeFile, $OfflineReplay, $OfflineSend, $MultiGroup, $GroupManagement, $GroupFile, $GroupFolder, $Emoticons, $AvatarUpdate, $TextRecall,
+$special = @($LargeFile, $StockLargeFile, $OfflineReplay, $OfflineSend, $MultiGroup, $GroupManagement, $GroupFile, $GroupFileResume, $GroupFolder, $Emoticons, $AvatarUpdate, $TextRecall,
     $ResumeReceive, $DirectoryRetry, $DirectoryResend | Where-Object { $_ })
 if ($special.Count -gt 1 -or ($special.Count -gt 0 -and $Mode -ne 'Sandbox')) {
     throw 'Each special check requires a separate Sandbox run.'
@@ -108,6 +109,7 @@ function Invoke-ReferenceSandbox {
                 @{ Name = 'original-group-dismiss'; Option = '--group-dismiss' },
                 @{ Name = 'original-group-kick'; Option = '--group-kick' },
                 @{ Name = 'group-file'; Option = '--group-file' },
+                @{ Name = 'group-file-resume'; Option = '--group-file-resume' },
                 @{ Name = 'group-folder'; Option = '--group-folder' },
                 @{ Name = 'emoticons'; Option = '--emoticons' },
                 @{ Name = 'folder-resend-from-original'; Option = '--directory-resend-from-reference' },
@@ -146,6 +148,7 @@ function Invoke-ReferenceSandbox {
                       elseif ($OfflineSend) { '--offline-send' }
                       elseif ($MultiGroup) { '--multi-group' }
                       elseif ($GroupFile) { '--group-file' }
+                      elseif ($GroupFileResume) { '--group-file-resume' }
                       elseif ($GroupFolder) { '--group-folder' }
                       elseif ($Emoticons) { '--emoticons' }
                       elseif ($AvatarUpdate) { '--avatar-update' }

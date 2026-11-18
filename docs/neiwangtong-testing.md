@@ -14,6 +14,7 @@
 | 单聊和群聊文字撤回 | 让原版和 GoIM 分别发送并撤回一条文字。检查被撤回的正文消失，且相邻的对照消息仍在。 | 单聊和群聊分别有一份 `sandbox.json`。 |
 | 解散与移出群成员 | 让 GoIM 操作，原版检查对应群窗口关闭；另用全新的原版群验证原版发出的群主操作与群 ID。Go 侧回归检查成员权限和历史记录。 | 三方群、群撤回和两个原版群主操作的报告分别保存。 |
 | 群内普通文件 | GoIM 与原版各从群内发送文件，由对方从同一会话接受。核验原版保存目录和 GoIM 下载文件的长度与 SHA-256。 | `group-file/sandbox.json`，也可单独运行 `-GroupFile`。 |
+| 群文件断点续传 | 从原版接收 512 KiB 群文件，实际写入首块后关闭数据连接。重新请求同一邀请，由 GoIM 校验文件版本、偏移和全文件 SHA-256。 | `group-file-resume/sandbox.json`，也可单独运行 `-GroupFileResume`。 |
 | 群内文件夹 | 双向发送含多层中文路径、空子目录和零字节文件的目录，核对结构、长度和 SHA-256。 | `group-folder/sandbox.json`，也可单独运行 `-GroupFolder`。 |
 | 内置表情 | 原版选择并发送“微笑”，GoIM 核对含义；GoIM 发送正文夹带微笑，原版回执并核对其记录中保留前后正文和内联对象。 | `emoticons/sandbox.json`，也可单独运行 `-Emoticons`。 |
 | 原版接收端续传专项 | 让原版真实落盘第一块，再断开并重启 GoIM 服务。复发同一任务，验证原版请求的非零偏移及最终 SHA-256。 | 独立的 `sandbox.json`。 |
@@ -68,6 +69,7 @@ pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -GroupManagement
 
 ```powershell
 pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -GroupFile
+pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -GroupFileResume
 ```
 
 验收群内文件夹，包括多层中文路径、空子目录、零字节文件和内容 SHA-256：

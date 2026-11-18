@@ -275,6 +275,11 @@ func (l *labChecks) run(ctx context.Context, r *report, service *neiwangtong.Ser
 		})
 		return text && out && in
 	}
+	if l.opt.labGroupFileResume {
+		return text && r.run("group_file_resume_from_original", func() (string, error) {
+			return l.checkGroupFileResume(ctx, service, reference.ID)
+		})
+	}
 	if l.opt.labOffline || l.opt.labResume || l.opt.labDirectory || l.opt.labFolderResend {
 		return text
 	}

@@ -27,30 +27,31 @@ import (
 )
 
 type options struct {
-	bind            netip.Addr
-	target          netip.AddrPort
-	expectedVersion string
-	expectedName    string
-	labDriver       string
-	labDir          string
-	text, avatar    bool
-	labLargeFile    bool
-	labOffline      bool
-	labOfflineSend  bool
-	labMultiGroup   bool
-	labAvatarUpdate bool
-	labTextRecall   bool
-	labGroupRecall  bool
-	labGroupDismiss bool
-	labGroupKick    bool
-	labGroupFile    bool
-	labGroupFolder  bool
-	labEmoticons    bool
-	labResume       bool
-	labDirectory    bool
-	labFolderResend bool
-	labDirection    string
-	timeout         time.Duration
+	bind               netip.Addr
+	target             netip.AddrPort
+	expectedVersion    string
+	expectedName       string
+	labDriver          string
+	labDir             string
+	text, avatar       bool
+	labLargeFile       bool
+	labOffline         bool
+	labOfflineSend     bool
+	labMultiGroup      bool
+	labAvatarUpdate    bool
+	labTextRecall      bool
+	labGroupRecall     bool
+	labGroupDismiss    bool
+	labGroupKick       bool
+	labGroupFile       bool
+	labGroupFileResume bool
+	labGroupFolder     bool
+	labEmoticons       bool
+	labResume          bool
+	labDirectory       bool
+	labFolderResend    bool
+	labDirection       string
+	timeout            time.Duration
 }
 
 type check struct {
@@ -105,6 +106,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opt.labGroupDismiss, "lab-group-dismiss", false, "Verify that GoIM accepts dismissal from the original group owner")
 	flags.BoolVar(&opt.labGroupKick, "lab-group-kick", false, "Verify that GoIM accepts removal from the original group owner")
 	flags.BoolVar(&opt.labGroupFile, "lab-group-file", false, "Verify regular group files with the original client")
+	flags.BoolVar(&opt.labGroupFileResume, "lab-group-file-resume", false, "Interrupt and resume a regular group file from the original client")
 	flags.BoolVar(&opt.labGroupFolder, "lab-group-folder", false, "Verify group folders with the original client")
 	flags.BoolVar(&opt.labEmoticons, "lab-emoticons", false, "Verify the stock emoticon identifier and a mixed native emoji message")
 	flags.BoolVar(&opt.labResume, "lab-resume-receive", false, "Interrupt a real file transfer to the original and verify its resumption offset")
@@ -131,7 +133,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	}
 	special := 0
 	for _, enabled := range []bool{opt.labLargeFile, opt.labOffline, opt.labOfflineSend, opt.labMultiGroup, opt.labAvatarUpdate,
-		opt.labTextRecall, opt.labGroupRecall, opt.labGroupDismiss, opt.labGroupKick, opt.labGroupFile, opt.labGroupFolder, opt.labEmoticons,
+		opt.labTextRecall, opt.labGroupRecall, opt.labGroupDismiss, opt.labGroupKick, opt.labGroupFile, opt.labGroupFileResume, opt.labGroupFolder, opt.labEmoticons,
 		opt.labResume, opt.labDirectory, opt.labFolderResend} {
 		if enabled {
 			special++

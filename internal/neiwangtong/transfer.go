@@ -595,7 +595,7 @@ func downloadFileTo(ctx context.Context, bind netip.Addr, target netip.AddrPort,
 		return err
 	}
 
-	if err := receiveFileFramesAt(conn, out, uint32(fileID), totalSize, position, onProgress); err != nil {
+	if err := receiveFileFramesAt(ctx, conn, out, uint32(fileID), totalSize, position, onProgress); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -618,10 +618,10 @@ func downloadFileTo(ctx context.Context, bind netip.Addr, target netip.AddrPort,
 // byte offset and block size. Older GoIM sends one record with those fields
 // unset. Neither format can write beyond the size announced in the offer.
 func receiveFileFrames(conn net.Conn, out io.Writer, selector uint32, total int64, progress func(int64, int64)) error {
-	return receiveFileFramesAt(conn, out, selector, total, 0, progress)
+	return receiveFileFramesAt(context.Background(), conn, out, selector, total, 0, progress)
 }
 
-func receiveFileFramesAt(conn net.Conn, out io.Writer, selector uint32, total, position int64, progress func(int64, int64)) error {
+func receiveFileFramesAt(ctx context.Context, conn net.Conn, out io.Writer, selector uint32, total, position int64, progress func(int64, int64)) error {
 	var header [nativeFileHeader]byte
 	done := position
 	buf := make([]byte, nativeFileBlock)
@@ -656,6 +656,9 @@ func receiveFileFramesAt(conn net.Conn, out io.Writer, selector uint32, total, p
 			remaining -= int64(n)
 			if progress != nil {
 				progress(done, total)
+			}
+			if err := ctx.Err(); err != nil {
+				return err
 			}
 		}
 	}

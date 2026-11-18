@@ -619,25 +619,22 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 	if info, err := os.Lstat(partial); err == nil && info.Mode().IsRegular() {
 		have = info.Size()
 	}
-	if isGroupFile && (have == 0 || have != t.Size) {
-		// Only a fresh group download has been verified. Discard an
-		// interrupted prefix before requesting a new data selector.
-		if err := os.Remove(partial); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		have = 0
-	}
+	ready := false
 	if err := n.change(func(s *domain.State) {
 		if i := transferIndex(s, t.ID); i >= 0 && !terminalTransfer(s.Transfers[i].Status) {
 			task := &s.Transfers[i]
 			task.Status, task.Path, task.Done, task.Error = "transferring", destination, have, ""
 			task.UpdatedAt = time.Now()
+			ready = true
 		}
 	}); err != nil {
 		return err
 	}
-	lastProgress := time.Now()
+	if !ready || ctx.Err() != nil {
+		return context.Canceled
+	}
 	if have == 0 || have != t.Size {
+		var lastProgress time.Time
 		progress := func(done int64) {
 			if done == t.Size || time.Since(lastProgress) >= 150*time.Millisecond {
 				n.setTransfer(t.ID, "transferring", done, 0, "")
@@ -645,7 +642,7 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 			}
 		}
 		if isGroupFile {
-			err = service.DownloadGroupFile(ctx, wireID, t.RemoteShareID, t.Size, partial, func(done, _ int64) { progress(done) })
+			err = n.resumeNeiwangtongGroupFile(ctx, service, wireID, t, partial, have, progress)
 		} else {
 			err = service.ResumeFile(ctx, wireID, taskID, fileID, t.Size, partial, progress)
 		}
@@ -660,6 +657,37 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 		return err
 	}
 	return n.completeReceive(t, destination)
+}
+
+func (n *Node) resumeNeiwangtongGroupFile(ctx context.Context, service *neiwangtong.Service, peer string,
+	task domain.Transfer, partial string, have int64, progress func(int64)) error {
+	download, err := service.RequestGroupFile(ctx, peer, task.RemoteShareID, task.Size)
+	if err != nil {
+		return err
+	}
+	// Reuse the prefix only if the same invitation still names the same
+	// size and revision. The data channel can assign a different selector.
+	if have > 0 && (have > task.Size || task.RemoteFileModTime <= 0 || task.RemoteFileModTime != download.ModTime) {
+		if err := os.Remove(partial); err != nil {
+			return err
+		}
+		have = 0
+	}
+	ready := false
+	if err := n.change(func(s *domain.State) {
+		i := transferIndex(s, task.ID)
+		if i >= 0 && !terminalTransfer(s.Transfers[i].Status) && ctx.Err() == nil {
+			s.Transfers[i].RemoteFileModTime = download.ModTime
+			s.Transfers[i].Done = have
+			ready = true
+		}
+	}); err != nil {
+		return err
+	}
+	if !ready {
+		return context.Canceled
+	}
+	return download.Resume(ctx, partial, func(done, _ int64) { progress(done) })
 }
 
 func (n *Node) nativePartialPath(transferID string) string {
