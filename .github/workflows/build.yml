@@ -6,7 +6,7 @@ on:
     inputs:
       version:
         description: Package version
-        default: 0.1.7
+        default: 0.1.8-beta.1
         required: true
         type: string
 permissions:
@@ -118,6 +118,9 @@ jobs:
         env:
           PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
           GOIM_UPDATE_PUBLIC_KEY: ${{ vars.GOIM_UPDATE_PUBLIC_KEY }}
+          # Linux desktop releases use Viva's pure-Go path. A cgo build binds
+          # to the runner's glibc and will not start on older Kylin/UOS hosts.
+          CGO_ENABLED: ${{ matrix.os == 'linux' && '0' || '1' }}
         run: |
           args=(--version "${PACKAGE_VERSION#v}" --commit "$GITHUB_SHA")
           if [ '${{ matrix.os }}' = windows ]; then args+=(--windows-setup); fi
@@ -217,6 +220,20 @@ jobs:
           notes=f'GoIM {version}\n\nSix native targets and twelve packages passed CI. Includes Windows ZIP and Viva NSIS Setup, macOS ZIP and DMG, and Linux tar.gz and DEB. Windows installer, shortcut icon and three-process smoke checks and Linux race checks passed.\n\nSource: {os.environ["SOURCE_COMMIT"]}\nViva: {next(iter(frameworks))}\nGo: {next(iter(toolchains))}\n'
           (root/'RELEASE_NOTES.md').write_text(notes)
           PY
+      - name: Verify Linux packages on a GLIBC 2.31 baseline
+        run: |
+          set -euo pipefail
+          package="$(find release -maxdepth 1 -name 'GoIM_*_linux_amd64.tar.gz' -print -quit)"
+          test -n "$package"
+          extract="$RUNNER_TEMP/goim-linux-baseline"
+          rm -rf "$extract"
+          mkdir -p "$extract"
+          tar -xzf "$package" -C "$extract"
+          payload="$(find "$extract" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -x "$payload/GoIM"
+          test -x "$payload/goim-snip"
+          docker run --rm -v "$payload:/payload:ro" ubuntu:20.04 \
+            /bin/sh -eu -c '/payload/GoIM -version && /payload/goim-snip -help >/dev/null'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: GoIM-checksums-and-report
@@ -226,7 +243,7 @@ jobs:
           retention-days: 14
   update-feed:
     needs: release
-    if: github.event_name == 'push' && github.ref_type == 'tag' && vars.GOIM_UPDATE_PUBLIC_KEY != ''
+    if: github.event_name == 'push' && github.ref_type == 'tag' && !contains(github.ref_name, '-') && vars.GOIM_UPDATE_PUBLIC_KEY != ''
     runs-on: ubuntu-24.04
     environment: goim-release
     steps:

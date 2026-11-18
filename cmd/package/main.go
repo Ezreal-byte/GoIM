@@ -121,6 +121,9 @@ func build() error {
 	if err := verifyArchitecture(executable); err != nil {
 		return err
 	}
+	if err := verifyPortableLinuxBinary(executable); err != nil {
+		return err
+	}
 	linked, err := binaryinfo.ReadFile(executable)
 	if err != nil {
 		return fmt.Errorf("read GoIM build info: %w", err)
@@ -139,6 +142,9 @@ func build() error {
 		return err
 	}
 	if err := verifyArchitecture(companion); err != nil {
+		return err
+	}
+	if err := verifyPortableLinuxBinary(companion); err != nil {
 		return err
 	}
 	switch runtime.GOOS {
@@ -409,6 +415,33 @@ func verifyArchitecture(path string) error {
 	}
 	return nil
 }
+
+// verifyPortableLinuxBinary rejects dynamically linked Linux packages. The
+// release runner is newer than supported Kylin and UOS hosts, so allowing cgo
+// here silently raises the minimum GLIBC version of the shipped executable.
+func verifyPortableLinuxBinary(path string) error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	f, err := elf.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	libraries, err := f.ImportedLibraries()
+	if err != nil {
+		return fmt.Errorf("inspect Linux dynamic dependencies: %w", err)
+	}
+	if len(libraries) != 0 {
+		return fmt.Errorf(
+			"%s is dynamically linked (%s); build Linux releases with CGO_ENABLED=0 so Kylin and UOS do not depend on the release runner's GLIBC",
+			filepath.Base(path),
+			strings.Join(libraries, ", "),
+		)
+	}
+	return nil
+}
+
 func copyFile(src, dest string) error {
 	b, err := os.ReadFile(src)
 	if err != nil {

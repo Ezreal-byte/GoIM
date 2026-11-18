@@ -1,9 +1,11 @@
-github.com/Ezreal-byte/viva v0.1.1-0.20261117042640-dade09facc34 h1:jPTHNHfj1dgeWEQNN+CxzQfbLDlG+FEHPuoGmVQnc+E=
-github.com/Ezreal-byte/viva v0.1.1-0.20261117042640-dade09facc34/go.mod h1:e9In6+J77G7B9ow4enZ2FSOFh7U3q4cQ5iJr3Qn/Olk=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/dsnet/compress v0.0.0-20171208185109-cc9eb1d7ad76 h1:eX+pdPPlD279OWgdx7f6KqIRSONuK7egk+jDx7OM3Ac=
+github.com/dsnet/compress v0.0.0-20171208185109-cc9eb1d7ad76/go.mod h1:KjxHHirfLaw19iGT70HvVjHQsL1vq1SRQB4yOsAfy2s=
 github.com/ebitengine/purego v0.11.1 h1:2zpWRSQNVKN4eKsKO9eM1ILDgWfYMY9GwqRmK6XeQ/0=
 github.com/ebitengine/purego v0.11.1/go.mod h1:DCHPP08djqhNSoTfImcnHYQRZmd0qhakvrozqaEYhGQ=
+github.com/gabstv/go-bsdiff v1.0.5 h1:g29MC/38Eaig+iAobW10/CiFvPtin8U3Jj4yNLcNG9k=
+github.com/gabstv/go-bsdiff v1.0.5/go.mod h1:/Zz6GK+/f/TMylRtVaW3uwZlb0FZITILfA0q12XKGwg=
 github.com/gen2brain/shm v0.1.0 h1:MwPeg+zJQXN0RM9o+HqaSFypNoNEcNpeoGp0BTSx2YY=
 github.com/gen2brain/shm v0.1.0/go.mod h1:UgIcVtvmOu+aCJpqJX7GOtiN7X2ct+TKLg4RTxwPIUA=
 github.com/godbus/dbus/v5 v5.1.0 h1:4KLkAxT3aOY8Li4FRJe/KvhoNFFxo0m6fNuFUO8QJUk=
@@ -22,6 +24,8 @@ github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e h1:MRM5ITcdelLK2j1
 github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e/go.mod h1:XV66xRDqSt+GTGFMVlhk3ULuV0y9ZmzeVGR4mloJI3M=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
+github.com/vivaui/viva v0.6.6-0.20261118022843-059256b5ba10 h1:88USlAky2/EM3WRyA6Nv8uzXTUqPwkt8WSrFAF19+/o=
+github.com/vivaui/viva v0.6.6-0.20261118022843-059256b5ba10/go.mod h1:e9In6+J77G7B9ow4enZ2FSOFh7U3q4cQ5iJr3Qn/Olk=
 go.etcd.io/bbolt v1.5.0 h1:S7GAl7Fxv12yohbwFfIbQCGDWbQbtDGPET4P/bD4lxU=
 go.etcd.io/bbolt v1.5.0/go.mod h1:mkltfYE5aUHQxUct9N9V+Kp7aSjFqjgrhcXIS70Lrdk=
 golang.org/x/sync v0.25.0 h1:dJnifr0nMV8/SBnBvdo4eSGGnrc3O4FFx6IqvtLcmRs=
