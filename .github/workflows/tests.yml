@@ -1,0 +1,174 @@
+name: Go tests
+
+on:
+  push:
+    branches: ['main', 'codex/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read # the changes job lists a pull request's files
+
+env:
+  GOWORK: 'off'
+
+# A newer pull-request push supersedes the older run. Main and long-lived
+# branches queue instead so every pushed commit finishes its full suite.
+concurrency:
+  group: go-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Documentation-only changes do not need the Go suite. The trigger itself is
+  # not path-filtered because a workflow that never starts leaves required
+  # checks waiting forever; skipped jobs count as successful checks instead.
+  changes:
+    name: Decide whether the change needs the suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - name: Classify the changed files
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          run_all() {
+            echo "$1: running the whole suite"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
+          [ "$EVENT" != workflow_dispatch ] || run_all "a manual run"
+          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ]; then
+            run_all "no base commit to compare against"
+          fi
+
+          changed=$(mktemp)
+          if [ "$EVENT" = pull_request ]; then
+            gh api "repos/$REPOSITORY/pulls/$NUMBER/files" --paginate --jq '.[].filename' > "$changed" ||
+              run_all "the pull request's file list could not be read"
+          else
+            gh api "repos/$REPOSITORY/compare/$BASE...$HEAD" --jq '.files[].filename' > "$changed" ||
+              run_all "the push could not be compared with its base"
+            [ "$(wc -l < "$changed")" -lt 300 ] || run_all "the compare hit its file cap"
+          fi
+
+          code=false
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            case "$file" in
+            docs/* | website/* | .github/ISSUE_TEMPLATE/* | *.md | LICENSE | NOTICE) ;;
+            *)
+              code=true
+              break
+              ;;
+            esac
+          done < "$changed"
+          echo "the change needs the Go suite: $code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: Format and vet
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: go.sum
+      - name: Check formatting
+        run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+      - name: Verify modules and vet
+        run: |
+          go mod download
+          go vet ./...
+          git diff --exit-code -- go.mod go.sum
+
+  tests:
+    name: Unit and integration tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: go.sum
+      - name: Chinese font coverage for the native painter
+        run: |
+          # Hosted regional HTTP mirrors can stall on the CJK font archive.
+          # Use Ubuntu's canonical HTTPS mirror; APT still verifies signatures.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y fonts-noto-cjk
+      - name: Test release build
+        run: go test ./... -count=1 -timeout=180s
+
+  race:
+    name: Race detector
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: go.sum
+      - name: Chinese font coverage for the native painter
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y fonts-noto-cjk
+      - name: Run the race detector
+        run: go test -race ./internal/core ./internal/desktop ./internal/ipmsg ./internal/neiwangtong -count=1 -timeout=300s
+
+  windows-smoke:
+    name: Windows desktop tests and smoke
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: go.sum
+      - name: Windows desktop tests
+        shell: pwsh
+        run: go test ./... -count=1 -timeout=180s
+      - name: Windows Hello native probe
+        shell: pwsh
+        env:
+          GOIM_SYSTEM_AUTH_NATIVE: '1'
+        run: go test ./internal/systemauth -run '^TestUserConsentVerifier' -count=1 -v
+      - name: Three-process desktop smoke
+        shell: pwsh
+        run: ./scripts/smoke-headless.ps1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-headless
+          path: artifacts/headless/
+          retention-days: 14
