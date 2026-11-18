@@ -66,6 +66,33 @@ func TestConversationRowDraggedOutsideOpensDetachedWindow(t *testing.T) {
 	}
 }
 
+func TestConversationRowDoubleClickOpensDetachedWindow(t *testing.T) {
+	h := newShellTestHarness(t, shellTestState(t))
+	var detachedID string
+	h.ui.presentDetached = func(id string) bool {
+		detachedID = id
+		return true
+	}
+	hit, ok := h.findHit(h.ui.convRowIDs["conv-group"])
+	if !ok {
+		t.Fatal("conversation row is not on screen")
+	}
+	if err := h.driver.DoubleClick(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+
+	if detachedID != "conv-group" || !h.ui.detached["conv-group"] {
+		t.Fatalf("double-click detached conversation = %q, detached map = %+v", detachedID, h.ui.detached)
+	}
+	if h.ui.selected != "" {
+		t.Fatalf("main window did not leave double-clicked content blank: %q", h.ui.selected)
+	}
+	if !h.hasHit(h.ui.convRowIDs["conv-group"]) {
+		t.Fatal("double-clicked conversation disappeared from the main conversation list")
+	}
+}
+
 func TestConversationDragInsideMainWindowDoesNotDetach(t *testing.T) {
 	h := newShellTestHarness(t, shellTestState(t))
 	h.ui.attachNativeWindow(&conversationTestWindow{Driver: h.driver})
@@ -208,8 +235,10 @@ func TestConversationDragPreviewFollowsPointerAndCloses(t *testing.T) {
 	h.ui.attachNativeWindow(&conversationTestWindow{Driver: h.driver})
 	preview := &conversationPreviewStub{}
 	opened := 0
+	var previewConfig app.DragPreviewConfig
 	h.ui.openDragPreview = func(config app.DragPreviewConfig) (conversationDragPreview, error) {
 		opened++
+		previewConfig = config
 		if config.Width != conversationPreviewWidth || config.Height != conversationPreviewHeight {
 			t.Fatalf("drag preview size = %dx%d", config.Width, config.Height)
 		}
@@ -231,6 +260,21 @@ func TestConversationDragPreviewFollowsPointerAndCloses(t *testing.T) {
 	}
 	if opened != 1 || len(preview.moves) < 2 {
 		t.Fatalf("drag preview opened=%d moves=%v", opened, preview.moves)
+	}
+	canvas := &gfx.Canvas{}
+	canvas.BeginFrame()
+	previewConfig.Paint(canvas, gfx.Size{
+		Width: float32(previewConfig.Width), Height: float32(previewConfig.Height),
+	})
+	canvas.EndFrame()
+	texts := make(map[string]bool)
+	for _, text := range canvas.Texts() {
+		texts[text.Value] = true
+	}
+	for _, want := range []string{"产品讨论组", "Alice：看一下最新预览"} {
+		if !texts[want] {
+			t.Fatalf("drag preview did not show %q; texts=%v", want, texts)
+		}
 	}
 	if err := h.driver.Release(x+40, y+15, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
