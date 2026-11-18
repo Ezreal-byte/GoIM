@@ -2,6 +2,7 @@
 set -eu
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
+
 case "${1:-}" in
     ipcmd)
         shift
@@ -13,7 +14,7 @@ case "${1:-}" in
                 case "$file" in "$GOIM_IPMSG_WORK"/stock-file-*.bin) ;; *) exit 1 ;; esac
                 [ -f "$3" ] || exit 1
                 ;;
-            recv|list) [ "$#" = 1 ] || exit 1 ;;
+            recv|list|away|available|stop|start) [ "$#" = 1 ] || exit 1 ;;
             *) exit 1 ;;
         esac
         job=$(mktemp -d "$GOIM_IPMSG_WORK/command.XXXXXXXX")
@@ -52,8 +53,30 @@ case "${1:-}" in
                             file=$(winepath -w "$(cat "$job/path")")
                             timeout 12s wine "$GOIM_IPMSG_ORIGINAL/ipcmd.exe" /nostat send "/file=$file" /noseal 10.78.0.1 "$body" > "$job/out" 2>&1 || rc=$?
                             ;;
-                        recv|list)
-                            timeout 12s wine "$GOIM_IPMSG_ORIGINAL/ipcmd.exe" /nostat "$action" > "$job/out" 2>&1 || rc=$?
+                        recv|list|stop|away|available)
+                            case "$action" in
+                                stop) set -- terminate ;;
+                                away) set -- setabs 1 ;;
+                                available) set -- setabs 0 ;;
+                                *) set -- "$action" ;;
+                            esac
+                            timeout 12s wine "$GOIM_IPMSG_ORIGINAL/ipcmd.exe" /nostat "$@" > "$job/out" 2>&1 || rc=$?
+                            ;;
+                        start)
+                            : > "$job/out"
+                            if ss -lunH 'sport = :2425' | grep -q ':2425'; then
+                                rc=125
+                            else
+                                wine "$GOIM_IPMSG_ORIGINAL/IPMsg.exe" </dev/null >> "$work/startup.log" 2>&1 &
+                                for attempt in $(seq 1 60); do
+                                    ss -lunH 'sport = :2425' | grep -q ':2425' && break
+                                    sleep 0.1
+                                done
+                                if ! ss -lunH 'sport = :2425' | grep -q ':2425'; then
+                                    tail -n 8 "$work/startup.log" > "$job/out"
+                                    rc=125
+                                fi
+                            fi
                             ;;
                         *) rc=2; : > "$job/out" ;;
                     esac
@@ -78,11 +101,8 @@ case "${1:-}" in
             wine reg add "$key" /v autoSaveFlags2 /t REG_DWORD /d 1 /f
         done
         cd "$GOIM_IPMSG_ORIGINAL"
-        "$0" dispatch "$work" &
-        dispatcher=$!
-        trap 'kill "$dispatcher" 2>/dev/null || :' EXIT
-        wine IPMsg.exe
-        exit
+        wine IPMsg.exe &
+        exec "$0" dispatch "$work"
         ;;
     isolated) shift ;;
     *) exec unshare --uts "$0" isolated "$@" ;;
@@ -101,6 +121,7 @@ hostname goim-ipmsg-lab
 work=$(mktemp -d /tmp/goim-ipmsg.XXXXXXXX)
 case "$work" in /tmp/goim-ipmsg.????????) ;; *) fail 'Unexpected test directory.' ;; esac
 chown nwtlab "$work"
+install -o nwtlab -m 0600 /dev/null "$work/startup.log"
 tag=${work##*.}
 reference="goim-ipmsg-ref-$tag"
 client="goim-ipmsg-go-$tag"

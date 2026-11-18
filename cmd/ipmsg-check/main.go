@@ -83,15 +83,16 @@ func verify(dir, driver string, run func(string, func() (string, error)) bool) b
 	}) {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	var nonce [8]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return false
 	}
 	token := hex.EncodeToString(nonce[:])
-	node, err := core.New(core.Options{DataDir: filepath.Join(dir, "goim"), Name: "GoIM QA " + token,
-		Listen: "10.78.0.1:0", DownloadDir: filepath.Join(dir, "downloads")})
+	options := core.Options{DataDir: filepath.Join(dir, "goim"), Name: "GoIM QA " + token,
+		Listen: ":0", DownloadDir: filepath.Join(dir, "downloads")}
+	node, err := core.New(options)
 	if !run("production_goim", func() (string, error) { return "started the real GoIM backend", err }) {
 		return false
 	}
@@ -203,5 +204,8 @@ func verify(dir, driver string, run func(string, func() (string, error)) bool) b
 	}) {
 		return false
 	}
-	return verifyFiles(ctx, node, peer, chat, dir, token, command, run)
+	files := verifyFiles(ctx, node, peer, chat, dir, token, command, run)
+	presence := verifyPresence(ctx, node, peer, command, run)
+	offline := verifyOffline(ctx, node, options, peer, chat, token, command, run)
+	return files && presence && offline
 }
