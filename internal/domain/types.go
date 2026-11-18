@@ -244,6 +244,7 @@ type Settings struct {
 	BackgroundShade              int
 	HasLockPassword              bool
 	LockOnStartup                bool
+	SystemUnlock                 bool
 	HideNotificationText         bool
 	HideOfflineContacts          bool
 	DisableAutoDiscovery         bool
@@ -417,8 +418,10 @@ const (
 	DeleteConversation CommandKind = "delete_conversation"
 	SetSharePassword   CommandKind = "set_share_password"
 	SetLockPassword    CommandKind = "set_lock_password"
+	SetSystemUnlock    CommandKind = "set_system_unlock"
 	LockApp            CommandKind = "lock_app"
 	UnlockApp          CommandKind = "unlock_app"
+	UnlockAppSystem    CommandKind = "unlock_app_system"
 	MarkRead           CommandKind = "mark_read"
 	SaveDraft          CommandKind = "save_draft"
 	ShareFiles         CommandKind = "share_files"

@@ -57,6 +57,7 @@ EOF
         cmp "$payload/GoIM" "$work/check/usr/bin/GoIM"
         cmp "$payload/goim-snip" "$work/check/usr/bin/goim-snip"
         test -f "$work/check/usr/share/applications/dev.goim.desktop.desktop"
+        test -f "$work/check/usr/share/polkit-1/actions/dev.goim.desktop.policy"
         ;;
     darwin)
         mkdir "$work/image" "$work/mount"

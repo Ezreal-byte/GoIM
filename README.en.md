@@ -39,7 +39,7 @@ GoIM is a desktop messenger built with Go and [Viva](https://github.com/vivaui/v
 | Direct and group chats, invitations, and membership controls | Receive prompts, Save As, cancel, retry, and resume |
 | Text, emoji, and inline images with a separate viewer for zoom, rotate, and save | TLS and SHA-256 verification between GoIM clients |
 | Local history, search, unread counts, pinned conversations, and offline retry | File and folder links, QR codes, and per-project passwords |
-| Contact groups, profiles, app lock, light and dark appearances, and Chinese and English UI | Device share homepage with browser uploads |
+| Contact groups, profiles, app lock with system verification, light and dark appearances, and Chinese and English UI | Device share homepage with browser uploads |
 
 Capture a region, resize it, annotate it, and copy at the original resolution. Use the scissors in the composer or the default `Alt+A` shortcut.
 
@@ -67,6 +67,19 @@ For archives, extract the full package so GoIM can find its screenshot tool. Win
 4. To share with a phone or a browser, add a file or folder in **File Sharing**, then copy its link or QR code. The optional device homepage also accepts uploads.
 
 Native chat uses TCP 47842 and IPv4 multicast at `239.192.77.77:47841` for discovery. Browser sharing uses LAN HTTP on trusted networks.
+
+## App lock and system verification
+
+Set a GoIM lock password under **Settings → Security → App lock**, then enable **Use system verification to unlock**. Enabling it requires your current GoIM password. On the lock screen, choose **Use system verification**, or continue using the GoIM password. Canceling or failing verification leaves GoIM locked.
+
+| System | Available system verification |
+| --- | --- |
+| Windows 11 | Windows Hello with a configured PIN, fingerprint, or face |
+| Windows 10 | Desktop Hello verification requires Windows 11; use the GoIM password when system verification is unavailable |
+| macOS | Touch ID, or the current macOS login password when Touch ID is unavailable |
+| Linux | The polkit authentication agent; password or fingerprint support depends on the distribution's PAM and agent configuration |
+
+GoIM receives only the verification result and never reads, stores, or transmits system passwords or biometric data. The Linux `.deb` installs the `dev.goim.desktop.unlock` polkit policy. The `.tar.gz` includes it under `share/polkit-1/actions/`, and it must be copied into `/usr/share/polkit-1/actions/`. Source runs need `internal/brand/assets/dev.goim.desktop.policy` installed there as well. Windows Hello must be enabled in Windows first; the Windows account password is not passed to GoIM as a Hello credential.
 
 ## Legacy compatibility
 

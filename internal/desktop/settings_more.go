@@ -12,24 +12,26 @@ import (
 
 	"goim/internal/domain"
 	"goim/internal/i18n"
+	"goim/internal/systemauth"
 )
 
 type panelSettingsExtra struct {
-	background, clearBackground, notificationPrivacy, offline, discovery, acceptImages                    gfx.ID
-	profile, connect, connectAddress, lockStartup, passwordOld, passwordNew, passwordRepeat, passwordSave gfx.ID
-	shade                                                                                                 ui.SliderState
-	shadeDirty                                                                                            bool
-	connectRoute                                                                                          connectionRoute
-	compat                                                                                                [2]compatibilityEditor
-	address, old, password, repeat                                                                        ui.Field
-	passwordError                                                                                         string
-	passwordOpen, passwordPending, passwordRefocus                                                        bool
-	passwordRequest                                                                                       uint64
-	passwordTrigger, passwordScope, passwordDismiss, passwordClose, passwordCancel                        gfx.ID
-	interfaceFont                                                                                         panelInterfaceFontPicker
-	autostart                                                                                             panelAutostartState
-	openProfile                                                                                           func()
-	chooseBackground                                                                                      func(*gfx.Canvas)
+	background, clearBackground, notificationPrivacy, offline, discovery, acceptImages                  gfx.ID
+	profile, connect, connectAddress, lockStartup, lockSystem, passwordOld, passwordNew, passwordRepeat gfx.ID
+	passwordSave                                                                                        gfx.ID
+	shade                                                                                               ui.SliderState
+	shadeDirty                                                                                          bool
+	connectRoute                                                                                        connectionRoute
+	compat                                                                                              [2]compatibilityEditor
+	address, old, password, repeat                                                                      ui.Field
+	passwordError                                                                                       string
+	passwordOpen, passwordPending, passwordRefocus, passwordSystem                                      bool
+	passwordRequest                                                                                     uint64
+	passwordTrigger, passwordScope, passwordDismiss, passwordClose, passwordCancel                      gfx.ID
+	interfaceFont                                                                                       panelInterfaceFontPicker
+	autostart                                                                                           panelAutostartState
+	openProfile                                                                                         func()
+	chooseBackground                                                                                    func(*gfx.Canvas)
 }
 
 type panelAutostartState struct {
@@ -162,6 +164,7 @@ func (s *panelSettingsExtra) init(tree *gfx.Tree, scope gfx.Scope) {
 	s.compat[0].init(tree, tree.Sub(scope, tree.Name("neiwangtong")))
 	s.compat[1].init(tree, tree.Sub(scope, tree.Name("ipmsg")))
 	s.lockStartup = tree.ID(scope, "lock-startup")
+	s.lockSystem = tree.ID(scope, "system-unlock")
 	s.passwordOld = tree.ID(scope, "password-old")
 	s.passwordNew = tree.ID(scope, "password-new")
 	s.passwordRepeat = tree.ID(scope, "password-repeat")
@@ -178,7 +181,7 @@ func (s *panelSettingsExtra) init(tree *gfx.Tree, scope gfx.Scope) {
 func (s *panelSettingsExtra) resetSecrets() {
 	s.old, s.password, s.repeat = ui.Field{Secure: true}, ui.Field{Secure: true}, ui.Field{Secure: true}
 	s.passwordError = ""
-	s.passwordOpen, s.passwordPending, s.passwordRefocus = false, false, false
+	s.passwordOpen, s.passwordPending, s.passwordRefocus, s.passwordSystem = false, false, false, false
 	s.passwordRequest = 0
 }
 
@@ -291,6 +294,20 @@ func (p *Panels) drawSettingsSecurity(f ui.C, theme ui.Theme, state domain.State
 				}
 			})
 		})
+		p.settingsRow(f, theme, i18n.T("使用系统验证解锁"), i18n.T(systemauth.Description()), func() {
+			p.settingsControl(f, 80, func() {
+				enabled := ui.State[bool](f, "system-unlock")
+				*enabled = settings.SystemUnlock
+				if ui.Switch(f, enabled, "").Hit(s.lockSystem, i18n.T("使用系统验证解锁")).Disabled(!settings.HasLockPassword).Changed() {
+					if *enabled {
+						s.resetSecrets()
+						s.passwordOpen, s.passwordSystem = true, true
+						return
+					}
+					submit(domain.Command{Kind: domain.SetSystemUnlock})
+				}
+			})
+		})
 		p.settingsRow(f, theme, i18n.T("锁定密码"), i18n.T("用于验证 GoIM 的应用锁定。"), func() {
 			if namedButton(f, s.passwordTrigger, lockPasswordAction(settings.HasLockPassword)).Small().Outline().Clicked() {
 				s.resetSecrets()
@@ -317,8 +334,12 @@ func (p *Panels) drawPasswordDialog(f ui.C, theme ui.Theme, state domain.State, 
 	if hasPassword {
 		focus = s.passwordOld
 	}
+	title, saveLabel := lockPasswordAction(hasPassword), i18n.T("保存密码")
+	if s.passwordSystem {
+		title, saveLabel = i18n.T("启用系统验证解锁"), i18n.T("确认开启")
+	}
 	dialog := ui.Dialog(f, ui.DialogSpec{
-		Title: lockPasswordAction(hasPassword), Width: 420,
+		Title: title, Width: 420,
 		Scope: s.passwordScope, DismissID: s.passwordDismiss, CloseID: s.passwordClose,
 		InitialFocusID: focus, NoClose: s.passwordPending,
 	})
@@ -338,10 +359,18 @@ func (p *Panels) drawPasswordDialog(f ui.C, theme ui.Theme, state domain.State, 
 				return result
 			}
 			if hasPassword {
-				field(s.passwordOld, &s.old, "当前密码", "输入当前密码")
+				submitted := field(s.passwordOld, &s.old, "当前密码", "输入当前密码").Submitted()
+				if s.passwordSystem {
+					save = submitted
+				}
 			}
-			field(s.passwordNew, &s.password, "新密码", "至少 6 个字符")
-			save = field(s.passwordRepeat, &s.repeat, "确认新密码", "再输入一次新密码").Submitted()
+			if !s.passwordSystem {
+				field(s.passwordNew, &s.password, "新密码", "至少 6 个字符")
+				save = field(s.passwordRepeat, &s.repeat, "确认新密码", "再输入一次新密码").Submitted()
+			}
+			if s.passwordSystem {
+				ui.Paragraph(f, i18n.T("输入当前锁定密码以确认开启。"), 2).Muted().FontSize(12)
+			}
 			if s.passwordError != "" {
 				ui.Paragraph(f, s.passwordError, 2).Color(theme.Danger).FontSize(12)
 			}
@@ -349,7 +378,7 @@ func (p *Panels) drawPasswordDialog(f ui.C, theme ui.Theme, state domain.State, 
 	})
 	dialog.Footer(func() {
 		cancel = dialogActionButton(f, s.passwordCancel, i18n.T("取消")).Outline().Disabled(s.passwordPending).Clicked()
-		save = dialogActionButton(f, s.passwordSave, i18n.T("保存密码")).Disabled(s.passwordPending).Clicked() || save
+		save = dialogActionButton(f, s.passwordSave, saveLabel).Disabled(s.passwordPending).Clicked() || save
 	})
 	if s.passwordPending {
 		return
@@ -360,6 +389,16 @@ func (p *Panels) drawPasswordDialog(f ui.C, theme ui.Theme, state domain.State, 
 		return
 	}
 	if save {
+		if s.passwordSystem {
+			if s.old.Text() == "" {
+				s.passwordError = i18n.T("请输入当前密码")
+				return
+			}
+			s.passwordRequest = nextLockRequest()
+			s.passwordPending = true
+			submit(domain.Command{Kind: domain.SetSystemUnlock, Password: s.old.Text(), Bool: true, Request: s.passwordRequest})
+			return
+		}
 		password := s.password.Text()
 		s.passwordError = validatePasswordPair(password, s.repeat.Text())
 		if s.passwordError == "" {
@@ -380,6 +419,9 @@ func (s *panelSettingsExtra) observePassword(state domain.State) {
 		return
 	}
 	if result.Error == "" {
+		if s.passwordSystem && !state.Settings.SystemUnlock {
+			return
+		}
 		s.resetSecrets()
 		return
 	}

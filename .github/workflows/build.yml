@@ -207,6 +207,7 @@ jobs:
                       assert exe.mode & 0o111
                       assert z.getmember(next(n for n in names if n.endswith('/goim-snip'))).mode & 0o111
                       assert any(n.endswith('/share/applications/dev.goim.desktop.desktop') for n in names)
+                      assert any(n.endswith('/share/polkit-1/actions/dev.goim.desktop.policy') for n in names)
                       assert any(n.endswith('/share/icons/hicolor/256x256/apps/goim.png') for n in names)
               assert info['commit']==os.environ['SOURCE_COMMIT'] and info['version']==version and (info['os'],info['arch'])==target
               frameworks.add(info['viva'])
