@@ -31,10 +31,14 @@ func TestLegacyTextAndFileCallbacksCreateDirectConversation(t *testing.T) {
 	if len(initial.Conversations) != 0 {
 		t.Fatal("discovery created a visible conversation")
 	}
-	node.receiveLegacyText(peer.ID, 101, "hello")
-	node.receiveLegacyFiles(peer.ID, 102, "report", []ipmsgproto.Attachment{{
+	if err := node.receiveLegacyMessage(peer.ID, 101, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := node.receiveLegacyMessage(peer.ID, 102, "report.txt", []ipmsgproto.Attachment{{
 		ID: 9, Name: "report.txt", Size: 128, Kind: 1, ModTime: time.Now().AddDate(-1, 0, 0).Unix(),
-	}})
+	}}); err != nil {
+		t.Fatal(err)
+	}
 	state := node.Snapshot()
 	gotPeer := state.Peer(peer.ID)
 	if gotPeer.Name != "飞秋用户" || gotPeer.Transport != legacyIPMSG || !gotPeer.Online {
@@ -69,6 +73,63 @@ func TestLegacyTextAndFileCallbacksCreateDirectConversation(t *testing.T) {
 	}
 	if file := state.File(transfer.FileID); file.Name != "report.txt" || file.SenderID != peer.ID || file.Hash != repeatedZeroHash {
 		t.Fatalf("legacy file = %+v", file)
+	}
+}
+
+func TestLegacyMessageAndAttachmentsCommitTogetherOnRetry(t *testing.T) {
+	dir := t.TempDir()
+	n := testNodeAt(t, "local", dir)
+	peer := ipmsgproto.Peer{ID: "ipmsg-test", Name: "Sender", Address: "192.0.2.10:2425", Online: true}
+	n.receiveLegacyPeer(peer)
+	files := []ipmsgproto.Attachment{{ID: 1, Name: "report.txt", Size: 12}}
+	_ = n.db.Close()
+	if err := n.receiveLegacyMessage(peer.ID, 42, "report caption", files); err == nil {
+		t.Fatal("failed message persistence was reported as successful")
+	}
+	if s := n.Snapshot(); len(s.Messages) != 0 || len(s.Files) != 0 || len(s.Transfers) != 0 {
+		t.Fatal("part of the failed packet entered persistent state")
+	}
+	_ = n.Close()
+	n = testNodeAt(t, "local", dir)
+	n.receiveLegacyPeer(peer)
+	for range 2 {
+		if err := n.receiveLegacyMessage(peer.ID, 42, "report caption", files); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s := n.Snapshot(); len(s.Messages) != 2 || len(s.Files) != 1 || len(s.Transfers) != 1 {
+		t.Fatalf("retry did not commit one text and one attachment: %+v / %+v", s.Messages, s.Transfers)
+	}
+}
+
+func TestUnboundLegacyHistorySurvivesWithoutReplayingSends(t *testing.T) {
+	dir := t.TempDir()
+	n := testNodeAt(t, "local", dir)
+	const id = "ipmsg-0123456789abcdef"
+	var conversation string
+	if err := n.durable(func(p *persisted) []pending {
+		peer := domain.Peer{ID: id, Name: "Previous login", Transport: legacyIPMSG}
+		p.State.Peers = append(p.State.Peers, peer)
+		conversation = ensureDirect(&p.State, peer)
+		m := domain.Message{ID: newID(), ConversationID: conversation, SenderID: p.State.Self.ID, Text: "old outgoing", Kind: "text", Status: "pending"}
+		addMessageState(&p.State, m)
+		return []pending{{PeerID: id, Envelope: envelope{Type: "message", Message: m}}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.Close(); err != nil {
+		t.Fatal(err)
+	}
+	n = testNodeAt(t, "local", dir)
+	messages := n.Snapshot().ChatMessages(conversation)
+	if len(messages) != 1 || messages[0].Status != "failed" || messages[0].Text != "old outgoing" {
+		t.Fatalf("unbound history = %+v", messages)
+	}
+	n.mu.Lock()
+	queued := len(n.data.Outbox)
+	n.mu.Unlock()
+	if queued != 0 || n.sendText(conversation, "new message") == nil {
+		t.Fatal("an unbound conversation still sends without selecting a logon")
 	}
 }
 

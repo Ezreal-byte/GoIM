@@ -25,7 +25,7 @@ func receiptFixture(t *testing.T) (*Service, *net.UDPConn, string) {
 	}
 	t.Cleanup(service.Close)
 	service.handleDatagram(packetString(11, "old-user", "old-host", commandAnswer, "原版用户"), remote.LocalAddr().(*net.UDPAddr))
-	return service, remote, peerID("old-host", "127.0.0.1")
+	return service, remote, peerID("old-host", "old-user")
 }
 
 func readReceiptFixtureMessage(t *testing.T, remote *net.UDPConn) ([]byte, packet, *net.UDPAddr) {
@@ -152,7 +152,7 @@ func TestDifferentUsersCanShareTheComputerName(t *testing.T) {
 	text := make(chan string, 1)
 	service, err := Start(Config{Host: "same-host", User: "GoIM-fixed-identity", Name: "GoIM",
 		Port: freeIPMSGPort(t), BindIP: netip.MustParseAddr("127.0.0.1"), DisableBroadcast: true,
-		Callbacks: Callbacks{Text: func(_ string, _ uint64, body string) { text <- body }}})
+		Callbacks: Callbacks{Message: func(_ string, _ uint64, body string, _ []Attachment) error { text <- body; return nil }}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,5 +172,61 @@ func TestDifferentUsersCanShareTheComputerName(t *testing.T) {
 	case <-text:
 		t.Fatal("a reflected packet from our own logon was delivered")
 	default:
+	}
+}
+
+func TestReceiptWaitsForMessagePersistence(t *testing.T) {
+	service, remote, _ := receiptFixture(t)
+	stored := false
+	service.cfg.Callbacks.Message = func(_ string, number uint64, text string, files []Attachment) error {
+		if number != 42 || text != "attachment caption" || len(files) != 1 || files[0].Name != "report.txt" {
+			t.Fatalf("message contents were split or lost: %d %q %+v", number, text, files)
+		}
+		if !stored {
+			return errors.New("fixture store unavailable")
+		}
+		return nil
+	}
+	data := packetString(42, "old-user", "old-host", commandSend|optionSendCheck|optionUTF8|optionFile,
+		"attachment caption\x00"+encodeAttachments([]Attachment{{ID: 1, Name: "report.txt", Size: 12, Kind: fileRegular}}))
+	from := remote.LocalAddr().(*net.UDPAddr)
+	readReceipt := func() (packet, error) {
+		var response [2048]byte
+		for {
+			size, _, err := remote.ReadFromUDP(response[:])
+			if err != nil {
+				return packet{}, err
+			}
+			if p, err := parsePacket(response[:size]); err == nil && p.baseCommand() == commandReceived {
+				return p, nil
+			}
+		}
+	}
+	service.handleDatagram(data, from)
+	_ = remote.SetReadDeadline(time.Now().Add(75 * time.Millisecond))
+	if _, err := readReceipt(); err == nil {
+		t.Fatal("a failed write produced a delivery receipt")
+	}
+	stored = true
+	for range 2 {
+		service.handleDatagram(data, from)
+		_ = remote.SetReadDeadline(time.Now().Add(time.Second))
+		packet, err := readReceipt()
+		if err != nil || packet.Extra != "42" {
+			t.Fatalf("persisted message receipt = %+v, %v", packet, err)
+		}
+	}
+}
+
+func TestLoginSwitchRetiresThePreviousRoute(t *testing.T) {
+	service, remote, old := receiptFixture(t)
+	from := remote.LocalAddr().(*net.UDPAddr)
+	service.handleDatagram(packetString(12, "new-user", "old-host", commandAnswer, "Other user"), from)
+	next := peerID("old-host", "new-user")
+	if old == next || service.peer(old) != nil || service.peer(next) == nil {
+		t.Fatal("the new login reused the previous login's route")
+	}
+	if err := service.SendTextConfirmed(t.Context(), old, 42, "old pending message"); !errors.Is(err, ErrPeerOffline) {
+		t.Fatalf("old login could still deliver on the shared endpoint: %v", err)
 	}
 }

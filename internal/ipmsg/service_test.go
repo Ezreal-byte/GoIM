@@ -110,11 +110,12 @@ func TestServiceReceivesLegacyText(t *testing.T) {
 		Host: "receiver-host", Name: "receiver", Port: port, BindIP: netip.MustParseAddr("127.0.0.1"),
 		Callbacks: Callbacks{
 			Peer: func(peer Peer) { gotPeer = peer },
-			Text: func(peerID string, packetNumber uint64, text string) {
+			Message: func(peerID string, packetNumber uint64, text string, _ []Attachment) error {
 				if gotPeer.ID != peerID {
 					t.Errorf("text peer %q does not match callback peer %q", peerID, gotPeer.ID)
 				}
 				gotNumber, gotText = packetNumber, text
+				return nil
 			},
 		},
 	})
@@ -239,14 +240,14 @@ func TestDownloadFromClassicFileSender(t *testing.T) {
 	var offerPeer string
 	var offerNumber uint64
 	var files []Attachment
-	var texts int
+	var caption string
 	service, err := Start(Config{
 		Host: "goim-host", Name: "GoIM", Port: freeIPMSGPort(t), BindIP: netip.MustParseAddr("127.0.0.1"), DisableBroadcast: true,
 		Callbacks: Callbacks{
-			Files: func(peer string, number uint64, _ string, attachments []Attachment) {
-				offerPeer, offerNumber, files = peer, number, attachments
+			Message: func(peer string, number uint64, text string, attachments []Attachment) error {
+				offerPeer, offerNumber, files, caption = peer, number, attachments, text
+				return nil
 			},
-			Text: func(string, uint64, string) { texts++ },
 		},
 	})
 	if err != nil {
@@ -257,8 +258,8 @@ func TestDownloadFromClassicFileSender(t *testing.T) {
 	from := &net.UDPAddr{IP: addr.IP, Port: addr.Port}
 	content := "remaining file bytes"
 	service.handleDatagram(fmt.Appendf(nil, "1@shiyeline:171:SYSTEM:fixture-host:2097440:sample.txt\x009:sample.txt:%x:1:1:\a\x00", 7+len(content)), from)
-	if len(files) != 1 || files[0].Name != "sample.txt" || texts != 0 {
-		t.Fatalf("received attachment list = %+v, text messages = %d", files, texts)
+	if len(files) != 1 || files[0].Name != "sample.txt" || caption != "sample.txt" {
+		t.Fatalf("received attachment list = %+v, caption = %q", files, caption)
 	}
 	remoteDone := make(chan error, 1)
 	go func() {

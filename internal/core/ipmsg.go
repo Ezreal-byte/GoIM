@@ -78,15 +78,11 @@ func (n *Node) newIPMSG(port int, live *atomic.Bool) (*ipmsgproto.Service, error
 					n.receiveLegacyPeer(p)
 				}
 			},
-			Text: func(id string, packet uint64, text string) {
-				if live.Load() {
-					n.receiveLegacyText(id, packet, text)
+			Message: func(id string, packet uint64, text string, files []ipmsgproto.Attachment) error {
+				if !live.Load() {
+					return context.Canceled
 				}
-			},
-			Files: func(id string, packet uint64, text string, files []ipmsgproto.Attachment) {
-				if live.Load() {
-					n.receiveLegacyFiles(id, packet, text, files)
-				}
+				return n.receiveLegacyMessage(id, packet, text, files)
 			},
 			FilePrepared: func(id string, packet uint64, file uint32) error {
 				if !live.Load() {
@@ -137,45 +133,80 @@ func (n *Node) receiveLegacyPeer(peer ipmsgproto.Peer) {
 	})
 }
 
-func (n *Node) receiveLegacyText(peerID string, packetNumber uint64, text string) {
-	if text == "" || len(text) > 256<<10 || !utf8.ValidString(text) {
-		return
+var errUnboundIPMSGPeer = errors.New("旧飞鸽／飞秋会话的登录身份未确认，请选择当前联系人重新发送")
+
+func unboundIPMSGTransfer(t domain.Transfer) bool {
+	if t.LegacyTransport != legacyIPMSG {
+		return false
 	}
-	_ = n.change(func(s *domain.State) {
-		peer := n.compatibilitySenderLocked(legacyIPMSG, peerID)
-		if peer.ID == "" {
-			return
-		}
-		conversationID := ensureDirect(s, peer)
-		messageID := legacyStableID("message", peerID, fmt.Sprint(packetNumber), text)
-		for _, existing := range s.Messages {
-			if existing.ID == messageID {
-				return
-			}
-		}
-		addMessageState(s, domain.Message{
-			ID: messageID, ConversationID: conversationID, SenderID: peer.ID,
-			Kind: "text", Text: text, CreatedAt: time.Now(), Status: "delivered",
-		})
-	})
+	id := t.RemotePeerID
+	if id == "" {
+		id = t.PeerID
+	}
+	return ipmsgproto.UnboundPeerID(id)
 }
 
-func (n *Node) receiveLegacyFiles(peerID string, packetNumber uint64, message string, files []ipmsgproto.Attachment) {
-	if len(files) == 0 || len(files) > 64 {
-		return
+// The old host-and-address IDs do not identify a logon. Keep their history and
+// end any pending sends that still depend on the old IPMSG route.
+func retireUnboundIPMSGDeliveries(p *persisted) {
+	s := &p.State
+	for id, d := range p.Outbox {
+		transport, wire := d.WireTransport, d.WirePeerID
+		if transport == "" {
+			transport = s.Peer(d.PeerID).Transport
+			if index := transferIndex(s, d.Envelope.TransferID); index >= 0 && unboundIPMSGTransfer(s.Transfers[index]) {
+				transport, wire = legacyIPMSG, s.Transfers[index].RemotePeerID
+			}
+		}
+		if wire == "" {
+			wire = d.PeerID
+		}
+		if transport != legacyIPMSG || !ipmsgproto.UnboundPeerID(wire) {
+			continue
+		}
+		delete(p.Outbox, id)
+		if index := messageIndex(s, d.Envelope.Message.ConversationID, d.Envelope.Message.ID); index >= 0 {
+			s.Messages[index].Status = "failed"
+		}
 	}
-	_ = n.change(func(s *domain.State) {
+	for i := range s.Transfers {
+		t := &s.Transfers[i]
+		if t.Direction == "send" && unboundIPMSGTransfer(*t) && !terminalTransfer(t.Status) {
+			t.Status, t.Error, t.Speed, t.Revoked = "failed", errUnboundIPMSGPeer.Error(), 0, true
+		}
+	}
+}
+
+func (n *Node) receiveLegacyMessage(peerID string, packetNumber uint64, message string, files []ipmsgproto.Attachment) error {
+	if len(message) > 256<<10 || !utf8.ValidString(message) || len(files) > 64 || message == "" && len(files) == 0 {
+		return errors.New("无效的飞鸽／飞秋消息")
+	}
+	for _, file := range files {
+		if file.Size < 0 || !validFileName(file.Name) {
+			return errors.New("无效的飞鸽／飞秋附件")
+		}
+	}
+	admitted := false
+	err := n.durableFromReader(func(p *persisted) []pending {
+		s := &p.State
 		peer := n.compatibilitySenderLocked(legacyIPMSG, peerID)
 		if peer.ID == "" {
-			return
+			return nil
 		}
+		admitted = true
 		conversationID := ensureDirect(s, peer)
 		packetHex := fmt.Sprintf("%x", packetNumber)
 		receivedAt := time.Now()
-		for _, attachment := range files {
-			if attachment.Size < 0 || strings.TrimSpace(attachment.Name) == "" {
-				continue
+		// A single-file offer often repeats only the filename as its text body.
+		filenameOnly := len(files) == 1 && strings.TrimSpace(message) == files[0].Name
+		if message != "" && !filenameOnly {
+			messageID := legacyStableID("message", peerID, fmt.Sprint(packetNumber), message)
+			if messageIndex(s, conversationID, messageID) < 0 {
+				addMessageState(s, domain.Message{ID: messageID, ConversationID: conversationID, SenderID: peer.ID,
+					Kind: "text", Text: message, CreatedAt: receivedAt, Status: "delivered"})
 			}
+		}
+		for _, attachment := range files {
 			fileID := legacyStableID("file", peerID, packetHex, fmt.Sprint(attachment.ID))
 			transferID := legacyStableID("transfer", peerID, packetHex, fmt.Sprint(attachment.ID))
 			if fileIndex(s, fileID) >= 0 || transferIndex(s, transferID) >= 0 {
@@ -187,9 +218,6 @@ func (n *Node) receiveLegacyFiles(peerID string, packetNumber uint64, message st
 				Hash: strings.Repeat("0", 64), MIME: mediaType, SenderID: peer.ID,
 				// The source modification time is unrelated to chat order.
 				ConversationID: conversationID, CreatedAt: receivedAt,
-			}
-			if !validFile(file) {
-				continue
 			}
 			// IPMSG attachments are unverified files; a filename alone cannot
 			// opt them into the native chat-image download path.
@@ -212,7 +240,12 @@ func (n *Node) receiveLegacyFiles(peerID string, packetNumber uint64, message st
 				CreatedAt: file.CreatedAt, Status: "delivered",
 			})
 		}
+		return nil
 	})
+	if err == nil && !admitted {
+		return errors.New("飞鸽／飞秋联系人尚未登记")
+	}
+	return err
 }
 
 // Commit the request identifiers before the UDP offer leaves the process.
@@ -408,14 +441,9 @@ func (n *Node) downloadLegacy(ctx context.Context, transfer domain.Transfer, fil
 	if _, err := output.Seek(offset, io.SeekStart); err != nil {
 		return err
 	}
-	n.change(func(s *domain.State) {
-		if i := transferIndex(s, transfer.ID); i >= 0 {
-			s.Transfers[i].Path = destination
-			s.Transfers[i].Done = offset
-			s.Transfers[i].Status = "transferring"
-			s.Transfers[i].Error = ""
-		}
-	})
+	if err := n.beginReceive(ctx, transfer.ID, destination, offset); err != nil {
+		return err
+	}
 	download := func(offset int64) error {
 		started := time.Now()
 		_, err := service.DownloadFile(ctx, wireID, packet, remoteFile, file.Size, offset, output, func(done int64) {
@@ -462,25 +490,7 @@ func (n *Node) downloadLegacy(ctx context.Context, transfer domain.Transfer, fil
 		_ = os.Truncate(partial, 0)
 		return errors.New("对方发送的内容不是受支持的聊天图片")
 	}
-	hash, err := fileHashContext(ctx, partial)
-	if err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := installFile(partial, destination); err != nil {
-		return err
-	}
-	if err := n.change(func(s *domain.State) {
-		if i := fileIndex(s, file.ID); i >= 0 {
-			s.Files[i].Hash = hash
-		}
-	}); err != nil {
-		return err
-	}
-	transfer.Path = destination
-	return n.completeReceive(transfer, destination)
+	return n.publishReceivedFile(ctx, transfer.ID, partial, destination, file.Size, "")
 }
 
 func parseHexUint32(value string) (uint32, error) {

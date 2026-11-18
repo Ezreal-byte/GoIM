@@ -39,16 +39,19 @@ func newDetachedConversationView(backend domain.Backend, conversationID string) 
 	return u
 }
 
-func (u *UI) DetachedConfig() app.Config {
-	title := "GoIM"
-	if conversation := u.state.Conversation(u.selected); conversation.ID != "" {
-		if name := strings.TrimSpace(u.conversationTitle(conversation)); name != "" {
-			title = name + " · GoIM"
+func (u *UI) detachedTitle() string {
+	if !u.lockVisible() {
+		if name := strings.TrimSpace(u.conversationTitle(u.state.Conversation(u.selected))); name != "" {
+			return name + " · GoIM"
 		}
 	}
+	return "GoIM"
+}
+
+func (u *UI) DetachedConfig() app.Config {
 	clear := colorToApp(u.palette.sidebar)
 	return app.Config{
-		Title:          title,
+		Title:          u.detachedTitle(),
 		Width:          detachedWindowWidth,
 		Height:         detachedWindowHeight,
 		MinWidth:       detachedWindowMinWidth,
@@ -80,6 +83,9 @@ func (u *UI) paintDetached(canvas *gfx.Canvas, size ui.Size) {
 	canvas.Fill(bounds, u.palette.chat)
 	u.focusedID = canvas.Focused()
 	u.emojiButton, u.mentionEditor, u.composerBox = ui.Box{}, ui.Box{}, ui.Box{}
+	if u.lockVisible() {
+		return
+	}
 	titlebar := ui.Rect{Width: bounds.Width, Height: min(detachedTitlebarHeight, bounds.Height)}
 	body := ui.Rect{X: bounds.X, Y: titlebar.Bottom(), Width: bounds.Width, Height: max(bounds.Height-titlebar.Height, 0)}
 	u.lastBody, u.lastChat = body, body
@@ -91,6 +97,19 @@ func (u *UI) paintDetached(canvas *gfx.Canvas, size ui.Size) {
 	u.drawOverlays(canvas, body)
 	u.drawChatImageViewer(canvas)
 	u.markSelectedConversationRead()
+}
+
+func (u *UI) concealConversation(concealed bool) {
+	u.detachedConcealed = concealed
+	if concealed {
+		u.closeImageViewer()
+		u.closeChatPickers()
+		u.closeShellMenu()
+		u.closeDrawer()
+		u.moreOpen = false
+		u.confirm = confirmation{}
+	}
+	u.invalidator.Invalidate()
 }
 
 func (u *UI) drawDetachedTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {

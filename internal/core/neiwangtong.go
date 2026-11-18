@@ -270,11 +270,12 @@ func (n *Node) receiveNeiwangtongCancel(peerID string, taskID uint64) {
 
 func (n *Node) receiveNeiwangtongTaskCancel(peerID, remoteTask string) {
 	var partials []string
-	_ = n.change(func(s *domain.State) {
+	err := n.durableFromReader(func(p *persisted) []pending {
+		s := &p.State
 		for i := range s.Transfers {
 			t := &s.Transfers[i]
 			if t.LegacyTransport != transportNWT || t.RemotePeerID != peerID ||
-				t.RemotePacket != remoteTask || t.Direction != "receive" || terminalTransfer(t.Status) {
+				t.RemotePacket != remoteTask || t.Direction != "receive" || terminalTransfer(t.Status) || receiveAlreadyPublished(p, t.ID) {
 				continue
 			}
 			if stop := n.transfers[t.ID]; stop != nil {
@@ -285,7 +286,11 @@ func (n *Node) receiveNeiwangtongTaskCancel(peerID, remoteTask string) {
 			t.UpdatedAt = time.Now()
 			partials = append(partials, t.ID)
 		}
+		return nil
 	})
+	if err != nil {
+		return
+	}
 	for _, id := range partials {
 		_ = os.Remove(n.nativePartialPath(id))
 	}
@@ -650,13 +655,7 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 			return err
 		}
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := installFile(partial, destination); err != nil {
-		return err
-	}
-	return n.completeReceive(t, destination)
+	return n.publishReceivedFile(ctx, t.ID, partial, destination, t.Size, "")
 }
 
 func (n *Node) resumeNeiwangtongGroupFile(ctx context.Context, service *neiwangtong.Service, peer string,

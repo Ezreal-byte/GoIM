@@ -104,8 +104,7 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 	if err != nil {
 		return err
 	}
-	s := n.snapshot(false)
-	f := domain.File{ID: newID(), Name: filepath.Base(path), Size: info.Size(), Hash: hash, MIME: mime.TypeByExtension(strings.ToLower(filepath.Ext(path))), SenderID: s.Self.ID, ConversationID: convID, SourcePath: path, Shared: shared, CreatedAt: time.Now()}
+	f := domain.File{ID: newID(), Name: filepath.Base(path), Size: info.Size(), Hash: hash, MIME: mime.TypeByExtension(strings.ToLower(filepath.Ext(path))), ConversationID: convID, SourcePath: path, Shared: shared, CreatedAt: time.Now()}
 	if !validFile(f) {
 		return errors.New("文件名不适合跨平台传输")
 	}
@@ -114,44 +113,36 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 			f.MIME, f.InlineImage = mediaType, true
 		}
 	}
-	var targets []string
-	if !shared {
-		c := s.Conversation(convID)
-		if c.ID == "" {
-			return errors.New("请选择会话")
-		}
-		targets, err = recipients(s, c)
-		if err != nil {
-			return err
-		}
-	}
-	if target != "" {
-		targets = []string{target}
-	}
-	if !shared {
-		c := s.Conversation(convID)
-		nativeGroup := c.Kind == "group" && n.isNativeGroup(c.GroupID)
-		for _, id := range targets {
-			p := s.Peer(id)
-			if p.Transport == legacyIPMSG || p.Transport == domain.TransportNeiwangtong {
-				if c.Kind == "group" && (!nativeGroup || p.Transport != transportNWT) {
-					return errors.New("内网通兼容联系人仅支持单聊发送")
+	var denied error
+	err = n.durable(func(p *persisted) []pending {
+		s := &p.State
+		f.SenderID = s.Self.ID
+		var targets []string
+		if !shared {
+			c := s.Conversation(convID)
+			targets, denied = attachmentRecipients(*s, c, target)
+			if denied != nil {
+				return nil
+			}
+			nativeGroup := p.NativeGroups[c.GroupID].WireID != ""
+			for _, id := range targets {
+				transport := s.Peer(id).Transport
+				if c.Kind == "group" && (transport == legacyIPMSG || transport == transportNWT && !nativeGroup) {
+					denied = errors.New("内网通兼容联系人仅支持单聊发送")
+					return nil
 				}
-				if p.Transport == legacyIPMSG {
-					// IPMSG clients receive images through their normal file workflow.
+				if transport == legacyIPMSG {
 					f.InlineImage = false
 				}
 			}
+		} else if target != "" {
+			targets = []string{target}
 		}
-	}
-	duplicate := false
-	err = n.durable(func(p *persisted) []pending {
-		s := &p.State
 		if link.Token != "" {
 			for _, existing := range s.Files {
 				same := existing.SourcePath == f.SourcePath || runtime.GOOS == "windows" && strings.EqualFold(existing.SourcePath, f.SourcePath)
 				if existing.Shared && existing.SenderID == s.Self.ID && same {
-					duplicate = true
+					denied = errors.New("这个文件已在共享中，请从项目菜单管理链接或密码")
 					return nil
 				}
 			}
@@ -176,31 +167,55 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 		}
 		var out []pending
 		for _, id := range targets {
-			out = append(out, appendFileOffer(s, id, convID, f, ""))
+			out = append(out, appendFileOffer(s, id, convID, f, "", shared))
 		}
 		return out
 	})
-	if err != nil {
-		return err
-	}
-	if duplicate {
-		return errors.New("这个文件已在共享中，请从项目菜单管理链接或密码")
-	}
-	return nil
+	return errors.Join(err, denied)
 }
-func (n *Node) offerFile(peer, convID string, f domain.File, tid string) {
-	_ = n.durable(func(p *persisted) []pending {
-		if p.MessageRecalls[messageRecallKey(f.SenderID, convID, f.ID)] {
+func (n *Node) reofferFile(previous domain.Transfer, reuseID string) error {
+	var denied error
+	err := n.durable(func(p *persisted) []pending {
+		i := transferIndex(&p.State, previous.ID)
+		if i < 0 {
+			denied = errors.New("找不到原文件任务")
 			return nil
 		}
-		return []pending{appendFileOffer(&p.State, peer, convID, f, tid)}
+		t := p.State.Transfers[i]
+		if t.Direction != "send" || t.PeerID != previous.PeerID || t.FileID != previous.FileID {
+			denied = errors.New("无效的重新接收请求")
+			return nil
+		}
+		f := p.State.File(t.FileID)
+		if t.FromShare && (t.Revoked || !publicSharedFile(p, f)) {
+			denied = errors.New("此分享已不可用")
+			return nil
+		}
+		if !conversationAllows(&p.State, t.ConversationID, t.PeerID) {
+			denied = errors.New("群文件权限已失效")
+			return nil
+		}
+		if p.fileMessageRecalled(t) {
+			denied = errors.New("文件消息已撤回")
+			return nil
+		}
+		if f.SourcePath == "" {
+			denied = errors.New("源文件不可用")
+			return nil
+		}
+		if reuseID != "" && (t.Revoked || t.Status != "failed" && t.Status != "waiting") {
+			return nil
+		}
+		return []pending{appendFileOffer(&p.State, t.PeerID, t.ConversationID, f, reuseID, t.FromShare)}
 	})
+	return errors.Join(err, denied)
 }
-func appendFileOffer(s *domain.State, peer, convID string, f domain.File, tid string) pending {
+
+func appendFileOffer(s *domain.State, peer, convID string, f domain.File, tid string, fromShare bool) pending {
 	if tid == "" {
 		tid = newID()
 	}
-	t := domain.Transfer{ID: tid, FileID: f.ID, ConversationID: convID, PeerID: peer, Direction: "send", Status: "offered", Name: f.Name, Size: f.Size, Path: f.SourcePath, UpdatedAt: time.Now(), FromShare: f.Shared}
+	t := domain.Transfer{ID: tid, FileID: f.ID, ConversationID: convID, PeerID: peer, Direction: "send", Status: "offered", Name: f.Name, Size: f.Size, Path: f.SourcePath, UpdatedAt: time.Now(), FromShare: fromShare}
 	p := s.Peer(peer)
 	if p.Transport == legacyIPMSG {
 		t.LegacyTransport = legacyIPMSG
@@ -220,16 +235,6 @@ func appendFileOffer(s *domain.State, peer, convID string, f domain.File, tid st
 func (n *Node) receiveOffer(peer string, e envelope) error {
 	f := e.File
 	f.SourcePath = ""
-	s := n.snapshot(false)
-	n.mu.Lock()
-	tombstone := n.data.TransferTombstones[peer+":"+e.TransferID]
-	n.mu.Unlock()
-	if tombstone != "" {
-		return nil
-	}
-	if old := s.File(f.ID); old.ID != "" && old.SenderID != peer {
-		return errors.New("文件身份冲突")
-	}
 	transferBytes, transferErr := hex.DecodeString(e.TransferID)
 	if !validFile(f) || f.SenderID != peer || transferErr != nil || len(transferBytes) != 16 || e.TransferID != strings.ToLower(e.TransferID) {
 		return errors.New("无效文件邀请")
@@ -237,22 +242,32 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 	if f.InlineImage && (f.Shared || !validInlineImage(f)) {
 		return errors.New("无效聊天图片")
 	}
-	if strings.HasPrefix(f.ConversationID, "group:") {
-		g := s.Group(strings.TrimPrefix(f.ConversationID, "group:"))
-		if g.ID == "" || g.Left || g.Dissolved || !contains(g.Members, peer) || !contains(g.Members, s.Self.ID) {
-			return errors.New("群文件权限无效")
-		}
-	} else {
-		f.ConversationID = directID(s.Self.ID, peer)
-		n.change(func(st *domain.State) { ensureDirect(st, s.Peer(peer)) })
-	}
 	requested, suppressed := false, false
+	var denied error
 	err := n.durable(func(p *persisted) []pending {
+		s := &p.State
+		if p.TransferTombstones[peer+":"+e.TransferID] != "" {
+			suppressed = true
+			return nil
+		}
+		if old := s.File(f.ID); old.ID != "" && old.SenderID != peer {
+			denied = errors.New("文件身份冲突")
+			return nil
+		}
+		if !conversationAllows(s, f.ConversationID, peer) {
+			denied = errors.New("群文件权限无效")
+			return nil
+		}
+		if !strings.HasPrefix(f.ConversationID, "group:") {
+			f.ConversationID = directID(s.Self.ID, peer)
+		}
 		if p.MessageRecalls[messageRecallKey(peer, f.ConversationID, f.ID)] {
 			suppressed = true
 			return nil
 		}
-		s := &p.State
+		if !strings.HasPrefix(f.ConversationID, "group:") {
+			ensureDirect(s, s.Peer(peer))
+		}
 		for i := range s.Transfers {
 			v := &s.Transfers[i]
 			if v.FileID == f.ID && v.PeerID == peer && v.Direction == "receive" && v.Status == "retry_requested" {
@@ -295,8 +310,8 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 		}
 		return nil
 	})
-	if err != nil {
-		return err
+	if err != nil || denied != nil {
+		return errors.Join(err, denied)
 	}
 	if !suppressed && (f.InlineImage || requested) {
 		n.startReceive(e.TransferID, "")
@@ -326,7 +341,8 @@ func (n *Node) transferContext(id string) (context.Context, func(), bool) {
 	if _, ok := n.transfers[id]; ok || n.closing {
 		return nil, nil, false
 	}
-	if index := transferIndex(&n.data.State, id); index >= 0 && n.data.fileMessageRecalled(n.data.State.Transfers[index]) {
+	_, recovering := n.data.ReceivePublications[id]
+	if index := transferIndex(&n.data.State, id); !recovering && index >= 0 && n.data.fileMessageRecalled(n.data.State.Transfers[index]) {
 		return nil, nil, false
 	}
 	ctx, cancel := context.WithCancel(n.ctx)
@@ -364,9 +380,15 @@ func (n *Node) startReceive(id, destination string) {
 			if ctx.Err() != nil {
 				return
 			}
+			if _, pending := n.receivePublication(id); pending {
+				return
+			}
 			s := n.snapshot(false)
 			if i := transferIndex(&s, id); i >= 0 {
 				t := s.Transfers[i]
+				if terminalTransfer(t.Status) {
+					return
+				}
 				status := "failed"
 				if !s.Peer(t.PeerID).Online {
 					status = "waiting"
@@ -380,6 +402,9 @@ func (n *Node) startReceive(id, destination string) {
 	}
 }
 func (n *Node) download(ctx context.Context, id, destination string) error {
+	if publication, pending := n.receivePublication(id); pending {
+		return n.recoverReceivePublication(ctx, id, publication)
+	}
 	s := n.snapshot(false)
 	i := transferIndex(&s, id)
 	if i < 0 {
@@ -391,6 +416,9 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 	}
 	if t.Status == "completed" {
 		return nil
+	}
+	if terminalTransfer(t.Status) || !conversationAllows(&s, t.ConversationID, t.PeerID) {
+		return context.Canceled
 	}
 	if t.LegacyTransport == legacyIPMSG {
 		return n.downloadLegacy(ctx, t, s.File(t.FileID), destination)
@@ -464,14 +492,9 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 	if _, err = file.Seek(offset, io.SeekStart); err != nil {
 		return err
 	}
-	n.change(func(s *domain.State) {
-		if i := transferIndex(s, id); i >= 0 {
-			s.Transfers[i].Path = destination
-			s.Transfers[i].Done = offset
-			s.Transfers[i].Status = "transferring"
-			s.Transfers[i].Error = ""
-		}
-	})
+	if err := n.beginReceive(ctx, id, destination, offset); err != nil {
+		return err
+	}
 	d := net.Dialer{Timeout: 5 * time.Second}
 	raw, err := d.DialContext(ctx, "tcp", p.Address)
 	if err != nil {
@@ -562,42 +585,7 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 	if err = ctx.Err(); err != nil {
 		return err
 	}
-	if err = installFile(partial, destination); err != nil {
-		return err
-	}
-	return n.completeReceive(t, destination)
-}
-func installFile(source, dest string) error {
-	in, e := os.Open(source)
-	if e != nil {
-		return e
-	}
-	defer in.Close()
-	out, e := os.CreateTemp(filepath.Dir(dest), ".goim-install-*")
-	if e != nil {
-		return e
-	}
-	temporary := out.Name()
-	defer func() {
-		out.Close()
-		_ = os.Remove(temporary)
-	}()
-	if _, e = io.Copy(out, in); e != nil {
-		return e
-	}
-	if e = out.Sync(); e != nil {
-		return e
-	}
-	if e = out.Close(); e != nil {
-		return e
-	}
-	// Linking a completed same-volume temporary file atomically refuses an
-	// existing destination on all supported hosts; it never overwrites user data.
-	if e = os.Link(temporary, dest); e != nil {
-		return fmt.Errorf("无法安全完成文件（请选择支持硬链接的本地目录）: %w", e)
-	}
-	in.Close()
-	return os.Remove(source)
+	return n.publishReceivedFile(ctx, id, partial, destination, f.Size, f.Hash)
 }
 func (n *Node) serveFile(conn *tls.Conn, e envelope, peer string) {
 	s := n.snapshot(false)
@@ -707,18 +695,18 @@ func (n *Node) broadcastCatalog() {
 	}
 }
 func (n *Node) offerShared(peer, id string) error {
-	s := n.snapshot(false)
-	f := s.File(id)
-	if !f.Shared || f.ShareFolder || f.ShareProtected || f.SenderID != s.Self.ID {
-		return errors.New("此分享已不可用")
-	}
-	var conv string
-	return n.durable(func(p *persisted) []pending {
-		i := fileIndex(&p.State, id)
-		if i < 0 || !p.State.Files[i].Shared || p.State.Files[i].ShareFolder || p.BrowserShares[id].Password.set() {
+	granted := false
+	err := n.durable(func(p *persisted) []pending {
+		f := p.State.File(id)
+		if !publicSharedFile(p, f) {
 			return nil
 		}
-		conv = ensureDirect(&p.State, s.Peer(peer))
-		return []pending{appendFileOffer(&p.State, peer, conv, p.State.Files[i], "")}
+		granted = true
+		conv := ensureDirect(&p.State, p.State.Peer(peer))
+		return []pending{appendFileOffer(&p.State, peer, conv, f, "", true)}
 	})
+	if err == nil && !granted {
+		return errors.New("此分享已不可用")
+	}
+	return err
 }

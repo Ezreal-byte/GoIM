@@ -816,6 +816,10 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer) panelTrans
 		entry.cancel = true
 	case "failed", "cancelled", "rejected":
 		entry.retry = true
+		if transfer.Direction == "send" && transfer.FromShare {
+			file := state.File(transfer.FileID)
+			entry.retry = !transfer.Revoked && file.Shared && !file.ShareProtected
+		}
 	case "completed":
 		entry.open, entry.reveal = transfer.Path != "", transfer.Path != ""
 	}

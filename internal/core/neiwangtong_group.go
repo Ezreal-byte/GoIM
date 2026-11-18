@@ -134,7 +134,7 @@ func (n *Node) receiveNeiwangtongGroupRoster(peerID string, roster neiwangtong.G
 	if roster.OwnerID != peerID {
 		return
 	}
-	_ = n.durable(func(p *persisted) []pending {
+	_ = n.durableFromReader(func(p *persisted) []pending {
 		s := &p.State
 		owner := n.compatibilitySenderLocked(transportNWT, peerID)
 		if owner.ID == "" {
@@ -200,7 +200,7 @@ func (n *Node) receiveNeiwangtongGroupRoster(peerID string, roster neiwangtong.G
 			s.Groups[i] = g
 		}
 		ensureGroup(s, g)
-		return nil
+		return n.cancelInvalidGroup(p, g)
 	})
 }
 

@@ -519,10 +519,11 @@ type UI struct {
 	imageStamps map[string]imageStamp
 	nextImageID uint64
 
-	avatarImagePaths map[string]bool
-	detachedWindow   bool
-	detachedPinned   bool
-	detachedBlank    bool
+	avatarImagePaths  map[string]bool
+	detachedWindow    bool
+	detachedConcealed bool
+	detachedPinned    bool
+	detachedBlank     bool
 
 	media               *mediaWorker
 	mediaImageGen       uint64
@@ -2600,6 +2601,9 @@ func (u *UI) drawOverlays(canvas *gfx.Canvas, viewport ui.Rect) {
 }
 
 func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
+	if u.detachedWindow && u.lockVisible() {
+		return nil
+	}
 	if u.shellMenu.open {
 		return nil
 	}
@@ -2670,6 +2674,9 @@ func (u *UI) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 }
 
 func (u *UI) onPointer(event gfx.PointerEvent) gfx.EventResult {
+	if u.detachedWindow && u.lockVisible() {
+		return gfx.EventResult{Handled: true}
+	}
 	if result, handled := u.dragConversationPointer(event); handled {
 		return result
 	}

@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"goim/internal/domain"
+	"goim/internal/ipmsg"
 )
 
 func (n *Node) execute(c domain.Command) error {
@@ -112,13 +113,15 @@ func (n *Node) execute(c domain.Command) error {
 		if c.Kind == domain.RejectTransfer {
 			status = "rejected"
 		}
+		cancelled := false
 		err := n.durable(func(p *persisted) []pending {
 			if i := transferIndex(&p.State, t.ID); i >= 0 {
 				v := &p.State.Transfers[i]
-				if terminalTransfer(v.Status) {
+				if terminalTransfer(v.Status) || receiveAlreadyPublished(p, v.ID) {
 					return nil
 				}
 				v.Status = status
+				cancelled = true
 				v.Speed = 0
 				v.UpdatedAt = time.Now()
 				if v.Direction == "send" {
@@ -136,7 +139,7 @@ func (n *Node) execute(c domain.Command) error {
 			}
 			return []pending{{PeerID: t.PeerID, Envelope: envelope{Type: "file_status", TransferID: t.ID, Status: status}}}
 		})
-		if err == nil && t.LegacyTransport == transportNWT && t.Direction == "receive" {
+		if err == nil && cancelled && t.LegacyTransport == transportNWT && t.Direction == "receive" {
 			_ = os.Remove(n.nativePartialPath(t.ID))
 			n.removeFinishedGroupFolderStage(t.ID)
 		}
@@ -349,32 +352,32 @@ func (n *Node) sendText(convID, text string) error {
 	if len(text) > 256<<10 {
 		return errors.New("消息过长")
 	}
-	s := n.snapshot(false)
-	conv := s.Conversation(convID)
-	if conv.ID == "" {
-		return errors.New("请选择会话")
-	}
-	targets, err := recipients(s, conv)
-	if err != nil {
-		return err
-	}
-	if conv.Kind == "group" {
-		native := n.isNativeGroup(conv.GroupID)
-		for _, id := range targets {
-			transport := s.Peer(id).Transport
-			if transport == legacyIPMSG || transport == transportNWT && !native {
-				return errors.New("此群无法通过对端的兼容协议发送消息")
+	var denied error
+	err := n.durable(func(p *persisted) []pending {
+		s := &p.State
+		conv := s.Conversation(convID)
+		targets, err := recipients(*s, conv)
+		if err != nil {
+			denied = err
+			return nil
+		}
+		if conv.Kind == "group" {
+			native := p.NativeGroups[conv.GroupID].WireID != ""
+			for _, id := range targets {
+				transport := s.Peer(id).Transport
+				if transport == legacyIPMSG || transport == transportNWT && !native {
+					denied = errors.New("此群无法通过对端的兼容协议发送消息")
+					return nil
+				}
 			}
 		}
-	}
-	m := domain.Message{ID: newID(), ConversationID: convID, SenderID: s.Self.ID, Kind: "text", Text: text, CreatedAt: time.Now(), Status: "pending"}
-	for _, v := range s.GroupNicknames {
-		if v.GroupID == conv.GroupID && v.PeerID == s.Self.ID {
-			m.Nickname = v.Name
+		m := domain.Message{ID: newID(), ConversationID: convID, SenderID: s.Self.ID, Kind: "text", Text: text, CreatedAt: time.Now(), Status: "pending"}
+		for _, v := range s.GroupNicknames {
+			if v.GroupID == conv.GroupID && v.PeerID == s.Self.ID {
+				m.Nickname = v.Name
+			}
 		}
-	}
-	return n.durable(func(p *persisted) []pending {
-		addMessageState(&p.State, m)
+		addMessageState(s, m)
 		p.MessageTargets[m.ID] = targets
 		var deliveries []pending
 		for _, id := range targets {
@@ -384,8 +387,12 @@ func (n *Node) sendText(convID, text string) error {
 		}
 		return deliveries
 	})
+	return errors.Join(err, denied)
 }
 func recipients(s domain.State, c domain.Conversation) ([]string, error) {
+	if c.ID == "" {
+		return nil, errors.New("请选择会话")
+	}
 	if c.Kind == "group" {
 		g := s.Group(c.GroupID)
 		if g.Dissolved || g.Left || !contains(g.Members, s.Self.ID) {
@@ -400,7 +407,21 @@ func recipients(s domain.State, c domain.Conversation) ([]string, error) {
 	if s.Peer(c.PeerID).IsLegacyNeiwangtong() {
 		return nil, errors.New("这条旧会话仅保留聊天记录。请从联系人列表打开内网通会话")
 	}
+	if s.Peer(c.PeerID).Transport == legacyIPMSG && ipmsg.UnboundPeerID(c.PeerID) {
+		return nil, errUnboundIPMSGPeer
+	}
 	return []string{c.PeerID}, nil
+}
+
+func attachmentRecipients(s domain.State, c domain.Conversation, target string) ([]string, error) {
+	peers, err := recipients(s, c)
+	if err != nil || target == "" {
+		return peers, err
+	}
+	if !contains(peers, target) {
+		return nil, errors.New("该联系人不在此会话中")
+	}
+	return []string{target}, nil
 }
 func (n *Node) setting(c domain.Command) error {
 	s := n.snapshot(false)

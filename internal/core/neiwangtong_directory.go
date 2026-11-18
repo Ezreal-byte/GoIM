@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,46 +51,45 @@ func (n *Node) removeFinishedGroupFolderStage(id string) {
 }
 
 func (n *Node) sendNeiwangtongDirectory(conversationID, path, target string) error {
-	s := n.snapshot(false)
-	c := s.Conversation(conversationID)
-	nativeGroup := c.Kind == "group" && n.isNativeGroup(c.GroupID)
-	if !nativeGroup && (c.Kind != "direct" || s.Peer(c.PeerID).Transport != transportNWT || target != "" && target != c.PeerID) {
-		return errors.New("文件夹直传目前仅支持内网通会话")
-	}
-	targets, err := recipients(s, c)
-	if err != nil {
-		return err
-	}
-	if target != "" {
-		if !contains(targets, target) {
-			return errors.New("该联系人不在此内网通群中")
-		}
-		targets = []string{target}
-	}
-	for _, id := range targets {
-		if s.Peer(id).Transport != transportNWT {
-			return errors.New("一个群只能选择同一种客户端的联系人")
-		}
-	}
 	dir, err := neiwangtong.InspectDirectory(path)
 	if err != nil {
 		return err
 	}
 	now := time.Now()
 	f := domain.File{ID: newID(), Name: dir.Name, Size: dir.Size, Hash: dir.Stamp, Folder: true,
-		SourcePath: dir.Path, SenderID: s.Self.ID, ConversationID: conversationID, CreatedAt: now}
-	return n.durable(func(p *persisted) []pending {
+		SourcePath: dir.Path, ConversationID: conversationID, CreatedAt: now}
+	var denied error
+	err = n.durable(func(p *persisted) []pending {
 		s := &p.State
+		c := s.Conversation(conversationID)
+		nativeGroup := c.Kind == "group" && p.NativeGroups[c.GroupID].WireID != ""
+		if !nativeGroup && (c.Kind != "direct" || s.Peer(c.PeerID).Transport != transportNWT) {
+			denied = errors.New("文件夹直传目前仅支持内网通会话")
+			return nil
+		}
+		targets, err := attachmentRecipients(*s, c, target)
+		if err != nil {
+			denied = err
+			return nil
+		}
+		for _, id := range targets {
+			if s.Peer(id).Transport != transportNWT {
+				denied = errors.New("一个群只能选择同一种客户端的联系人")
+				return nil
+			}
+		}
+		f.SenderID = s.Self.ID
 		s.Files = append(s.Files, f)
 		addMessageState(s, domain.Message{ID: f.ID, FileID: f.ID, Kind: "file", Text: attachmentPreview(f),
 			ConversationID: conversationID, SenderID: f.SenderID, CreatedAt: now, Status: "sent"})
 		p.MessageTargets[f.ID] = targets
 		var offers []pending
 		for _, peer := range targets {
-			offers = append(offers, appendFileOffer(s, peer, conversationID, f, ""))
+			offers = append(offers, appendFileOffer(s, peer, conversationID, f, "", false))
 		}
 		return offers
 	})
+	return errors.Join(err, denied)
 }
 
 func (n *Node) receiveNeiwangtongDirectory(peerID string, offer neiwangtong.FolderOffer) {
@@ -180,7 +177,8 @@ func (n *Node) retryNeiwangtongDirectory(t domain.Transfer) error {
 		}
 		current := &p.State.Transfers[i]
 		if current.RemotePacket != t.RemotePacket || current.Revoked ||
-			(current.Status != "failed" && current.Status != "waiting") || p.fileMessageRecalled(*current) {
+			(current.Status != "failed" && current.Status != "waiting") || p.fileMessageRecalled(*current) ||
+			!conversationAllows(&p.State, current.ConversationID, current.PeerID) {
 			return nil
 		}
 		for id, value := range p.Outbox {
@@ -192,7 +190,7 @@ func (n *Node) retryNeiwangtongDirectory(t domain.Transfer) error {
 		if current.RemoteShareID == "" {
 			current.RemotePacket = newID()
 		}
-		return []pending{appendFileOffer(&p.State, current.PeerID, current.ConversationID, p.State.File(current.FileID), current.ID)}
+		return []pending{appendFileOffer(&p.State, current.PeerID, current.ConversationID, p.State.File(current.FileID), current.ID, current.FromShare)}
 	})
 }
 
@@ -231,6 +229,11 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 			destination = filepath.Join(settings.DownloadDir, fmt.Sprintf("%s (%d)", f.Name, index))
 		}
 	}
+	absolute, err := filepath.Abs(destination)
+	if err != nil {
+		return err
+	}
+	destination = absolute
 	parent := filepath.Dir(destination)
 	if _, err := os.Lstat(destination); err == nil {
 		return errors.New("同名文件夹已存在，请选择另存为")
@@ -289,7 +292,6 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 		}
 	}
 	content := stage
-	var err error
 	if groupFolder {
 		content = filepath.Join(stage, "files")
 		_, err = service.ResumeGroupDirectory(ctx, peerID, t.RemoteShareID, f.Name, content, filepath.Join(stage, "manifest"), func(done, total int64) {
@@ -326,81 +328,13 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 		}
 		return err
 	}
-	if err := installNewDirectory(ctx, content, destination); err != nil {
-		return err
-	}
-	return n.completeReceive(t, destination)
-}
-
-// Publish under an exclusively created destination; an existing directory is
-// never merged with or replaced. Both trees live on the same volume.
-func installNewDirectory(ctx context.Context, stage, destination string) error {
-	parent := filepath.Dir(destination)
-	staged, err := filepath.Rel(parent, stage)
-	if err != nil || !filepath.IsLocal(staged) || staged == "." {
-		return errors.New("文件夹暂存位置无效")
-	}
-	root, err := os.OpenRoot(parent)
+	digest, size, err := receiveDirectoryDigest(ctx, content)
 	if err != nil {
 		return err
 	}
-	defer root.Close()
-	dest := filepath.Base(destination)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := root.Mkdir(dest, 0700); err != nil {
-		return fmt.Errorf("无法创建文件夹: %w", err)
-	}
-	created := []string{dest}
-	err = fs.WalkDir(os.DirFS(stage), ".", func(relative string, item fs.DirEntry, walkErr error) error {
-		if walkErr != nil || relative == "." {
-			return walkErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		name := filepath.Join(dest, filepath.FromSlash(relative))
-		var err error
-		if item.IsDir() {
-			err = root.Mkdir(name, 0700)
-		} else {
-			source := filepath.Join(staged, filepath.FromSlash(relative))
-			err = root.Link(source, name)
-			if err != nil && !errors.Is(err, fs.ErrExist) {
-				err = copyDirectoryFile(root, source, name)
-			}
-		}
-		if err == nil {
-			created = append(created, name)
-		}
-		return err
-	})
-	if err != nil {
-		for i := len(created) - 1; i >= 0; i-- {
-			_ = root.Remove(created[i])
-		}
-	}
-	return err
-}
-
-// Some download volumes, including exFAT, cannot create hard links.
-func copyDirectoryFile(root *os.Root, source, dest string) error {
-	in, err := root.Open(source)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := root.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(out, in)
-	if err == nil {
-		err = out.Sync()
-	}
-	if err = errors.Join(err, out.Close()); err != nil {
-		_ = root.Remove(dest)
+	err = n.publishReceive(ctx, t.ID, receivePublication{Stage: content, Destination: destination, Digest: digest, Size: size, Directory: true})
+	if pending, ok := n.receivePublication(t.ID); ok && pending.Stage == content {
+		keepStage = true
 	}
 	return err
 }

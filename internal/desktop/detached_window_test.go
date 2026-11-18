@@ -202,6 +202,41 @@ func TestDetachedTitlebarPinUsesNativeAlwaysOnTop(t *testing.T) {
 	}
 }
 
+func TestLockedDetachedConversationConcealsContentAndClearsOverlays(t *testing.T) {
+	backend := newShellTestBackend(shellTestState(t))
+	view := newDetachedConversationView(backend, "conv-alice")
+	t.Cleanup(view.Close)
+	driver, err := app.NewDriver(view.DetachedConfig(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(driver.Close)
+	view.surface.viewer.open, view.emojiOpen, view.detachedPinned = true, true, true
+	view.concealConversation(true)
+	if err := driver.Paint(); err != nil {
+		t.Fatal(err)
+	}
+	if view.detachedTitle() != "GoIM" || view.surface.viewer.open || view.emojiOpen {
+		t.Fatal("the locked window retained its conversation title or overlays")
+	}
+	locked := driver.Snapshot()
+	for _, text := range locked.Texts {
+		if text.Value == "Alice" || text.Value == "晚点确认。" {
+			t.Fatal("conversation text remained visible while locked")
+		}
+	}
+	if view.hasDetachedHit(locked, view.ids.chatSend) || view.hasDetachedHit(locked, view.ids.detachedPin) {
+		t.Fatal("conversation controls remained available while locked")
+	}
+	view.concealConversation(false)
+	if err := driver.Paint(); err != nil {
+		t.Fatal(err)
+	}
+	if view.detachedTitle() != "Alice · GoIM" || !view.hasDetachedHit(driver.Snapshot(), view.ids.chatSend) || !view.detachedPinned {
+		t.Fatal("unlock did not restore the detached conversation and its pin state")
+	}
+}
+
 func TestDetachedConversationRowKeepsPrimaryContentEmpty(t *testing.T) {
 	h := newShellTestHarness(t, shellTestState(t))
 	h.ui.detached["conv-alice"] = true

@@ -26,22 +26,23 @@ type ownershipOffer struct {
 	CreatedAt time.Time
 }
 type persisted struct {
-	MessageTargets     map[string][]string
-	MessageRecalls     map[string]bool
-	CatalogRevisions   map[string]uint64
-	NextSequence       uint64
-	TransferTombstones map[string]string
-	PeerBridges        map[string]peerBridge
-	NativeGroups       map[string]nativeGroup
-	Version            int
-	State              domain.State
-	Outbox             map[string]pending
-	Seen               map[string]bool
-	OwnerOffers        map[string]ownershipOffer
-	BrowserShares      map[string]browserShare
-	BrowserPort        string
-	BrowserHomeToken   string
-	LockCredential     credential
+	MessageTargets      map[string][]string
+	MessageRecalls      map[string]bool
+	CatalogRevisions    map[string]uint64
+	NextSequence        uint64
+	TransferTombstones  map[string]string
+	ReceivePublications map[string]receivePublication `json:",omitempty"`
+	PeerBridges         map[string]peerBridge
+	NativeGroups        map[string]nativeGroup
+	Version             int
+	State               domain.State
+	Outbox              map[string]pending
+	Seen                map[string]bool
+	OwnerOffers         map[string]ownershipOffer
+	BrowserShares       map[string]browserShare
+	BrowserPort         string
+	BrowserHomeToken    string
+	LockCredential      credential
 }
 
 func openStore(dir string) (*bolt.DB, persisted, error) {

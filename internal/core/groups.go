@@ -118,33 +118,63 @@ func groupDeliveries(s domain.State, g domain.Group, extra ...string) []pending 
 	}
 	return out
 }
+func groupAllows(g domain.Group, self, peer string) bool {
+	return g.ID != "" && !g.Dissolved && !g.Left && contains(g.Members, self) && contains(g.Members, peer)
+}
+
+func conversationAllows(s *domain.State, conversation, peer string) bool {
+	id, group := strings.CutPrefix(conversation, "group:")
+	return !group || groupAllows(s.Group(id), s.Self.ID, peer)
+}
+
+func deliveryGroup(p *persisted, delivery pending) string {
+	e := delivery.Envelope
+	conversation := e.Message.ConversationID
+	switch e.Type {
+	case "file_offer":
+		conversation = e.File.ConversationID
+	case "file_retry":
+		if index := transferIndex(&p.State, e.TransferID); index >= 0 {
+			conversation = p.State.Transfers[index].ConversationID
+		}
+	case nativeGroupRosterDelivery:
+		return e.Target
+	case "group_nickname":
+		return e.Group.ID
+	}
+	id, group := strings.CutPrefix(conversation, "group:")
+	if !group {
+		return ""
+	}
+	return id
+}
+
+func deliveryAllowed(p *persisted, delivery pending) bool {
+	id := deliveryGroup(p, delivery)
+	return id == "" || groupAllows(p.State.Group(id), p.State.Self.ID, delivery.PeerID)
+}
+
 func (n *Node) cancelInvalidGroup(p *persisted, g domain.Group) []pending {
 	var out []pending
 	local := p.State.Group(g.ID)
 	for i := range p.State.Transfers {
 		t := &p.State.Transfers[i]
-		if t.ConversationID != "group:"+g.ID || terminalTransfer(t.Status) {
+		if t.ConversationID != "group:"+g.ID || terminalTransfer(t.Status) || receiveAlreadyPublished(p, t.ID) {
 			continue
 		}
-		if g.Dissolved || local.Left || !contains(g.Members, p.State.Self.ID) || !contains(g.Members, t.PeerID) {
+		if !groupAllows(local, p.State.Self.ID, t.PeerID) {
 			if cancel := n.transfers[t.ID]; cancel != nil {
 				cancel()
 			}
 			t.Status = "cancelled"
 			t.Error = "群成员权限已变更"
 			t.Speed = 0
+			t.Revoked = true
 			out = append(out, pending{PeerID: t.PeerID, Envelope: envelope{Type: "file_status", TransferID: t.ID, Status: "cancelled"}})
 		}
 	}
 	for id, d := range p.Outbox {
-		conv := d.Envelope.Message.ConversationID
-		if d.Envelope.Type == "file_offer" {
-			conv = d.Envelope.File.ConversationID
-		}
-		if d.Envelope.Type == nativeGroupRosterDelivery {
-			conv = "group:" + d.Envelope.Target
-		}
-		if conv == "group:"+g.ID && (g.Dissolved || local.Left || !contains(g.Members, d.PeerID)) {
+		if deliveryGroup(p, d) == g.ID && !groupAllows(local, p.State.Self.ID, d.PeerID) {
 			delete(p.Outbox, id)
 		}
 	}

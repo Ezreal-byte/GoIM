@@ -53,9 +53,10 @@ type desktopRuntime struct {
 }
 
 type detachedConversationWindow struct {
-	id     string
-	ui     *UI
-	window *app.Window
+	id              string
+	ui              *UI
+	window          *app.Window
+	restoreOnUnlock bool
 }
 
 // Run owns the native window and optional tray. The same lifecycle is exercised
@@ -206,6 +207,14 @@ func (r *desktopRuntime) observe() {
 		return
 	}
 	s := r.ui.state
+	locked := r.ui.lockVisible()
+	if locked && r.ui.conversationDrag.preview != nil {
+		r.ui.conversationDrag.preview.Close()
+		r.ui.conversationDrag = conversationDragState{}
+	}
+	for _, detached := range r.conversationWindows {
+		detached.conceal(locked)
+	}
 	if s.Revision != r.detachedRevision {
 		r.detachedRevision = s.Revision
 		for _, detached := range r.conversationWindows {
