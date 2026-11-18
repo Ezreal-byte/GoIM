@@ -3,10 +3,13 @@ package neiwangtong
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -15,22 +18,12 @@ func TestRestoredGroupFileKeepsTheRecipientAndMembershipScope(t *testing.T) {
 	var permitted atomic.Bool
 	permitted.Store(true)
 	a := Config{Name: "Sender", BindIP: loopback, DisableBroadcast: true, ID: [16]byte{71},
-		EnableFolders: true,
-		DiscoveryPort: freePort(t, "udp"), ControlPort: freePort(t, "udp"), TransferPort: freePort(t, "tcp"),
+		EnableFolders:     true,
 		CanServeGroupFile: func(_, _ string) bool { return permitted.Load() }}
 	b := Config{Name: "Receiver", BindIP: loopback, DisableBroadcast: true, ID: [16]byte{72},
-		EnableFolders: true,
-		DiscoveryPort: freePort(t, "udp"), ControlPort: freePort(t, "udp"), TransferPort: freePort(t, "tcp")}
-	a.RemoteControlPort, b.RemoteControlPort = b.ControlPort, a.ControlPort
-	sender, err := Start(a)
-	if err != nil {
-		t.Fatal(err)
-	}
+		EnableFolders: true}
+	sender, receiver := startRestoredGroupPair(t, &a, &b)
 	defer sender.Close()
-	receiver, err := Start(b)
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer receiver.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
@@ -107,4 +100,41 @@ func TestRestoredGroupFileKeepsTheRecipientAndMembershipScope(t *testing.T) {
 	if entries, err := os.ReadDir(deniedDest); err != nil || len(entries) != 0 {
 		t.Fatalf("a denied directory request wrote files: %v", err)
 	}
+}
+
+func startRestoredGroupPair(t *testing.T, a, b *Config) (*Service, *Service) {
+	t.Helper()
+	// Finding a free port and binding the service cannot be atomic. Other
+	// test packages can acquire it in between, especially under -race.
+	// Retry only fixture binding; every transfer/permission check still runs.
+	addressInUse := func(err error) bool {
+		const winsockAddressInUse syscall.Errno = 10048 // WSAEADDRINUSE
+		return errors.Is(err, syscall.EADDRINUSE) ||
+			runtime.GOOS == "windows" && errors.Is(err, winsockAddressInUse)
+	}
+	var failure error
+	for range 8 {
+		a.DiscoveryPort, a.ControlPort, a.TransferPort = freePort(t, "udp"), freePort(t, "udp"), freePort(t, "tcp")
+		b.DiscoveryPort, b.ControlPort, b.TransferPort = freePort(t, "udp"), freePort(t, "udp"), freePort(t, "tcp")
+		a.RemoteControlPort, b.RemoteControlPort = b.ControlPort, a.ControlPort
+		sender, err := Start(*a)
+		if err != nil {
+			if !addressInUse(err) {
+				t.Fatal(err)
+			}
+			failure = err
+			continue
+		}
+		receiver, err := Start(*b)
+		if err == nil {
+			return sender, receiver
+		}
+		_ = sender.Close()
+		if !addressInUse(err) {
+			t.Fatal(err)
+		}
+		failure = err
+	}
+	t.Fatalf("could not reserve isolated group test ports: %v", failure)
+	return nil, nil
 }
