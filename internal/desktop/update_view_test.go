@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"strings"
 	"testing"
 
 	"goim/internal/domain"
@@ -39,7 +40,8 @@ func TestUpdateDialogShowsReleaseNotes(t *testing.T) {
 			Version: "0.1.6", Automatic: true,
 			NotesURL: selfupdate.ReleaseURL("0.1.6"),
 		},
-		notes: "- 修复独立会话窗口\n- 新增自动更新开关",
+		notes: "## 更新内容\n\n- **修复**独立会话窗口\n- 新增 `自动更新` 开关\n\n" +
+			"[完整说明](https://example.com/releases/0.1.6)",
 	}}
 	if err := h.driver.Paint(); err != nil {
 		t.Fatal(err)
@@ -47,8 +49,39 @@ func TestUpdateDialogShowsReleaseNotes(t *testing.T) {
 	h.clickID(h.ui.updateIDs.chrome)
 	h.settle()
 	requireShellLayout(t, h.snapshot())
-	if !h.hasText("更新说明") || !h.hasText("修复独立会话窗口") || !h.hasText("新增自动更新开关") {
-		t.Fatal("update dialog did not render release notes")
+	for _, want := range []string{
+		"更新说明", "更新内容", "修复", "独立会话窗口",
+		"新增", "自动更新", "开关", "完整说明",
+	} {
+		if h.hasText(want) {
+			continue
+		}
+		var texts []string
+		for _, text := range h.snapshot().Texts {
+			texts = append(texts, text.Value)
+		}
+		t.Fatalf("update dialog did not render %q: %q", want, texts)
+	}
+	for _, text := range h.snapshot().Texts {
+		if strings.ContainsAny(text.Value, "#`") || strings.Contains(text.Value, "**") ||
+			strings.HasPrefix(text.Value, "- ") {
+			t.Fatalf("update dialog displayed raw Markdown: %q", text.Value)
+		}
+	}
+	clicked := false
+	for _, hit := range h.snapshot().Hits {
+		if hit.Label == "完整说明" {
+			h.clickID(hit.ID)
+			clicked = true
+			break
+		}
+	}
+	if !clicked {
+		t.Fatal("Markdown link did not register a clickable region")
+	}
+	h.settle()
+	if opened, ok := h.driver.LastOpenedURL(); !ok || opened != "https://example.com/releases/0.1.6" {
+		t.Fatalf("Markdown link opened %q, want release link", opened)
 	}
 }
 
