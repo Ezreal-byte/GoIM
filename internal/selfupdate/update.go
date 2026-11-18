@@ -208,8 +208,9 @@ func (c *Client) Check(ctx context.Context) (Offer, error) {
 	return selectOffer(feed, c.target)
 }
 
-// ReleaseNotes returns plain-text release notes. It never interprets markup or
-// HTML, caps the response body, and only follows HTTPS GitHub redirects.
+// ReleaseNotes returns the release-note Markdown without interpreting it. The
+// UI renders supported Markdown syntax as text; HTML and unsafe links remain
+// inert. The response is bounded and redirects must stay on HTTPS GitHub hosts.
 func (c *Client) ReleaseNotes(ctx context.Context, offer Offer) (string, error) {
 	version, ok := StableVersion(offer.Version)
 	if !ok || version != offer.Version || c == nil || c.notesClient == nil {

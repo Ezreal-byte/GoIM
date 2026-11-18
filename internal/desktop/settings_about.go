@@ -343,12 +343,16 @@ func (p *Panels) aboutLinkCard(f ui.C, theme ui.Theme, item aboutLinkItem) {
 
 func (p *Panels) openAboutURL(canvas *gfx.Canvas, target string) {
 	canvas.AfterPaint(func() {
-		if err := app.OpenURL(target); err != nil {
-			p.localError = i18n.T("无法打开链接：") + err.Error()
-			return
-		}
-		p.localError = ""
+		p.openAboutURLNow(target)
 	})
+}
+
+func (p *Panels) openAboutURLNow(target string) {
+	if err := app.OpenURL(target); err != nil {
+		p.localError = i18n.T("无法打开链接：") + err.Error()
+		return
+	}
+	p.localError = ""
 }
 
 func panelVersionReport(state domain.State, build panelBuildInfo) string {

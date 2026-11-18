@@ -5,6 +5,7 @@ import (
 
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/markdown"
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
@@ -15,6 +16,16 @@ import (
 type updateControls struct {
 	chrome, scope, dismiss, close, action, notes, download, cancel gfx.ID
 }
+
+type updateNotesView struct {
+	document             markdown.Document
+	view                 components.MarkdownView
+	source               string
+	width, height        float32
+	fontSize, lineHeight float32
+}
+
+const updateDialogWidth = float32(540)
 
 func (c *updateControls) init(tree *gfx.Tree, scope gfx.Scope) {
 	c.chrome = tree.ID(scope, "update-titlebar")
@@ -134,7 +145,7 @@ func (u *UI) drawUpdateDialog(c *gfx.Canvas, viewport gfx.Rect) {
 	view, ids := u.update, u.updateIDs
 	installBlocked := u.updateBlocked()
 	u.dialogPage.Draw(c, viewport, func(f ui.C) {
-		dialog := ui.Dialog(f, ui.DialogSpec{Title: i18n.T("软件更新"), Layer: 77, Width: 470,
+		dialog := ui.Dialog(f, ui.DialogSpec{Title: i18n.T("软件更新"), Layer: 77, Width: updateDialogWidth,
 			Scope: ids.scope, DismissID: ids.dismiss, CloseID: ids.close,
 			InitialFocusID: ids.action, NoClose: view.phase == updateInstalling})
 		open := func(url string) { u.panels.openAboutURL(c, url) }
@@ -155,9 +166,7 @@ func (u *UI) drawUpdateDialog(c *gfx.Canvas, viewport gfx.Rect) {
 						ui.Column(f).FillWidth().Height(190).Shrink(0).PadSides(12, 12, 10, 10).
 							Background(u.theme.Muted).Border(1, u.theme.Border).
 							Radius(u.theme.Metrics.RadiusControl).Children(func() {
-							ui.Scroll(f).Scrollbars().Fill().Children(func() {
-								ui.Paragraph(f, view.notes, 80).FontSize(u.theme.Metrics.FontSizeS + 1)
-							})
+							u.drawUpdateNotes(f, c, viewport)
 						})
 					case view.notesProblem != "":
 						ui.Paragraph(f, i18n.T(view.notesProblem), 2).Muted()
@@ -237,6 +246,53 @@ func (u *UI) drawUpdateDialog(c *gfx.Canvas, viewport gfx.Rect) {
 			u.updateOpen = false
 		}
 	})
+}
+
+func (u *UI) drawUpdateNotes(f ui.C, canvas *gfx.Canvas, viewport gfx.Rect) {
+	width := updateNotesWidth(viewport.Width, u.theme)
+	if width <= 0 {
+		return
+	}
+	notes := &u.updateNotes
+	fontSize := u.theme.Metrics.FontSizeS + 1
+	lineHeight := max(fontSize+7, u.theme.Metrics.FontSizeM+4)
+	if notes.source != u.update.notes || notes.width != width ||
+		notes.fontSize != fontSize || notes.lineHeight != lineHeight {
+		if notes.source != u.update.notes {
+			notes.document.Parse(u.update.notes)
+			notes.source = u.update.notes
+		}
+		notes.width = width
+		notes.fontSize = fontSize
+		notes.lineHeight = lineHeight
+		notes.height = notes.view.Layout(canvas, components.MarkdownStyle{
+			Size: fontSize, LineHeight: lineHeight,
+		}, &notes.document, width)
+	}
+	linkScope := u.updateIDs.notes.Scope()
+	ui.Scroll(f).Scrollbars().Fill().Children(func() {
+		ui.Slot(f).FillWidth().Height(max(notes.height, 1)).Draw(func(d *ui.DrawContext) {
+			notes.view.Paint(d.Canvas, components.MarkdownPaint{
+				Look: components.MarkdownLookFor(*d.Theme), X: d.Rect.X, Y: d.Rect.Y, Links: linkScope,
+			})
+			for index := 0; index < notes.view.LinkCount(); index++ {
+				if !d.Canvas.Clicked(linkScope.At(index)) {
+					continue
+				}
+				target := notes.view.Link(index)
+				d.Canvas.AfterPaint(func() { u.panels.openAboutURLNow(target) })
+			}
+		})
+	})
+}
+
+func updateNotesWidth(viewportWidth float32, theme ui.Theme) float32 {
+	const (
+		viewportInset = float32(32)
+		notesPadding  = float32(12)
+	)
+	surface := min(updateDialogWidth, max(viewportWidth-viewportInset, 1))
+	return max(surface-2*(theme.Metrics.PadSurface+theme.Metrics.GapItem)-2*notesPadding, 1)
 }
 
 func (u *UI) updateBlocked() bool {

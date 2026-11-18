@@ -354,6 +354,7 @@ type UI struct {
 	updater                       *updateController
 	update                        updateView
 	updateIDs                     updateControls
+	updateNotes                   updateNotesView
 	updateOpen, updateResultShown bool
 	updateAnnounced               string
 	screenshotActive              func() bool

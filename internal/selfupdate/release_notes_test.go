@@ -22,7 +22,7 @@ func testPublicKey(t *testing.T) string {
 	return base64.StdEncoding.EncodeToString(public)
 }
 
-func TestReleaseNotesLoadsBoundedPlainTextFromGitHubAPI(t *testing.T) {
+func TestReleaseNotesLoadsBoundedMarkdownFromGitHubAPI(t *testing.T) {
 	notes := "## Changes\r\n\r\n- Fixed detached windows\n- Added update controls\x00"
 	body, err := json.Marshal(map[string]string{"body": notes})
 	if err != nil {

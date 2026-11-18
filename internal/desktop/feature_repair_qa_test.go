@@ -8,6 +8,8 @@ import (
 
 	"github.com/vivaui/viva/gfx"
 	vivaheadless "github.com/vivaui/viva/headless"
+
+	"goim/internal/selfupdate"
 )
 
 func TestDesktopFeatureRepairScreenshotQA(t *testing.T) {
@@ -56,6 +58,33 @@ func TestDesktopFeatureRepairScreenshotQA(t *testing.T) {
 		t.Fatal(err)
 	}
 	shellQAShot(t, session, directory, "settings-about-diagnostics.png")
+
+	shell.updater = &updateController{view: updateView{
+		phase: updateOffered,
+		offer: selfupdate.Offer{
+			Version: "0.1.8", Automatic: true,
+			NotesURL: selfupdate.ReleaseURL("0.1.8"),
+		},
+		notes: "## GoIM 0.1.8\n\n" +
+			"本次更新修复了 **Windows 更新安装器**，并改善了 Linux 兼容性。\n\n" +
+			"- 修复独立聊天窗口置顶与缩放\n" +
+			"- Linux 包支持 `GLIBC 2.31` 基线\n" +
+			"- [查看完整更新说明](https://github.com/Ezreal-byte/GoIM/releases)\n\n" +
+			"| 平台 | 安装包 |\n| --- | --- |\n| Windows | Setup.exe |\n| Linux | DEB / tar.gz |",
+	}}
+	shell.observeUpdate()
+	shell.updateOpen = true
+	shell.invalidator.Invalidate()
+	if err := session.Wait(150 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Expect("text", "GoIM 0.1.8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Expect("layout", "clean"); err != nil {
+		t.Fatal(err)
+	}
+	shellQAShot(t, session, directory, "update-dialog-markdown.png")
 
 	detachedState := shellTestState(t)
 	detachedBackend := newShellTestBackend(detachedState)
