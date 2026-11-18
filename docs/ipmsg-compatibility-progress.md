@@ -13,7 +13,7 @@
 | 关闭客户端时的待发送消息 | 回归通过 | 回执到来前关闭，消息仍在持久发件箱；重启后用原报文号补投并等待确认。 |
 | 昵称与登录标识 | 回归通过 | 登录标识来自 GoIM 持久身份，修改昵称和重启不会改变报头身份；昵称仍通过资料广播更新。 |
 | 普通文件双向收发 | 原版 IP Messenger 通过 | 两个方向均使用真实 GoIM 后端和原版 `5.9.1`，各保存 98,321 字节、中文文件名并核对 SHA-256。GoIM 接收需要明确接受附件。 |
-| 文件断点续传 | 标准 TCP 协议回归通过 | 测试对端验证非零偏移及完整内容；原版中断重试专项尚未完成。 |
+| 普通文件中断恢复 | 标准非零偏移通过，原版 IP Messenger 可重传 | 标准测试对端按非零偏移继续。IP Messenger 5.9.1 拒绝 32,768 字节的偏移时，GoIM 自动用同一邀请从零重试。原版测试用 8 MiB 样本，最终 SHA-256 一致。 |
 | 状态变化 | 原版 IP Messenger 通过 | 原版切换离开、恢复在线并退出时，GoIM 同一联系人记录随之更新。 |
 | 离线文字补投 | GoIM→原版 IP Messenger 通过 | 关闭接收端后发送中文，GoIM 重启仍保留待发送消息。原版重开后自动发现、收到对应回执，同一会话内保留一条已发送消息。 |
 | 飞秋 2013（3.0.0.2） | 待 Windows 原版验收 | 原版在 Wine 8.0 和 11.0 的新档案中均停在 `CryptDecrypt test512 error = 80090005`，未处理发现流量。后续在 Windows 上验证广播发现、双向中文和普通文件。 |
@@ -37,4 +37,4 @@ pwsh -File scripts/test-ipmsg.ps1 -Mode Sandbox
 
 非默认程序位置可以传 `-SandboxOriginalDir`。每次使用全新档案，报告保存在忽略的 `artifacts/ipmsg/sandbox.json`。测试通过原版 `ipcmd` 收发和读取正文、切换状态以及关闭原版，随后用同一个临时档案重开。临时原版的自动保存目录用于核对 GoIM 发出的文件。GoIM 侧仍需明确接受文件。
 
-协议依据为原作者的 [IPMSG 通信规范](https://github.com/shirouzu/ipmsg/blob/master/protocol.txt)和[命令行帮助](https://ipmsg.org/help/ipmsghlp_eng.htm)。接下来的原版验收集中在飞秋的 Windows 版本和普通文件中断续传。
+接下来的原版验收集中在飞秋的 Windows 版本。协议依据为原作者的 [IPMSG 通信规范](https://github.com/shirouzu/ipmsg/blob/master/protocol.txt)和[命令行帮助](https://ipmsg.org/help/ipmsghlp_eng.htm)。

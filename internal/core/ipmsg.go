@@ -416,11 +416,33 @@ func (n *Node) downloadLegacy(ctx context.Context, transfer domain.Transfer, fil
 			s.Transfers[i].Error = ""
 		}
 	})
-	started := time.Now()
-	_, err = service.DownloadFile(ctx, wireID, packet, remoteFile, file.Size, offset, output, func(done int64) {
-		speed := float64(done-offset) / time.Since(started).Seconds()
-		n.setTransfer(transfer.ID, "transferring", done, speed, "")
-	})
+	download := func(offset int64) error {
+		started := time.Now()
+		_, err := service.DownloadFile(ctx, wireID, packet, remoteFile, file.Size, offset, output, func(done int64) {
+			speed := float64(done-offset) / time.Since(started).Seconds()
+			n.setTransfer(transfer.ID, "transferring", done, speed, "")
+		})
+		return err
+	}
+	err = download(offset)
+	if offset > 0 && offset < file.Size && errors.Is(err, io.EOF) && ctx.Err() == nil {
+		current, statErr := output.Stat()
+		if statErr != nil {
+			return statErr
+		}
+		// Some originals close a nonzero request without sending any
+		// data. Retain partial progress if this attempt wrote new bytes.
+		if current.Size() == offset {
+			if _, err := output.Seek(0, io.SeekStart); err != nil {
+				return err
+			}
+			if err := output.Truncate(0); err != nil {
+				return err
+			}
+			n.setTransfer(transfer.ID, "transferring", 0, 0, "")
+			err = download(0)
+		}
+	}
 	if err != nil {
 		return err
 	}
