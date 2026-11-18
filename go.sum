@@ -1,3 +1,5 @@
+github.com/Ezreal-byte/viva v0.1.1-0.20261118035410-75594fb1481d h1:SfvwQVqF0IOQY0jUlx7ljcvWNRhkXhvIbG01C23p7B8=
+github.com/Ezreal-byte/viva v0.1.1-0.20261118035410-75594fb1481d/go.mod h1:e9In6+J77G7B9ow4enZ2FSOFh7U3q4cQ5iJr3Qn/Olk=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dsnet/compress v0.0.0-20171208185109-cc9eb1d7ad76 h1:eX+pdPPlD279OWgdx7f6KqIRSONuK7egk+jDx7OM3Ac=
@@ -24,8 +26,6 @@ github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e h1:MRM5ITcdelLK2j1
 github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e/go.mod h1:XV66xRDqSt+GTGFMVlhk3ULuV0y9ZmzeVGR4mloJI3M=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/vivaui/viva v0.6.6-0.20261118022843-059256b5ba10 h1:88USlAky2/EM3WRyA6Nv8uzXTUqPwkt8WSrFAF19+/o=
-github.com/vivaui/viva v0.6.6-0.20261118022843-059256b5ba10/go.mod h1:e9In6+J77G7B9ow4enZ2FSOFh7U3q4cQ5iJr3Qn/Olk=
 go.etcd.io/bbolt v1.5.0 h1:S7GAl7Fxv12yohbwFfIbQCGDWbQbtDGPET4P/bD4lxU=
 go.etcd.io/bbolt v1.5.0/go.mod h1:mkltfYE5aUHQxUct9N9V+Kp7aSjFqjgrhcXIS70Lrdk=
 golang.org/x/sync v0.25.0 h1:dJnifr0nMV8/SBnBvdo4eSGGnrc3O4FFx6IqvtLcmRs=

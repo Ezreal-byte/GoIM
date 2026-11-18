@@ -255,8 +255,11 @@ func TestNativeUploadReportsDroppedSocketAndKeepsOffer(t *testing.T) {
 	close(resume)
 	select {
 	case done := <-failed:
-		if done != nativeFileBlock {
-			t.Fatalf("failure reported at %d bytes, expected %d", done, nativeFileBlock)
+		// The kernel may accept another block after the peer resets the
+		// connection. Progress is committed only after a successful write, so
+		// the exact amount at which the following write fails varies by OS.
+		if done < nativeFileBlock || done >= size {
+			t.Fatalf("failure reported at %d bytes, expected 1..%d bytes", done, size-1)
 		}
 	case <-ctx.Done():
 		t.Fatal("the dropped socket did not report a failed upload")
