@@ -12,9 +12,7 @@ import (
 	"goim/internal/neiwangtong"
 )
 
-func (l *labChecks) checkGroupFileResume(ctx context.Context, service *neiwangtong.Service, peer string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, l.opt.timeout)
-	defer cancel()
+func (l *labChecks) groupAttachmentRoom(ctx context.Context, service *neiwangtong.Service, peer string) (neiwangtong.GroupRoster, error) {
 	owner := l.runID + "0000000000000000"
 	group := neiwangtong.GroupRoster{
 		ID: l.runID + l.runID, Name: "GoIM QA 群聊 " + l.runID, OwnerID: owner,
@@ -22,9 +20,16 @@ func (l *labChecks) checkGroupFileResume(ctx context.Context, service *neiwangto
 		Members: []neiwangtong.GroupMember{{ID: owner, Name: l.qaName}, {ID: peer, Name: l.opt.expectedName}},
 	}
 	if err := service.SendGroupRoster(peer, group); err != nil {
-		return "", err
+		return group, err
 	}
-	if err := l.driveFor(ctx, "group-open", group.Name); err != nil {
+	return group, l.driveFor(ctx, "group-open", group.Name)
+}
+
+func (l *labChecks) checkGroupFileResume(ctx context.Context, service *neiwangtong.Service, peer string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, l.opt.timeout)
+	defer cancel()
+	group, err := l.groupAttachmentRoom(ctx, service, peer)
+	if err != nil {
 		return "", err
 	}
 	name := "原版群文件-" + l.runID + ".bin"

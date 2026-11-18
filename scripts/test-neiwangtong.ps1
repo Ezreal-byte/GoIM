@@ -110,10 +110,16 @@ function Invoke-ReferenceSandbox {
                 @{ Name = 'original-group-kick'; Option = '--group-kick' },
                 @{ Name = 'group-file'; Option = '--group-file' },
                 @{ Name = 'group-file-resume'; Option = '--group-file-resume' },
+                @{ Name = 'group-file-retry'; Option = '--group-file-retry' },
                 @{ Name = 'group-folder'; Option = '--group-folder' },
                 @{ Name = 'emoticons'; Option = '--emoticons' },
                 @{ Name = 'folder-resend-from-original'; Option = '--directory-resend-from-reference' },
                 @{ Name = 'folder-resend-to-original'; Option = '--directory-resend-to-reference' }
+            )
+        } elseif ($GroupFileResume) {
+            @(
+                @{ Name = 'group-file-resume'; Option = '--group-file-resume' },
+                @{ Name = 'group-file-retry'; Option = '--group-file-retry' }
             )
         } elseif ($LargeFile) {
             @(
@@ -148,7 +154,6 @@ function Invoke-ReferenceSandbox {
                       elseif ($OfflineSend) { '--offline-send' }
                       elseif ($MultiGroup) { '--multi-group' }
                       elseif ($GroupFile) { '--group-file' }
-                      elseif ($GroupFileResume) { '--group-file-resume' }
                       elseif ($GroupFolder) { '--group-folder' }
                       elseif ($Emoticons) { '--emoticons' }
                       elseif ($AvatarUpdate) { '--avatar-update' }

@@ -51,7 +51,7 @@ func (l *labChecks) checkGroupFiles(ctx context.Context, r *report, current **co
 			return "", err
 		}
 		cache := filepath.Join(l.opt.labDir, "wine", "drive_c", "users", "Public", "Nwt", "cache", "recv")
-		if err := checkGroupFileCache(ctx, cache, name, digest); err != nil {
+		if err := checkGroupFileCache(ctx, cache, name, sampleSize, digest); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("original accepted the existing invitation after GoIM restarted; %d bytes, sha256=%x", sampleSize, digest), nil
@@ -100,33 +100,28 @@ func (l *labChecks) checkGroupFiles(ctx context.Context, r *report, current **co
 	return sent && received
 }
 
-func checkGroupFileCache(ctx context.Context, dir, name string, digest [32]byte) error {
-	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
+func checkGroupFileCache(ctx context.Context, dir, name string, size int64, digest [32]byte) error {
+	return waitGroupCacheFile(ctx, dir, func(path, filename string) bool {
+		if filename != name {
+			return false
+		}
+		_, err := verifySample(path, size, digest)
+		return err == nil
+	})
+}
+
+func waitGroupCacheFile(ctx context.Context, dir string, match func(path, filename string) bool) error {
+	return waitSandboxFile(ctx, 8*time.Second, func() (bool, error) {
 		matched := false
 		_ = filepath.WalkDir(dir, func(path string, e fs.DirEntry, err error) error {
-			if err == nil && !e.IsDir() && e.Type().IsRegular() && e.Name() == name {
-				if data, err := os.ReadFile(path); err == nil && len(data) == sampleSize {
-					if sha256.Sum256(data) == digest {
-						matched = true
-						return fs.SkipAll
-					}
-				}
+			if err == nil && e.Type().IsRegular() && match(path, e.Name()) {
+				matched = true
+				return fs.SkipAll
 			}
 			return nil
 		})
-		if matched {
-			return nil
-		}
-		select {
-		case <-ticker.C:
-		case <-ctx.Done():
-			return errors.New("the original did not write a matching group file")
-		}
-	}
+		return matched, nil
+	})
 }
 
 func (l *labChecks) checkGroupFolder(ctx context.Context, node *core.Node, peer, chat, room string) (string, error) {
@@ -217,7 +212,7 @@ func (l *labChecks) checkGroupFolderToOriginal(ctx context.Context, node *core.N
 		return "", err
 	}
 	cache := filepath.Join(l.opt.labDir, "wine", "drive_c", "users", "Public", "Nwt", "cache", "recv")
-	if err := checkGroupFileCache(ctx, cache, file, digest); err != nil {
+	if err := checkGroupFileCache(ctx, cache, file, sampleSize, digest); err != nil {
 		return "", err
 	}
 	var output string

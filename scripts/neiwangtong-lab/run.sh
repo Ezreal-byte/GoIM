@@ -63,7 +63,7 @@ esac
 [ "$#" -gt 0 ] && [ "$#" -le 2 ] || fail 'Specify the Linux path to the original client directory and at most one check mode.'
 mode=${2:-}
 case "$mode" in
-    ''|--offline-replay|--offline-send|--resume-receive|--large-from-reference|--large-to-reference|--large-stock-control|--large-stock-boundary|--directory-from-reference|--directory-to-reference|--directory-resend-from-reference|--directory-resend-to-reference|--multi-group|--avatar-update|--text-recall|--group-recall|--group-dismiss|--group-kick|--group-file|--group-file-resume|--group-folder|--emoticons) ;;
+    ''|--offline-replay|--offline-send|--resume-receive|--large-from-reference|--large-to-reference|--large-stock-control|--large-stock-boundary|--directory-from-reference|--directory-to-reference|--directory-resend-from-reference|--directory-resend-to-reference|--multi-group|--avatar-update|--text-recall|--group-recall|--group-dismiss|--group-kick|--group-file|--group-file-resume|--group-file-retry|--group-folder|--emoticons) ;;
     *) fail 'Unknown sandbox option.' ;;
 esac
 [ "$(id -u)" -eq 0 ] || fail 'Use root in the dedicated lab distro to create its isolated links.'
@@ -223,7 +223,7 @@ case "$mode" in
 --avatar-update)
     set -- "$@" -timeout 20s -lab-avatar-update
     ;;
---text-recall|--group-recall|--group-dismiss|--group-kick|--group-file|--group-file-resume|--group-folder|--emoticons)
+--text-recall|--group-recall|--group-dismiss|--group-kick|--group-file|--group-file-resume|--group-file-retry|--group-folder|--emoticons)
     set -- "$@" -timeout 60s "-lab-${mode#--}"
     ;;
 *)

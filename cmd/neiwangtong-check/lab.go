@@ -249,7 +249,7 @@ func (l *labChecks) driveWithEnv(ctx context.Context, env []string, action, titl
 	return nil
 }
 
-func (l *labChecks) run(ctx context.Context, r *report, service *neiwangtong.Service, reference neiwangtong.Peer) bool {
+func (l *labChecks) run(ctx context.Context, r *report, service *neiwangtong.Service, reference neiwangtong.Peer, cfg neiwangtong.Config) bool {
 	text := r.run("text_from_reference", func() (string, error) {
 		phase, cancel := context.WithTimeout(ctx, l.opt.timeout)
 		defer cancel()
@@ -278,6 +278,11 @@ func (l *labChecks) run(ctx context.Context, r *report, service *neiwangtong.Ser
 	if l.opt.labGroupFileResume {
 		return text && r.run("group_file_resume_from_original", func() (string, error) {
 			return l.checkGroupFileResume(ctx, service, reference.ID)
+		})
+	}
+	if l.opt.labGroupFileRetry {
+		return text && r.run("group_file_retry_on_original", func() (string, error) {
+			return l.checkGroupFileRetry(ctx, service, reference.ID, cfg)
 		})
 	}
 	if l.opt.labOffline || l.opt.labResume || l.opt.labDirectory || l.opt.labFolderResend {
