@@ -12,7 +12,14 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with: {go-version: '1.27.3'}
       - name: Chinese font coverage for the native painter
-        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+        run: |
+          # Hosted regional HTTP mirrors can stall on the CJK font archive.
+          # Use Ubuntu's canonical HTTPS mirror; APT still verifies signatures.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y fonts-noto-cjk
       - run: |
           test -z "$(gofmt -l cmd internal)"
           go vet ./...
