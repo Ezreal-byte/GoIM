@@ -699,6 +699,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.palette = paletteFor(u.theme)
 	u.titleLeading, u.titleTrailing = app.TitlebarInsets()
 	u.media = newMediaWorker(func() { u.invalidator.Invalidate() })
+	u.initSystemUnlock()
 	u.initIDs()
 	page := func(root string) *ui.Page {
 		return ui.NewPage(ui.PageConfig{Root: root, Tree: &u.tree, Theme: &u.theme})
@@ -801,6 +802,7 @@ func (u *UI) watchUpdates() {
 
 func (u *UI) onWake() {
 	u.refresh()
+	u.collectSystemUnlock()
 	u.updater.setAutomatic(!u.state.Settings.DisableAutoUpdateCheck)
 	u.observeUpdate()
 	u.applyMediaResults()

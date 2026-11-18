@@ -39,7 +39,7 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
 | 单聊、群聊、邀请和成员管理 | 普通附件由接收方确认，支持另存、取消、重试和续传 |
 | 文字、表情和聊天图片，图片可在独立窗口缩放、旋转和保存 | GoIM 设备之间使用 TLS，并校验文件的 SHA-256 |
 | 本地记录、会话搜索、未读、置顶与离线补发 | 文件和文件夹可生成链接及二维码，按项目设置访问密码 |
-| 联系人分组、个人资料、应用锁、两种主题与中英界面 | 设备分享主页可展示公开分享项目，并接收浏览器上传 |
+| 联系人分组、个人资料、应用锁与系统验证、两种主题与中英界面 | 设备分享主页可展示公开分享项目，并接收浏览器上传 |
 
 截图支持自由框选、移动和缩放选区、标注与原分辨率复制。默认快捷键为 `Alt+A`，也可使用聊天输入框里的剪刀图标。
 
@@ -67,6 +67,19 @@ Windows 使用 Viva 安装向导 `Setup.exe`，默认只给当前用户安装。
 4. 要让手机或其他电脑用浏览器获取文件，在「文件共享」里添加文件或文件夹，然后复制项目链接或二维码。设备分享主页启用后也可接收上传。
 
 原生通信默认使用 TCP 47842，自动发现使用 IPv4 多播 `239.192.77.77:47841`。网页分享通过局域网 HTTP 提供，适用于可信网络。
+
+## 应用锁与系统验证
+
+先在「设置 → 安全 → 应用锁定」设置 GoIM 锁定密码，再开启「使用系统验证解锁」。开启时会要求输入当前 GoIM 密码；锁屏后可以点「使用系统验证」，也可以随时改用 GoIM 密码。系统验证取消或失败时应用保持锁定。
+
+| 系统 | 可用的系统验证 |
+| --- | --- |
+| Windows 11 | Windows Hello，支持已配置的 PIN、指纹或人脸 |
+| Windows 10 | 桌面 Hello 验证需要 Windows 11；系统验证不可用时继续使用 GoIM 密码 |
+| macOS | Touch ID；没有 Touch ID 时使用当前 macOS 登录密码 |
+| Linux | polkit 调用的系统认证代理；密码或指纹由发行版的 PAM 和认证代理配置决定 |
+
+GoIM 只接收系统验证成功或失败的结果，不读取、保存或传输系统密码和生物特征。Linux 的 `.deb` 会安装 `dev.goim.desktop.unlock` polkit 策略；`.tar.gz` 在 `share/polkit-1/actions/` 中附带该文件，需要复制到系统的 `/usr/share/polkit-1/actions/`。从源码运行时也需要把 `internal/brand/assets/dev.goim.desktop.policy` 安装到该目录。Windows Hello 必须先在系统中启用，不能把 Windows 账户密码当作 Hello 凭据直接交给 GoIM。
 
 ## 旧版客户端兼容
 
@@ -119,7 +132,7 @@ go run ./cmd/goim
 
 Windows 上，运行 `pwsh -File scripts/start-temp-dev.ps1` 可构建并启动使用独立配置和下载目录的开发客户端。加上 `-Loopback` 可关闭局域网发现和旧协议互通；运行 `scripts/start-dual.ps1` 可启动通过本机回环连接的两个客户端。
 
-`pwsh -File scripts/smoke-headless.ps1` 会重新构建无头客户端，使用三个独立进程验证消息、文件传输和网页分享。`scripts/build.ps1` 只构建桌面程序和截图工具，`scripts/promo-headless.ps1` 可重新生成演示截图。发布构建及各平台校验见 [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/build.yml)。
+`pwsh -File scripts/smoke-headless.ps1` 会重新构建无头客户端，使用三个独立进程验证消息、文件传输和网页分享。`scripts/build.ps1` 只构建桌面程序和截图工具，`scripts/promo-headless.ps1` 可重新生成演示截图。发布构建及各平台校验见 [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/release.yml)。
 
 ## 许可证
 

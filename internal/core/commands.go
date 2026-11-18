@@ -18,7 +18,7 @@ func (n *Node) execute(c domain.Command) error {
 	n.mu.Lock()
 	locked := n.data.State.Locked
 	n.mu.Unlock()
-	if locked && c.Kind != domain.UnlockApp && c.Kind != domain.ReportError {
+	if locked && c.Kind != domain.UnlockApp && c.Kind != domain.UnlockAppSystem && c.Kind != domain.ReportError {
 		return nil
 	}
 	switch c.Kind {
@@ -145,7 +145,7 @@ func (n *Node) execute(c domain.Command) error {
 		return n.setting(c)
 	case domain.SetProfile:
 		return n.updateProfile(c.Name, c.Value, c.AvatarBGRA, c.AvatarSize, c.Signature, c.Presence, c.ProfileDetails, c.RemoveAvatar)
-	case domain.SetLockPassword, domain.LockApp, domain.UnlockApp:
+	case domain.SetLockPassword, domain.SetSystemUnlock, domain.LockApp, domain.UnlockApp, domain.UnlockAppSystem:
 		err := n.updateLock(c)
 		if c.Request == 0 {
 			return err

@@ -182,6 +182,9 @@ func build() error {
 		if err := copyFile(filepath.Join(logoAssets, "goim.desktop"), filepath.Join(staging, "share", "applications", "dev.goim.desktop.desktop")); err != nil {
 			return err
 		}
+		if err := copyFile(filepath.Join(logoAssets, "dev.goim.desktop.policy"), filepath.Join(staging, "share", "polkit-1", "actions", "dev.goim.desktop.policy")); err != nil {
+			return err
+		}
 		for _, size := range []int{16, 24, 32, 48, 64, 128, 256, 512} {
 			source := filepath.Join(logoAssets, fmt.Sprintf("goim-%d.png", size))
 			dest := filepath.Join(staging, "share", "icons", "hicolor", fmt.Sprintf("%dx%d", size, size), "apps", "goim.png")

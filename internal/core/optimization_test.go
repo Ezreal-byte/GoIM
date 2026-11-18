@@ -189,6 +189,61 @@ func TestAppLockSurvivesRestartAndRequiresCurrentPassword(t *testing.T) {
 	}
 }
 
+func TestSystemUnlockRequiresCurrentPasswordAndPersists(t *testing.T) {
+	dir := t.TempDir()
+	n := testOptimizationNode(t, dir)
+	if err := n.execute(domain.Command{Kind: domain.SetSystemUnlock, Bool: true}); err == nil {
+		t.Fatal("enabled system unlock without a GoIM lock password")
+	}
+	if n.Snapshot().Settings.SystemUnlock {
+		t.Fatal("system unlock was enabled without a GoIM lock password")
+	}
+	if err := n.execute(domain.Command{Kind: domain.SetLockPassword, Text: "secret-0123"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.execute(domain.Command{Kind: domain.SetSystemUnlock, Password: "wrong", Bool: true}); err == nil {
+		t.Fatal("enabled system unlock with the wrong password")
+	}
+	if n.Snapshot().Settings.SystemUnlock {
+		t.Fatal("failed password confirmation enabled system unlock")
+	}
+	n.mu.Lock()
+	n.unlockAfter = time.Time{}
+	n.mu.Unlock()
+	if err := n.execute(domain.Command{Kind: domain.SetSystemUnlock, Password: "secret-0123", Bool: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !n.Snapshot().Settings.SystemUnlock {
+		t.Fatal("system unlock was not enabled")
+	}
+	if err := n.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	n = testOptimizationNode(t, dir)
+	if !n.Snapshot().Settings.SystemUnlock {
+		t.Fatal("system unlock preference did not survive restart")
+	}
+	if err := n.execute(domain.Command{Kind: domain.LockApp}); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.execute(domain.Command{Kind: domain.SetSystemUnlock}); err != nil || !n.Snapshot().Settings.SystemUnlock {
+		t.Fatal("a command changed system unlock while the app was locked")
+	}
+	if err := n.execute(domain.Command{Kind: domain.UnlockAppSystem}); err != nil || n.Snapshot().Locked {
+		t.Fatalf("system unlock failed: %v", err)
+	}
+	if err := n.execute(domain.Command{Kind: domain.SetSystemUnlock}); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.execute(domain.Command{Kind: domain.LockApp}); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.execute(domain.Command{Kind: domain.UnlockAppSystem}); err == nil || !n.Snapshot().Locked {
+		t.Fatal("a disabled system-unlock preference bypassed the lock")
+	}
+}
+
 func TestLargeLocalAvatarIsCanonicalizedBeforePublication(t *testing.T) {
 	n := testOptimizationNode(t, t.TempDir())
 	path := filepath.Join(t.TempDir(), "camera.jpg")

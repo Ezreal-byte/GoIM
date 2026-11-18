@@ -87,6 +87,7 @@ func Build(input Input) string {
 	fact("auto discovery", valueWhen(settings.DisableAutoDiscovery, "disabled", "enabled"))
 	fact("custom background", valueWhen(strings.TrimSpace(settings.Background) != "", "configured", "none"))
 	fact("app lock", valueWhen(settings.HasLockPassword, "configured", "not configured"))
+	fact("system unlock", valueWhen(settings.SystemUnlock, "enabled", "disabled"))
 
 	section("Protocol services")
 	fact("listener", listenerSummary(state.ListenAddress))

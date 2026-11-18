@@ -1,0 +1,88 @@
+name: Website
+on:
+  push:
+    branches: [main]
+    paths: ['website/**', '.github/workflows/website.yml']
+  pull_request:
+    paths: ['website/**', '.github/workflows/website.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: website-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  verify:
+    name: Verify static website
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Verify local references
+        run: |
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from urllib.parse import unquote, urlsplit
+
+          root = Path("website").resolve()
+          errors = []
+          checked = 0
+
+          class Links(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.refs = []
+
+              def handle_starttag(self, tag, attrs):
+                  for name, value in attrs:
+                      if name in ("href", "src") and value:
+                          self.refs.append(value)
+
+          for page in (root / "index.html", root / "en" / "index.html"):
+              if not page.is_file():
+                  errors.append(f"missing page: {page.relative_to(root)}")
+                  continue
+              parser = Links()
+              parser.feed(page.read_text(encoding="utf-8"))
+              for ref in parser.refs:
+                  parsed = urlsplit(ref)
+                  if parsed.scheme or parsed.netloc or not parsed.path:
+                      continue
+                  target = root / unquote(parsed.path).lstrip("/") if parsed.path.startswith("/") else page.parent / unquote(parsed.path)
+                  try:
+                      target = target.resolve()
+                      target.relative_to(root)
+                  except ValueError:
+                      errors.append(f"{page.relative_to(root)}: escapes website root: {ref}")
+                      continue
+                  if target.is_dir():
+                      target /= "index.html"
+                  checked += 1
+                  if not target.is_file():
+                      errors.append(f"{page.relative_to(root)}: missing local target: {ref}")
+                  elif target.stat().st_size == 0:
+                      errors.append(f"{page.relative_to(root)}: empty local target: {ref}")
+
+          if errors:
+              raise SystemExit("\n".join(errors))
+          print(f"verified {checked} local website references")
+          PY
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
+        with:
+          path: website
+  deploy:
+    name: Deploy website
+    needs: verify
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
+        id: publish

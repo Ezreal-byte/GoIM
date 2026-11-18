@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"goim/internal/domain"
+	"goim/internal/systemauth"
 )
 
 func (harness *shellTestHarness) rightClickID(id gfx.ID) {
@@ -741,6 +742,112 @@ func TestPasswordKeysInSecuritySettingsAndUnlock(t *testing.T) {
 	if !ok || unlock.Password != "Next-456?" {
 		t.Fatal("typed password did not reach the unlock command")
 	}
+}
+
+func TestSecuritySettingsConfirmsSystemUnlockWithPassword(t *testing.T) {
+	state := shellMinimalState(t)
+	state.Settings.HasLockPassword = true
+	h := newShellTestHarness(t, state)
+	h.clickID(h.ui.ids.navSettings)
+	h.clickID(h.ui.panels.ids.settingsCategories.At(int(panelSettingsSecurity)))
+	fields := &h.ui.panels.settingsExtra
+	if !h.hasHit(fields.lockSystem) {
+		t.Fatal("system verification switch is missing")
+	}
+	h.clickID(fields.lockSystem)
+	h.settle()
+	if !fields.passwordOpen || !fields.passwordSystem || !h.hasText("启用系统验证解锁") {
+		t.Fatalf("system verification confirmation state = %+v", fields)
+	}
+	typePasswordKeys(t, h, fields.passwordOld, "Pass-123!")
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	command, ok := findShellCommand(h.backend.commandLog(), domain.SetSystemUnlock)
+	if !ok || !command.Bool || command.Password != "Pass-123!" || command.Request == 0 {
+		t.Fatalf("system verification confirmation = %+v", command)
+	}
+	state.Settings.SystemUnlock = true
+	state.LockResult = domain.LockResult{Request: command.Request}
+	state.Revision++
+	h.publish(state)
+	if fields.passwordOpen || fields.passwordSystem {
+		t.Fatal("successful confirmation left the system verification dialog open")
+	}
+}
+
+func TestSecuritySettingsDisablesSystemUnlockImmediately(t *testing.T) {
+	state := shellMinimalState(t)
+	state.Settings.HasLockPassword = true
+	state.Settings.SystemUnlock = true
+	h := newShellTestHarness(t, state)
+	h.clickID(h.ui.ids.navSettings)
+	h.clickID(h.ui.panels.ids.settingsCategories.At(int(panelSettingsSecurity)))
+	fields := &h.ui.panels.settingsExtra
+	if !h.hasHit(fields.lockSystem) {
+		t.Fatal("system verification switch is missing")
+	}
+	h.clickID(fields.lockSystem)
+	h.settle()
+	command, ok := findShellCommand(h.backend.commandLog(), domain.SetSystemUnlock)
+	if !ok || command.Bool || command.Request != 0 {
+		t.Fatalf("system verification disable command = %+v", command)
+	}
+}
+
+func TestLockScreenUsesSystemVerificationWithPasswordFallback(t *testing.T) {
+	state := shellMinimalState(t)
+	state.Settings.HasLockPassword = true
+	state.Settings.SystemUnlock = true
+	state.Locked = true
+	state.Revision = 2
+
+	t.Run("success", func(t *testing.T) {
+		h := newShellTestHarness(t, state)
+		if !h.hasHit(h.ui.lockUI.systemButton) || !h.hasText("使用系统验证") {
+			t.Fatal("the lock screen did not offer system verification")
+		}
+		h.ui.lockUI.systemAuth = func(string) error { return nil }
+		h.clickID(h.ui.lockUI.systemButton)
+		h.waitFor(func() bool {
+			_, ok := findShellCommand(h.backend.commandLog(), domain.UnlockAppSystem)
+			return ok
+		})
+		command, _ := findShellCommand(h.backend.commandLog(), domain.UnlockAppSystem)
+		if command.Request == 0 || h.ui.state.Locked == false {
+			t.Fatalf("system unlock command = %+v", command)
+		}
+	})
+
+	t.Run("failure keeps lock and password", func(t *testing.T) {
+		h := newShellTestHarness(t, state)
+		h.ui.lockUI.systemAuth = func(string) error { return systemauth.ErrCanceled }
+		h.clickID(h.ui.lockUI.systemButton)
+		h.waitFor(func() bool { return !h.ui.lockUI.systemBusy && h.ui.lockUI.systemErr != "" })
+		if hasCommandKind(h.backend.commandLog(), domain.UnlockAppSystem) {
+			t.Fatal("a canceled system prompt unlocked GoIM")
+		}
+		if !h.ui.state.Locked || !h.hasText("已取消系统验证") {
+			t.Fatal("the lock screen did not remain locked with an error")
+		}
+		typePasswordKeys(t, h, h.ui.lockUI.focus, "Pass-123!")
+		if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
+			t.Fatal(err)
+		}
+		command, ok := findShellCommand(h.backend.commandLog(), domain.UnlockApp)
+		if !ok || command.Password != "Pass-123!" {
+			t.Fatal("the GoIM password fallback no longer works")
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		disabled := state
+		disabled.Settings.SystemUnlock = false
+		h := newShellTestHarness(t, disabled)
+		if h.hasHit(h.ui.lockUI.systemButton) || h.hasText("使用系统验证") {
+			t.Fatal("the lock screen offered system verification while it was disabled")
+		}
+	})
 }
 
 func writeShellTestPNG(t *testing.T, name string, width, height int) string {

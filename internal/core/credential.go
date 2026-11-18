@@ -65,6 +65,29 @@ func (n *Node) updateLock(c domain.Command) error {
 			p.State.Error, p.State.Notice = "", "锁定密码已保存"
 			return nil
 		})
+	case domain.SetSystemUnlock:
+		if remaining > 0 && old.set() {
+			return errors.New("请稍等片刻后再试")
+		}
+		if c.Bool {
+			if !old.set() {
+				return errors.New("请先设置锁定密码")
+			}
+			if !old.matches(c.Password) {
+				n.delayUnlock()
+				return errors.New("当前密码不正确")
+			}
+		}
+		return n.durable(func(p *persisted) []pending {
+			p.State.Settings.SystemUnlock = c.Bool
+			p.State.Error = ""
+			if c.Bool {
+				p.State.Notice = "已启用系统验证解锁"
+			} else {
+				p.State.Notice = "已停用系统验证解锁"
+			}
+			return nil
+		})
 	case domain.LockApp:
 		if !old.set() {
 			return errors.New("请先设置锁定密码")
@@ -83,6 +106,20 @@ func (n *Node) updateLock(c domain.Command) error {
 		if !old.matches(c.Password) {
 			n.delayUnlock()
 			return errors.New("密码不正确")
+		}
+		return n.change(func(s *domain.State) {
+			s.Locked = false
+			s.Error, s.Notice = "", ""
+		})
+	case domain.UnlockAppSystem:
+		if !locked {
+			return nil
+		}
+		n.mu.Lock()
+		enabled := n.data.State.Settings.SystemUnlock
+		n.mu.Unlock()
+		if !enabled {
+			return errors.New("系统验证解锁未启用")
 		}
 		return n.change(func(s *domain.State) {
 			s.Locked = false
