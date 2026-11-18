@@ -48,6 +48,7 @@ type options struct {
 	labGroupFileRetry   bool
 	labGroupFolder      bool
 	labGroupFolderRetry bool
+	labStockFolderRetry bool
 	labEmoticons        bool
 	labResume           bool
 	labDirectory        bool
@@ -112,6 +113,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opt.labGroupFileRetry, "lab-group-file-retry", false, "Interrupt a group file and retry the same offer on the original receiver")
 	flags.BoolVar(&opt.labGroupFolder, "lab-group-folder", false, "Verify group folders with the original client")
 	flags.BoolVar(&opt.labGroupFolderRetry, "lab-group-folder-retry", false, "Interrupt a group folder and download the same invitation again")
+	flags.BoolVar(&opt.labStockFolderRetry, "lab-stock-folder-retry", false, "Check whether the original reopens an interrupted group folder")
 	flags.BoolVar(&opt.labEmoticons, "lab-emoticons", false, "Verify the stock emoticon identifier and a mixed native emoji message")
 	flags.BoolVar(&opt.labResume, "lab-resume-receive", false, "Interrupt a real file transfer to the original and verify its resumption offset")
 	flags.BoolVar(&opt.labDirectory, "lab-directory-retry", false, "Measure whether the original can resume a directory after interruption")
@@ -138,7 +140,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	special := 0
 	for _, enabled := range []bool{opt.labLargeFile, opt.labOffline, opt.labOfflineSend, opt.labMultiGroup, opt.labAvatarUpdate,
 		opt.labTextRecall, opt.labGroupRecall, opt.labGroupDismiss, opt.labGroupKick, opt.labGroupFile, opt.labGroupFileResume, opt.labGroupFolder, opt.labEmoticons,
-		opt.labGroupFileRetry, opt.labGroupFolderRetry, opt.labResume, opt.labDirectory, opt.labFolderResend} {
+		opt.labGroupFileRetry, opt.labGroupFolderRetry, opt.labStockFolderRetry, opt.labResume, opt.labDirectory, opt.labFolderResend} {
 		if enabled {
 			special++
 		}
@@ -383,7 +385,7 @@ func verify(ctx context.Context, opt options) report {
 						checkName = "fresh_directory_offer_to_original_after_drop"
 					}
 					passed = r.run(checkName, func() (string, error) {
-						return lab.checkStockDirectoryResume(ctx, service, reference.ID, cfg)
+						return lab.checkStockDirectoryResume(ctx, service, reference.ID, cfg, neiwangtong.GroupRoster{})
 					}) && passed
 				}
 			}

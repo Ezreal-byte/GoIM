@@ -286,8 +286,17 @@ func (l *labChecks) run(ctx context.Context, r *report, service *neiwangtong.Ser
 		})
 	}
 	if l.opt.labGroupFolderRetry {
-		return text && r.run("group_folder_retry_from_original", func() (string, error) {
+		return text && r.run("group_folder_resume_from_original", func() (string, error) {
 			return l.checkGroupFolderRetry(ctx, service, reference.ID)
+		})
+	}
+	if l.opt.labStockFolderRetry {
+		return text && r.run("group_folder_retry_on_original", func() (string, error) {
+			group, err := l.groupAttachmentRoom(ctx, service, reference.ID)
+			if err != nil {
+				return "", err
+			}
+			return l.checkStockDirectoryResume(ctx, service, reference.ID, cfg, group)
 		})
 	}
 	if l.opt.labOffline || l.opt.labResume || l.opt.labDirectory || l.opt.labFolderResend {

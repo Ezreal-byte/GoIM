@@ -214,6 +214,7 @@ type Transfer struct {
 	RemoteFileModTime int64  `json:",omitempty"` // sender revision for a partially downloaded group file
 	FolderMaxPath     int    `json:",omitempty"`
 	FolderMaxItem     int64  `json:",omitempty"`
+	FolderStage       string `json:",omitempty"` // private staging directory of a group folder download
 	RemotePeerID      string `json:",omitempty"` // wire identity of an existing compatibility transfer
 }
 

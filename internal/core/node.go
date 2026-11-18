@@ -185,6 +185,14 @@ func New(opts Options) (*Node, error) {
 	go n.commandLoop()
 	go n.discoveryLoop()
 	for _, t := range n.snapshot(false).Transfers {
+		if t.FolderStage != "" {
+			if terminalTransfer(t.Status) {
+				n.removeFinishedGroupFolderStage(t.ID)
+			}
+			// The folder invitation is usable again once its sender
+			// reconnects. Peer replay starts the saved download.
+			continue
+		}
 		if t.Direction == "receive" && t.Status == "waiting" && t.Path != "" {
 			n.startReceive(t.ID, "")
 		}

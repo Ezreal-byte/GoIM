@@ -180,6 +180,19 @@ func (s *Service) onGroupFolderResponse(peer string, data []byte) {
 
 func (s *Service) ReceiveGroupDirectory(ctx context.Context, peer, id, name, destination string,
 	progress func(done, total int64)) (int64, error) {
+	return s.receiveGroupDirectory(ctx, peer, id, name, directoryTarget{path: destination}, progress)
+}
+
+// ResumeGroupDirectory receives an invitation into the caller's private
+// staging paths. The manifest must be outside the directory tree. A changed
+// or unversioned manifest starts a fresh copy.
+func (s *Service) ResumeGroupDirectory(ctx context.Context, peer, id, name, destination, manifest string,
+	progress func(done, total int64)) (int64, error) {
+	return s.receiveGroupDirectory(ctx, peer, id, name, directoryTarget{path: destination, manifest: manifest}, progress)
+}
+
+func (s *Service) receiveGroupDirectory(ctx context.Context, peer, id, name string, target directoryTarget,
+	progress func(done, total int64)) (int64, error) {
 	if !validNativeID(id) || !validDirectoryComponent(name) {
 		return 0, errors.New("内网通群文件夹引用无效")
 	}
@@ -239,5 +252,5 @@ func (s *Service) ReceiveGroupDirectory(ctx context.Context, peer, id, name, des
 			progress(done, total)
 		}
 	}
-	return s.receiveDirectoryOffer(ctx, peer, FolderOffer{TaskID: task, Name: name}, destination, true, metadata, advance, request)
+	return s.receiveDirectoryOffer(ctx, peer, FolderOffer{TaskID: task, Name: name}, target, true, metadata, advance, request)
 }

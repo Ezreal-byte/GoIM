@@ -32,6 +32,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
+$env:GOWORK = 'off'
 $special = @($LargeFile, $StockLargeFile, $OfflineReplay, $OfflineSend, $MultiGroup, $GroupManagement, $GroupFile, $GroupFileResume, $GroupFolder, $GroupFolderRetry, $Emoticons, $AvatarUpdate, $TextRecall,
     $ResumeReceive, $DirectoryRetry, $DirectoryResend | Where-Object { $_ })
 if ($special.Count -gt 1 -or ($special.Count -gt 0 -and $Mode -ne 'Sandbox')) {
@@ -114,6 +115,7 @@ function Invoke-ReferenceSandbox {
                 @{ Name = 'group-file-retry'; Option = '--group-file-retry' },
                 @{ Name = 'group-folder'; Option = '--group-folder' },
                 @{ Name = 'group-folder-retry'; Option = '--group-folder-retry' },
+                @{ Name = 'group-folder-retry-on-original'; Option = '--stock-folder-retry' },
                 @{ Name = 'emoticons'; Option = '--emoticons' },
                 @{ Name = 'folder-resend-from-original'; Option = '--directory-resend-from-reference' },
                 @{ Name = 'folder-resend-to-original'; Option = '--directory-resend-to-reference' }
@@ -122,6 +124,11 @@ function Invoke-ReferenceSandbox {
             @(
                 @{ Name = 'group-file-resume'; Option = '--group-file-resume' },
                 @{ Name = 'group-file-retry'; Option = '--group-file-retry' }
+            )
+        } elseif ($GroupFolderRetry) {
+            @(
+                @{ Name = 'group-folder-retry'; Option = '--group-folder-retry' },
+                @{ Name = 'group-folder-retry-on-original'; Option = '--stock-folder-retry' }
             )
         } elseif ($LargeFile) {
             @(
@@ -157,7 +164,6 @@ function Invoke-ReferenceSandbox {
                       elseif ($MultiGroup) { '--multi-group' }
                       elseif ($GroupFile) { '--group-file' }
                       elseif ($GroupFolder) { '--group-folder' }
-                      elseif ($GroupFolderRetry) { '--group-folder-retry' }
                       elseif ($Emoticons) { '--emoticons' }
                       elseif ($AvatarUpdate) { '--avatar-update' }
                       elseif ($ResumeReceive) { '--resume-receive' }

@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -167,6 +168,11 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	groupChat := make(chan neiwangtong.GroupMessage, 2)
 	groupRosters := make(chan neiwangtong.GroupRoster, 2)
 	withdrawals := make(chan uint64, 2)
+	const folderTask = "1234567890abcdef1234567890abcdef"
+	firstFolderBlock := make(chan struct{}, 1)
+	folderPaused := make(chan struct{})
+	releaseFolder := sync.OnceFunc(func() { close(folderPaused) })
+	defer releaseFolder()
 	profile := neiwangtong.Peer{Name: "Peer", Sign: "签名", Company: "测试组"}
 	remoteCfg := neiwangtong.Config{
 		ID: remoteID, Profile: profile, AvatarPNG: nativeTestAvatar(t, 30), BindIP: remoteIP, DisableBroadcast: true, EnableFolders: true,
@@ -181,6 +187,12 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 			GroupRoster: func(_ string, roster neiwangtong.GroupRoster) { groupRosters <- roster },
 			Folders: func(_ string, offer neiwangtong.FolderOffer) {
 				folders <- offer
+			},
+			FolderProgress: func(_ string, task string, done, _ int64, complete bool, err error) {
+				if task == folderTask && done == nativeFolderTestBlock && !complete && err == nil {
+					firstFolderBlock <- struct{}{}
+					<-folderPaused
+				}
 			},
 			FileCancelled: func(_ string, taskID uint64) {
 				withdrawals <- taskID
@@ -402,6 +414,8 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	eventually(t, "removed avatar", func() bool { return n.Snapshot().Peer(nativeID).Avatar == "" })
 	testNeiwangtongDirectories(t, n, remote, selfID, nativeID, conv, folders)
 	testNeiwangtongGroupImages(t, n, remote, selfID, nativeID, groupChat)
+	folderTransfer, folderGroup, folderSource := interruptNeiwangtongGroupFolder(t, n, remote, selfID, nativeID,
+		folderTask, firstFolderBlock, releaseFolder)
 
 	if err := remote.SendQuit(selfID); err != nil {
 		t.Fatal(err)
@@ -426,14 +440,31 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	}
 
 	reopened := testNodeAt(t, "GoIM core", n.dir)
+	saved := reopened.Snapshot()
+	if i := transferIndex(&saved, folderTransfer.ID); i < 0 || saved.Transfers[i].Status != "waiting" ||
+		saved.Transfers[i].FolderStage != folderTransfer.FolderStage {
+		t.Fatal("the restarted backend did not retain the interrupted folder task")
+	}
 	if err := reopened.setCompatibility(transportNWT, domain.CompatibilityConfig{Enabled: true, Port: port}); err != nil {
 		t.Fatal(err)
+	}
+	folderProgress := make(chan int64, 1)
+	remoteCfg.Callbacks.FolderProgress = func(_ string, task string, done, _ int64, complete bool, err error) {
+		if task == folderTask && !complete && err == nil {
+			select {
+			case folderProgress <- done:
+			default:
+			}
+		}
 	}
 	again, err := neiwangtong.Start(remoteCfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer again.Close()
+	if err := again.RememberGroupFolder(selfID, folderGroup, folderTransfer.RemoteShareID, folderTask, folderSource); err != nil {
+		t.Fatal(err)
+	}
 	reconnect, stop := context.WithTimeout(context.Background(), 12*time.Second)
 	defer stop()
 	if err := again.Probe(reconnect, netip.AddrPortFrom(localIP, uint16(port)), 9012, 9013); err != nil {
@@ -473,6 +504,7 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 		}
 		return false
 	})
+	verifyNeiwangtongGroupFolderRetry(t, reopened, folderTransfer, folderSource, folderProgress)
 }
 
 func testNeiwangtongDirectories(t *testing.T, n *Node, remote *neiwangtong.Service, selfID, peerID, conv string, offers <-chan neiwangtong.FolderOffer) {

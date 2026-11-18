@@ -17,6 +17,41 @@ import (
 
 var errNativeDirectoryResend = errors.New("文件夹传输已中断，请让对方重新发送")
 
+const directoryStagePrefix = ".goim-directory-"
+
+func nativeGroupFolderStage(task domain.Transfer) string {
+	stage := task.FolderStage
+	if task.LegacyTransport != transportNWT || task.Direction != "receive" || task.RemoteShareID == "" ||
+		task.Path == "" || stage == "" || filepath.Dir(stage) != filepath.Dir(task.Path) {
+		return ""
+	}
+	suffix, ok := strings.CutPrefix(filepath.Base(stage), directoryStagePrefix+task.ID+"-")
+	if !ok || suffix == "" {
+		return ""
+	}
+	return stage
+}
+
+func (n *Node) removeFinishedGroupFolderStage(id string) {
+	var stage string
+	n.mu.Lock()
+	if i := transferIndex(&n.data.State, id); i >= 0 && n.transfers[id] == nil {
+		task := n.data.State.Transfers[i]
+		if terminalTransfer(task.Status) {
+			stage = nativeGroupFolderStage(task)
+		}
+	}
+	n.mu.Unlock()
+	if stage == "" || os.RemoveAll(stage) != nil {
+		return
+	}
+	_ = n.change(func(s *domain.State) {
+		if i := transferIndex(s, id); i >= 0 && s.Transfers[i].FolderStage == stage && terminalTransfer(s.Transfers[i].Status) {
+			s.Transfers[i].FolderStage = ""
+		}
+	})
+}
+
 func (n *Node) sendNeiwangtongDirectory(conversationID, path, target string) error {
 	s := n.snapshot(false)
 	c := s.Conversation(conversationID)
@@ -166,6 +201,16 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 	if t.Revoked {
 		return errNativeDirectoryResend
 	}
+	groupFolder := t.RemoteShareID != ""
+	if groupFolder {
+		groupID, ok := strings.CutPrefix(t.ConversationID, "group:")
+		if !ok {
+			return errors.New("内网通群文件夹引用无效")
+		}
+		if _, err := n.activeNativeGroup(groupID, t.PeerID); err != nil {
+			return err
+		}
+	}
 	if destination == "" {
 		destination = t.Path
 	}
@@ -195,11 +240,22 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 	if err := os.MkdirAll(parent, 0700); err != nil {
 		return err
 	}
-	stage, err := os.MkdirTemp(parent, ".goim-directory-*")
-	if err != nil {
-		return err
+	oldStage := nativeGroupFolderStage(t)
+	stage := oldStage
+	keepStage := false
+	info, statErr := os.Lstat(stage)
+	if stage == "" || filepath.Dir(stage) != parent || statErr != nil || !info.IsDir() {
+		var err error
+		stage, err = os.MkdirTemp(parent, directoryStagePrefix+t.ID+"-")
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if !keepStage {
+				_ = os.RemoveAll(stage)
+			}
+		}()
 	}
-	defer os.RemoveAll(stage)
 	ready := false
 	if err := n.change(func(st *domain.State) {
 		if i := transferIndex(st, t.ID); i >= 0 {
@@ -207,6 +263,9 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 			if !terminalTransfer(transfer.Status) && ctx.Err() == nil {
 				transfer.Path, transfer.Status, transfer.Error = destination, "transferring", ""
 				transfer.Done, transfer.Speed, transfer.UpdatedAt = 0, 0, time.Now()
+				if groupFolder {
+					transfer.FolderStage = stage
+				}
 				ready = true
 			}
 		}
@@ -216,24 +275,24 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 	if !ready {
 		return nil
 	}
+	keepStage = groupFolder
+	if oldStage != "" && oldStage != stage {
+		_ = os.RemoveAll(oldStage)
+	}
 	offer := neiwangtong.FolderOffer{TaskID: t.RemotePacket, Name: f.Name, Size: f.Size,
 		MaxItemPath: t.FolderMaxPath, MaxItemSize: t.FolderMaxItem}
-	last := time.Now()
+	var last time.Time
 	progress := func(done int64) {
 		if done == t.Size || time.Since(last) >= 150*time.Millisecond {
 			n.setTransfer(t.ID, "transferring", done, 0, "")
 			last = time.Now()
 		}
 	}
-	if t.RemoteShareID != "" {
-		groupID, ok := strings.CutPrefix(t.ConversationID, "group:")
-		if !ok {
-			return errors.New("内网通群文件夹引用无效")
-		}
-		if _, err := n.activeNativeGroup(groupID, t.PeerID); err != nil {
-			return err
-		}
-		_, err = service.ReceiveGroupDirectory(ctx, peerID, t.RemoteShareID, f.Name, stage, func(done, total int64) {
+	content := stage
+	var err error
+	if groupFolder {
+		content = filepath.Join(stage, "files")
+		_, err = service.ResumeGroupDirectory(ctx, peerID, t.RemoteShareID, f.Name, content, filepath.Join(stage, "manifest"), func(done, total int64) {
 			if done == 0 {
 				_ = n.change(func(st *domain.State) {
 					if i, j := transferIndex(st, t.ID), fileIndex(st, f.ID); i >= 0 && j >= 0 && !terminalTransfer(st.Transfers[i].Status) {
@@ -247,7 +306,7 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 		err = service.ReceiveDirectory(ctx, peerID, offer, stage, progress)
 	}
 	if err != nil {
-		if t.RemoteShareID != "" {
+		if groupFolder {
 			return err
 		}
 		// Release the old invitation when the data stream fails. Stock can
@@ -267,7 +326,7 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 		}
 		return err
 	}
-	if err := installNewDirectory(ctx, stage, destination); err != nil {
+	if err := installNewDirectory(ctx, content, destination); err != nil {
 		return err
 	}
 	return n.completeReceive(t, destination)
@@ -276,7 +335,12 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 // Publish under an exclusively created destination; an existing directory is
 // never merged with or replaced. Both trees live on the same volume.
 func installNewDirectory(ctx context.Context, stage, destination string) error {
-	root, err := os.OpenRoot(filepath.Dir(destination))
+	parent := filepath.Dir(destination)
+	staged, err := filepath.Rel(parent, stage)
+	if err != nil || !filepath.IsLocal(staged) || staged == "." {
+		return errors.New("文件夹暂存位置无效")
+	}
+	root, err := os.OpenRoot(parent)
 	if err != nil {
 		return err
 	}
@@ -301,7 +365,7 @@ func installNewDirectory(ctx context.Context, stage, destination string) error {
 		if item.IsDir() {
 			err = root.Mkdir(name, 0700)
 		} else {
-			source := filepath.Join(filepath.Base(stage), filepath.FromSlash(relative))
+			source := filepath.Join(staged, filepath.FromSlash(relative))
 			err = root.Link(source, name)
 			if err != nil && !errors.Is(err, fs.ErrExist) {
 				err = copyDirectoryFile(root, source, name)

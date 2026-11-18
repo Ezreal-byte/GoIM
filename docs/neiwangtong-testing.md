@@ -17,7 +17,7 @@
 | 群文件断点续传 | 从原版接收 512 KiB 群文件，实际写入首块后关闭数据连接。重新请求同一邀请，由 GoIM 校验文件版本、偏移和全文件 SHA-256。 | `group-file-resume/sandbox.json`，也可单独运行 `-GroupFileResume`。 |
 | 原版重试接收群文件 | 原版写入首块后断开 GoIM，重启发送服务并恢复原邀请。原版重新接受时记录实际请求偏移并核对落盘 SHA-256。 | `group-file-retry/sandbox.json`，与反向续传一起通过 `-GroupFileResume` 执行。 |
 | 群内文件夹 | 双向发送含多层中文路径、空子目录和零字节文件的目录，核对结构、长度和 SHA-256。 | `group-folder/sandbox.json`，也可单独运行 `-GroupFolder`。 |
-| 群目录中断重试 | GoIM 从原版接收目录，写入部分数据后关闭连接。用同一邀请重新接收，校对目录结构和逐文件 SHA-256。 | `group-folder-retry/sandbox.json`，也可单独运行 `-GroupFolderRetry`。 |
+| 群目录断点续传 | 原版发给 GoIM 时，验证同一邀请里两个子文件的非零偏移、目录结构和逐文件 SHA-256。GoIM 发给原版时，在原版写入首块后重启 GoIM，核对原版的实际请求偏移及落盘内容。后端回归还验证了 GoIM 重启后随对端重上线续传，以及成功后清理暂存。 | `group-folder-retry/sandbox.json` 和 `group-folder-retry-on-original/sandbox.json`，使用 `-GroupFolderRetry` 复跑。 |
 | 内置表情 | 原版选择并发送“微笑”，GoIM 核对含义；GoIM 发送正文夹带微笑，原版回执并核对其记录中保留前后正文和内联对象。 | `emoticons/sandbox.json`，也可单独运行 `-Emoticons`。 |
 | 原版接收端续传专项 | 让原版真实落盘第一块，再断开并重启 GoIM 服务。复发同一任务，验证原版请求的非零偏移及最终 SHA-256。 | 独立的 `sandbox.json`。 |
 | 原版参考实例 | 对指定的隔离测试地址验证 UDP 发现、控制连接和资料握手，并核对原版报告的版本。可要求核验真实头像，或向指定测试昵称发送一条样例并等待匹配的应用层回执。 | `reference.json` 给出逐项结果。回执证明原版协议端已回应，不代表用户已读。 |

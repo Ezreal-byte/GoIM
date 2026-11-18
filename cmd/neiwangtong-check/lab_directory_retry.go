@@ -76,7 +76,8 @@ func (l *labChecks) checkOriginalDirectoryRetry(ctx context.Context, service *ne
 	return fmt.Sprintf("original reopened the same offer after interruption at %d bytes", firstBytes), verifyDirectorySample(retry, files)
 }
 
-func (l *labChecks) checkStockDirectoryResume(ctx context.Context, service *neiwangtong.Service, peer string, cfg neiwangtong.Config) (string, error) {
+func (l *labChecks) checkStockDirectoryResume(ctx context.Context, service *neiwangtong.Service, peer string,
+	cfg neiwangtong.Config, group neiwangtong.GroupRoster) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
 	const fileName = "资料.bin"
@@ -106,10 +107,18 @@ func (l *labChecks) checkStockDirectoryResume(ctx context.Context, service *neiw
 		}
 	}
 	defer release()
-	if err := service.SendDirectory(peer, task, dir); err != nil {
+	accept := func() error { return l.drive(ctx, "accept-file") }
+	share := l.runID + l.runID[:14] + "99"
+	if group.ID != "" {
+		accept = func() error { return l.driveFor(ctx, "group-file-receive", group.Name) }
+		err = service.SendGroupFolder(peer, group.ID, 7880, l.runID+"0000000000000080", share, task, dir)
+	} else {
+		err = service.SendDirectory(peer, task, dir)
+	}
+	if err != nil {
 		return "", err
 	}
-	if err := l.drive(ctx, "accept-file"); err != nil {
+	if err := accept(); err != nil {
 		return "", err
 	}
 	var offset int64
@@ -151,13 +160,18 @@ func (l *labChecks) checkStockDirectoryResume(ctx context.Context, service *neiw
 	firstOnRetry := &labDirectoryGate{task: task, started: make(chan int64, 1)}
 	l.folderGate.Store(firstOnRetry)
 	defer l.folderGate.CompareAndSwap(firstOnRetry, nil)
-	if err := service.SendDirectory(peer, task, dir); err != nil {
+	if group.ID != "" {
+		err = service.RememberGroupFolder(peer, group.ID, share, task, dir)
+	} else {
+		err = service.SendDirectory(peer, task, dir)
+	}
+	if err != nil {
 		return "", err
 	}
 	match := func(result labDirectoryResult) bool { return result.peer == peer && result.task == task }
 	result, err := wait(ctx, 3*time.Second, l.folderDone, match)
 	if err != nil && ctx.Err() == nil {
-		if err := l.drive(ctx, "accept-file"); err != nil {
+		if err := accept(); err != nil {
 			return "", err
 		}
 		result, err = wait(ctx, 10*time.Second, l.folderDone, match)
@@ -181,6 +195,14 @@ func (l *labChecks) checkStockDirectoryResume(ctx context.Context, service *neiw
 	}
 	select {
 	case sent := <-firstOnRetry.started:
+		if group.ID != "" {
+			resumed := sent - offset
+			if resumed != offset {
+				return "", fmt.Errorf("the original requested offset %d after saving %d bytes", resumed, offset)
+			}
+			return fmt.Sprintf("the original kept %d bytes, reopened the same group folder at offset %d, and saved the complete file; sha256=%x",
+				offset, resumed, digest), nil
+		}
 		if l.opt.labFolderResend {
 			if sent != offset {
 				return "", fmt.Errorf("expected the fresh offer to start with a %d-byte block, got %d bytes", offset, sent)

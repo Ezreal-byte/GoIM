@@ -32,35 +32,46 @@ func (l *labChecks) checkGroupFolderRetry(ctx context.Context, service *neiwangt
 	if err != nil {
 		return "", err
 	}
-	partial, err := os.MkdirTemp(l.opt.labDir, "interrupted-group-folder-")
+	stage, err := os.MkdirTemp(l.opt.labDir, "interrupted-group-folder-")
 	if err != nil {
 		return "", err
 	}
+	partial := filepath.Join(stage, "files")
+	manifest := filepath.Join(stage, "manifest")
 	first, disconnect := context.WithCancel(ctx)
 	defer disconnect()
 	var offset int64
-	_, err = service.ReceiveGroupDirectory(first, peer, ref.ID, name, partial, func(done, _ int64) {
-		if done > 0 {
+	_, err = service.ResumeGroupDirectory(first, peer, ref.ID, name, partial, manifest, func(done, _ int64) {
+		if done > sampleSize && offset == 0 {
 			offset = done
 			disconnect()
 		}
 	})
-	if err == nil || offset <= 0 || offset >= 2*sampleSize {
+	if err == nil || offset <= sampleSize || offset >= 2*sampleSize {
 		return "", fmt.Errorf("the first folder attempt did not stop with an incomplete copy (%d bytes): %v", offset, err)
 	}
-	retry, err := os.MkdirTemp(l.opt.labDir, "retried-group-folder-")
-	if err != nil {
-		return "", err
-	}
-	total, err := service.ReceiveGroupDirectory(ctx, peer, ref.ID, name, retry, nil)
+	var firstProgress int64
+	var sawPartialOffset bool
+	total, err := service.ResumeGroupDirectory(ctx, peer, ref.ID, name, partial, manifest, func(done, _ int64) {
+		if done > 0 && firstProgress == 0 {
+			firstProgress = done
+		}
+		if done == offset {
+			sawPartialOffset = true
+		}
+	})
 	if err != nil {
 		return "", fmt.Errorf("the original did not reopen the folder after %d bytes: %w", offset, err)
+	}
+	if firstProgress != sampleSize-1 || !sawPartialOffset {
+		return "", fmt.Errorf("the retry did not reuse the completed and incomplete files (first progress %d, last offset %d)", firstProgress, offset)
 	}
 	if total != 2*sampleSize {
 		return "", fmt.Errorf("retry returned an unexpected folder size %d", total)
 	}
-	if err := verifyDirectorySample(retry, files); err != nil {
+	if err := verifyDirectorySample(partial, files); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("the original reopened the same group folder after %d bytes; fresh copy preserved paths, empty entries and every SHA-256", offset), nil
+	return fmt.Sprintf("the original resumed the same group folder after %d bytes; per-file offsets %d and %d, all paths, empty entries and SHA-256 matched",
+		offset, firstProgress, offset-sampleSize), nil
 }

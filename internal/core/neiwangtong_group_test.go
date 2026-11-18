@@ -65,6 +65,107 @@ func testGoIMCreatedNeiwangtongGroup(t *testing.T, node *Node, remote *neiwangto
 	})
 }
 
+const nativeFolderTestBlock = 32 << 10
+const nativeFolderTestFile = "资料.bin"
+
+func interruptNeiwangtongGroupFolder(t *testing.T, n *Node, remote *neiwangtong.Service, self, peer, task string,
+	firstBlock <-chan struct{}, release func()) (domain.Transfer, string, neiwangtong.Directory) {
+	t.Helper()
+	defer release()
+	room := neiwangtong.GroupRoster{ID: newID(), Name: "群目录续传", OwnerID: peer, InfoVersion: 1, MembersVersion: 1,
+		Members: []neiwangtong.GroupMember{{ID: peer, Name: "Peer"}, {ID: self, Name: "GoIM"}}}
+	if err := remote.SendGroupRoster(self, room); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "native group folder room", func() bool {
+		return n.Snapshot().Group(nativeGroupID(room.ID)).ID != ""
+	})
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, nativeFolderTestFile), bytes.Repeat([]byte("group folder test"), 16000), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := neiwangtong.InspectDirectory(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	share := newID()
+	if err := remote.SendGroupFolder(self, room.ID, 9876, newID(), share, task, source); err != nil {
+		t.Fatal(err)
+	}
+	var transfer domain.Transfer
+	eventually(t, "the group folder invitation", func() bool {
+		for _, candidate := range n.Snapshot().Transfers {
+			if candidate.RemoteShareID == share && candidate.Direction == "receive" {
+				transfer = candidate
+				return true
+			}
+		}
+		return false
+	})
+	dest := filepath.Join(t.TempDir(), "received")
+	if err := n.execute(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID, Paths: []string{dest}}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-firstBlock:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sender did not write its first block")
+	}
+	eventually(t, "the first group folder block on disk", func() bool {
+		s := n.Snapshot()
+		i := transferIndex(&s, transfer.ID)
+		if i < 0 {
+			return false
+		}
+		transfer = s.Transfers[i]
+		info, err := os.Stat(filepath.Join(nativeGroupFolderStage(transfer), "files", nativeFolderTestFile))
+		return err == nil && info.Size() == nativeFolderTestBlock
+	})
+	n.mu.Lock()
+	stop := n.transfers[transfer.ID]
+	n.mu.Unlock()
+	if stop == nil {
+		t.Fatal("the receiver stopped before the planned interruption")
+	}
+	stop()
+	eventually(t, "the interrupted receiver stopped", func() bool {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		return n.transfers[transfer.ID] == nil
+	})
+	stage := nativeGroupFolderStage(transfer)
+	if info, err := os.Stat(filepath.Join(stage, "files", nativeFolderTestFile)); err != nil || info.Size() != nativeFolderTestBlock {
+		t.Fatalf("interrupting the receiver discarded saved data: %v", err)
+	}
+	return transfer, room.ID, source
+}
+
+func verifyNeiwangtongGroupFolderRetry(t *testing.T, n *Node, previous domain.Transfer, source neiwangtong.Directory, progress <-chan int64) {
+	t.Helper()
+	select {
+	case got := <-progress:
+		if got != 2*nativeFolderTestBlock {
+			t.Fatalf("expected the sender to start after %d saved bytes, got first progress %d", nativeFolderTestBlock, got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sender did not get a resumed group folder request after reconnecting")
+	}
+	eventually(t, "completed group folder and removed staging", func() bool {
+		s := n.Snapshot()
+		_, err := os.Stat(previous.FolderStage)
+		i := transferIndex(&s, previous.ID)
+		return i >= 0 && s.Transfers[i].Status == "completed" && s.Transfers[i].FolderStage == "" && os.IsNotExist(err)
+	})
+	want, err := os.ReadFile(filepath.Join(source.Path, nativeFolderTestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(previous.Path, nativeFolderTestFile))
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("resumed group folder data did not match: %v", err)
+	}
+}
+
 func TestNativeGroupSelfExitDoesNotRestoreAccessFromStaleRoster(t *testing.T) {
 	n := testNode(t, "GoIM group exit")
 	self := n.Snapshot().Self.ID

@@ -22,7 +22,7 @@ type directoryKey struct {
 type directoryReceive struct {
 	ctx      context.Context
 	offer    FolderOffer
-	dest     string
+	target   directoryTarget
 	progress func(int64)
 	dynamic  bool
 	metadata func(int64)
@@ -112,16 +112,16 @@ func (d *directoryTransport) receive(conn *net.TCPConn) {
 			in.metadata(size)
 		}
 	}
-	in.result <- receiveDirectory(in.ctx, conn, init, in.offer, in.dest, in.progress)
+	in.result <- receiveDirectory(in.ctx, conn, init, in.offer, in.target, in.progress)
 }
 
 func (s *Service) ReceiveDirectory(ctx context.Context, peerID string, offer FolderOffer, destination string, progress func(int64)) error {
-	_, err := s.receiveDirectoryOffer(ctx, peerID, offer, destination, false, nil, progress,
+	_, err := s.receiveDirectoryOffer(ctx, peerID, offer, directoryTarget{path: destination}, false, nil, progress,
 		func() error { return s.AcceptFolderOffer(peerID, offer.TaskID) })
 	return err
 }
 
-func (s *Service) receiveDirectoryOffer(ctx context.Context, peerID string, offer FolderOffer, destination string,
+func (s *Service) receiveDirectoryOffer(ctx context.Context, peerID string, offer FolderOffer, target directoryTarget,
 	dynamic bool, metadata, progress func(int64), request func() error) (int64, error) {
 	if s.directories == nil || !validFolderOffer(offer) {
 		return 0, errors.New("内网通文件夹接收未就绪")
@@ -136,7 +136,7 @@ func (s *Service) receiveDirectoryOffer(ctx context.Context, peerID string, offe
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer stop()
 	d := s.directories
-	in := &directoryReceive{ctx: ctx, offer: offer, dest: destination, dynamic: dynamic, metadata: metadata,
+	in := &directoryReceive{ctx: ctx, offer: offer, target: target, dynamic: dynamic, metadata: metadata,
 		progress: progress, result: make(chan error, 1)}
 	key := directoryKey{control.Addr(), offer.TaskID}
 	d.mu.Lock()

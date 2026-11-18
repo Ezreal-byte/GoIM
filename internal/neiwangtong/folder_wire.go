@@ -258,7 +258,11 @@ func parseFolderManifest(frame []byte, count int, offer FolderOffer) ([]director
 		}
 		seen[key] = true
 		remaining -= int64(size)
-		items = append(items, directoryItem{relative: relative, size: int64(size), directory: directory})
+		item := directoryItem{relative: relative, size: int64(size), directory: directory}
+		if modified := binary.BigEndian.Uint64(record[613:621]); modified > 0 && modified <= math.MaxInt64 {
+			item.modified = time.Unix(int64(modified), 0)
+		}
+		items = append(items, item)
 	}
 	if remaining != 0 {
 		return nil, errors.New("内网通文件夹内容大小不符")
@@ -293,9 +297,18 @@ func sendDirectory(ctx context.Context, conn net.Conn, task string, dir Director
 	if binary.BigEndian.Uint32(ack[32:36]) != uint32(len(dir.items)) {
 		return errors.New("内网通文件夹清单确认数量不符")
 	}
-	expected := acknowledgeFolderManifest(dir.items)
+	offsets := make([]int64, len(dir.items))
+	for i, item := range dir.items {
+		at := folderManifestHead + i*folderManifestAck
+		offset := binary.BigEndian.Uint64(ack[at+4 : at+12])
+		if offset != 0 && offset >= uint64(item.size) {
+			return errors.New("内网通子文件续传偏移无效")
+		}
+		offsets[i] = int64(offset)
+	}
+	expected := acknowledgeFolderManifest(dir.items, offsets)
 	if !bytes.Equal(ack[folderManifestHead:], expected[folderManifestHead:]) {
-		return errors.New("内网通请求从文件夹断点继续，请重新接收整个文件夹")
+		return errors.New("内网通文件夹清单确认无效")
 	}
 	root, err := os.OpenRoot(dir.Path)
 	if err != nil {
@@ -304,7 +317,7 @@ func sendDirectory(ctx context.Context, conn net.Conn, task string, dir Director
 	defer root.Close()
 	var done int64
 	for i, item := range dir.items {
-		if err := sendDirectoryItem(conn, root, uint32(i), item, func(n int64) {
+		if err := sendDirectoryItem(conn, root, uint32(i), item, offsets[i], func(n int64) {
 			if progress != nil {
 				progress(done + n)
 			}
@@ -328,7 +341,7 @@ func sendDirectory(ctx context.Context, conn net.Conn, task string, dir Director
 	return err
 }
 
-func sendDirectoryItem(conn net.Conn, root *os.Root, index uint32, item directoryItem, progress func(int64)) error {
+func sendDirectoryItem(conn net.Conn, root *os.Root, index uint32, item directoryItem, offset int64, progress func(int64)) error {
 	if item.directory {
 		entries, err := fs.ReadDir(root.FS(), item.relative)
 		if err != nil || len(entries) != 0 {
@@ -348,12 +361,17 @@ func sendDirectoryItem(conn net.Conn, root *os.Root, index uint32, item director
 		!info.ModTime().Equal(item.modified) {
 		return errors.New("源文件夹子文件已变化")
 	}
+	if offset > 0 {
+		if _, err := file.Seek(offset, io.SeekStart); err != nil {
+			return err
+		}
+	}
 	if err := writeFolderItemStart(conn, index, item.startMarker()); err != nil {
 		return err
 	}
 	block := newFolderFrame(5, folderBlockHeader+folderBlockSize)
 	binary.BigEndian.PutUint32(block[32:36], index)
-	for done := int64(0); done < item.size; {
+	for done := offset; done < item.size; {
 		n := int(min(int64(folderBlockSize), item.size-done))
 		if _, err := io.ReadFull(file, block[folderBlockHeader:folderBlockHeader+n]); err != nil {
 			return err
@@ -377,12 +395,13 @@ func writeFolderItemStart(conn net.Conn, index, marker uint32) error {
 	return writeFolderFrame(conn, start)
 }
 
-func acknowledgeFolderManifest(items []directoryItem) []byte {
+func acknowledgeFolderManifest(items []directoryItem, offsets []int64) []byte {
 	ack := newFolderFrame(4, folderManifestHead+len(items)*folderManifestAck)
 	binary.BigEndian.PutUint32(ack[32:36], uint32(len(items)))
 	for i, item := range items {
 		at := folderManifestHead + i*folderManifestAck
 		binary.BigEndian.PutUint32(ack[at:at+4], uint32(i))
+		binary.BigEndian.PutUint64(ack[at+4:at+12], uint64(offsets[i]))
 		if item.size == 0 {
 			binary.BigEndian.PutUint32(ack[at+12:at+16], 1) // no file content requested
 		}
@@ -390,18 +409,13 @@ func acknowledgeFolderManifest(items []directoryItem) []byte {
 	return ack
 }
 
-func receiveDirectory(ctx context.Context, conn net.Conn, init []byte, offer FolderOffer, dest string, progress func(int64)) error {
+func receiveDirectory(ctx context.Context, conn net.Conn, init []byte, offer FolderOffer, target directoryTarget, progress func(int64)) error {
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	count := int(binary.BigEndian.Uint32(init[632:636]))
 	if count <= 0 || count > maxFolderItems || binary.BigEndian.Uint64(init[636:644]) != uint64(offer.Size) {
 		return errors.New("文件夹数据与邀请大小不符")
 	}
-	root, err := os.OpenRoot(dest)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
 	ok := newFolderFrame(2, 672)
 	putFolderString(ok[folderTaskStart:folderTaskEnd], offer.TaskID, binary.BigEndian)
 	if err := writeFolderFrame(conn, ok); err != nil {
@@ -415,12 +429,31 @@ func receiveDirectory(ctx context.Context, conn net.Conn, init []byte, offer Fol
 	if err != nil {
 		return err
 	}
-	if err := writeFolderFrame(conn, acknowledgeFolderManifest(items)); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := target.prepare(manifest, items); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(target.path)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	offsets, err := target.offsets(root, items)
+	if err != nil {
+		return err
+	}
+	if err := writeFolderFrame(conn, acknowledgeFolderManifest(items, offsets)); err != nil {
 		return err
 	}
 	var done int64
 	for i, item := range items {
-		if err := receiveDirectoryItem(conn, root, uint32(i), item, func(n int64) {
+		offset := offsets[i]
+		if offset > 0 && progress != nil {
+			progress(done + offset)
+		}
+		if err := receiveDirectoryItem(ctx, conn, root, uint32(i), item, offset, target.manifest != "", func(n int64) {
 			if progress != nil {
 				progress(done + n)
 			}
@@ -444,7 +477,8 @@ func receiveDirectory(ctx context.Context, conn net.Conn, init []byte, offer Fol
 	return writeFolderFrame(conn, newFolderFrame(8, 72))
 }
 
-func receiveDirectoryItem(conn net.Conn, root *os.Root, index uint32, item directoryItem, progress func(int64)) error {
+func receiveDirectoryItem(ctx context.Context, conn net.Conn, root *os.Root, index uint32, item directoryItem, offset int64,
+	resumable bool, progress func(int64)) error {
 	start, err := requireFolderFrame(conn, 5, folderBlockHeader+1)
 	if err != nil {
 		return err
@@ -460,12 +494,32 @@ func receiveDirectoryItem(conn net.Conn, root *os.Root, index uint32, item direc
 	if err := root.MkdirAll(filepath.Dir(relative), 0700); err != nil {
 		return err
 	}
-	file, err := root.OpenFile(relative, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	if offset > 0 {
+		flags = os.O_WRONLY
+	} else if resumable {
+		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	}
+	file, err := root.OpenFile(relative, flags, 0600)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	for done := int64(0); done < size; {
+	if offset > 0 {
+		if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() || info.Size() < offset || info.Size() > size {
+			return errors.New("内网通文件夹暂存文件已变化")
+		}
+		if err := file.Truncate(offset); err != nil {
+			return err
+		}
+		if _, err := file.Seek(offset, io.SeekStart); err != nil {
+			return err
+		}
+	}
+	for done := offset; done < size; {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		frame, err := readFolderFrame(conn, 5, folderBlockHeader+folderBlockSize, false)
 		if err != nil {
 			return err

@@ -138,6 +138,7 @@ func (n *Node) execute(c domain.Command) error {
 		})
 		if err == nil && t.LegacyTransport == transportNWT && t.Direction == "receive" {
 			_ = os.Remove(n.nativePartialPath(t.ID))
+			n.removeFinishedGroupFolderStage(t.ID)
 		}
 		return err
 	case domain.SetSetting:
