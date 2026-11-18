@@ -1,8 +1,8 @@
 # 飞鸽／飞秋适配进度
 
-更新于 2026-11-18。本轮开始于 `0.1.7` 发布之后，新增回执等待等改动属于后续开发，**不包含在 0.1.7 安装包中**。
+更新于 2026-11-18。原版 IP Messenger `5.9.1` 的 12 项自动验收全部通过。本轮改动属于 `0.1.7` 之后的开发版本。
 
-兼容目标以[内网通官方说明](https://51nwt.com/help/g2.htm)中的飞鸽／飞秋联系人发现和文字互通为基础，保留并验证标准 IPMSG 文件传输。各客户端的私有群聊、语音、视频、远程控制不属于本轮目标。
+本轮验收覆盖联系人自动发现、双向文字和标准 IPMSG 文件传输。[内网通官方兼容说明](https://51nwt.com/help/g2.htm)
 
 | 功能 | 进度 | 验证范围 |
 | --- | --- | --- |
@@ -37,4 +37,12 @@ pwsh -File scripts/test-ipmsg.ps1 -Mode Sandbox
 
 非默认程序位置可以传 `-SandboxOriginalDir`。每次使用全新档案，报告保存在忽略的 `artifacts/ipmsg/sandbox.json`。测试通过原版 `ipcmd` 收发和读取正文、切换状态以及关闭原版，随后用同一个临时档案重开。临时原版的自动保存目录用于核对 GoIM 发出的文件。GoIM 侧仍需明确接受文件。
 
-接下来的原版验收集中在飞秋的 Windows 版本。协议依据为原作者的 [IPMSG 通信规范](https://github.com/shirouzu/ipmsg/blob/master/protocol.txt)和[命令行帮助](https://ipmsg.org/help/ipmsghlp_eng.htm)。
+## Windows 飞秋联调
+
+在和 GoIM 同一局域网启动实际使用的 Windows 飞秋，并记录客户端版本。联调核对以下结果。
+
+- 两端无需手输 IP 即可互相发现，GoIM 自动用 IPMSG 协议与飞秋通信。
+- 双向中文消息完整进入同一会话，并核对当前版本提供的送达回执。
+- 双向发送并接收普通文件，核对中文文件名和落盘 SHA-256。
+
+[IPMSG 通信规范](https://github.com/shirouzu/ipmsg/blob/master/protocol.txt) · [原版命令行帮助](https://ipmsg.org/help/ipmsghlp_eng.htm)
