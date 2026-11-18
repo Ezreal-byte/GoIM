@@ -101,7 +101,7 @@ pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -LargeFile
 pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -StockLargeFile
 ```
 
-单独验收头像时，GoIM 发出两张不同的测试 PNG，在原版缓存中核对完整字节。原版也会实际更换两张照片，再恢复默认；GoIM 根据图像内容和更新顺序核对头像，确认恢复默认时清除旧图：
+单独验收头像时，GoIM 发出两张不同的测试 PNG，核对原版缓存和会话里的实际显示，然后清除头像并检查同一位置恢复默认。反向让原版更换两张照片并恢复默认，GoIM 核对图像内容、更新顺序和清除结果。
 
 ```powershell
 pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -AvatarUpdate

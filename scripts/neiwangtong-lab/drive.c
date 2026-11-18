@@ -444,6 +444,14 @@ int wmain(int argc, wchar_t **argv) {
 
     // Locations come from the stock chat skin at 96 dpi with a new profile.
     const int composer_x = 230, composer_y = 535, button_y = 581;
+    if (!wcscmp(action, L"chat-reveal") && argc == 4) {
+        dismiss_guide(exe);
+        ShowWindow(chat, SW_RESTORE);
+        if (!SetWindowPos(chat, HWND_TOP, 180, 82, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW) || !focus_chat(chat))
+            return fail("could not reveal the private reference chat");
+        Sleep(250);
+        return 0;
+    }
     if (!wcscmp(action, L"chat-emoticon") && argc == 4) {
         dismiss_guide(exe);
         ShowWindow(chat, SW_RESTORE);

@@ -7,7 +7,7 @@ lab_path=/usr/sbin:/usr/bin:/sbin:/bin
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
 case "${1:-}" in
-    reply|queue-text|send-file|accept-file|cancel-file|send-image|send-folder|probe-group|group-open|group-close|group-await-closed|group-reply|group-check|group-image|group-exit|group-exit-seen|group-kick-goim|group-file-send|group-file-receive|chat-check|chat-emoticon|chat-emoticon-check|chat-recall-stock|chat-recall-check|chat-recall-gone|group-recall-stock|group-recall-check|group-recall-gone|stock-open-chat|stock-reply|stock-chat-check|stock-send-file|stock-accept-file|stock-presence|stock-avatar)
+    reply|queue-text|send-file|accept-file|cancel-file|send-image|send-folder|probe-group|group-open|group-close|group-await-closed|group-reply|group-check|group-image|group-exit|group-exit-seen|group-kick-goim|group-file-send|group-file-receive|chat-check|chat-reveal|chat-emoticon|chat-emoticon-check|chat-recall-stock|chat-recall-check|chat-recall-gone|group-recall-stock|group-recall-check|group-recall-gone|stock-open-chat|stock-reply|stock-chat-check|stock-send-file|stock-accept-file|stock-presence|stock-avatar)
         # Launched by the checker as the lab user. Wine and X11 connect to
         # the same private session over local sockets, not over the veth.
         original=$(winepath -w "$GOIM_NWT_ORIGINAL/ShiYeLine.exe")
@@ -57,7 +57,12 @@ case "${1:-}" in
         exit
         ;;
     isolated) shift ;;
-    *) exec unshare --uts "$0" isolated "$@" ;;
+    *)
+        if [ "${2:-}" = --avatar-update ]; then
+            exec unshare --mount --uts "$0" isolated "$@"
+        fi
+        exec unshare --uts "$0" isolated "$@"
+        ;;
 esac
 
 [ "$#" -gt 0 ] && [ "$#" -le 2 ] || fail 'Specify the Linux path to the original client directory and at most one check mode.'
@@ -76,6 +81,12 @@ lab_home=$(getent passwd "$lab_user" | cut -d: -f6)
 [ -n "$lab_home" ] || fail 'The dedicated lab user nwtlab is missing.'
 original=$(realpath "$1")
 [ -f "$original/ShiYeLine.exe" ] || fail 'Missing original ShiYeLine.exe.'
+if [ "$mode" = --avatar-update ]; then
+    # WSLg mounts its X socket directory read-only. Keep the private Xvfb
+    # socket available to both lab namespaces without touching WSLg.
+    [ "$(readlink /proc/self/ns/mnt)" != "$(readlink /proc/1/ns/mnt)" ] || fail 'Missing isolated mount namespace.'
+    mount -t tmpfs -o mode=1777,nosuid,nodev,size=1m tmpfs /tmp/.X11-unix
+fi
 hostname goim-nwt
 
 tools=$(realpath "${0%/*}")

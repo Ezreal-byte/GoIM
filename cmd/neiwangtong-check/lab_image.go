@@ -14,9 +14,14 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"goim/internal/neiwangtong"
+
+	"github.com/jezek/xgb"
+	"github.com/jezek/xgb/xproto"
 )
 
 func (l *labChecks) checkImages(ctx context.Context, r *report, service *neiwangtong.Service, peer string) bool {
@@ -100,6 +105,14 @@ func imageFixtureExtension(format string) string {
 func (l *labChecks) checkAvatarToOriginal(ctx context.Context, service *neiwangtong.Service) (string, error) {
 	profile := neiwangtong.Peer{Name: l.qaName}
 	cache := filepath.Join(l.opt.labDir, "wine", "drive_c", "users", "Public", "Nwt", "cache")
+	if err := l.drive(ctx, "chat-reveal"); err != nil {
+		return "", err
+	}
+	initial, err := l.privateAvatarDisplay()
+	if err != nil {
+		return "", err
+	}
+	var area image.Rectangle
 	for i, fill := range []color.RGBA{{R: 141, A: 255}, {G: 161, A: 255}} {
 		path := filepath.Join(l.opt.labDir, fmt.Sprintf("profile-%d.png", i))
 		data, err := writeFixtureImage(path, "png", 64, 64, fill)
@@ -110,8 +123,114 @@ func (l *labChecks) checkAvatarToOriginal(ctx context.Context, service *neiwangt
 		if err := waitForCachedImage(ctx, cache, data); err != nil {
 			return "", fmt.Errorf("the original did not cache announced avatar %d: %w", i+1, err)
 		}
+		if err := l.drive(ctx, "chat-reveal"); err != nil {
+			return "", err
+		}
+		if err := l.waitForAvatarDisplay(ctx, func(display *image.RGBA) bool {
+			if area.Empty() {
+				area = findAvatarPatch(display, fill)
+			}
+			return !area.Empty() && avatarPatchMatches(display, area, func(x, y int) color.RGBA { return fill })
+		}); err != nil {
+			return "", fmt.Errorf("the original did not display avatar %d: %w", i+1, err)
+		}
+		if i == 0 && avatarPatchMatches(initial, area, func(x, y int) color.RGBA { return fill }) {
+			return "", errors.New("the test avatar already matched the initial display")
+		}
 	}
-	return "the original fetched both GoIM PNG avatars, including the replacement, with exactly matching bytes", nil
+	service.UpdateProfile(profile, nil)
+	if err := l.drive(ctx, "chat-reveal"); err != nil {
+		return "", err
+	}
+	if err := l.waitForAvatarDisplay(ctx, func(display *image.RGBA) bool {
+		return avatarPatchMatches(display, area, initial.RGBAAt)
+	}); err != nil {
+		return "", fmt.Errorf("the original did not restore the initial default avatar: %w", err)
+	}
+	return "the original fetched and displayed the two custom avatars and restored the default in the same region after GoIM cleared its image", nil
+}
+
+func (l *labChecks) privateAvatarDisplay() (*image.RGBA, error) {
+	display := os.Getenv("DISPLAY")
+	if runtime.GOOS != "linux" || !strings.HasPrefix(display, "unix:") ||
+		os.Getenv("XAUTHORITY") != filepath.Join(l.opt.labDir, "display.auth") {
+		return nil, errors.New("avatar display verification requires the private sandbox display")
+	}
+	conn, err := xgb.NewConnDisplay(display)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	setup := xproto.Setup(conn)
+	screen := setup.DefaultScreen(conn)
+	width, height := screen.WidthInPixels, screen.HeightInPixels
+	if width != 1280 || height != 800 || setup.ImageByteOrder != xproto.ImageOrderLSBFirst {
+		return nil, errors.New("unexpected pixel layout in the private sandbox")
+	}
+	read, err := xproto.GetImage(conn, xproto.ImageFormatZPixmap, xproto.Drawable(screen.Root), 0, 0, width, height, 0xffffffff).Reply()
+	if err != nil {
+		return nil, err
+	}
+	pixels := image.NewRGBA(image.Rect(0, 0, int(width), int(height)))
+	if read == nil || read.Depth != 24 || len(read.Data) != len(pixels.Pix) {
+		return nil, errors.New("unexpected avatar image format in the private sandbox")
+	}
+	// The sandbox's 24-bit Xvfb display returns BGR values in four-byte pixels.
+	for i := 0; i < len(read.Data); i += 4 {
+		pixels.Pix[i+0] = read.Data[i+2]
+		pixels.Pix[i+1] = read.Data[i+1]
+		pixels.Pix[i+2] = read.Data[i+0]
+		pixels.Pix[i+3] = 255
+	}
+	return pixels, nil
+}
+
+func (l *labChecks) waitForAvatarDisplay(ctx context.Context, matches func(*image.RGBA) bool) error {
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	tick := time.NewTicker(150 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		display, err := l.privateAvatarDisplay()
+		if err != nil {
+			return err
+		}
+		if matches(display) {
+			return nil
+		}
+		select {
+		case <-tick.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func findAvatarPatch(display *image.RGBA, fill color.RGBA) image.Rectangle {
+	bounds := display.Bounds()
+	for y := bounds.Min.Y; y <= bounds.Max.Y-8; y++ {
+		for x := bounds.Min.X; x <= bounds.Max.X-8; x++ {
+			if display.RGBAAt(x, y) != fill {
+				continue
+			}
+			area := image.Rect(x, y, x+8, y+8)
+			if avatarPatchMatches(display, area, func(x, y int) color.RGBA { return fill }) {
+				return area
+			}
+		}
+	}
+	return image.Rectangle{}
+}
+
+func avatarPatchMatches(display *image.RGBA, area image.Rectangle, expected func(x, y int) color.RGBA) bool {
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
+			if display.RGBAAt(x, y) != expected(x, y) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (l *labChecks) checkAvatarFromOriginal(ctx context.Context, peer string) (string, error) {
