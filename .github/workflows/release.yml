@@ -6,7 +6,7 @@ on:
     inputs:
       version:
         description: Package version
-        default: 0.1.9
+        default: 0.1.10
         required: true
         type: string
 permissions:
