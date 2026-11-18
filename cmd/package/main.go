@@ -23,6 +23,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -416,9 +418,10 @@ func verifyArchitecture(path string) error {
 	return nil
 }
 
-// verifyPortableLinuxBinary rejects dynamically linked Linux packages. The
-// release runner is newer than supported Kylin and UOS hosts, so allowing cgo
-// here silently raises the minimum GLIBC version of the shipped executable.
+// verifyPortableLinuxBinary keeps Linux packages within the GLIBC baseline
+// available on supported Kylin and UOS hosts. Viva's pure-Go Linux path still
+// asks the dynamic loader for libc, pthread and libdl through purego, so those
+// baseline libraries are valid; a cgo build or any newer GLIBC symbol is not.
 func verifyPortableLinuxBinary(path string) error {
 	if runtime.GOOS != "linux" {
 		return nil
@@ -432,14 +435,88 @@ func verifyPortableLinuxBinary(path string) error {
 	if err != nil {
 		return fmt.Errorf("inspect Linux dynamic dependencies: %w", err)
 	}
-	if len(libraries) != 0 {
-		return fmt.Errorf(
-			"%s is dynamically linked (%s); build Linux releases with CGO_ENABLED=0 so Kylin and UOS do not depend on the release runner's GLIBC",
-			filepath.Base(path),
-			strings.Join(libraries, ", "),
-		)
+	symbols, err := f.ImportedSymbols()
+	if err != nil {
+		return fmt.Errorf("inspect Linux dynamic symbols: %w", err)
+	}
+	var versions []string
+	seen := make(map[string]bool)
+	for _, symbol := range symbols {
+		if strings.HasPrefix(symbol.Version, "GLIBC_") && !seen[symbol.Version] {
+			seen[symbol.Version] = true
+			versions = append(versions, symbol.Version)
+		}
+	}
+	return verifyLinuxDynamicRequirements(filepath.Base(path), libraries, versions)
+}
+
+func verifyLinuxDynamicRequirements(name string, libraries, versions []string) error {
+	allowedLibraries := map[string]bool{
+		"libc.so.6":       true,
+		"libdl.so.2":      true,
+		"libpthread.so.0": true,
+	}
+	var unexpected []string
+	for _, library := range libraries {
+		if !allowedLibraries[library] {
+			unexpected = append(unexpected, library)
+		}
+	}
+	if len(unexpected) != 0 {
+		sort.Strings(unexpected)
+		return fmt.Errorf("%s links libraries outside the Linux baseline (%s)", name, strings.Join(unexpected, ", "))
+	}
+
+	const maximum = "2.31"
+	var newer []string
+	for _, requirement := range versions {
+		version := strings.TrimPrefix(requirement, "GLIBC_")
+		after, valid := numericVersionAfter(version, maximum)
+		if !valid || after {
+			newer = append(newer, requirement)
+		}
+	}
+	if len(newer) != 0 {
+		sort.Strings(newer)
+		return fmt.Errorf("%s requires GLIBC %s; the Linux release baseline is %s", name, strings.Join(newer, ", "), maximum)
 	}
 	return nil
+}
+
+func numericVersionAfter(version, maximum string) (after, valid bool) {
+	parse := func(value string) ([]int, bool) {
+		parts := strings.Split(value, ".")
+		result := make([]int, 0, max(len(parts), 3))
+		for _, part := range parts {
+			number, err := strconv.Atoi(part)
+			if err != nil || number < 0 {
+				return nil, false
+			}
+			result = append(result, number)
+		}
+		for len(result) < 3 {
+			result = append(result, 0)
+		}
+		return result, true
+	}
+	got, gotOK := parse(version)
+	limit, limitOK := parse(maximum)
+	if !gotOK || !limitOK {
+		return false, false
+	}
+	for index := 0; index < len(got) || index < len(limit); index++ {
+		left, right := 0, 0
+		if index < len(got) {
+			left = got[index]
+		}
+		if index < len(limit) {
+			right = limit[index]
+		}
+		if left != right {
+			return left > right, true
+		}
+	}
+	return false, true
 }
 
 func copyFile(src, dest string) error {
