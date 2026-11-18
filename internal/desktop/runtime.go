@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -42,6 +43,7 @@ type desktopRuntime struct {
 	flashUntil          time.Time
 	flashOn             bool
 	screenshotRunning   atomic.Bool
+	screenshotContext   context.Context
 	viewerWindow        *app.Window
 	viewerWake          app.Invalidator
 	viewerPending       bool
@@ -61,11 +63,14 @@ type detachedConversationWindow struct {
 func Run(backend domain.Backend, restartArguments []string) error {
 	shell := New(backend)
 	defer shell.Close()
+	screenshotContext, stopCaptures := context.WithCancel(context.Background())
+	defer stopCaptures()
 	icon, statusIcon := windowIcon(), trayIcon()
 	r := &desktopRuntime{
 		ui: shell, backend: backend, seen: make(map[string]bool), badge: -1,
 		trayNormal: statusIcon, trayFlash: attentionIcon(statusIcon),
 		conversationWindows: make(map[string]*detachedConversationWindow),
+		screenshotContext:   screenshotContext,
 	}
 	shell.panels.setAutostartProvider(
 		func() (bool, error) { return app.AutostartEnabled(selfupdate.AppID) },

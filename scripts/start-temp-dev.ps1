@@ -67,8 +67,10 @@ if (!$NoBuild) {
     & (Join-Path $PSScriptRoot 'build.ps1') -OutputDir $bin
 }
 $exe = Join-Path $bin 'GoIM.exe'
+$shotlet = Join-Path $bin 'shotlet/shotlet-capture.exe'
+$builtin = Join-Path $bin 'goim-snip.exe'
 if (!(Test-Path -LiteralPath $exe -PathType Leaf) -or
-    !(Test-Path -LiteralPath (Join-Path $bin 'goim-snip.exe') -PathType Leaf)) {
+    (!(Test-Path -LiteralPath $shotlet -PathType Leaf) -and !(Test-Path -LiteralPath $builtin -PathType Leaf))) {
     throw "GoIM and the screenshot tool are required in $bin. Run scripts/build.ps1 or omit -NoBuild."
 }
 

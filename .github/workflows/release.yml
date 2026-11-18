@@ -202,10 +202,20 @@ jobs:
                       info=json.loads(z.read(next(n for n in names if n.endswith('/build-info.json'))))
                       assert any(n.endswith('/GoIM.exe' if target[0]=='windows' else '/GoIM.app/Contents/MacOS/GoIM') for n in names)
                       snip = next(n for n in names if n.endswith('/goim-snip.exe' if target[0]=='windows' else '/GoIM.app/Contents/MacOS/goim-snip'))
-                      if target[0]=='darwin': assert (z.getinfo(snip).external_attr >> 16) & 0o111
-                      if target[0]=='darwin': assert any(n.endswith('/GoIM.app/Contents/Info.plist') for n in names)
-                      if target[0]=='darwin': assert any(n.endswith('/GoIM.app/Contents/Resources/AppIcon.icns') for n in names)
-                      if target[0]=='windows': assert any(n.endswith('/GoIM.ico') for n in names)
+                      if target[0]=='darwin':
+                          assert (z.getinfo(snip).external_attr >> 16) & 0o111
+                          assert any(n.endswith('/GoIM.app/Contents/Info.plist') for n in names)
+                          assert any(n.endswith('/GoIM.app/Contents/Resources/AppIcon.icns') for n in names)
+                          helper = '/GoIM.app/Contents/Helpers/ShotletCapture.app/Contents/'
+                          assert any(n.endswith(helper+'Info.plist') for n in names)
+                          native = next(n for n in names if n.endswith(helper+'MacOS/ShotletCapture'))
+                          assert (z.getinfo(native).external_attr >> 16) & 0o111
+                      else:
+                          assert any(n.endswith('/GoIM.ico') for n in names)
+                          native = next(n for n in names if n.endswith('/shotlet/shotlet-capture.exe'))
+                      assert z.getinfo(native).file_size > 0
+                      for license in ('Apache-2.0.txt', 'THIRD_PARTY_NOTICES.md', 'SDL.txt', 'ImGui.txt', 'nlohmann-json.txt'):
+                          assert any(n.endswith('/licenses/shotlet/'+license) for n in names), license
               else:
                   with tarfile.open(p) as z:
                       names=z.getnames()
@@ -213,6 +223,7 @@ jobs:
                       exe=z.getmember(next(n for n in names if n.endswith('/GoIM')))
                       assert exe.mode & 0o111
                       assert z.getmember(next(n for n in names if n.endswith('/goim-snip'))).mode & 0o111
+                      assert not any('/licenses/shotlet/' in n for n in names)
                       assert any(n.endswith('/share/applications/dev.goim.desktop.desktop') for n in names)
                       assert any(n.endswith('/share/polkit-1/actions/dev.goim.desktop.policy') for n in names)
                       assert any(n.endswith('/share/icons/hicolor/256x256/apps/goim.png') for n in names)

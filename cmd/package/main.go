@@ -61,10 +61,17 @@ func build() error {
 	out := flag.String("out", "dist", "artifact directory")
 	windowsSetup := flag.Bool("windows-setup", false, "also build the Viva Windows Setup installer (requires NSIS)")
 	stamp := flag.String("stamp-windows", "", "apply the Windows icon and metadata to an existing GoIM executable")
+	stageCapture := flag.String("stage-shotlet", "", "build and stage the Shotlet helper beside a Windows development build")
 	flag.Parse()
 	platformVersion, _, _ := strings.Cut(*version, "-")
 	if *stamp != "" {
 		return stampWindowsExecutable(*stamp, platformVersion)
+	}
+	if *stageCapture != "" {
+		if runtime.GOOS != "windows" {
+			return fmt.Errorf("--stage-shotlet is for Windows development builds")
+		}
+		return stageShotlet(*stageCapture, filepath.Join(*stageCapture, "GoIM.exe"))
 	}
 	if *windowsSetup && runtime.GOOS != "windows" {
 		return fmt.Errorf("--windows-setup requires a native Windows build")
@@ -157,6 +164,9 @@ func build() error {
 		if err := copyFile(filepath.Join(logoAssets, "goim.ico"), filepath.Join(staging, "GoIM.ico")); err != nil {
 			return err
 		}
+		if err := stageShotlet(staging, executable); err != nil {
+			return err
+		}
 	case "darwin":
 		bundle := filepath.Join(staging, "GoIM.app")
 		_, err := appbundle.Assemble(appbundle.Options{Dest: bundle, Executable: executable, Icon: filepath.Join(logoAssets, "goim.icns"), Info: appbundle.Info{Name: "GoIM", ID: "dev.goim.desktop", Version: platformVersion, Executable: "GoIM", MinSystem: "13.0", Category: "public.app-category.social-networking", Copyright: "2026 Ezreal-byte"}})
@@ -167,6 +177,9 @@ func build() error {
 			return err
 		}
 		if err := run("codesign", "--force", "--sign", "-", filepath.Join(bundle, "Contents", "MacOS", "goim-snip")); err != nil {
+			return err
+		}
+		if err := stageShotlet(staging, filepath.Join(bundle, "Contents", "MacOS", "GoIM")); err != nil {
 			return err
 		}
 		if err = run("codesign", "--force", "--sign", "-", bundle); err != nil {

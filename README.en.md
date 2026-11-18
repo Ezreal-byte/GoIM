@@ -41,7 +41,7 @@ GoIM is a desktop messenger built with Go and [Viva](https://github.com/vivaui/v
 | Local history, search, unread counts, pinned conversations, and offline retry | File and folder links, QR codes, and per-project passwords |
 | Contact groups, profiles, app lock with system verification, light and dark appearances, and Chinese and English UI | Device share homepage with browser uploads |
 
-Capture a region, resize it, annotate it, and copy at the original resolution. Use the scissors in the composer or the default `Alt+A` shortcut.
+Use `Alt+A` or the scissors in the composer to capture your screen. Windows and macOS 13.3 or later use the bundled Shotlet helper for annotation, scrolling capture, OCR, and pinning. Confirm a screenshot to paste it into a chat. Shotlet supports recording on Windows and macOS 15 or later. Linux and macOS 13.0–13.2 use GoIM's built-in tool. On macOS, grant screen recording permission for Shotlet on first use.
 
 ## Install
 
@@ -131,6 +131,8 @@ go run ./cmd/goim
 ```
 
 On Windows, `pwsh -File scripts/start-temp-dev.ps1` builds and starts a client with its own profile and download directory. Add `-Loopback` to disable LAN discovery and legacy adapters, or run `scripts/start-dual.ps1` for two clients connected over loopback.
+
+Windows and macOS packaging builds the Shotlet capture SDK helper from pinned revisions with CMake 3.20 or later. Windows needs Visual Studio 2022 C++ tools for the target architecture and the Windows SDK. macOS needs the Xcode Command Line Tools. Install NSIS to build Windows Setup with `go run ./cmd/package --windows-setup`. Linux builds use the existing GoIM toolchain because Shotlet's Wayland capture and native selection overlay are incomplete. [Shotlet source](https://github.com/Ezreal-byte/shotlet)
 
 `pwsh -File scripts/smoke-headless.ps1` builds a fresh headless client and runs a three-process test of messaging, file transfer, and browser sharing. Use `scripts/build.ps1` to build the desktop app and screenshot companion without starting them, or `scripts/promo-headless.ps1` to regenerate the demo gallery. See [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/release.yml) for platform packaging and validation.
 

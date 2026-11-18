@@ -20,3 +20,5 @@ GoIM application source is MIT licensed. Releases include the full applicable li
 The Viva notice also preserves upstream notices for its Unicode and font-related material. Native system fonts and graphics libraries are supplied by the operating system; font files are not bundled by GoIM.
 
 Browser share QR codes are generated with [go-qrcode](https://github.com/skip2/go-qrcode), covered by [its bundled license](licenses/go-qrcode-LICENSE.txt).
+
+Windows and macOS packages include the Shotlet capture SDK helper under Apache-2.0, with SDL (zlib), Dear ImGui (MIT), and nlohmann/json (MIT). The packages include the full license texts and upstream third-party notices under `licenses/shotlet/`. The source revisions are pinned in `packaging/shotlet.cmake`. [Shotlet source](https://github.com/Ezreal-byte/shotlet)

@@ -1,0 +1,97 @@
+cmake_minimum_required(VERSION 3.20)
+
+# Build the capture SDK helper from immutable source revisions. The standalone
+# Shotlet release archives do not contain this host protocol executable.
+set(shotlet_revision d72ca9309539be2b7ce50ed43a43eae827727d91)
+set(sdl_revision 829a65d769d935c4852f8159e964312c0957260a) # release-3.4.18
+set(imgui_revision e05bd9deb9a73b67acb5c04b8a581e06a2d42657)
+
+if(NOT DEFINED GOIM_SHOTLET_HELPER OR NOT DEFINED GOIM_SHOTLET_LICENSES OR
+   NOT GOIM_SHOTLET_ARCH MATCHES "^(amd64|arm64)$")
+    message(FATAL_ERROR "Shotlet requires a helper path, license directory and native amd64 or arm64 target")
+endif()
+
+if(CMAKE_HOST_WIN32)
+    set(platform windows)
+    set(arch x64)
+    if(GOIM_SHOTLET_ARCH STREQUAL "arm64")
+        set(arch ARM64)
+    endif()
+    set(platform_options -G "Visual Studio 17 2022" -A "${arch}" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded)
+elseif(CMAKE_HOST_APPLE)
+    set(platform darwin)
+    set(arch arm64)
+    if(GOIM_SHOTLET_ARCH STREQUAL "amd64")
+        set(arch x86_64)
+    endif()
+    set(platform_options -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=${arch}" -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3)
+else()
+    message(FATAL_ERROR "Shotlet capture is only packaged on Windows and macOS")
+endif()
+
+find_package(Git REQUIRED)
+get_filename_component(cache "${CMAKE_CURRENT_LIST_DIR}/../.runtime/shotlet" ABSOLUTE)
+file(MAKE_DIRECTORY "${cache}")
+# SDL is patched in place by upstream. Serialize configure, build and staging
+# when a developer build and a release package share this cache.
+file(LOCK "${cache}/build.lock" GUARD PROCESS TIMEOUT 900)
+
+function(run)
+    execute_process(COMMAND ${ARGV} COMMAND_ERROR_IS_FATAL ANY)
+endfunction()
+
+function(fetch_source name url revision result)
+    set(path "${cache}/${name}-${revision}")
+    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${path}" rev-parse HEAD
+        OUTPUT_VARIABLE head OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(NOT head STREQUAL revision)
+        run("${GIT_EXECUTABLE}" init --quiet "${path}")
+        run("${GIT_EXECUTABLE}" -C "${path}" fetch --quiet --depth 1 "${url}" "${revision}")
+        run("${GIT_EXECUTABLE}" -C "${path}" checkout --quiet --detach "${revision}")
+    endif()
+    set(${result} "${path}" PARENT_SCOPE)
+endfunction()
+
+fetch_source(shotlet https://github.com/Ezreal-byte/shotlet.git "${shotlet_revision}" shotlet)
+fetch_source(sdl3 https://github.com/libsdl-org/SDL.git "${sdl_revision}" sdl)
+fetch_source(imgui https://github.com/ocornut/imgui.git "${imgui_revision}" imgui)
+
+string(SHA256 revisions "${shotlet_revision}${sdl_revision}${imgui_revision}")
+string(SUBSTRING "${revisions}" 0 12 revisions)
+set(build "${cache}/build-${platform}-${GOIM_SHOTLET_ARCH}-${revisions}")
+run("${CMAKE_COMMAND}" -S "${shotlet}" -B "${build}" ${platform_options}
+    "-DSDL3_DIR=${sdl}" "-DIMGUI_DIR=${imgui}" -DSHOTLET_BUILD_CAPTURE_SDK=ON
+    -DSHOTLET_BUILD_NODE_ADDON=OFF -DSHOTLET_BUILD_TESTS=OFF)
+run("${CMAKE_COMMAND}" --build "${build}" --config Release --target shotlet_capture --parallel 4)
+
+file(READ "${build}/capture-sdk-Release.json" metadata)
+string(JSON source_helper GET "${metadata}" helper)
+get_filename_component(bin_dir "${GOIM_SHOTLET_HELPER}" DIRECTORY)
+if(CMAKE_HOST_APPLE)
+    get_filename_component(source_bundle "${source_helper}/../../.." ABSOLUTE)
+    get_filename_component(bundle "${GOIM_SHOTLET_HELPER}/../../.." ABSOLUTE)
+    get_filename_component(bundle_dir "${bundle}" DIRECTORY)
+    file(MAKE_DIRECTORY "${bundle_dir}")
+    run(ditto "${source_bundle}" "${bundle}")
+    # Give the embedded helper its own GoIM identity for system permissions.
+    run(plutil -replace CFBundleIdentifier -string dev.goim.desktop.shotlet "${bundle}/Contents/Info.plist")
+    run(codesign --force --sign - "${bundle}")
+    run(codesign --verify --strict "${bundle}")
+else()
+    file(MAKE_DIRECTORY "${bin_dir}")
+    run("${CMAKE_COMMAND}" -E copy_if_different "${source_helper}" "${GOIM_SHOTLET_HELPER}")
+    get_filename_component(source_bin "${source_helper}" DIRECTORY)
+    if(IS_DIRECTORY "${source_bin}/resources")
+        file(COPY "${source_bin}/resources" DESTINATION "${bin_dir}")
+    endif()
+endif()
+
+file(MAKE_DIRECTORY "${GOIM_SHOTLET_LICENSES}")
+function(stage_license source name)
+    run("${CMAKE_COMMAND}" -E copy_if_different "${source}" "${GOIM_SHOTLET_LICENSES}/${name}")
+endfunction()
+stage_license("${shotlet}/LICENSE" Apache-2.0.txt)
+stage_license("${shotlet}/THIRD_PARTY_NOTICES.md" THIRD_PARTY_NOTICES.md)
+stage_license("${sdl}/LICENSE.txt" SDL.txt)
+stage_license("${imgui}/LICENSE.txt" ImGui.txt)
+stage_license("${shotlet}/src/third_party/nlohmann/LICENSE.MIT" nlohmann-json.txt)

@@ -73,6 +73,9 @@ EOF
         codesign --verify --deep --strict "$mounted/GoIM.app"
         cmp "$payload/GoIM.app/Contents/MacOS/GoIM" "$mounted/GoIM.app/Contents/MacOS/GoIM"
         cmp "$payload/GoIM.app/Contents/MacOS/goim-snip" "$mounted/GoIM.app/Contents/MacOS/goim-snip"
+        shotlet=GoIM.app/Contents/Helpers/ShotletCapture.app/Contents/MacOS/ShotletCapture
+        cmp "$payload/$shotlet" "$mounted/$shotlet"
+        test -x "$mounted/$shotlet"
         test "$(readlink "$mounted/Applications")" = /Applications
         hdiutil detach "$mounted"
         mounted=
