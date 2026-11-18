@@ -16,8 +16,8 @@ const (
 	roInitMultithreaded = 1
 	rpcChangedMode      = 0x80010106
 
-	userConsentVerifierAvailable   = 0
-	userConsentVerifierDeviceError = 1
+	userConsentVerifierAvailable = 0
+	userConsentVerifierUnknown   = -1
 
 	userConsentVerified          = 0
 	userConsentDeviceNotPresent  = 1
@@ -193,28 +193,28 @@ func queryAvailability() (int32, error) {
 
 	initialized, err := initializeWinRT()
 	if err != nil {
-		return userConsentVerifierDeviceError, err
+		return userConsentVerifierUnknown, err
 	}
 	if initialized {
 		defer roUninitialize.Call()
 	}
 	factory, err := activationFactory(runtimeClassUserConsent, &iidUserConsentVerifierStatics)
 	if err != nil {
-		return userConsentVerifierDeviceError, err
+		return userConsentVerifierUnknown, err
 	}
 	defer releaseCOM(factory)
 
 	var operation uintptr
 	hr := callCOM(factory, comMethodCheckAvailability, uintptr(unsafe.Pointer(&operation)))
 	if failed(hr) || operation == 0 {
-		return userConsentVerifierDeviceError, fmt.Errorf("CheckAvailabilityAsync failed (HRESULT 0x%08X)", uint32(hr))
+		return userConsentVerifierUnknown, fmt.Errorf("CheckAvailabilityAsync failed (HRESULT 0x%08X)", uint32(hr))
 	}
 	operationObject := comPointer(operation)
 	defer releaseCOM(operationObject)
 
 	var availability int32
 	if err := waitAsyncResult(operationObject, unsafe.Pointer(&availability)); err != nil {
-		return userConsentVerifierDeviceError, err
+		return userConsentVerifierUnknown, err
 	}
 	return availability, nil
 }

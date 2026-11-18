@@ -14,7 +14,7 @@ func TestUserConsentVerifierAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if availability < userConsentVerifierAvailable || availability > userConsentVerifierDeviceError {
+	if availability < userConsentVerifierAvailable || availability > userConsentDeviceBusy {
 		t.Fatalf("availability = %d", availability)
 	}
 	t.Logf("Windows Hello availability = %d", availability)
@@ -28,7 +28,7 @@ func TestUserConsentVerifierInteropWhenUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if availability != 1 && availability != 2 {
+	if availability != userConsentDeviceNotPresent && availability != userConsentNotConfigured {
 		t.Skipf("refusing to prompt while Windows Hello availability is %d", availability)
 	}
 	initialized, err := initializeWinRT()
