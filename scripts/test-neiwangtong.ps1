@@ -22,6 +22,7 @@ param(
     [switch]$GroupFile,
     [switch]$GroupFileResume,
     [switch]$GroupFolder,
+    [switch]$GroupFolderRetry,
     [switch]$Emoticons,
     [switch]$AvatarUpdate,
     [switch]$TextRecall,
@@ -31,7 +32,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
-$special = @($LargeFile, $StockLargeFile, $OfflineReplay, $OfflineSend, $MultiGroup, $GroupManagement, $GroupFile, $GroupFileResume, $GroupFolder, $Emoticons, $AvatarUpdate, $TextRecall,
+$special = @($LargeFile, $StockLargeFile, $OfflineReplay, $OfflineSend, $MultiGroup, $GroupManagement, $GroupFile, $GroupFileResume, $GroupFolder, $GroupFolderRetry, $Emoticons, $AvatarUpdate, $TextRecall,
     $ResumeReceive, $DirectoryRetry, $DirectoryResend | Where-Object { $_ })
 if ($special.Count -gt 1 -or ($special.Count -gt 0 -and $Mode -ne 'Sandbox')) {
     throw 'Each special check requires a separate Sandbox run.'
@@ -112,6 +113,7 @@ function Invoke-ReferenceSandbox {
                 @{ Name = 'group-file-resume'; Option = '--group-file-resume' },
                 @{ Name = 'group-file-retry'; Option = '--group-file-retry' },
                 @{ Name = 'group-folder'; Option = '--group-folder' },
+                @{ Name = 'group-folder-retry'; Option = '--group-folder-retry' },
                 @{ Name = 'emoticons'; Option = '--emoticons' },
                 @{ Name = 'folder-resend-from-original'; Option = '--directory-resend-from-reference' },
                 @{ Name = 'folder-resend-to-original'; Option = '--directory-resend-to-reference' }
@@ -155,6 +157,7 @@ function Invoke-ReferenceSandbox {
                       elseif ($MultiGroup) { '--multi-group' }
                       elseif ($GroupFile) { '--group-file' }
                       elseif ($GroupFolder) { '--group-folder' }
+                      elseif ($GroupFolderRetry) { '--group-folder-retry' }
                       elseif ($Emoticons) { '--emoticons' }
                       elseif ($AvatarUpdate) { '--avatar-update' }
                       elseif ($ResumeReceive) { '--resume-receive' }

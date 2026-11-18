@@ -27,32 +27,33 @@ import (
 )
 
 type options struct {
-	bind               netip.Addr
-	target             netip.AddrPort
-	expectedVersion    string
-	expectedName       string
-	labDriver          string
-	labDir             string
-	text, avatar       bool
-	labLargeFile       bool
-	labOffline         bool
-	labOfflineSend     bool
-	labMultiGroup      bool
-	labAvatarUpdate    bool
-	labTextRecall      bool
-	labGroupRecall     bool
-	labGroupDismiss    bool
-	labGroupKick       bool
-	labGroupFile       bool
-	labGroupFileResume bool
-	labGroupFileRetry  bool
-	labGroupFolder     bool
-	labEmoticons       bool
-	labResume          bool
-	labDirectory       bool
-	labFolderResend    bool
-	labDirection       string
-	timeout            time.Duration
+	bind                netip.Addr
+	target              netip.AddrPort
+	expectedVersion     string
+	expectedName        string
+	labDriver           string
+	labDir              string
+	text, avatar        bool
+	labLargeFile        bool
+	labOffline          bool
+	labOfflineSend      bool
+	labMultiGroup       bool
+	labAvatarUpdate     bool
+	labTextRecall       bool
+	labGroupRecall      bool
+	labGroupDismiss     bool
+	labGroupKick        bool
+	labGroupFile        bool
+	labGroupFileResume  bool
+	labGroupFileRetry   bool
+	labGroupFolder      bool
+	labGroupFolderRetry bool
+	labEmoticons        bool
+	labResume           bool
+	labDirectory        bool
+	labFolderResend     bool
+	labDirection        string
+	timeout             time.Duration
 }
 
 type check struct {
@@ -110,6 +111,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opt.labGroupFileResume, "lab-group-file-resume", false, "Interrupt and resume a regular group file from the original client")
 	flags.BoolVar(&opt.labGroupFileRetry, "lab-group-file-retry", false, "Interrupt a group file and retry the same offer on the original receiver")
 	flags.BoolVar(&opt.labGroupFolder, "lab-group-folder", false, "Verify group folders with the original client")
+	flags.BoolVar(&opt.labGroupFolderRetry, "lab-group-folder-retry", false, "Interrupt a group folder and download the same invitation again")
 	flags.BoolVar(&opt.labEmoticons, "lab-emoticons", false, "Verify the stock emoticon identifier and a mixed native emoji message")
 	flags.BoolVar(&opt.labResume, "lab-resume-receive", false, "Interrupt a real file transfer to the original and verify its resumption offset")
 	flags.BoolVar(&opt.labDirectory, "lab-directory-retry", false, "Measure whether the original can resume a directory after interruption")
@@ -136,7 +138,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	special := 0
 	for _, enabled := range []bool{opt.labLargeFile, opt.labOffline, opt.labOfflineSend, opt.labMultiGroup, opt.labAvatarUpdate,
 		opt.labTextRecall, opt.labGroupRecall, opt.labGroupDismiss, opt.labGroupKick, opt.labGroupFile, opt.labGroupFileResume, opt.labGroupFolder, opt.labEmoticons,
-		opt.labGroupFileRetry, opt.labResume, opt.labDirectory, opt.labFolderResend} {
+		opt.labGroupFileRetry, opt.labGroupFolderRetry, opt.labResume, opt.labDirectory, opt.labFolderResend} {
 		if enabled {
 			special++
 		}

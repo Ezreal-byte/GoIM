@@ -285,6 +285,11 @@ func (l *labChecks) run(ctx context.Context, r *report, service *neiwangtong.Ser
 			return l.checkGroupFileRetry(ctx, service, reference.ID, cfg)
 		})
 	}
+	if l.opt.labGroupFolderRetry {
+		return text && r.run("group_folder_retry_from_original", func() (string, error) {
+			return l.checkGroupFolderRetry(ctx, service, reference.ID)
+		})
+	}
 	if l.opt.labOffline || l.opt.labResume || l.opt.labDirectory || l.opt.labFolderResend {
 		return text
 	}

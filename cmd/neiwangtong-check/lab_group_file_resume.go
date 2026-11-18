@@ -45,21 +45,12 @@ func (l *labChecks) checkGroupFileResume(ctx context.Context, service *neiwangto
 	if err := l.driveFor(ctx, "group-file-send", group.Name, "C:\\goim-qa\\"+name); err != nil {
 		return "", err
 	}
-	var ref neiwangtong.GroupFileRef
-	if _, err := wait(ctx, 6*time.Second, l.groupTexts, func(event labRoomMessage) bool {
-		if event.peer != peer || event.message.GroupID != group.ID {
-			return false
-		}
-		for _, part := range event.message.Message.Parts {
-			if part.File != nil && !part.File.Folder && part.File.Size == size &&
-				filepath.Base(strings.ReplaceAll(part.File.Name, "\\", "/")) == name {
-				ref = *part.File
-				return true
-			}
-		}
-		return false
-	}); err != nil {
+	ref, err := l.waitGroupAttachment(ctx, peer, group.ID, name, false)
+	if err != nil {
 		return "", fmt.Errorf("the original did not send the group attachment: %w", err)
+	}
+	if ref.Size != size {
+		return "", fmt.Errorf("unexpected group file size %d", ref.Size)
 	}
 	first, err := service.RequestGroupFile(ctx, peer, ref.ID, ref.Size)
 	if err != nil {
@@ -91,4 +82,21 @@ func (l *labChecks) checkGroupFileResume(ctx context.Context, service *neiwangto
 		return "", err
 	}
 	return fmt.Sprintf("the original resumed the same group invitation from %d bytes; %d bytes, sha256=%x", offset, size, digest), nil
+}
+
+func (l *labChecks) waitGroupAttachment(ctx context.Context, peer, group, name string, folder bool) (neiwangtong.GroupFileRef, error) {
+	var ref neiwangtong.GroupFileRef
+	_, err := wait(ctx, 6*time.Second, l.groupTexts, func(event labRoomMessage) bool {
+		if event.peer != peer || event.message.GroupID != group {
+			return false
+		}
+		for _, part := range event.message.Message.Parts {
+			if part.File != nil && part.File.Folder == folder && filepath.Base(strings.ReplaceAll(part.File.Name, "\\", "/")) == name {
+				ref = *part.File
+				return true
+			}
+		}
+		return false
+	})
+	return ref, err
 }
