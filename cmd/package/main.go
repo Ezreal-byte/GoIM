@@ -233,12 +233,42 @@ func build() error {
 	}
 	if *windowsSetup {
 		setup := filepath.Join(*out, name+"-Setup.exe")
-		if err := buildWindowsSetup(staging, setup, *version, runtime.GOARCH); err != nil {
+		installerVersion, err := windowsInstallerVersion(*version)
+		if err != nil {
+			return err
+		}
+		if err := buildWindowsSetup(staging, setup, installerVersion, runtime.GOARCH); err != nil {
 			return err
 		}
 		return writeChecksum(setup)
 	}
 	return nil
+}
+
+// windowsInstallerVersion maps a release such as 0.1.8-beta.1 to the fourth
+// numeric field in Windows version resources. The application and artifact
+// names keep the full prerelease version.
+func windowsInstallerVersion(version string) (string, error) {
+	stable, prerelease, prereleaseFound := strings.Cut(version, "-")
+	parts := strings.Split(stable, ".")
+	if len(parts) == 0 || len(parts) > 3 {
+		return "", fmt.Errorf("Windows installer version requires a one-to-three part numeric base: %q", version)
+	}
+	for _, part := range parts {
+		number, err := strconv.Atoi(part)
+		if err != nil || number < 0 || number > 65535 {
+			return "", fmt.Errorf("Windows installer version has an invalid numeric field: %q", version)
+		}
+	}
+	if !prereleaseFound {
+		return stable, nil
+	}
+	segments := strings.Split(prerelease, ".")
+	ordinal, err := strconv.Atoi(segments[len(segments)-1])
+	if err != nil || ordinal < 1 || ordinal > 65535 {
+		return "", fmt.Errorf("Windows installer prerelease must end in an ordinal from 1 to 65535: %q", version)
+	}
+	return stable + "." + strconv.Itoa(ordinal), nil
 }
 
 func writeChecksum(path string) error {

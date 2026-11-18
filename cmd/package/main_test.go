@@ -98,3 +98,34 @@ func TestLinkerValuesRejectWhitespaceAndQuotes(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowsInstallerVersion(t *testing.T) {
+	for input, want := range map[string]string{
+		"0.1.8":        "0.1.8",
+		"0.1.8-beta.1": "0.1.8.1",
+		"0.1.8-beta.2": "0.1.8.2",
+		"1.2.3-rc.12":  "1.2.3.12",
+	} {
+		got, err := windowsInstallerVersion(input)
+		if err != nil {
+			t.Errorf("windowsInstallerVersion(%q): %v", input, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("windowsInstallerVersion(%q) = %q, want %q", input, got, want)
+		}
+	}
+	for _, input := range []string{
+		"",
+		"v0.1.8",
+		"0.1.8.beta.1",
+		"0.1.8-beta",
+		"0.1.8-beta.0",
+		"0.1.8-beta.70000",
+		"1.2.3.4-beta.1",
+	} {
+		if got, err := windowsInstallerVersion(input); err == nil {
+			t.Errorf("windowsInstallerVersion(%q) = %q, want error", input, got)
+		}
+	}
+}
