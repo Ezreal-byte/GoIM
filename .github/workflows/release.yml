@@ -199,23 +199,26 @@ jobs:
               if p.name.endswith('.zip'):
                   with zipfile.ZipFile(p) as z:
                       names=z.namelist()
-                      info=json.loads(z.read(next(n for n in names if n.endswith('/build-info.json'))))
-                      assert any(n.endswith('/GoIM.exe' if target[0]=='windows' else '/GoIM.app/Contents/MacOS/GoIM') for n in names)
-                      snip = next(n for n in names if n.endswith('/goim-snip.exe' if target[0]=='windows' else '/GoIM.app/Contents/MacOS/goim-snip'))
+                      prefix = '' if target[0]=='darwin' else p.stem+'/'
+                      info=json.loads(z.read(prefix+'build-info.json'))
                       if target[0]=='darwin':
-                          assert (z.getinfo(snip).external_attr >> 16) & 0o111
-                          assert any(n.endswith('/GoIM.app/Contents/Info.plist') for n in names)
-                          assert any(n.endswith('/GoIM.app/Contents/Resources/AppIcon.icns') for n in names)
-                          helper = '/GoIM.app/Contents/Helpers/ShotletCapture.app/Contents/'
-                          assert any(n.endswith(helper+'Info.plist') for n in names)
-                          native = next(n for n in names if n.endswith(helper+'MacOS/ShotletCapture'))
+                          apps = {n.split('/',1)[0] for n in names if n.split('/',1)[0].endswith('.app')}
+                          assert apps == {'GoIM.app'}, apps
+                          assert (z.getinfo('GoIM.app/Contents/MacOS/GoIM').external_attr >> 16) & 0o111
+                          assert (z.getinfo('GoIM.app/Contents/MacOS/goim-snip').external_attr >> 16) & 0o111
+                          assert 'GoIM.app/Contents/Info.plist' in names
+                          assert 'GoIM.app/Contents/Resources/AppIcon.icns' in names
+                          helper = 'GoIM.app/Contents/Helpers/ShotletCapture.app/Contents/'
+                          assert helper+'Info.plist' in names
+                          native = helper+'MacOS/ShotletCapture'
                           assert (z.getinfo(native).external_attr >> 16) & 0o111
                       else:
-                          assert any(n.endswith('/GoIM.ico') for n in names)
-                          native = next(n for n in names if n.endswith('/shotlet/shotlet-capture.exe'))
+                          for entry in ('GoIM.exe', 'GoIM.ico', 'goim-snip.exe'):
+                              assert prefix+entry in names, entry
+                          native = prefix+'shotlet/shotlet-capture.exe'
                       assert z.getinfo(native).file_size > 0
                       for license in ('Apache-2.0.txt', 'THIRD_PARTY_NOTICES.md', 'SDL.txt', 'ImGui.txt', 'nlohmann-json.txt'):
-                          assert any(n.endswith('/licenses/shotlet/'+license) for n in names), license
+                          assert prefix+'licenses/shotlet/'+license in names, license
               else:
                   with tarfile.open(p) as z:
                       names=z.getnames()
@@ -231,7 +234,7 @@ jobs:
               frameworks.add(info['viva'])
               toolchains.add(info['go'])
               public_keys.add(info.get('update_public_key', ''))
-              assert any('/licenses/' in n for n in names)
+              assert any(n.startswith('licenses/') or '/licenses/' in n for n in names)
           assert found==expected.keys(), (found,expected.keys())
           assert len(frameworks)==len(toolchains)==1, (frameworks,toolchains)
           assert public_keys == {os.environ['GOIM_UPDATE_PUBLIC_KEY'].strip()}, 'packaged trust key mismatch'

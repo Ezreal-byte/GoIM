@@ -241,7 +241,7 @@ func build() error {
 		ext = ".tar.gz"
 	}
 	archive := filepath.Join(*out, name+ext)
-	if err := pack(staging, archive, runtime.GOOS == "linux"); err != nil {
+	if err := pack(staging, archive, runtime.GOOS); err != nil {
 		return err
 	}
 	if err := writeChecksum(archive); err != nil {
@@ -575,7 +575,13 @@ func copyFile(src, dest string) error {
 	}
 	return os.WriteFile(dest, b, 0644)
 }
-func pack(root, dest string, tgz bool) error {
+func pack(root, dest, platform string) error {
+	base := filepath.Dir(root)
+	if platform == "darwin" {
+		// Installed Viva updaters look for GoIM.app at the ZIP root.
+		base = root
+	}
+	tgz := platform == "linux"
 	f, err := os.Create(dest)
 	if err != nil {
 		return err
@@ -601,7 +607,7 @@ func pack(root, dest string, tgz bool) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(filepath.Dir(root), path)
+		rel, err := filepath.Rel(base, path)
 		if err != nil {
 			return err
 		}

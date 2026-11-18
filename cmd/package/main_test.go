@@ -1,10 +1,52 @@
 package main
 
 import (
+	"archive/zip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestMacUpdateZIPHasGoIMBundleAtRoot(t *testing.T) {
+	directory := t.TempDir()
+	staging := filepath.Join(directory, "GoIM_0.1.10_darwin_arm64")
+	want := []string{
+		"GoIM.app/Contents/Info.plist",
+		"GoIM.app/Contents/MacOS/GoIM",
+		"GoIM.app/Contents/Helpers/ShotletCapture.app/Contents/MacOS/ShotletCapture",
+		"build-info.json",
+		"licenses/shotlet/Apache-2.0.txt",
+	}
+	for _, name := range want {
+		path := filepath.Join(staging, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive := staging + ".zip"
+	if err := pack(staging, archive, "darwin"); err != nil {
+		t.Fatal(err)
+	}
+	z, err := zip.OpenReader(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer z.Close()
+	entries := make(map[string]bool)
+	for _, entry := range z.File {
+		entries[entry.Name] = true
+	}
+	for _, name := range want {
+		if !entries[name] {
+			t.Errorf("update ZIP is missing %q at its expected path", name)
+		}
+	}
+}
 
 func TestPackageBuildFactsUsesTheRealGitHubRun(t *testing.T) {
 	environment := map[string]string{
