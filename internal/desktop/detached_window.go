@@ -22,7 +22,7 @@ const (
 	detachedWindowMinHeight   = 520
 	detachedTitlebarHeight    = 40
 	conversationPreviewWidth  = 248
-	conversationPreviewHeight = 54
+	conversationPreviewHeight = 64
 )
 
 // newDetachedConversationView creates the independent conversation window
@@ -162,9 +162,10 @@ func (u *UI) dragConversationPointer(event gfx.PointerEvent) (gfx.EventResult, b
 			return gfx.EventResult{}, false
 		}
 		if id := u.conversationIDForHit(event.Target); id != "" {
-			title := u.conversationTitle(u.state.Conversation(id))
+			conversation := u.state.Conversation(id)
 			*drag = conversationDragState{
-				id: id, title: title, startX: event.ScreenX, startY: event.ScreenY,
+				id: id, card: u.conversationCard(conversation), selected: id == u.selected,
+				startX: event.ScreenX, startY: event.ScreenY,
 				currentX: event.X, currentY: event.Y,
 			}
 		}
@@ -222,26 +223,13 @@ func (u *UI) openConversationDragPreview(drag *conversationDragState, event gfx.
 	if drag == nil || drag.preview != nil || drag.previewOpenFail || u.openDragPreview == nil {
 		return
 	}
-	title := compactConversationPreviewTitle(drag.title)
-	palette := u.palette
+	card, selected := drag.card, drag.selected
 	preview, err := u.openDragPreview(app.DragPreviewConfig{
 		Width: conversationPreviewWidth, Height: conversationPreviewHeight,
 		Origin: u.conversationDragPreviewOrigin(event),
 		Paint: func(canvas *gfx.Canvas, size gfx.Size) {
-			card := ui.Rect{X: 4, Y: 4, Width: max(size.Width-8, 0), Height: max(size.Height-10, 0)}
-			shadow := card
-			shadow.Y += 3
-			canvas.Rounded(shadow, 11, gfx.RGBA(0, 0, 0, 0.14))
-			canvas.Rounded(card, 11, palette.sidebar)
-			canvas.RoundedOutline(card, 11, 1, palette.border)
-			mark := ui.Rect{X: card.X + 10, Y: card.Y + 9, Width: 30, Height: 30}
-			paintGoIMMark(canvas, mark, titleMark)
-			canvas.Label(title, ui.Rect{
-				X: mark.Right() + 10, Y: card.Y + 9, Width: max(card.Width-60, 0), Height: 21,
-			}, gfx.TextStyle{Size: 14, Weight: gfx.WeightSemibold, Color: palette.icon})
-			canvas.Label(i18n.T("拖到窗口外打开独立会话"), ui.Rect{
-				X: mark.Right() + 10, Y: card.Y + 30, Width: max(card.Width-60, 0), Height: 16,
-			}, gfx.TextStyle{Size: 10.5, Color: palette.secondaryText})
+			bounds := ui.Rect{X: 4, Y: 3, Width: max(size.Width-8, 0), Height: max(size.Height-9, 0)}
+			u.paintConversationDragCard(canvas, bounds, card, selected)
 		},
 	})
 	if err != nil {
@@ -257,33 +245,38 @@ func (u *UI) conversationDragPreviewOrigin(event gfx.PointerEvent) gfx.Point {
 	return gfx.Point{X: event.ScreenX - 30, Y: event.ScreenY - conversationPreviewHeight/2}
 }
 
-func compactConversationPreviewTitle(title string) string {
-	title = strings.TrimSpace(title)
-	runes := []rune(title)
-	if len(runes) > 22 {
-		return string(runes[:21]) + "…"
-	}
-	if title == "" {
-		return "GoIM"
-	}
-	return title
-}
-
 func (u *UI) drawConversationDragGhost(canvas *gfx.Canvas, bounds ui.Rect) {
 	drag := u.conversationDrag
 	if !drag.dragging || drag.preview != nil || drag.id == "" {
 		return
 	}
-	card := ui.Rect{
+	outer := ui.Rect{
 		X:     min(max(drag.currentX-30, bounds.X+4), bounds.Right()-conversationPreviewWidth-4),
 		Y:     min(max(drag.currentY-conversationPreviewHeight/2, bounds.Y+4), bounds.Bottom()-conversationPreviewHeight-4),
 		Width: conversationPreviewWidth, Height: conversationPreviewHeight,
 	}
-	canvas.Rounded(card, 11, u.palette.sidebar)
+	card := ui.Rect{X: outer.X + 4, Y: outer.Y + 3, Width: outer.Width - 8, Height: outer.Height - 9}
+	u.paintConversationDragCard(canvas, card, drag.card, drag.selected)
+}
+
+func (u *UI) paintConversationDragCard(canvas *gfx.Canvas, card ui.Rect, data conversationCardData, selected bool) {
+	if card.Width <= 0 || card.Height <= 0 || u.previewPage == nil {
+		return
+	}
+	shadow := card
+	shadow.Y += 3
+	canvas.Rounded(shadow, 11, gfx.RGBA(0, 0, 0, 0.14))
+	fill := u.palette.sidebar
+	if selected {
+		fill = u.palette.selected
+	}
+	canvas.Rounded(card, 11, fill)
 	canvas.RoundedOutline(card, 11, 1, u.palette.border)
-	canvas.Label(compactConversationPreviewTitle(drag.title), ui.Rect{
-		X: card.X + 50, Y: card.Y + 9, Width: card.Width - 60, Height: 21,
-	}, gfx.TextStyle{Size: 14, Weight: gfx.WeightSemibold, Color: u.palette.icon})
+	u.previewPage.Draw(canvas, card, func(f ui.C) {
+		ui.Row(f).Fill().PadSides(8, 7, 8, 7).Items(ui.Center).Gap(9).Children(func() {
+			u.conversationCardBody(f, data)
+		})
+	})
 }
 
 func (u *UI) conversationIDForHit(id gfx.ID) string {
@@ -324,6 +317,22 @@ func (u *UI) requestDetachedConversation(conversationID string) bool {
 	u.rebuildSelection()
 	u.invalidator.Invalidate()
 	return true
+}
+
+func (u *UI) showDetachedConversation(conversationID string) {
+	if !u.detached[conversationID] {
+		u.requestDetachedConversation(conversationID)
+		return
+	}
+	u.saveCurrentDraft()
+	u.selected = ""
+	u.detachedBlank = true
+	u.loadDraft("")
+	u.rebuildSelection()
+	if u.presentDetached != nil {
+		u.presentDetached(conversationID)
+	}
+	u.invalidator.Invalidate()
 }
 
 func (u *UI) restoreDetachedConversation(conversationID string) {

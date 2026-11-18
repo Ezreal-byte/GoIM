@@ -98,7 +98,8 @@ type confirmation struct {
 
 type conversationDragState struct {
 	id              string
-	title           string
+	card            conversationCardData
+	selected        bool
 	startX          float32
 	startY          float32
 	currentX        float32
@@ -106,6 +107,18 @@ type conversationDragState struct {
 	dragging        bool
 	preview         conversationDragPreview
 	previewOpenFail bool
+}
+
+type conversationCardData struct {
+	title      string
+	avatarName string
+	avatarPath string
+	preview    string
+	updatedAt  time.Time
+	online     bool
+	pinned     bool
+	muted      bool
+	unread     int
 }
 
 type conversationDragPreview interface {
@@ -368,6 +381,7 @@ type UI struct {
 	drawerPage  *ui.Page
 	mentionPage *ui.Page
 	emojiPage   *ui.Page
+	previewPage *ui.Page
 	surface     *chatSurface
 	hover       components.HoverTooltip
 
@@ -707,6 +721,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.titlePage, u.railPage, u.sidebarPage = page("title"), page("rail"), page("sidebar")
 	u.chatPage, u.drawerPage = page("chat"), page("drawer")
 	u.dialogPage, u.mentionPage, u.emojiPage = page("dialog"), page("mention"), page("emoji")
+	u.previewPage = page("conversation-preview")
 	u.surface = u.newChatSurface(page("workspace"))
 	u.panels.Init(&u.tree)
 	u.panels.settingsExtra.openProfile = u.openProfile
@@ -1830,52 +1845,12 @@ func (u *UI) conversationRow(f ui.C, conversation domain.Conversation) {
 	if selected {
 		background = u.palette.selected
 	}
-	title := u.conversationTitle(conversation)
+	card := u.conversationCard(conversation)
 	row := ui.Row(f).FillWidth().Height(sidebarConversationHeight).PadSides(8, 7, 8, 7).Radius(9).Gap(9).
 		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
-		HitWith(id, title, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
+		HitWith(id, card.title, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
-			online := false
-			avatar := ""
-			avatarName := title
-			if conversation.Kind == "group" {
-				_, onlineCount := u.groupCounts(u.state.Group(conversation.GroupID))
-				online = onlineCount > 0
-			} else {
-				peer := u.state.Peer(conversation.PeerID)
-				online = peer.ID != "" && peer.Online
-				avatar = peer.Avatar
-				if peer.Name != "" {
-					avatarName = peer.Name
-				}
-			}
-			u.avatarStatus(f, avatarName, avatar, 38, online)
-			ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
-				ui.Row(f).Items(ui.Center).Gap(5).Children(func() {
-					ui.Text(f, title).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
-					if conversation.Pinned {
-						ui.Icon(f, u.iconPin).Size(12, 12).Color(u.palette.secondaryText)
-					}
-					if conversation.Muted {
-						ui.Icon(f, u.iconBellOff).Size(12, 12).Color(u.palette.secondaryText)
-					}
-					ui.Spacer(f)
-					if !conversation.UpdatedAt.IsZero() {
-						ui.Text(f, shortTime(conversation.UpdatedAt)).FontSize(10).Muted()
-					}
-				})
-				ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
-					preview := conversation.Preview
-					if preview == "" {
-						preview = i18n.T("还没有消息")
-					}
-					ui.Text(f, preview).FontSize(11.5).Muted().Ellipsis()
-					ui.Spacer(f)
-					if conversation.Unread > 0 {
-						u.badgeText(f, intString(conversation.Unread), true)
-					}
-				})
-			})
+			u.conversationCardBody(f, card)
 		})
 	if event, ok := f.Canvas().PointerOn(id); ok &&
 		event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
@@ -1883,20 +1858,38 @@ func (u *UI) conversationRow(f ui.C, conversation domain.Conversation) {
 		f.Canvas().Consume()
 	}
 	if row.Clicked() {
-		if u.detached[conversation.ID] {
-			u.saveCurrentDraft()
-			u.selected = ""
-			u.detachedBlank = true
-			u.loadDraft("")
-			u.rebuildSelection()
-			if u.presentDetached != nil {
-				u.presentDetached(conversation.ID)
-			}
-			u.invalidator.Invalidate()
+		if row.DoubleClicked() || u.detached[conversation.ID] {
+			u.showDetachedConversation(conversation.ID)
 			return
 		}
 		u.selectConversation(conversation.ID)
 	}
+}
+
+func (u *UI) conversationCardBody(f ui.C, card conversationCardData) {
+	u.avatarStatus(f, card.avatarName, card.avatarPath, 38, card.online)
+	ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
+		ui.Row(f).Items(ui.Center).Gap(5).Children(func() {
+			ui.Text(f, card.title).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
+			if card.pinned {
+				ui.Icon(f, u.iconPin).Size(12, 12).Color(u.palette.secondaryText)
+			}
+			if card.muted {
+				ui.Icon(f, u.iconBellOff).Size(12, 12).Color(u.palette.secondaryText)
+			}
+			ui.Spacer(f)
+			if !card.updatedAt.IsZero() {
+				ui.Text(f, shortTime(card.updatedAt)).FontSize(10).Muted()
+			}
+		})
+		ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
+			ui.Text(f, card.preview).FontSize(11.5).Muted().Ellipsis()
+			ui.Spacer(f)
+			if card.unread > 0 {
+				u.badgeText(f, intString(card.unread), true)
+			}
+		})
+	})
 }
 
 func (u *UI) emptySidebar(f ui.C, title, description string, actions bool) {
@@ -1968,6 +1961,30 @@ func (u *UI) conversationTitle(conversation domain.Conversation) string {
 		return i18n.T("群聊")
 	}
 	return u.state.Peer(conversation.PeerID).Name
+}
+
+func (u *UI) conversationCard(conversation domain.Conversation) conversationCardData {
+	title := u.conversationTitle(conversation)
+	card := conversationCardData{
+		title: title, avatarName: title, preview: conversation.Preview,
+		updatedAt: conversation.UpdatedAt, pinned: conversation.Pinned,
+		muted: conversation.Muted, unread: conversation.Unread,
+	}
+	if conversation.Kind == "group" {
+		_, onlineCount := u.groupCounts(u.state.Group(conversation.GroupID))
+		card.online = onlineCount > 0
+	} else {
+		peer := u.state.Peer(conversation.PeerID)
+		card.online = peer.ID != "" && peer.Online
+		card.avatarPath = peer.Avatar
+		if peer.Name != "" {
+			card.avatarName = peer.Name
+		}
+	}
+	if card.preview == "" {
+		card.preview = i18n.T("还没有消息")
+	}
+	return card
 }
 
 func (u *UI) rebuildPresentation(oldError string) {

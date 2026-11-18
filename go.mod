@@ -20,5 +20,5 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
-// Temporary until https://github.com/vivaui/viva/pull/348 reaches upstream main.
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261118035410-75594fb1481d
+// Temporary until the native window capability and Windows drag-preview fixes reach Viva upstream.
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261118134906-340c6424d555
