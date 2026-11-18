@@ -93,11 +93,12 @@ type Service struct {
 	profile   atomic.Pointer[localProfile]
 	broadcast atomic.Bool
 
-	mu     sync.Mutex
-	peers  map[string]*peerState
-	files  map[fileKey]servingFile
-	probes map[netip.AddrPort][]chan Peer
-	wg     sync.WaitGroup
+	mu       sync.Mutex
+	peers    map[string]*peerState
+	files    map[fileKey]servingFile
+	probes   map[netip.AddrPort][]chan Peer
+	receipts map[messageReceiptKey]messageReceipt
+	wg       sync.WaitGroup
 }
 
 func Start(cfg Config) (*Service, error) {
@@ -125,7 +126,8 @@ func Start(cfg Config) (*Service, error) {
 	service := &Service{
 		ctx: ctx, cancel: cancel, cfg: cfg, udp: packet,
 		peers: make(map[string]*peerState), files: make(map[fileKey]servingFile),
-		probes: make(map[netip.AddrPort][]chan Peer),
+		probes:   make(map[netip.AddrPort][]chan Peer),
+		receipts: make(map[messageReceiptKey]messageReceipt),
 	}
 	service.packet.Store(uint64(time.Now().Unix()))
 	service.fileID.Store(1)
@@ -313,6 +315,14 @@ func (s *Service) SendFileMessage(peerID, path, text, transferID string) error {
 }
 
 func (s *Service) sendFileMessage(state *peerState, number uint64, text, attachments string) error {
+	data, err := s.messagePacket(state, number, text, attachments)
+	if err != nil {
+		return err
+	}
+	return s.sendPacket(state, data)
+}
+
+func (s *Service) messagePacket(state *peerState, number uint64, text, attachments string) ([]byte, error) {
 	extra := text
 	command := uint32(commandSend) | optionUTF8 | optionSendCheck
 	if attachments != "" {
@@ -324,12 +334,11 @@ func (s *Service) sendFileMessage(state *peerState, number uint64, text, attachm
 		var err error
 		extra, err = simplifiedchinese.GBK.NewEncoder().String(extra)
 		if err != nil {
-			return errors.New("旧版兼容编码不支持此消息中的部分字符")
+			return nil, errors.New("旧版兼容编码不支持此消息中的部分字符")
 		}
 		command &^= optionUTF8
 	}
-	data := packetString(number, s.wireName(state), s.cfg.Host, command, extra)
-	return s.sendPacket(state, data)
+	return packetString(number, s.wireName(state), s.cfg.Host, command, extra), nil
 }
 
 func (s *Service) wireName(state *peerState) string {
@@ -370,6 +379,10 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 		return
 	}
 	base := message.baseCommand()
+	if base == commandReceived {
+		s.receiveMessageReceipt(message, from)
+		return
+	}
 	switch base {
 	case commandEntry, commandAnswer, commandAbsence, commandExit, commandSend:
 	default:
@@ -452,7 +465,11 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 			s.cfg.Callbacks.Files(id, message.Number, text, attachments)
 		}
 		if message.has(optionSendCheck) {
-			_ = s.sendPacket(s.peer(id), packetString(s.nextPacket(), s.cfg.Name, s.cfg.Host,
+			state := s.peer(id)
+			if state == nil {
+				return
+			}
+			_ = s.sendPacket(state, packetString(s.nextPacket(), s.wireName(state), s.cfg.Host,
 				commandReceived, strconv.FormatUint(uint64(message.Number), 10)))
 		}
 	}

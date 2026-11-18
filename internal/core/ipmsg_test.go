@@ -1,9 +1,15 @@
 package core
 
 import (
+	"fmt"
+	"net"
+	"net/netip"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"goim/internal/domain"
 	ipmsgproto "goim/internal/ipmsg"
 )
 
@@ -67,3 +73,91 @@ func TestLegacyTextAndFileCallbacksCreateDirectConversation(t *testing.T) {
 }
 
 const repeatedZeroHash = "0000000000000000000000000000000000000000000000000000000000000000"
+
+func TestLegacyMessageKeepsItsIdentityWhenClosedBeforeTheReceipt(t *testing.T) {
+	remote, err := net.ListenUDP("udp4", net.UDPAddrFromAddrPort(netip.MustParseAddrPort("127.0.0.1:0")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remote.Close()
+	dir := t.TempDir()
+	port := freeCompatibilityPort(t)
+	start := func() *Node {
+		t.Helper()
+		n := testNodeAt(t, "receipt fixture", dir)
+		if err := n.applyIPMSG(domain.CompatibilityConfig{Enabled: true, Port: port}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := remote.WriteToUDP([]byte("1:81:fixture:receipt-host:16777219:原版测试\x00"),
+			net.UDPAddrFromAddrPort(netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(port)))); err != nil {
+			t.Fatal(err)
+		}
+		eventually(t, "the original IPMSG contact is online", func() bool {
+			for _, peer := range n.Snapshot().Peers {
+				if peer.Transport == legacyIPMSG && peer.Online {
+					return true
+				}
+			}
+			return false
+		})
+		return n
+	}
+	read := func() (string, *net.UDPAddr) {
+		t.Helper()
+		_ = remote.SetReadDeadline(time.Now().Add(3 * time.Second))
+		var data [8192]byte
+		for {
+			count, from, err := remote.ReadFromUDP(data[:])
+			if err != nil {
+				t.Fatal(err)
+			}
+			fields := strings.SplitN(string(data[:count]), ":", 6)
+			if len(fields) != 6 {
+				t.Fatal("invalid IPMSG packet")
+			}
+			command, err := strconv.ParseUint(fields[4], 10, 32)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if command&255 == 32 {
+				return fields[1], from
+			}
+		}
+	}
+	node := start()
+	peer := node.Snapshot().Peers[0]
+	conversation := directID(node.Snapshot().Self.ID, peer.ID)
+	if err := node.change(func(s *domain.State) { ensureDirect(s, peer) }); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() { result <- node.sendText(conversation, "receipt restart fixture") }()
+	first, _ := read()
+	state := node.Snapshot()
+	if messages := state.ChatMessages(conversation); len(messages) != 1 || messages[0].Status == "sent" {
+		t.Fatal("the message was reported sent before the original acknowledged it")
+	}
+	if err := node.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	next := start()
+	replayed, from := read()
+	if replayed != first {
+		t.Fatal("restart assigned a different wire packet to the same queued message")
+	}
+	if _, err := remote.WriteToUDP([]byte(fmt.Sprintf("1:92:fixture:receipt-host:33:%s\x00", first)), from); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the exact message completes after its real receipt", func() bool {
+		messages := next.Snapshot().ChatMessages(conversation)
+		return len(messages) == 1 && messages[0].Status == "sent"
+	})
+	next.mu.Lock()
+	defer next.mu.Unlock()
+	if len(next.data.Outbox) != 0 {
+		t.Fatal("a confirmed IPMSG message remained in the outbox")
+	}
+}

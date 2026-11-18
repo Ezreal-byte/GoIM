@@ -32,6 +32,19 @@ func TestParsePacketUsesProtocolDecimalCommand(t *testing.T) {
 	}
 }
 
+func TestChatPacketPreservesLeadingWhitespaceAndTrailingLines(t *testing.T) {
+	for _, text := range []string{"  中文消息\n第二行\r\n", "\n", "\t末尾空行\n\n"} {
+		p, err := parsePacket(packetString(781, "sender", "host", commandSend|optionUTF8, text))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, _ := decodeMessage(p.Extra, p.has(optionUTF8))
+		if got != text {
+			t.Fatalf("message whitespace changed: %q, want %q", got, text)
+		}
+	}
+}
+
 func TestPacketStringRoundTripsOptions(t *testing.T) {
 	command := uint32(commandSend) | optionUTF8 | optionFile | optionSendCheck
 	packet, err := parsePacket(packetString(42, "sender", "host", command, "hello"))

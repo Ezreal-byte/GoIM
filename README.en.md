@@ -101,7 +101,7 @@ Group folders also passed both directions against the original, preserving neste
 
 Known gaps include GoIM → original transfers of 4 GiB or more, resuming directories, fully empty root directories, group file and folder resume, group ownership transfer, custom expression packs, native shared-directory browsing and remote assistance.
 
-FeiQ automated coverage includes the extended header, Chinese encoding, discovery and the standard IPMSG file path. A real FeiQ desktop client and version-specific extensions still need hands-on verification.
+FeiQ/IP Messenger uses standard IPMSG. Original IP Messenger `5.9.1` passed automatic discovery, Chinese messages in both directions, and real file downloads. Development after `0.1.7` adds matched delivery receipts and stable packet numbers across restarts. Specific FeiQ versions still need validation; see the [compatibility progress](docs/ipmsg-compatibility-progress.md). These later changes are not included in the `0.1.7` packages.
 
 See the detailed [Neiwangtong compatibility progress](docs/neiwangtong-compatibility-progress.md) and the [automated Neiwangtong test guide](docs/neiwangtong-testing.md). The adapters can be managed under **Settings → Network**; `--no-compatibility` starts a GoIM-only instance.
 

@@ -281,7 +281,10 @@ func (n *Node) legacyPending(wireID string, value pending) error {
 	e := value.Envelope
 	switch e.Type {
 	case "message":
-		return service.SendText(wireID, e.Message.Text)
+		// Outbox sequence numbers survive restarts; a lost receipt must not
+		// turn the next attempt into a different message on the remote client.
+		packet := uint64(max(uint32(value.Sequence), 1))
+		return service.SendTextConfirmed(n.ctx, wireID, packet, e.Message.Text)
 	case "file_offer", "file_retry":
 		s := n.snapshot(false)
 		index := transferIndex(&s, e.TransferID)

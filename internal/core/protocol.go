@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"goim/internal/domain"
+	"goim/internal/ipmsg"
 	"goim/internal/neiwangtong"
 )
 
@@ -364,7 +365,8 @@ func (n *Node) flushPeer(peer string) {
 			return
 		}
 		if err != nil {
-			if transport == transportNWT && errors.Is(err, neiwangtong.ErrDeliveryUncertain) {
+			if n.ctx.Err() != nil || transport == transportNWT && errors.Is(err, neiwangtong.ErrDeliveryUncertain) ||
+				transport == legacyIPMSG && errors.Is(err, ipmsg.ErrReceiptTimeout) {
 				return // preserve order and the original identifiers on replay
 			}
 			n.failCompatibilityDelivery(p, err)

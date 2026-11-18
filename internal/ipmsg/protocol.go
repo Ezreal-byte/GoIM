@@ -49,7 +49,9 @@ type packet struct {
 func (p packet) isNeiwangtong() bool { return strings.EqualFold(p.rawVersion, "1@shiyeline") }
 
 func parsePacket(data []byte) (packet, error) {
-	trimmed := bytes.TrimRight(data, "\x00\r\n")
+	// NUL terminates the datagram. Line breaks belong to the message and
+	// must survive, including an empty last line in a multiline message.
+	trimmed := bytes.TrimRight(data, "\x00")
 	parts := bytes.SplitN(trimmed, []byte{':'}, 6)
 	if len(parts) != 5 && len(parts) != 6 {
 		return packet{}, fmt.Errorf("IPMSG packet has %d fields", len(parts))
