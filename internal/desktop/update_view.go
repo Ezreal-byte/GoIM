@@ -25,6 +25,8 @@ type updateNotesView struct {
 	fontSize, lineHeight float32
 }
 
+const updateDialogWidth = float32(540)
+
 func (c *updateControls) init(tree *gfx.Tree, scope gfx.Scope) {
 	c.chrome = tree.ID(scope, "update-titlebar")
 	c.scope = tree.ID(scope, "update-dialog")
@@ -143,7 +145,7 @@ func (u *UI) drawUpdateDialog(c *gfx.Canvas, viewport gfx.Rect) {
 	view, ids := u.update, u.updateIDs
 	installBlocked := u.updateBlocked()
 	u.dialogPage.Draw(c, viewport, func(f ui.C) {
-		dialog := ui.Dialog(f, ui.DialogSpec{Title: i18n.T("软件更新"), Layer: 77, Width: 470,
+		dialog := ui.Dialog(f, ui.DialogSpec{Title: i18n.T("软件更新"), Layer: 77, Width: updateDialogWidth,
 			Scope: ids.scope, DismissID: ids.dismiss, CloseID: ids.close,
 			InitialFocusID: ids.action, NoClose: view.phase == updateInstalling})
 		open := func(url string) { u.panels.openAboutURL(c, url) }
@@ -286,11 +288,10 @@ func (u *UI) drawUpdateNotes(f ui.C, canvas *gfx.Canvas, viewport gfx.Rect) {
 
 func updateNotesWidth(viewportWidth float32, theme ui.Theme) float32 {
 	const (
-		dialogWidth   = float32(470)
 		viewportInset = float32(32)
 		notesPadding  = float32(12)
 	)
-	surface := min(dialogWidth, max(viewportWidth-viewportInset, 1))
+	surface := min(updateDialogWidth, max(viewportWidth-viewportInset, 1))
 	return max(surface-2*(theme.Metrics.PadSurface+theme.Metrics.GapItem)-2*notesPadding, 1)
 }
 
