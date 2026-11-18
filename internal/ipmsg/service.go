@@ -44,6 +44,7 @@ type Callbacks struct {
 
 type Config struct {
 	Host             string
+	User             string // stable logon identity; Name is the display nickname
 	Name             string
 	Version          string
 	Port             int
@@ -109,7 +110,11 @@ func Start(cfg Config) (*Service, error) {
 		return nil, errors.New("IPMSG port must be between 1 and 65535")
 	}
 	cfg.Host = headerField(cfg.Host)
-	cfg.Name = headerField(cfg.Name)
+	cfg.Name = displayNickname(cfg.Name)
+	if strings.TrimSpace(cfg.User) == "" {
+		cfg.User = cfg.Name
+	}
+	cfg.User = headerField(cfg.User)
 	if cfg.BindIP.IsValid() && !cfg.BindIP.Is4() {
 		return nil, errors.New("IPMSG bind address must be IPv4")
 	}
@@ -163,7 +168,7 @@ func (s *Service) SetBroadcastEnabled(enabled bool) {
 }
 
 func (s *Service) UpdateProfile(name string, hidden, away bool) {
-	old := s.profile.Swap(&localProfile{name: headerField(name), hidden: hidden, away: away})
+	old := s.profile.Swap(&localProfile{name: displayNickname(name), hidden: hidden, away: away})
 	if hidden {
 		if !old.hidden {
 			s.announce(commandExit)
@@ -264,7 +269,7 @@ func (s *Service) DownloadFile(ctx context.Context, peerID string, packetNumber 
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
-	request := packetString(s.nextPacket(), s.wireName(state), s.cfg.Host, commandGetFile,
+	request := packetString(s.nextPacket(), s.wireUser(state.classic), s.cfg.Host, commandGetFile,
 		fmt.Sprintf("%x:%x:%x:", packetNumber, fileID, offset))
 	_ = conn.SetWriteDeadline(time.Now().Add(8 * time.Second))
 	if _, err := conn.Write(request); err != nil {
@@ -338,12 +343,12 @@ func (s *Service) messagePacket(state *peerState, number uint64, text, attachmen
 		}
 		command &^= optionUTF8
 	}
-	return packetString(number, s.wireName(state), s.cfg.Host, command, extra), nil
+	return packetString(number, s.wireUser(state.classic), s.cfg.Host, command, extra), nil
 }
 
-func (s *Service) wireName(state *peerState) string {
-	name := s.profile.Load().name
-	if !state.classic {
+func (s *Service) wireUser(classic bool) string {
+	name := s.cfg.User
+	if !classic {
 		return name
 	}
 	encoded, err := simplifiedchinese.GBK.NewEncoder().String(name)
@@ -371,7 +376,7 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 	if err != nil {
 		return
 	}
-	if strings.EqualFold(message.Host, s.cfg.Host) {
+	if strings.EqualFold(message.Host, s.cfg.Host) && message.Sender == s.cfg.User {
 		return
 	}
 	if strings.Contains(message.Extra, goIMDiscoveryMarker) &&
@@ -469,7 +474,7 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 			if state == nil {
 				return
 			}
-			_ = s.sendPacket(state, packetString(s.nextPacket(), s.wireName(state), s.cfg.Host,
+			_ = s.sendPacket(state, packetString(s.nextPacket(), s.wireUser(state.classic), s.cfg.Host,
 				commandReceived, strconv.FormatUint(uint64(message.Number), 10)))
 		}
 	}
@@ -519,7 +524,8 @@ func (s *Service) presencePacket(profile *localProfile, command uint32) []byte {
 	}
 	// Empty legacy group, followed by the UTF-8 nickname extension. The
 	// marker keeps native GoIM peers out of the legacy contact list.
-	return packetString(s.nextPacket(), name, s.cfg.Host, command, name+"\x00\x00\nNN:"+profile.name+goIMDiscoveryMarker)
+	user := s.wireUser(true)
+	return packetString(s.nextPacket(), user, s.cfg.Host, command, name+"\x00\x00\nNN:"+profile.name+goIMDiscoveryMarker)
 }
 
 // Probe sends a unicast entry from the actual legacy service port. Some

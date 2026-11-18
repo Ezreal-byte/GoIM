@@ -129,3 +129,48 @@ func TestConfirmedTextNeverReportsSuccessWithoutAReceipt(t *testing.T) {
 		t.Fatalf("unacknowledged send returned %v", err)
 	}
 }
+
+func TestNicknameChangesDoNotChangeTheWireLogon(t *testing.T) {
+	service, _, _ := receiptFixture(t)
+	before, err := parsePacket(service.presencePacket(service.profile.Load(), commandAnswer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const name = "新昵称:研发"
+	service.UpdateProfile(name, false, false)
+	after, err := parsePacket(service.presencePacket(service.profile.Load(), commandAnswer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nickname, _ := decodeMessage(after.Extra, after.has(optionUTF8))
+	if before.Sender != after.Sender || nickname != name {
+		t.Fatal("changing the display nickname changed the logon identity or the nickname's punctuation")
+	}
+}
+
+func TestDifferentUsersCanShareTheComputerName(t *testing.T) {
+	text := make(chan string, 1)
+	service, err := Start(Config{Host: "same-host", User: "GoIM-fixed-identity", Name: "GoIM",
+		Port: freeIPMSGPort(t), BindIP: netip.MustParseAddr("127.0.0.1"), DisableBroadcast: true,
+		Callbacks: Callbacks{Text: func(_ string, _ uint64, body string) { text <- body }}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	from := net.UDPAddrFromAddrPort(netip.MustParseAddrPort("127.0.0.1:2425"))
+	service.handleDatagram(packetString(12, "colleague", "same-host", commandSend|optionUTF8, "同名电脑"), from)
+	select {
+	case got := <-text:
+		if got != "同名电脑" {
+			t.Fatal("message from the other logon changed")
+		}
+	default:
+		t.Fatal("a different logon was discarded because its computer name matched")
+	}
+	service.handleDatagram(packetString(13, "GoIM-fixed-identity", "same-host", commandSend|optionUTF8, "self"), from)
+	select {
+	case <-text:
+		t.Fatal("a reflected packet from our own logon was delivered")
+	default:
+	}
+}

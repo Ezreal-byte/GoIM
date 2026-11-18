@@ -82,9 +82,15 @@ func TestLegacyMessageKeepsItsIdentityWhenClosedBeforeTheReceipt(t *testing.T) {
 	defer remote.Close()
 	dir := t.TempDir()
 	port := freeCompatibilityPort(t)
+	starts := 0
 	start := func() *Node {
 		t.Helper()
-		n := testNodeAt(t, "receipt fixture", dir)
+		name := ""
+		if starts == 0 {
+			name = "receipt fixture"
+		}
+		starts++
+		n := testNodeAt(t, name, dir)
 		if err := n.applyIPMSG(domain.CompatibilityConfig{Enabled: true, Port: port}); err != nil {
 			t.Fatal(err)
 		}
@@ -102,7 +108,7 @@ func TestLegacyMessageKeepsItsIdentityWhenClosedBeforeTheReceipt(t *testing.T) {
 		})
 		return n
 	}
-	read := func() (string, *net.UDPAddr) {
+	read := func() (string, string, *net.UDPAddr) {
 		t.Helper()
 		_ = remote.SetReadDeadline(time.Now().Add(3 * time.Second))
 		var data [8192]byte
@@ -120,7 +126,7 @@ func TestLegacyMessageKeepsItsIdentityWhenClosedBeforeTheReceipt(t *testing.T) {
 				t.Fatal(err)
 			}
 			if command&255 == 32 {
-				return fields[1], from
+				return fields[1], fields[2], from
 			}
 		}
 	}
@@ -132,11 +138,15 @@ func TestLegacyMessageKeepsItsIdentityWhenClosedBeforeTheReceipt(t *testing.T) {
 	}
 	result := make(chan error, 1)
 	go func() { result <- node.sendText(conversation, "receipt restart fixture") }()
-	first, _ := read()
+	first, user, _ := read()
 	state := node.Snapshot()
 	if messages := state.ChatMessages(conversation); len(messages) != 1 || messages[0].Status == "sent" {
 		t.Fatal("the message was reported sent before the original acknowledged it")
 	}
+	if err := node.change(func(s *domain.State) { s.Settings.Nickname = "renamed fixture" }); err != nil {
+		t.Fatal(err)
+	}
+	node.legacy.UpdateProfile("renamed fixture", false, false)
 	if err := node.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -144,8 +154,8 @@ func TestLegacyMessageKeepsItsIdentityWhenClosedBeforeTheReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	next := start()
-	replayed, from := read()
-	if replayed != first {
+	replayed, renamedUser, from := read()
+	if replayed != first || renamedUser != user {
 		t.Fatal("restart assigned a different wire packet to the same queued message")
 	}
 	if _, err := remote.WriteToUDP([]byte(fmt.Sprintf("1:92:fixture:receipt-host:33:%s\x00", first)), from); err != nil {

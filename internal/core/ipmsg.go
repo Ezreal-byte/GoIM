@@ -67,7 +67,7 @@ func (n *Node) newIPMSG(port int, live *atomic.Bool) (*ipmsgproto.Service, error
 		}
 	}
 	return ipmsgproto.Start(ipmsgproto.Config{
-		Host: host, Name: name, Version: n.version, Port: port, RequireFiles: true,
+		Host: host, User: "GoIM-" + s.Self.ID, Name: name, Version: n.version, Port: port, RequireFiles: true,
 		BindIP:           bind,
 		DisableBroadcast: true,
 		Hidden:           s.Settings.Presence == domain.PresenceInvisible,

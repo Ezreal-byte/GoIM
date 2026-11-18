@@ -128,6 +128,14 @@ func headerField(value string) string {
 	return value
 }
 
+func displayNickname(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\x00", ""))
+	if value == "" {
+		return "GoIM"
+	}
+	return value
+}
+
 func peerID(host, address string) string {
 	sum := sha256.Sum256([]byte(strings.ToLower(host) + "\x00" + address))
 	return "ipmsg-" + hex.EncodeToString(sum[:8])
