@@ -74,6 +74,29 @@ func testPrintNode(t *testing.T, name, dir string, backend printing.Backend) *No
 	return n
 }
 
+func TestPrinterCatalogRefreshKeepsSharedPrinters(t *testing.T) {
+	n := testPrintNode(t, "Receiver", t.TempDir(), &printTestBackend{})
+	peer := domain.Peer{ID: newID(), Name: "Owner", Transport: domain.TransportGoIM, PrintSupported: true}
+	if err := n.durable(func(p *persisted) []pending {
+		p.State.Peers = append(p.State.Peers, peer)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	share := domain.PrinterShare{ID: newID(), Name: "Office Printer", Available: true}
+	for _, revision := range []uint64{1, 1, 2} {
+		if err := n.receivePrinterCatalog(peer.ID, envelope{
+			Printers: []domain.PrinterShare{share}, PrinterRevision: revision,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		printers := n.Snapshot().Printers
+		if len(printers) != 1 || printers[0].ID != share.ID {
+			t.Fatalf("printer catalog after revision %d = %+v", revision, printers)
+		}
+	}
+}
+
 func TestPrinterSharingAutoSubmitsAndPropagatesQueueStatus(t *testing.T) {
 	backend := &printTestBackend{
 		printers: []printing.Printer{{

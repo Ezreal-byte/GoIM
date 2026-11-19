@@ -369,20 +369,14 @@ func (n *Node) receivePrinterCatalog(peer string, e envelope) error {
 		}
 		p.PrinterCatalogRevisions[peer] = e.PrinterRevision
 		s := &p.State
-		kept := s.Printers[:0]
-		for _, share := range s.Printers {
-			if share.OwnerID != peer {
-				kept = append(kept, share)
-			}
-		}
-		accepted := make([]domain.PrinterShare, 0, len(shares))
+		s.Printers = slices.DeleteFunc(s.Printers, func(share domain.PrinterShare) bool {
+			return share.OwnerID == peer
+		})
 		for _, share := range shares {
-			if printerShareIndex(s, share.ID) >= 0 {
-				continue
+			if printerShareIndex(s, share.ID) < 0 {
+				s.Printers = append(s.Printers, share)
 			}
-			accepted = append(accepted, share)
 		}
-		s.Printers = append(kept, accepted...)
 		sort.SliceStable(s.Printers, func(i, j int) bool {
 			if s.Printers[i].Available != s.Printers[j].Available {
 				return s.Printers[i].Available
