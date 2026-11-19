@@ -26,7 +26,7 @@ func TestCompatibilityDoesNotMergeByIPAndName(t *testing.T) {
 		t.Fatalf("independent identities were rewritten: %+v", s.Peers)
 	}
 	archive := directID(s.Self.ID, legacyID)
-	node.receiveLegacyText(legacyID, 2, "不要进入旧会话")
+	_ = node.receiveLegacyMessage(legacyID, 2, "不要进入旧会话", nil)
 	if len(node.Snapshot().ChatMessages(archive)) != 1 {
 		t.Fatal("old conversation changed")
 	}
@@ -84,13 +84,17 @@ func TestSavedCompatibilityLinkKeepsHistoryAndUsesNativeForNewSends(t *testing.T
 		t.Fatalf("preferred route is wrong: %+v", s.Peers)
 	}
 	primary, archive := directID(s.Self.ID, legacyID), directID(s.Self.ID, nativeID)
-	node.receiveLegacyText(legacyID, 3, "original used 2425")
+	if err := node.receiveLegacyMessage(legacyID, 3, "original used 2425", nil); err != nil {
+		t.Fatal(err)
+	}
 	if err := node.receiveNeiwangtongMessage(nativeID, neiwangtong.DirectMessage{
 		PacketID: 4, Parts: []neiwangtong.MessagePart{{Text: "native message"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	node.receiveLegacyFiles(legacyID, 5, "", []ipmsgproto.Attachment{{ID: 3, Name: "previous-route.txt", Size: 8}})
+	if err := node.receiveLegacyMessage(legacyID, 5, "", []ipmsgproto.Attachment{{ID: 3, Name: "previous-route.txt", Size: 8}}); err != nil {
+		t.Fatal(err)
+	}
 	s = node.Snapshot()
 	if len(s.ChatMessages(primary)) != 4 || len(s.ChatMessages(archive)) != 1 || s.Transfers[0].RemotePeerID != legacyID {
 		t.Fatalf("bridged ingress did not preserve history or transfer identity: %+v", s.Messages)

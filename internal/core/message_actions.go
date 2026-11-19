@@ -234,6 +234,9 @@ func applyMessageRecall(p *persisted, m domain.Message) []string {
 			if t.Status == "completed" {
 				continue
 			}
+			if receiveAlreadyPublished(p, t.ID) {
+				continue
+			}
 			t.Status, t.Error, t.Speed = "cancelled", "文件消息已撤回", 0
 			t.UpdatedAt = time.Now()
 			p.TransferTombstones[t.PeerID+":"+t.ID] = "cancelled"

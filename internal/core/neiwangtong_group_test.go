@@ -235,9 +235,26 @@ func TestNativeGroupRosterAndMessageAuthorization(t *testing.T) {
 	if messages := n.Snapshot().ChatMessages("group:" + id); len(messages) != 1 || messages[0].Text != msg.Message.Text() {
 		t.Fatalf("native group text missing or duplicated: %+v", messages)
 	}
+	if err := n.durable(func(p *persisted) []pending {
+		conversation := "group:" + id
+		p.Outbox["old-text"] = pending{PeerID: owner, Envelope: envelope{ID: "old-text", Type: "message", Message: domain.Message{ConversationID: conversation}}}
+		p.Outbox["old-file"] = pending{PeerID: owner, Envelope: envelope{ID: "old-file", Type: "file_offer", File: domain.File{ConversationID: conversation}}}
+		p.State.Transfers = append(p.State.Transfers, domain.Transfer{ID: "roster-revocation-task", ConversationID: conversation,
+			Direction: "send", PeerID: owner, Status: "waiting"})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	roster.MembersVersion++
 	roster.Members = roster.Members[:1]
 	n.receiveNeiwangtongGroupRoster(owner, roster)
+	n.mu.Lock()
+	_, oldText := n.data.Outbox["old-text"]
+	_, oldFile := n.data.Outbox["old-file"]
+	n.mu.Unlock()
+	if oldText || oldFile || n.Snapshot().Transfers[0].Status != "cancelled" {
+		t.Fatal("roster-only removal retained old group deliveries")
+	}
 	if err := n.receiveNeiwangtongGroupText(owner, msg); err == nil || !n.Snapshot().Group(id).Left {
 		t.Fatal("the removed local client kept receiving group messages")
 	}

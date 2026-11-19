@@ -83,7 +83,7 @@ func (u *UI) lockVisible() bool {
 	if !u.state.Locked && !s.setup && !s.pending {
 		s.focused = false
 	}
-	return u.state.Locked || s.setup || s.pending
+	return u.state.Locked || s.setup || s.pending || u.detachedConcealed
 }
 
 func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {

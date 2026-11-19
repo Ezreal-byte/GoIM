@@ -8,19 +8,10 @@ import (
 
 func (n *Node) completeReceive(t domain.Transfer, path string) error {
 	return n.durable(func(p *persisted) []pending {
-		if i := transferIndex(&p.State, t.ID); i >= 0 {
-			v := &p.State.Transfers[i]
-			if v.Status == "cancelled" || v.Status == "rejected" {
-				return nil
-			}
-			v.Status = "completed"
-			v.Done = v.Size
-			v.Speed = 0
-			v.Path = path
-			v.Error = ""
-			v.UpdatedAt = time.Now()
+		if i := transferIndex(&p.State, t.ID); i >= 0 && canPublishReceive(p, p.State.Transfers[i]) {
+			return completeReceiveState(&p.State.Transfers[i], path)
 		}
-		return []pending{{PeerID: t.PeerID, Envelope: envelope{Type: "file_status", TransferID: t.ID, Status: "completed"}}}
+		return nil
 	})
 }
 func (n *Node) receiveFileStatus(peer string, e envelope) error {
@@ -43,6 +34,9 @@ func (n *Node) receiveFileStatus(peer string, e envelope) error {
 			}
 			t.Done = t.Size
 		case "cancelled", "rejected":
+			if receiveAlreadyPublished(p, t.ID) {
+				return nil
+			}
 			p.TransferTombstones[peer+":"+e.TransferID] = e.Status
 			if cancel := n.transfers[t.ID]; cancel != nil {
 				cancel()
@@ -64,6 +58,9 @@ func (n *Node) receiveFileStatus(peer string, e envelope) error {
 	})
 }
 func (n *Node) retryTransfer(t domain.Transfer) error {
+	if unboundIPMSGTransfer(t) {
+		return errUnboundIPMSGPeer
+	}
 	n.mu.Lock()
 	recalled := n.data.fileMessageRecalled(t)
 	n.mu.Unlock()
@@ -83,7 +80,7 @@ func (n *Node) retryTransfer(t domain.Transfer) error {
 				return errors.New("此内网通任务已结束，请让对方重新发送")
 			}
 			return n.durable(func(p *persisted) []pending {
-				if p.fileMessageRecalled(t) {
+				if p.fileMessageRecalled(t) || !conversationAllows(&p.State, t.ConversationID, t.PeerID) {
 					return nil
 				}
 				if i := transferIndex(&p.State, t.ID); i >= 0 {
@@ -108,8 +105,7 @@ func (n *Node) retryTransfer(t domain.Transfer) error {
 		(t.Status == "failed" || t.Status == "waiting") && t.RemotePacket != "" && t.RemoteFile != "" {
 		transferID = t.ID
 	}
-	n.offerFile(t.PeerID, t.ConversationID, f, transferID)
-	return nil
+	return n.reofferFile(t, transferID)
 }
 func (n *Node) receiveFileRetry(peer string, e envelope) error {
 	s := n.snapshot(false)
@@ -128,8 +124,8 @@ func (n *Node) receiveFileRetry(peer string, e envelope) error {
 		return nil
 	}
 	f := s.File(t.FileID)
-	if t.FromShare && !f.Shared {
-		return n.denyFileRetry(peer, e.TransferID, "分享已撤回")
+	if t.FromShare && (!f.Shared || f.ShareProtected) {
+		return n.denyFileRetry(peer, e.TransferID, "此分享已不可用")
 	}
 	if f.SourcePath == "" {
 		return n.denyFileRetry(peer, e.TransferID, "源文件不可用")
@@ -144,8 +140,7 @@ func (n *Node) receiveFileRetry(peer string, e envelope) error {
 			return n.denyFileRetry(peer, e.TransferID, "群文件权限已失效")
 		}
 	}
-	n.offerFile(peer, t.ConversationID, f, "")
-	return nil
+	return n.reofferFile(t, "")
 }
 func (n *Node) denyFileRetry(peer, id, reason string) error {
 	return n.durable(func(*persisted) []pending {

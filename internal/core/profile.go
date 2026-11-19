@@ -221,20 +221,12 @@ func (n *Node) updateProfile(name, path string, preview []byte, size int, signat
 		var source image.Image
 		var err error
 		if len(preview) > 0 {
-			if size < 1 || size > 256 || len(preview) != size*size*4 {
-				return errors.New("头像预览已失效，请重新选择")
-			}
-			pixels := image.NewRGBA(image.Rect(0, 0, size, size))
-			for i := 0; i < len(preview); i += 4 {
-				pixels.Pix[i], pixels.Pix[i+1], pixels.Pix[i+2], pixels.Pix[i+3] =
-					preview[i+2], preview[i+1], preview[i], preview[i+3]
-			}
-			source = pixels
+			source, err = imageFromPreview(preview, size)
 		} else {
 			source, err = openPersonalImage(path, 8<<20)
-			if err != nil {
-				return err
-			}
+		}
+		if err != nil {
+			return err
 		}
 		avatar, err = n.writeAvatar(s.Self.ID, source)
 		if err != nil {

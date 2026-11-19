@@ -26,6 +26,7 @@ type GroupMember struct {
 type GroupRoster struct {
 	ID, Name, OwnerID           string
 	InfoVersion, MembersVersion uint64
+	PhotoMD5                    string
 	Members                     []GroupMember
 }
 
@@ -119,6 +120,7 @@ func (s *Service) SendGroupRoster(peerID string, roster GroupRoster) error {
 	wire := groupRosterWire{DocVer: "1", Members: roster.Members}
 	wire.Info.ID, wire.Info.Name, wire.Info.OwnerID = roster.ID, roster.Name, roster.OwnerID
 	wire.Info.InfoVersion, wire.Info.MembersVersion = roster.InfoVersion, roster.MembersVersion
+	wire.Info.PhotoMD5 = roster.PhotoMD5
 	data, err := xml.Marshal(wire)
 	if err != nil {
 		return err
@@ -234,7 +236,8 @@ func ParseGroupRoster(data []byte) (GroupRoster, error) {
 	info := wire.Info
 	roster := GroupRoster{ID: strings.ToLower(info.ID), Name: strings.TrimSpace(info.Name),
 		OwnerID: strings.ToLower(info.OwnerID), InfoVersion: info.InfoVersion,
-		MembersVersion: info.MembersVersion, Members: wire.Members}
+		MembersVersion: info.MembersVersion, PhotoMD5: strings.ToLower(strings.TrimSpace(info.PhotoMD5)),
+		Members: wire.Members}
 	if err := roster.validate(); err != nil {
 		return GroupRoster{}, err
 	}
@@ -246,6 +249,12 @@ func (r GroupRoster) validate() error {
 		len(r.Name) > 160 || !utf8.ValidString(r.Name) ||
 		r.InfoVersion == 0 || r.MembersVersion == 0 || len(r.Members) == 0 || len(r.Members) > 256 {
 		return errors.New("invalid native group roster")
+	}
+	if r.PhotoMD5 != "" {
+		digest, err := hex.DecodeString(r.PhotoMD5)
+		if err != nil || len(digest) != 16 || strings.ToLower(r.PhotoMD5) != r.PhotoMD5 {
+			return errors.New("invalid native group photo digest")
+		}
 	}
 	members := make(map[string]bool, len(r.Members))
 	for _, member := range r.Members {

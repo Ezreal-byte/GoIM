@@ -50,10 +50,24 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 	}
 
 	var menuAnchor ui.Box
+	var avatarClicked bool
 	u.drawerPage.Draw(canvas, layout.Body, func(f ui.C) {
 		ui.Column(f).Fill().Gap(11).Children(func() {
 			ui.Row(f).Items(ui.Center).Gap(12).Children(func() {
-				u.initialsAvatarStatus(f, group.Name, 46, true)
+				avatar := ui.Row(f).Size(46, 46).Radius(23).Items(ui.Center).Justify(ui.Center)
+				if owner {
+					avatar = avatar.Hover(ui.Look{}.Background(u.palette.hover)).
+						HitWith(u.ids.memberAvatar, i18n.T("更换群头像"), gfx.HitOptions{
+							Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand,
+							Hint: i18n.T("选择图片并调整裁切"),
+						})
+				}
+				avatar.Children(func() {
+					u.avatarStatus(f, group.Name, group.Avatar, 46, true)
+				})
+				if owner && avatar.Clicked() {
+					avatarClicked = true
+				}
 				ui.Column(f).Grow(1).Gap(3).Children(func() {
 					ui.Text(f, group.Name).FontSize(17).Weight(gfx.WeightSemibold).Ellipsis()
 					note := i18n.T("群主可修改群名")
@@ -197,6 +211,10 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 	}
 	drawer.End()
 
+	if avatarClicked {
+		u.openGroupAvatar(group)
+		return
+	}
 	if canvas.Clicked(u.ids.memberDismiss) || canvas.Clicked(u.ids.memberClose) {
 		u.requestCloseDrawer()
 		return
@@ -217,6 +235,143 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		}
 		u.drawMemberMenu(canvas, viewport, group, anchor)
 	}
+}
+
+func (u *UI) openGroupAvatar(group domain.Group) {
+	if group.ID == "" || group.OwnerID != u.state.Self.ID || group.Left || group.Dissolved {
+		return
+	}
+	paths, err := u.openFilePicker(app.OpenFileOptions{
+		Title:         i18n.T("选择群头像"),
+		AllowMultiple: false,
+		Filters: []app.FileFilter{
+			{Name: i18n.T("图片"), Pattern: "*.png;*.jpg;*.jpeg;*.gif"},
+			{Name: i18n.T("所有文件"), Pattern: "*.*"},
+		},
+	})
+	if err != nil {
+		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) ||
+			errors.Is(err, app.ErrUnsupported) {
+			return
+		}
+		u.showToast(i18n.T("无法选择群头像"), err.Error(), components.ToastError)
+		return
+	}
+	if len(paths) == 0 || strings.TrimSpace(paths[0]) == "" {
+		return
+	}
+	path := paths[0]
+	u.avatarGroup = group.ID
+	u.groupAvatar = profileAvatarCropState{open: true, source: path}
+	u.ensureImage(path)
+}
+
+func (u *UI) syncGroupAvatarCrop(path string) {
+	if !u.groupAvatar.open || u.groupAvatar.source != path {
+		return
+	}
+	if bitmap, ok := u.imageCache[path]; ok && bitmapReady(bitmap) {
+		u.groupAvatar.err = ""
+	}
+}
+
+func (u *UI) closeGroupAvatarEditor() {
+	u.groupAvatar = profileAvatarCropState{}
+	u.avatarGroup = ""
+}
+
+func (u *UI) drawGroupAvatarEditor(canvas *gfx.Canvas, viewport ui.Rect) {
+	group := u.state.Group(u.avatarGroup)
+	if group.ID == "" || group.OwnerID != u.state.Self.ID || group.Left || group.Dissolved {
+		u.closeGroupAvatarEditor()
+		return
+	}
+	crop := &u.groupAvatar
+	bitmap := u.imageCache[crop.source]
+	stageSize := float32(456)
+	controlHeight := max(float32(32), u.theme.Metrics.ControlHeight)
+	dialog := components.BeginDialog(canvas, u.theme, viewport, components.DialogOptions{
+		Layer:          78,
+		Scope:          u.ids.groupAvatarScope,
+		DismissID:      u.ids.groupAvatarDismiss,
+		CloseID:        u.ids.groupAvatarClose,
+		InitialFocusID: u.ids.groupAvatarCanvas,
+		ContentSize:    ui.Size{Width: 520},
+		FitBody:        true,
+		BodyHeight:     stageSize + controlHeight + 12,
+		ButtonSize:     dialogActionButtonSize,
+	})
+	dialogLayout := dialog.Begin(i18n.T("更换群头像"), "")
+	options := components.AvatarEditorOptions{
+		IDs: components.AvatarEditorIDs{
+			Canvas: u.ids.groupAvatarCanvas, Zoom: u.ids.groupAvatarZoom,
+			ZoomOut: u.ids.groupAvatarOut, ZoomIn: u.ids.groupAvatarIn,
+		},
+		Labels: components.AvatarEditorLabels{
+			Hint:        i18n.T("拖动图片调整位置，滚轮、滑杆或按钮缩放；方形区域将作为群头像。"),
+			Canvas:      i18n.T("群头像裁切区域"),
+			Zoom:        i18n.T("缩放"),
+			ZoomOut:     i18n.T("缩小"),
+			ZoomIn:      i18n.T("放大"),
+			Loading:     i18n.T("正在读取图片…"),
+			Unavailable: i18n.T("无法读取这张图片"),
+		},
+		Bitmap:       bitmap,
+		State:        crop.state,
+		Backdrop:     u.theme.Popover,
+		MaxStageSize: stageSize,
+		Circular:     true,
+		Loading:      !bitmapReady(bitmap) && crop.err == "",
+		Error:        crop.err,
+	}
+	layout := components.BeginAvatarEditor(canvas, u.theme, dialogLayout.Body, options).Paint()
+	crop.state, crop.layout = layout.State, layout
+	actions := make([]components.ButtonAction, 0, 3)
+	if group.Avatar != "" || group.AvatarHash != "" || group.AvatarMD5 != "" {
+		actions = append(actions, components.ButtonAction{
+			ID: u.ids.groupAvatarRemove, Label: i18n.T("移除群头像"),
+			Variant: components.ButtonDestructiveOutline,
+		})
+	}
+	actions = append(actions,
+		components.ButtonAction{ID: u.ids.groupAvatarCancel, Label: i18n.T("取消"), Variant: components.ButtonOutline},
+		components.ButtonAction{ID: u.ids.groupAvatarConfirm, Label: i18n.T("保存"), Disabled: !layout.Ready},
+	)
+	paintDialogActions(canvas, u.theme, dialogLayout.Footer, actions...)
+	dialog.End()
+	switch {
+	case canvas.Clicked(u.ids.groupAvatarDismiss), canvas.Clicked(u.ids.groupAvatarClose),
+		canvas.Clicked(u.ids.groupAvatarCancel):
+		u.closeGroupAvatarEditor()
+	case canvas.Clicked(u.ids.groupAvatarRemove):
+		u.submit(domain.Command{Kind: domain.SetGroupAvatar, GroupID: group.ID, RemoveAvatar: true})
+		u.closeGroupAvatarEditor()
+	case canvas.Clicked(u.ids.groupAvatarConfirm) && layout.Ready:
+		canvas.AfterPaint(func() {
+			u.commitGroupAvatarCrop()
+			canvas.RequestFrame()
+		})
+	}
+}
+
+func (u *UI) commitGroupAvatarCrop() {
+	group := u.state.Group(u.avatarGroup)
+	crop := &u.groupAvatar
+	source, ok := u.imageCache[crop.source]
+	if group.ID == "" || !ok || !crop.layout.Ready || !bitmapReady(source) {
+		crop.err = i18n.T("群头像还在处理中，请稍候")
+		return
+	}
+	preview, ok := cropScaledBitmap(source, crop.layout.Crop, 256)
+	if !ok || !bitmapReady(preview) {
+		crop.err = i18n.T("无法读取这张图片")
+		return
+	}
+	u.submit(domain.Command{
+		Kind: domain.SetGroupAvatar, GroupID: group.ID,
+		AvatarBGRA: preview.Pix, AvatarSize: preview.Width,
+	})
+	u.closeGroupAvatarEditor()
 }
 
 func (u *UI) drawMemberMenu(canvas *gfx.Canvas, viewport ui.Rect, group domain.Group, anchor ui.Rect) {

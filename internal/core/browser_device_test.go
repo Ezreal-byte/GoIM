@@ -109,6 +109,22 @@ func TestDeviceHomeRoutesAndUpload(t *testing.T) {
 	if bytes.Contains(saved, []byte(device.URL)) {
 		t.Fatal("device link entered public state JSON")
 	}
+	login := func(password string, status int) string {
+		t.Helper()
+		r, _ := http.NewRequest(http.MethodPost, protected.ShareURL, strings.NewReader(url.Values{"password": {password}}.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		return check(r, status)
+	}
+	if html := get(unlocked.ShareURL, 200); strings.Contains(html, "设备主页") {
+		t.Fatal("the public project exposed a device home link to a new browser")
+	}
+	if html := login("wrong-password", 401); strings.Contains(html, "设备主页") {
+		t.Fatal("the failed login exposed a device home link")
+	}
+	if html := login("project-password", 200); !strings.Contains(html, "归档说明.txt") || strings.Contains(html, "设备主页") {
+		t.Fatal("project authentication did not stay within the requested project")
+	}
+	client.Jar, _ = cookiejar.New(nil)
 	home := get(device.URL, 200)
 	if !strings.Contains(home, "公开说明.txt") || !strings.Contains(home, "设计归档，需密码") ||
 		!strings.Contains(home, "上传文件") || strings.Contains(home, "归档说明.txt") || strings.Contains(home, device.ReceiveDir) {
@@ -120,13 +136,11 @@ func TestDeviceHomeRoutesAndUpload(t *testing.T) {
 	if got := get(unlocked.ShareURL+"/download", 200); got != "published contents" {
 		t.Fatalf("unprotected file bytes = %q", got)
 	}
-	if html := get(protected.ShareURL, 200); !strings.Contains(html, "输入分享密码") || strings.Contains(html, "归档说明.txt") {
+	if html := get(protected.ShareURL, 200); !strings.Contains(html, "输入分享密码") || strings.Contains(html, "归档说明.txt") || strings.Contains(html, "设备主页") {
 		t.Fatal("a protected project leaked contents before authentication")
 	}
 	get(protected.ShareURL+"/download?file=1", 401)
-	r, _ := http.NewRequest(http.MethodPost, protected.ShareURL, strings.NewReader(url.Values{"password": {"project-password"}}.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if html := check(r, 200); !strings.Contains(html, "归档说明.txt") {
+	if html := login("project-password", 200); !strings.Contains(html, "归档说明.txt") || !strings.Contains(html, "设备主页") {
 		t.Fatal("the correct password did not open the project")
 	}
 	upload(unlocked.ShareURL+"/upload", "", 404, "unexpected.txt")

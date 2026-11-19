@@ -15,7 +15,7 @@ import (
 
 func (r *desktopRuntime) syncViewer() {
 	u := r.ui
-	if u.lockVisible() && u.surface.viewer.open {
+	if u.lockVisible() {
 		u.closeImageViewer()
 		return
 	}

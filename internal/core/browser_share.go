@@ -38,6 +38,10 @@ type shareLink struct {
 	size    int64
 }
 
+func publicSharedFile(p *persisted, f domain.File) bool {
+	return f.Shared && !f.ShareFolder && f.SenderID == p.State.Self.ID && !p.BrowserShares[f.ID].Password.set()
+}
+
 //go:embed share_page.html
 var sharePageHTML string
 
@@ -419,7 +423,6 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := sharePageData{Path: "/s/" + token, Locked: record.Password.set()}
-	page.Home = n.deviceHomePath()
 	page.ReturnURL = page.Path
 	if tail == "" {
 		if id, err := strconv.Atoi(r.URL.Query().Get("dir")); err == nil && id > 0 {
@@ -469,6 +472,7 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		page.Date = f.CreatedAt.Local().Format("2006-01-02")
 	}
 	if tail == "" {
+		page.Home = n.deviceHomePath(r)
 		n.mu.Lock()
 		page.Sender = n.data.State.Self.Name
 		n.mu.Unlock()

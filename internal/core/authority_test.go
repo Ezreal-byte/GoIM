@@ -142,11 +142,52 @@ func TestShareRevocationRejectsHistoricalRetry(t *testing.T) {
 	}
 	task := a.Snapshot().Transfers[0]
 	_ = a.execute(domain.Command{Kind: domain.RemoveShare, FileID: f.ID})
+	if err := a.retryTransfer(task); err == nil {
+		t.Fatal("the sender could retry a revoked share with stale transfer state")
+	}
 	if err := a.receiveFileRetry(b.Snapshot().Self.ID, envelope{TransferID: task.ID, File: domain.File{ID: f.ID}}); err != nil {
 		t.Fatal(err)
 	}
 	if len(a.Snapshot().Transfers) != 1 {
 		t.Fatal("unshared file granted a new transfer")
+	}
+}
+
+func TestShareRetryPreservesGrantAcrossPasswordChange(t *testing.T) {
+	a, b := testNode(t, "甲"), testNode(t, "乙")
+	connectNodes(t, a, b)
+	path := filepath.Join(t.TempDir(), "分享.txt")
+	if err := os.WriteFile(path, []byte("shared"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.shareFile(path, ""); err != nil {
+		t.Fatal(err)
+	}
+	f := a.Snapshot().Files[0]
+	peer := b.Snapshot().Self.ID
+	if err := a.offerShared(peer, f.ID); err != nil {
+		t.Fatal(err)
+	}
+	first := a.Snapshot().Transfers[0]
+	if err := a.retryTransfer(first); err != nil {
+		t.Fatal(err)
+	}
+	tasks := a.Snapshot().Transfers
+	if len(tasks) != 2 || !tasks[1].FromShare {
+		t.Fatal("retry lost the share grant")
+	}
+	if err := a.updateSharePassword(f.ID, "project-password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restarted := testNodeAt(t, "甲", a.dir)
+	if err := restarted.retryTransfer(tasks[1]); err == nil {
+		t.Fatal("a password-protected grant was retried after restart")
+	}
+	if len(restarted.Snapshot().Transfers) != 2 {
+		t.Fatal("protected share produced another offer")
 	}
 }
 

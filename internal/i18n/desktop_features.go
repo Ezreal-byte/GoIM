@@ -32,7 +32,19 @@ func init() {
 		"置顶会话窗口":             "Keep chat window on top",
 		"拖到窗口外打开独立会话":        "Drop outside the window to open a separate chat",
 		"无法更改会话窗口置顶":         "Could not change the chat window pin state",
+		"无法更改主窗口置顶":          "Could not change the main window pin state",
 		"当前系统不支持窗口置顶。":       "This system does not support always-on-top windows.",
+		"窗口置顶":               "Keep window on top",
+		"取消窗口置顶":             "Stop keeping window on top",
+		"选择群头像":              "Choose group avatar",
+		"无法选择群头像":            "Could not choose a group avatar",
+		"更换群头像":              "Change group avatar",
+		"群头像裁切区域":            "Group avatar crop area",
+		"移除群头像":              "Remove group avatar",
+		"群头像还在处理中，请稍候":       "The group avatar is still being processed. Please wait.",
+		"拖动图片调整位置，滚轮、滑杆或按钮缩放；方形区域将作为群头像。": "Drag the image to reposition it. Use the wheel, slider or buttons to zoom. The square area becomes the group avatar.",
+		"Enter 发送，Shift+Enter 换行": "Enter to send, Shift+Enter for a new line",
+		"Ctrl+Enter 发送，Enter 换行":  "Ctrl+Enter to send, Enter for a new line",
 	} {
 		if _, exists := en[label]; !exists {
 			en[label] = english

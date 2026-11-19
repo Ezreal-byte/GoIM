@@ -21,6 +21,7 @@ import (
 
 const webUploadLimit = 256 << 20
 const webInboxLimit = 1 << 30
+const deviceHomeCookie = "goim_device_home"
 
 var shareOrigin = http.NewCrossOriginProtection()
 
@@ -82,10 +83,14 @@ func (n *Node) attachDeviceShare(s *domain.State) {
 	}
 }
 
-func (n *Node) deviceHomePath() string {
+func (n *Node) deviceHomePath(r *http.Request) string {
+	cookie, err := r.Cookie(deviceHomeCookie)
+	if err != nil || len(cookie.Value) != 32 {
+		return ""
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.data.BrowserHomeToken != "" {
+	if subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(n.data.BrowserHomeToken)) == 1 {
 		return deviceSharePath(n.data.BrowserHomeToken)
 	}
 	return ""
@@ -137,6 +142,7 @@ func (n *Node) handleDeviceShare(w http.ResponseWriter, r *http.Request) {
 		}
 		page.OpenUpload = r.URL.Query().Get("upload") == "1"
 		page.Uploaded = r.URL.Query().Get("sent") == "1"
+		http.SetCookie(w, &http.Cookie{Name: deviceHomeCookie, Value: token, Path: "/s/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		renderShare(w, http.StatusOK, page)
 		return
 	}

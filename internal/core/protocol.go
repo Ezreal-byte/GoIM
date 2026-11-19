@@ -42,6 +42,7 @@ type envelope struct {
 	Target          string
 	Proof           domain.Ownership
 	Avatar          []byte
+	GroupAvatar     []byte
 	Peers           []domain.Peer
 }
 type peerConn struct {
@@ -314,11 +315,22 @@ func (n *Node) flushPeer(peer string) {
 	for _, p := range list {
 		n.mu.Lock()
 		current, exists := n.data.Outbox[p.Envelope.ID]
+		permitted := exists && deliveryAllowed(&n.data, current)
 		transport, wireID, online := n.pendingRouteLocked(current)
 		n.mu.Unlock()
 		if !exists {
 			continue
 		}
+		if !permitted {
+			_ = n.durable(func(data *persisted) []pending {
+				if entry, ok := data.Outbox[p.Envelope.ID]; ok && !deliveryAllowed(data, entry) {
+					delete(data.Outbox, p.Envelope.ID)
+				}
+				return nil
+			})
+			continue
+		}
+		p = current
 		if transport == domain.TransportGoIM {
 			if n.send(peer, p.Envelope) != nil {
 				return
@@ -335,7 +347,7 @@ func (n *Node) flushPeer(peer string) {
 		if first {
 			prepared := false
 			err := n.durable(func(data *persisted) []pending {
-				if entry, ok := data.Outbox[p.Envelope.ID]; ok {
+				if entry, ok := data.Outbox[p.Envelope.ID]; ok && deliveryAllowed(data, entry) {
 					entry.WireTransport, entry.WirePeerID = transport, wireID
 					data.Outbox[p.Envelope.ID] = entry
 					prepared = true
@@ -366,7 +378,7 @@ func (n *Node) flushPeer(peer string) {
 		}
 		if err != nil {
 			if n.ctx.Err() != nil || transport == transportNWT && errors.Is(err, neiwangtong.ErrDeliveryUncertain) ||
-				transport == legacyIPMSG && errors.Is(err, ipmsg.ErrReceiptTimeout) {
+				transport == legacyIPMSG && (errors.Is(err, ipmsg.ErrReceiptTimeout) || errors.Is(err, ipmsg.ErrPeerOffline)) {
 				return // preserve order and the original identifiers on replay
 			}
 			n.failCompatibilityDelivery(p, err)
@@ -536,37 +548,33 @@ func (n *Node) receiveMessage(peer string, e envelope) error {
 	if m.ID == "" || m.SenderID != peer || m.Kind != "text" || len(m.Text) > 256<<10 {
 		return errors.New("无效聊天消息")
 	}
-	s := n.snapshot(false)
-	if strings.HasPrefix(m.ConversationID, "group:") {
-		g := s.Group(strings.TrimPrefix(m.ConversationID, "group:"))
-		if g.ID == "" || g.Dissolved || g.Left || !contains(g.Members, peer) || !contains(g.Members, s.Self.ID) {
-			return errors.New("群成员身份已失效")
-		}
-	} else {
-		p := s.Peer(peer)
-		m.ConversationID = directID(s.Self.ID, peer)
-		n.change(func(st *domain.State) { ensureDirect(st, p) })
-	}
 	m.Status = "delivered"
-	return n.durable(func(p *persisted) []pending {
+	var denied error
+	err := n.durable(func(p *persisted) []pending {
+		s := &p.State
+		if !conversationAllows(s, m.ConversationID, peer) {
+			denied = errors.New("群成员身份已失效")
+			return nil
+		}
+		direct := !strings.HasPrefix(m.ConversationID, "group:")
+		if direct {
+			m.ConversationID = directID(s.Self.ID, peer)
+		}
 		if p.MessageRecalls[messageRecallKey(peer, m.ConversationID, m.ID)] {
 			return nil
 		}
-		s := &p.State
 		for _, old := range s.Messages {
 			if old.ID == m.ID {
 				return nil
 			}
 		}
-		s.Messages = append(s.Messages, m)
-		if i := convIndex(s, m.ConversationID); i >= 0 {
-			s.Conversations[i].Hidden = false
-			s.Conversations[i].Unread++
-			s.Conversations[i].Preview = m.Text
-			s.Conversations[i].UpdatedAt = m.CreatedAt
+		if direct {
+			ensureDirect(s, s.Peer(peer))
 		}
+		addMessageState(s, m)
 		return nil
 	})
+	return errors.Join(err, denied)
 }
 
 type announcement struct {

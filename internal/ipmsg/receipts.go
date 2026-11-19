@@ -13,6 +13,7 @@ import (
 // ErrReceiptTimeout leaves delivery uncertain: the receiver may have accepted
 // the message while its receipt was lost. A later attempt must reuse the number.
 var ErrReceiptTimeout = errors.New("未收到飞鸽／飞秋的送达确认")
+var ErrPeerOffline = errors.New("飞鸽／飞秋联系人已离线")
 
 type messageReceiptKey struct {
 	peer   string
@@ -32,7 +33,7 @@ func (s *Service) SendTextConfirmed(ctx context.Context, peer string, number uin
 	}
 	state := s.peer(peer)
 	if state == nil {
-		return errors.New("IPMSG peer is offline")
+		return ErrPeerOffline
 	}
 	data, err := s.messagePacket(state, number, text, "")
 	if err != nil {
@@ -65,7 +66,7 @@ func (s *Service) SendTextConfirmed(ctx context.Context, peer string, number uin
 		if err := s.ctx.Err(); err != nil {
 			return err
 		}
-		if err := s.sendPacket(state, data); err != nil {
+		if err := s.sendToLogin(state, data); err != nil {
 			return err
 		}
 		timer := time.NewTimer(time.Second)
@@ -91,7 +92,7 @@ func (s *Service) receiveMessageReceipt(message packet, from *net.UDPAddr) {
 	if err != nil || number == 0 {
 		return
 	}
-	key := messageReceiptKey{peerID(message.Host, from.IP.String()), number}
+	key := messageReceiptKey{peerID(message.Host, message.Sender), number}
 	address := from.AddrPort()
 	address = netip.AddrPortFrom(address.Addr().Unmap(), address.Port())
 	s.mu.Lock()

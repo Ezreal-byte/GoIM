@@ -7,7 +7,10 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+
+	"goim/internal/shotlet"
 )
 
 func TestScreenshotToolPathHonorsOverride(t *testing.T) {
@@ -16,12 +19,51 @@ func TestScreenshotToolPathHonorsOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("GOIM_SNIP_PATH", path)
-	got, err := screenshotToolPath()
+	got, err := resolveScreenshotTool()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != path {
-		t.Fatalf("screenshot tool path = %q, want %q", got, path)
+	if got.path != path || got.shotlet {
+		t.Fatalf("screenshot tool = %+v, want the built-in tool at %q", got, path)
+	}
+}
+
+func TestPackagedScreenshotToolSelectsSupportedHelper(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "GoIM")
+	builtin := filepath.Join(directory, "goim-snip")
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+		builtin += ".exe"
+	}
+	if runtime.GOOS == "darwin" {
+		directory = filepath.Join(directory, "GoIM.app", "Contents", "MacOS")
+		executable = filepath.Join(directory, "GoIM")
+		builtin = filepath.Join(directory, "goim-snip")
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(builtin, nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	want := screenshotTool{path: builtin}
+	if got, err := packagedScreenshotTool(executable); err != nil || got != want {
+		t.Fatalf("fallback tool = %+v, %v; want %+v", got, err, want)
+	}
+	if helper := shotlet.HelperPath(executable); helper != "" {
+		if err := os.MkdirAll(filepath.Dir(helper), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(helper, nil, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if shotlet.Supported() {
+			want = screenshotTool{path: helper, shotlet: true}
+		}
+	}
+	if got, err := packagedScreenshotTool(executable); err != nil || got != want {
+		t.Fatalf("packaged tool = %+v, %v; want %+v", got, err, want)
 	}
 }
 

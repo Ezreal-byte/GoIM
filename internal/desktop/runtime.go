@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -42,6 +43,7 @@ type desktopRuntime struct {
 	flashUntil          time.Time
 	flashOn             bool
 	screenshotRunning   atomic.Bool
+	screenshotContext   context.Context
 	viewerWindow        *app.Window
 	viewerWake          app.Invalidator
 	viewerPending       bool
@@ -51,9 +53,10 @@ type desktopRuntime struct {
 }
 
 type detachedConversationWindow struct {
-	id     string
-	ui     *UI
-	window *app.Window
+	id              string
+	ui              *UI
+	window          *app.Window
+	restoreOnUnlock bool
 }
 
 // Run owns the native window and optional tray. The same lifecycle is exercised
@@ -61,11 +64,14 @@ type detachedConversationWindow struct {
 func Run(backend domain.Backend, restartArguments []string) error {
 	shell := New(backend)
 	defer shell.Close()
+	screenshotContext, stopCaptures := context.WithCancel(context.Background())
+	defer stopCaptures()
 	icon, statusIcon := windowIcon(), trayIcon()
 	r := &desktopRuntime{
 		ui: shell, backend: backend, seen: make(map[string]bool), badge: -1,
 		trayNormal: statusIcon, trayFlash: attentionIcon(statusIcon),
 		conversationWindows: make(map[string]*detachedConversationWindow),
+		screenshotContext:   screenshotContext,
 	}
 	shell.panels.setAutostartProvider(
 		func() (bool, error) { return app.AutostartEnabled(selfupdate.AppID) },
@@ -201,6 +207,14 @@ func (r *desktopRuntime) observe() {
 		return
 	}
 	s := r.ui.state
+	locked := r.ui.lockVisible()
+	if locked && r.ui.conversationDrag.preview != nil {
+		r.ui.conversationDrag.preview.Close()
+		r.ui.conversationDrag = conversationDragState{}
+	}
+	for _, detached := range r.conversationWindows {
+		detached.conceal(locked)
+	}
 	if s.Revision != r.detachedRevision {
 		r.detachedRevision = s.Revision
 		for _, detached := range r.conversationWindows {

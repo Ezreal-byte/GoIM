@@ -81,7 +81,7 @@ func (u *UI) drawEmojiPicker(c *gfx.Canvas, viewport ui.Rect) {
 		u.recentEmoji = u.recentEmoji[:min(10, len(u.recentEmoji))]
 		u.submit(domain.Command{Kind: domain.RememberEmoji, Text: picked})
 		u.emojiOpen = false
-		u.mentionEditor.AutoFocus()
+		c.AfterPaint(func() { c.RequestFocus(u.ids.chatEditorField) })
 	}
 	if c.Clicked(u.ids.emojiDismiss) {
 		u.emojiOpen = false

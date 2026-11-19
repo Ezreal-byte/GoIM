@@ -34,8 +34,7 @@ type Peer struct {
 
 type Callbacks struct {
 	Peer         func(Peer)
-	Text         func(peerID string, packetNumber uint64, text string)
-	Files        func(peerID string, packetNumber uint64, message string, files []Attachment)
+	Message      func(peerID string, packetNumber uint64, text string, files []Attachment) error
 	FilePrepared func(transferID string, packetNumber uint64, fileID uint32) error
 	FileProgress func(packetNumber uint64, fileID uint32, done, total int64, complete bool, err error)
 	AllowFile    func(transferID string) bool
@@ -68,6 +67,7 @@ type servingFile struct {
 	size       int64
 	modified   time.Time
 	recipient  net.IP
+	peerID     string
 	transferID string
 }
 
@@ -209,7 +209,7 @@ func (s *Service) OfferFile(peerID, path, transferID, message string) (uint64, u
 	}
 	state := s.peer(peerID)
 	if state == nil {
-		return 0, 0, errors.New("IPMSG peer is offline")
+		return 0, 0, ErrPeerOffline
 	}
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 {
@@ -225,6 +225,11 @@ func (s *Service) OfferFile(peerID, path, transferID, message string) (uint64, u
 		}
 	}
 	s.mu.Lock()
+	current := s.peers[peerID]
+	if current == nil || !current.peer.Online || current.addr.Port != state.addr.Port || !current.addr.IP.Equal(state.addr.IP) {
+		s.mu.Unlock()
+		return 0, 0, ErrPeerOffline
+	}
 	for key, entry := range s.files {
 		if entry.transferID == transferID {
 			delete(s.files, key)
@@ -232,7 +237,7 @@ func (s *Service) OfferFile(peerID, path, transferID, message string) (uint64, u
 	}
 	s.files[fileKey{packet: number, file: fileID}] = servingFile{
 		path: path, size: file.Size, modified: info.ModTime(),
-		recipient: state.addr.IP, transferID: transferID,
+		recipient: state.addr.IP, peerID: peerID, transferID: transferID,
 	}
 	s.mu.Unlock()
 	if message == "" {
@@ -324,6 +329,18 @@ func (s *Service) sendFileMessage(state *peerState, number uint64, text, attachm
 	if err != nil {
 		return err
 	}
+	return s.sendToLogin(state, data)
+}
+
+// A route can change after an offer or retry was prepared. Check and send
+// together with respect to the endpoint changes in the receive loop.
+func (s *Service) sendToLogin(state *peerState, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current := s.peers[state.peer.ID]
+	if current == nil || !current.peer.Online || current.addr.Port != state.addr.Port || !current.addr.IP.Equal(state.addr.IP) {
+		return ErrPeerOffline
+	}
 	return s.sendPacket(state, data)
 }
 
@@ -393,7 +410,7 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 	default:
 		return
 	}
-	id := peerID(message.Host, from.IP.String())
+	id := peerID(message.Host, message.Sender)
 	peer := Peer{ID: id, Name: message.Sender, Host: message.Host,
 		Address: from.String(),
 		Online:  true, Away: message.has(optionAbsence), Neiwangtong: message.isNeiwangtong()}
@@ -412,6 +429,15 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 		}
 	}
 	s.mu.Lock()
+	var previous []Peer
+	if base != commandExit {
+		for otherID, other := range s.peers {
+			if otherID != id && other.peer.Online && other.addr.Port == from.Port && other.addr.IP.Equal(from.IP) {
+				other.peer.Online = false
+				previous = append(previous, other.peer)
+			}
+		}
+	}
 	state := s.peers[id]
 	wasOnline := state != nil && state.peer.Online
 	address := from.AddrPort()
@@ -438,6 +464,9 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 	state.classic = state.classic || strings.HasPrefix(message.rawVersion, "1_lbt") || message.isNeiwangtong()
 	s.mu.Unlock()
 	if s.cfg.Callbacks.Peer != nil {
+		for _, peer := range previous {
+			s.cfg.Callbacks.Peer(peer)
+		}
 		s.cfg.Callbacks.Peer(peer)
 	}
 	// Keep discovery requests flag-free for classic peers. Advertise file
@@ -456,18 +485,19 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 
 	switch message.baseCommand() {
 	case commandSend:
+		if s.cfg.Callbacks.Message == nil {
+			return
+		}
 		text, files := decodeMessage(message.Extra, message.has(optionUTF8))
 		var attachments []Attachment
-		if s.cfg.Callbacks.Files != nil && files != "" && message.has(optionFile) {
+		if files != "" && message.has(optionFile) {
 			attachments = decodeAttachments(files)
+			if len(attachments) == 0 {
+				return
+			}
 		}
-		// A single-file offer often repeats the filename as its text body.
-		filenameOnly := len(attachments) == 1 && strings.TrimSpace(text) == attachments[0].Name
-		if s.cfg.Callbacks.Text != nil && text != "" && !filenameOnly {
-			s.cfg.Callbacks.Text(id, message.Number, text)
-		}
-		if len(attachments) != 0 {
-			s.cfg.Callbacks.Files(id, message.Number, text, attachments)
+		if text == "" && len(attachments) == 0 || s.cfg.Callbacks.Message(id, message.Number, text, attachments) != nil {
+			return
 		}
 		if message.has(optionSendCheck) {
 			state := s.peer(id)
@@ -671,7 +701,7 @@ func (s *Service) serveFile(conn net.Conn) {
 	entry, ok := s.files[fileKey{packet: number, file: fileID}]
 	s.mu.Unlock()
 	address, isTCP := conn.RemoteAddr().(*net.TCPAddr)
-	if !ok || offset > entry.size || !isTCP || !entry.recipient.Equal(address.IP) {
+	if !ok || offset > entry.size || !isTCP || !entry.recipient.Equal(address.IP) || !s.fileRecipientOnline(entry) {
 		return
 	}
 	if s.cfg.Callbacks.AllowFile != nil && !s.cfg.Callbacks.AllowFile(entry.transferID) {
@@ -704,7 +734,7 @@ func (s *Service) serveFile(conn net.Conn) {
 	}
 	last := time.Now()
 	for done < entry.size {
-		if s.ctx.Err() != nil || s.cfg.Callbacks.AllowFile != nil && !s.cfg.Callbacks.AllowFile(entry.transferID) {
+		if s.ctx.Err() != nil || !s.fileRecipientOnline(entry) || s.cfg.Callbacks.AllowFile != nil && !s.cfg.Callbacks.AllowFile(entry.transferID) {
 			return
 		}
 		// Limit idle writes, not total duration: a large file can take minutes.
@@ -721,6 +751,11 @@ func (s *Service) serveFile(conn net.Conn) {
 		}
 	}
 	report(done, true, nil)
+}
+
+func (s *Service) fileRecipientOnline(entry servingFile) bool {
+	peer := s.peer(entry.peerID)
+	return peer != nil && entry.recipient.Equal(peer.addr.IP)
 }
 
 func readRequest(conn net.Conn) ([]byte, error) {

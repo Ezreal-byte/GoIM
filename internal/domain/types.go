@@ -128,20 +128,23 @@ func (m Message) CanRecallNeiwangtongText(now time.Time) bool {
 }
 
 type Group struct {
-	ID        string
-	Name      string
-	OwnerID   string
-	OwnerKey  []byte
-	Members   []string
-	Pending   []string
-	Epoch     uint64
-	Dissolved bool
-	Left      bool
-	Signature []byte
-	RootKey   []byte
-	Nonce     string
-	Ownership []Ownership
-	Transport string `json:",omitempty"` // empty for signed GoIM groups
+	ID         string
+	Name       string
+	OwnerID    string
+	OwnerKey   []byte
+	Members    []string
+	Pending    []string
+	Epoch      uint64
+	Dissolved  bool
+	Left       bool
+	Signature  []byte
+	RootKey    []byte
+	Nonce      string
+	Ownership  []Ownership
+	AvatarHash string `json:",omitempty"` // canonical PNG SHA-256, signed for GoIM groups
+	AvatarMD5  string `json:",omitempty"` // native group roster version tag
+	Avatar     string `json:"-"`          // local cached path, restored from AvatarHash
+	Transport  string `json:",omitempty"` // empty for signed GoIM groups
 }
 
 type Ownership struct {
@@ -232,6 +235,7 @@ type Settings struct {
 	CompatibilityConfigured      bool
 	CompatibilityDefaultsVersion int      `json:",omitempty"`
 	RecentEmoji                  []string `json:",omitempty"`
+	LastSection                  string   `json:",omitempty"`
 	Language                     string
 	Theme                        string
 	InterfaceFont                string
@@ -268,6 +272,7 @@ func DefaultSettings(downloadDir string) Settings {
 	return Settings{CompatibilityConfigured: true, CompatibilityDefaultsVersion: 1,
 		IPMSG:       CompatibilityConfig{Enabled: true, Port: IPMSGPort},
 		Neiwangtong: CompatibilityConfig{Enabled: true, Port: NeiwangtongDiscoveryPort},
+		LastSection: "contacts",
 		Language:    "zh-CN", Theme: "light", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
 		DuplicatePolicy: "rename", CloseToTray: true, SendKey: "Enter", Shortcuts: []Shortcut{
 			{Action: "会话内搜索", Keys: "Ctrl+F", Scope: "应用内"},
@@ -401,6 +406,7 @@ const (
 	AcceptInvite       CommandKind = "accept_invite"
 	RejectInvite       CommandKind = "reject_invite"
 	RenameGroup        CommandKind = "rename_group"
+	SetGroupAvatar     CommandKind = "set_group_avatar"
 	RemoveMember       CommandKind = "remove_member"
 	LeaveGroup         CommandKind = "leave_group"
 	TransferOwner      CommandKind = "transfer_owner"

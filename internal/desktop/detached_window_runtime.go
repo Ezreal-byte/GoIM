@@ -9,7 +9,7 @@ import (
 )
 
 func (r *desktopRuntime) openDetachedConversation(conversationID string) bool {
-	if r.application == nil || r.backend == nil || r.conversationWindows == nil {
+	if r.application == nil || r.backend == nil || r.conversationWindows == nil || r.ui.lockVisible() {
 		return false
 	}
 	if existing := r.conversationWindows[conversationID]; existing != nil {
@@ -22,6 +22,13 @@ func (r *desktopRuntime) openDetachedConversation(conversationID string) bool {
 	config.Icon = windowIcon()
 	config.Class = "GoIM.Conversation"
 	var window *app.Window
+	baseWake := config.OnWake
+	config.OnWake = func() {
+		baseWake()
+		if entry := r.conversationWindows[conversationID]; entry != nil && detached.state.Locked {
+			entry.conceal(true)
+		}
+	}
 	baseClosed := config.OnClosed
 	config.OnClosed = func() {
 		if entry := r.conversationWindows[conversationID]; entry != nil && entry.window == window {
@@ -50,6 +57,27 @@ func (r *desktopRuntime) openDetachedConversation(conversationID string) bool {
 	}
 	opened.Show()
 	return true
+}
+
+func (entry *detachedConversationWindow) conceal(locked bool) {
+	if entry.ui.detachedConcealed == locked {
+		return
+	}
+	if locked {
+		entry.restoreOnUnlock = !entry.window.Hidden()
+		entry.window.Hide()
+	} else {
+		entry.ui.refresh()
+		if entry.ui.state.Locked {
+			return
+		}
+	}
+	entry.ui.concealConversation(locked)
+	_ = entry.window.SetTitle(entry.ui.detachedTitle())
+	if !locked && entry.restoreOnUnlock {
+		entry.restoreOnUnlock = false
+		entry.window.Show()
+	}
 }
 
 func (r *desktopRuntime) closeDetachedConversations() {

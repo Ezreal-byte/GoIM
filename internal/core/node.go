@@ -131,6 +131,7 @@ func New(opts Options) (*Node, error) {
 	settings.CompatibilityConfigured = true
 	settings.CompatibilityDefaultsVersion = 1
 	removeUnverifiedBridges(&n.data)
+	retireUnboundIPMSGDeliveries(&n.data)
 	n.ipmsgOverride, n.compatibilityDisabled, n.version = opts.DisableIPMSG, opts.DisableCompatibility, opts.Version
 	n.hideUnusedDirectConversations()
 	n.data.State.Settings.HasLockPassword = n.data.LockCredential.set()
@@ -185,6 +186,10 @@ func New(opts Options) (*Node, error) {
 	go n.commandLoop()
 	go n.discoveryLoop()
 	for _, t := range n.snapshot(false).Transfers {
+		if _, pending := n.receivePublication(t.ID); pending {
+			n.startReceive(t.ID, "")
+			continue
+		}
 		if t.FolderStage != "" {
 			if terminalTransfer(t.Status) {
 				n.removeFinishedGroupFolderStage(t.ID)
@@ -226,6 +231,7 @@ func (n *Node) snapshot(urls bool) domain.State {
 		pending := *s.NeiwangtongStatus.Pending
 		s.NeiwangtongStatus.Pending = &pending
 	}
+	n.hydrateGroupAvatars(&s)
 	n.attachShareLinks(&s, urls)
 	return s
 }

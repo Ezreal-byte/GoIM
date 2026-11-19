@@ -158,10 +158,12 @@ func (u *UI) drawChatEmpty(f ui.C) {
 func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 	title := u.conversationTitle(conversation)
 	avatarName := title
+	avatar := ""
 	online := false
 	subtitle := i18n.T("离线")
 	if conversation.Kind == "group" {
 		group := u.state.Group(conversation.GroupID)
+		avatar = group.Avatar
 		total, active := u.groupCounts(group)
 		if total > 0 {
 			title += " (" + intString(total) + ")"
@@ -191,7 +193,6 @@ func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 	var searchButton, fileButton, memberButton, moreButton ui.Box
 	memberShown := false
 	ui.Row(f).Height(chatHeaderExtent).FillWidth().PadSides(7, 22, 7, 24).Items(ui.Center).Gap(12).Children(func() {
-		avatar := ""
 		if conversation.Kind == "direct" {
 			peer := u.state.Peer(conversation.PeerID)
 			avatar = peer.Avatar
@@ -574,21 +575,24 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 
 func (u *UI) drawComposer(f ui.C, conversation domain.Conversation) {
 	hasText := u.chatEditor != nil && strings.TrimSpace(u.chatEditor.String()) != ""
-	composer := ui.Column(f).FillWidth().FillHeight().PadSides(2, 9, 8, 9).
+	composer := ui.Column(f).FillWidth().FillHeight().Pad(10).
 		Background(u.palette.header).Children(func() {
-		ui.Column(f).Fill().Radius(11).Background(u.palette.header).
-			PadSides(1, 5, 4, 5).Children(func() {
-			editor := ui.TextArea(f, &u.chatEditorField,
-				i18n.T("消息输入框"), i18n.T("输入消息…")).
-				FillWidth().Grow(1).Basis(0).MinHeight(40).Border(0, gfx.Color{})
-			u.mentionEditor = editor
-
-			ui.Row(f).Height(34).Items(ui.Center).Gap(3).Children(func() {
-				emoji := u.iconButton(f, u.ids.chatEmoji, u.iconSmile, i18n.T("插入表情"), 30)
+		ui.Column(f).Fill().Radius(14).Background(u.palette.header).
+			PadSides(12, 10, 8, 10).Children(func() {
+			ui.Row(f).Height(34).Items(ui.Center).Gap(4).Children(func() {
+				emoji := u.composerActionButton(f, u.ids.chatEmoji, u.iconSmile,
+					i18n.T("插入表情"), "")
 				u.emojiButton = emoji
-				imageButton := u.iconButton(f, u.ids.chatImage, u.iconImage, i18n.T("发送图片"), 30)
-				fileButton := u.iconButton(f, u.ids.chatFile, u.iconPaperclip, i18n.T("发送文件"), 30)
-				snip := u.iconButton(f, u.ids.chatScreenshot, Scissors, i18n.T("截图标注"), 30)
+				imageButton := u.composerActionButton(f, u.ids.chatImage, u.iconImage,
+					i18n.T("发送图片"), "")
+				fileButton := u.composerActionButton(f, u.ids.chatFile, u.iconPaperclip,
+					i18n.T("发送文件"), "")
+				shortcut, hasShortcut := u.configuredShortcut(domain.ShortcutScreenshot)
+				if !hasShortcut {
+					shortcut = ""
+				}
+				snip := u.composerActionButton(f, u.ids.chatScreenshot, Scissors,
+					i18n.T("截图标注"), shortcut)
 				if emoji.Clicked() {
 					u.emojiOpen = !u.emojiOpen
 					if u.emojiOpen {
@@ -604,8 +608,16 @@ func (u *UI) drawComposer(f ui.C, conversation domain.Conversation) {
 				if snip.Clicked() && u.requestScreenshot != nil {
 					u.requestScreenshot()
 				}
+			})
+			editor := ui.TextAreaID(f, u.ids.chatEditorField, &u.chatEditorField,
+				i18n.T("消息输入框"), i18n.T("输入消息…")).
+				FillWidth().Grow(1).Basis(0).MinHeight(64).Border(0, gfx.Color{})
+			u.mentionEditor = editor
+
+			ui.Row(f).Height(30).Items(ui.Center).Gap(8).Children(func() {
+				ui.Text(f, u.composerSendHint()).FontSize(10.5).Muted().Grow(1).Ellipsis()
 				ui.Spacer(f)
-				send := namedButton(f, u.ids.chatSend, i18n.T("发送")).Width(88).Height(30).Disabled(!hasText)
+				send := namedButton(f, u.ids.chatSend, i18n.T("发送")).Width(82).Height(30).Disabled(!hasText)
 				if send.Clicked() && hasText {
 					u.sendChatText()
 				}
@@ -613,6 +625,30 @@ func (u *UI) drawComposer(f ui.C, conversation domain.Conversation) {
 		})
 	})
 	u.composerBox = composer
+}
+
+func (u *UI) composerActionButton(f ui.C, id gfx.ID, icon gfx.Icon, label, shortcut string) ui.Box {
+	hint := label
+	if shortcut != "" {
+		hint += "  " + shortcut
+	}
+	background := ui.Color{}
+	if id == u.ids.chatEmoji && u.emojiOpen {
+		background = u.palette.selected
+	}
+	return ui.Row(f).Size(34, 34).Radius(9).Background(background).Items(ui.Center).Justify(ui.Center).
+		Hover(ui.Look{}.Background(u.palette.selected)).
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Selected: background.Alpha > 0, Hint: hint}).
+		Children(func() {
+			ui.Icon(f, icon).Size(19, 19).Color(u.palette.icon)
+		})
+}
+
+func (u *UI) composerSendHint() string {
+	if u.state.Settings.SendKey == "Ctrl+Enter" {
+		return i18n.T("Ctrl+Enter 发送，Enter 换行")
+	}
+	return i18n.T("Enter 发送，Shift+Enter 换行")
 }
 
 func (u *UI) drawChatReadOnly(f ui.C, reason string) {
@@ -659,8 +695,16 @@ func (u *UI) chatTextInput() *app.TextInput {
 	if u.chatInput.OnEvent == nil {
 		u.chatInput.OnEvent = u.onChatTextEvent
 	}
-	u.chatInput.State = app.TextStateOf(u.chatEditor)
+	u.syncChatInput(false)
 	return &u.chatInput
+}
+
+func (u *UI) syncChatInput(redraw bool) {
+	if u.chatEditor == nil {
+		return
+	}
+	u.chatInput.State = app.TextStateOf(u.chatEditor)
+	u.chatInput.State.Redraw = redraw
 }
 
 func (u *UI) onChatTextEvent(event app.TextEvent) (app.TextState, error) {
@@ -722,7 +766,7 @@ func (u *UI) sendChatText() {
 	u.drafts[u.selected] = ""
 	u.draftSaved[u.selected] = ""
 	u.chatScrollToEnd = true
-	u.chatInput.State = app.TextStateOf(u.chatEditor)
+	u.syncChatInput(true)
 }
 
 func (u *UI) insertChatText(value string) {
@@ -732,7 +776,7 @@ func (u *UI) insertChatText(value string) {
 	u.chatEditor.Insert(value)
 	u.closeMention()
 	u.drafts[u.selected] = u.chatEditor.String()
-	u.chatInput.State = app.TextStateOf(u.chatEditor)
+	u.syncChatInput(true)
 }
 
 func (u *UI) setChatEditorText(value string) {
@@ -743,7 +787,7 @@ func (u *UI) setChatEditorText(value string) {
 	u.chatEditor.Insert(value)
 	u.closeMention()
 	u.emojiOpen = false
-	u.chatInput.State = app.TextStateOf(u.chatEditor)
+	u.syncChatInput(true)
 }
 
 func (u *UI) chooseChatFiles(canvas *gfx.Canvas, imagesOnly bool) {

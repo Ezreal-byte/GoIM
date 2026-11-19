@@ -41,7 +41,7 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
 | 本地记录、会话搜索、未读、置顶与离线补发 | 文件和文件夹可生成链接及二维码，按项目设置访问密码 |
 | 联系人分组、个人资料、应用锁与系统验证、两种主题与中英界面 | 设备分享主页可展示公开分享项目，并接收浏览器上传 |
 
-截图支持自由框选、移动和缩放选区、标注与原分辨率复制。默认快捷键为 `Alt+A`，也可使用聊天输入框里的剪刀图标。
+使用 `Alt+A` 或聊天输入框里的剪刀截图。Windows 和 macOS 13.3 及以上使用随包提供的 Shotlet，支持标注、滚动截图、OCR 和贴图。确认截图后可直接粘贴到聊天。Shotlet 在 Windows 和 macOS 15 及以上提供录屏功能。Linux 和 macOS 13.0–13.2 使用 GoIM 内置的截图工具。macOS 首次使用 Shotlet 需允许屏幕录制。
 
 ## 安装
 
@@ -131,6 +131,8 @@ go run ./cmd/goim
 ```
 
 Windows 上，运行 `pwsh -File scripts/start-temp-dev.ps1` 可构建并启动使用独立配置和下载目录的开发客户端。加上 `-Loopback` 可关闭局域网发现和旧协议互通；运行 `scripts/start-dual.ps1` 可启动通过本机回环连接的两个客户端。
+
+Windows 和 macOS 打包时，使用 CMake 3.20+ 从固定提交构建 Shotlet 的截图 SDK 助手。Windows 需要 Visual Studio 对应架构的 C++ 工具和 Windows SDK，使用 Visual Studio 2026 时需要 CMake 4.2+。macOS 需 Xcode 命令行工具。Windows Setup 另需 NSIS，可以用 `go run ./cmd/package --windows-setup` 构建。Linux 构建只需 GoIM 原有工具链，Shotlet 的 Wayland 捕获和原生选区窗口仍待实现。[Shotlet 源码](https://github.com/Ezreal-byte/shotlet)
 
 `pwsh -File scripts/smoke-headless.ps1` 会重新构建无头客户端，使用三个独立进程验证消息、文件传输和网页分享。`scripts/build.ps1` 只构建桌面程序和截图工具，`scripts/promo-headless.ps1` 可重新生成演示截图。发布构建及各平台校验见 [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/release.yml)。
 

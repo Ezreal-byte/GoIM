@@ -230,42 +230,20 @@ func (n *Node) downloadNeiwangtongImage(ctx context.Context, service *neiwangton
 		destination = filepath.Join(n.dir, "chat-images", f.ID+imageSuffix(mime))
 	}
 	digest := fmt.Sprintf("%x", sha256.Sum256(data))
-	if err := saveNativeImage(ctx, destination, data, digest); err != nil {
-		return err
+	if existing, err := fileHashContext(ctx, destination); err == nil && existing == digest {
+		return n.durable(func(p *persisted) []pending {
+			i := transferIndex(&p.State, t.ID)
+			if i >= 0 && ctx.Err() == nil && canPublishReceive(p, p.State.Transfers[i]) {
+				return recordPublishedReceive(p, i, receivePublication{Destination: destination, Name: name, MIME: mime,
+					Size: int64(len(data)), Digest: digest})
+			}
+			return nil
+		})
 	}
-	return n.change(func(s *domain.State) {
-		i, j := transferIndex(s, t.ID), fileIndex(s, f.ID)
-		if i < 0 || j < 0 || terminalTransfer(s.Transfers[i].Status) || ctx.Err() != nil {
-			return
-		}
-		size := int64(len(data))
-		local := &s.Files[j]
-		local.Name, local.Size, local.Hash, local.MIME = name, size, digest, mime
-		task := &s.Transfers[i]
-		task.Name, task.Path, task.Status, task.Error = name, destination, "completed", ""
-		task.Done, task.Size, task.Speed, task.UpdatedAt = size, size, 0, time.Now()
-	})
-}
-
-func saveNativeImage(ctx context.Context, dest string, data []byte, digest string) error {
-	if existing, err := fileHashContext(ctx, dest); err == nil && existing == digest {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
-		return err
-	}
-	temp, err := os.CreateTemp(filepath.Dir(dest), ".goim-image-*")
+	publication, err := stageReceiveFile(ctx, destination, bytes.NewReader(data), int64(len(data)), digest)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(temp.Name())
-	_, err = temp.Write(data)
-	closeErr := temp.Close()
-	if err != nil || closeErr != nil {
-		return errors.Join(err, closeErr)
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return installFile(temp.Name(), dest)
+	publication.Name, publication.MIME = name, mime
+	return n.publishReceive(ctx, t.ID, publication)
 }

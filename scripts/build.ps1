@@ -50,6 +50,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'GoIM icon resource update failed' }
         go build -trimpath -ldflags '-s -w -buildid= -H=windowsgui' -o (Join-Path $OutputDir 'goim-snip.exe') ./cmd/goim-snip
         if ($LASTEXITCODE -ne 0) { throw 'GoIM companion build failed' }
+        go run ./cmd/package --stage-shotlet $OutputDir
+        if ($LASTEXITCODE -ne 0) { throw 'Shotlet capture helper build failed' }
     }
 } finally {
     Pop-Location
