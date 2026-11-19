@@ -169,7 +169,10 @@ func build() error {
 		}
 	case "darwin":
 		bundle := filepath.Join(staging, "GoIM.app")
-		_, err := appbundle.Assemble(appbundle.Options{Dest: bundle, Executable: executable, Icon: filepath.Join(logoAssets, "goim.icns"), Info: appbundle.Info{Name: "GoIM", ID: "dev.goim.desktop", Version: platformVersion, Executable: "GoIM", MinSystem: "13.0", Category: "public.app-category.social-networking", Copyright: "2026 Ezreal-byte"}})
+		_, err := appbundle.Assemble(appbundle.Options{
+			Dest: bundle, Executable: executable, Icon: filepath.Join(logoAssets, "goim.icns"),
+			Info: darwinBundleInfo(platformVersion),
+		})
 		if err != nil {
 			return err
 		}
@@ -259,6 +262,16 @@ func build() error {
 		return writeChecksum(setup)
 	}
 	return nil
+}
+
+func darwinBundleInfo(version string) appbundle.Info {
+	return appbundle.Info{
+		Name: "GoIM", ID: "dev.goim.desktop", Version: version, Executable: "GoIM",
+		MinSystem: "13.0", Category: "public.app-category.social-networking", Copyright: "2026 Ezreal-byte",
+		Extra: []appbundle.KeyValue{{
+			Key: "NSMicrophoneUsageDescription", Value: "GoIM uses the microphone during voice calls you start or accept.",
+		}},
+	}
 }
 
 // windowsInstallerVersion maps a release such as 0.1.8-beta.1 to the fourth

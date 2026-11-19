@@ -87,6 +87,8 @@ func (p *Panels) drawSettings(f ui.C, theme ui.Theme, state domain.State, submit
 							p.drawSettingsProfile(f, contentTheme, state, submit)
 						case panelSettingsNotifications:
 							p.drawSettingsNotifications(f, contentTheme, state, submit)
+						case panelSettingsVoice:
+							p.drawSettingsVoice(f, contentTheme, state, submit)
 						case panelSettingsNetwork:
 							p.drawSettingsNetwork(f, contentTheme, state, submit)
 						case panelSettingsTransfers:
@@ -155,6 +157,8 @@ func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme) {
 				icon = Users
 			case panelSettingsNotifications:
 				icon = panelSettingsBellIcon
+			case panelSettingsVoice:
+				icon = Phone
 			case panelSettingsNetwork:
 				icon = Wifi
 			case panelSettingsTransfers:
@@ -193,6 +197,11 @@ func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme) {
 					p.settingsExtra.resetSecrets()
 				}
 				p.settingsTab = tab
+				if tab == panelSettingsVoice && !p.settingsExtra.voiceDevices.known {
+					s := &p.settingsExtra.voiceDevices
+					s.refreshing = true
+					f.After(p.refreshVoiceDevices)
+				}
 			}
 		}
 		ui.Spacer(f)
@@ -212,6 +221,8 @@ func (p *Panels) drawSettingsHeader(f ui.C, theme ui.Theme) {
 		description = i18n.T("设置消息提醒、声音和预览")
 	case panelSettingsNetwork:
 		description = i18n.T("局域网发现、网卡和手动连接")
+	case panelSettingsVoice:
+		description = i18n.T("选择语音通话使用的麦克风和扬声器")
 	case panelSettingsTransfers:
 		description = i18n.T("设置接收方式和文件保存位置")
 	case panelSettingsSecurity:

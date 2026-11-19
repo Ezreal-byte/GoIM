@@ -191,7 +191,7 @@ func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 		}
 	}
 
-	var searchButton, fileButton, memberButton, moreButton ui.Box
+	var callButton, searchButton, fileButton, memberButton, moreButton ui.Box
 	memberShown := false
 	ui.Row(f).Height(chatHeaderExtent).FillWidth().PadX(chatContentInset).Items(ui.Center).Gap(10).Children(func() {
 		if conversation.Kind == "direct" {
@@ -218,6 +218,17 @@ func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 			})
 		})
 		ui.Row(f).Items(ui.Center).Gap(3).Children(func() {
+			if conversation.Kind == "direct" {
+				peer := u.state.Peer(conversation.PeerID)
+				callLabel := i18n.T("语音通话")
+				if !peer.VoiceSupported {
+					callLabel = i18n.T("对方客户端不支持语音通话")
+				} else if !peer.VisibleOnline() {
+					callLabel = i18n.T("对方离线，暂时无法通话")
+				}
+				callButton = u.sizedIconButton(f, u.ids.chatHeaderCall, u.iconPhone, callLabel, 34, 19).
+					Disabled(!peer.VoiceSupported || !peer.VisibleOnline())
+			}
 			searchButton = u.sizedIconButton(f, u.ids.chatHeaderSearch, u.iconSearch, i18n.T("搜索当前会话"), 34, 20)
 			fileButton = u.sizedIconButton(f, u.ids.chatHeaderFile, u.iconFolder, i18n.T("聊天文件"), 34, 20)
 			if conversation.Kind == "group" {
@@ -233,6 +244,9 @@ func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 	if searchButton.Clicked() {
 		u.moreOpen = false
 		u.openChatSearch()
+	}
+	if conversation.Kind == "direct" && callButton.Clicked() {
+		u.startVoiceCall(conversation.PeerID)
 	}
 	if fileButton.Clicked() {
 		u.toggleFilesPane()

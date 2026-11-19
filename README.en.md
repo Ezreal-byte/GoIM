@@ -41,6 +41,8 @@ GoIM is a desktop messenger built with Go and [Viva](https://github.com/vivaui/v
 | Local history, search, unread counts, pinned conversations, and offline retry | File and folder links, QR codes, and per-project passwords |
 | Contact groups, profiles, app lock with system verification, light and dark appearances, and Chinese and English UI | Device share homepage with browser uploads |
 
+Direct chats support two-way voice calls with incoming-call acceptance, hang-up, microphone mute, and speaker controls. Choose the default microphone and speaker and adjust input or playback volume in **Settings → Calls**.
+
 Use `Alt+A` or the scissors in the composer to capture your screen. Windows and macOS 13.3 or later use the bundled Shotlet helper for annotation, scrolling capture, OCR, and pinning. Confirm a screenshot to paste it into a chat. Shotlet supports recording on Windows and macOS 15 or later. Linux and macOS 13.0–13.2 use GoIM's built-in tool. On macOS, grant screen recording permission for Shotlet on first use.
 
 ## Install
@@ -53,7 +55,7 @@ Choose your platform and architecture from [GitHub Releases](https://github.com/
 | macOS 13 or later | Intel, Apple silicon | `.dmg`, `.zip` |
 | Linux (X11 or XWayland) | x64, ARM64 | `.deb`, `.tar.gz` |
 
-Linux packages use Viva's pure-Go build path and do not require GLIBC 2.32 or 2.34. Release validation permits only the baseline libc, libpthread, and libdl dependencies and rejects symbol requirements newer than GLIBC 2.31. The system must still provide the libc, X11, XKB, and Vulkan runtime libraries listed by the DEB dependencies. Kylin and UOS use the same compatibility build.
+Linux packages use Viva's pure-Go build path and do not require GLIBC 2.32 or 2.34. Release validation permits only the baseline libc, libpthread, and libdl dependencies and rejects symbol requirements newer than GLIBC 2.31. The system must still provide the libc, X11, XKB, Vulkan, and ALSA (`libasound2`) runtime libraries listed by the DEB dependencies. Kylin and UOS use the same compatibility build.
 
 Windows uses Viva's `Setup.exe`, which installs for the current user. Uninstall standalone MSI builds before switching to Setup. GoIM stores profiles and chat history in a separate user data folder.
 

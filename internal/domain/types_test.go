@@ -28,3 +28,24 @@ func TestEnsureDefaultShortcutsAddsOnlyMissingActions(t *testing.T) {
 		t.Fatalf("migrated shortcuts = %+v", settings.Shortcuts)
 	}
 }
+
+func TestEnsureVoiceDefaultsMigratesOldProfilesAndPreservesZero(t *testing.T) {
+	var old Settings
+	old.EnsureVoiceDefaults()
+	if old.VoiceMicrophoneVolume != 100 || old.VoiceSpeakerVolume != 100 ||
+		old.VoiceAudioDefaultsVersion != VoiceAudioDefaultsVersion {
+		t.Fatalf("old profile voice defaults = %+v", old)
+	}
+
+	current := Settings{VoiceAudioDefaultsVersion: VoiceAudioDefaultsVersion, VoiceSpeakerVolume: 37}
+	current.EnsureVoiceDefaults()
+	if current.VoiceMicrophoneVolume != 0 || current.VoiceSpeakerVolume != 37 {
+		t.Fatalf("current profile volumes were overwritten: %+v", current)
+	}
+	current.VoiceMicrophoneVolume = 140
+	current.VoiceSpeakerVolume = -1
+	current.EnsureVoiceDefaults()
+	if current.VoiceMicrophoneVolume != 100 || current.VoiceSpeakerVolume != 0 {
+		t.Fatalf("out-of-range volumes were not clamped: %+v", current)
+	}
+}

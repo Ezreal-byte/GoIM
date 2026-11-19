@@ -50,6 +50,7 @@ type desktopRuntime struct {
 	viewerSavePath      string
 	viewerSaving        bool
 	detachedRevision    uint64
+	voiceCallID         string
 }
 
 type detachedConversationWindow struct {
@@ -222,6 +223,7 @@ func (r *desktopRuntime) observe() {
 		}
 	}
 	r.applyGlobal(s)
+	r.observeVoiceCall(s)
 	attention := false
 	unread := 0
 	for _, c := range s.Conversations {
@@ -309,6 +311,43 @@ func (r *desktopRuntime) observe() {
 	}
 	if attention && unread > 0 {
 		r.startAttention(time.Now())
+	}
+}
+
+func (r *desktopRuntime) observeVoiceCall(s domain.State) {
+	call := s.VoiceCall
+	if call.ID == "" || call.Status != domain.VoiceCallRinging || call.Direction != domain.VoiceCallIncoming {
+		if call.ID == "" {
+			r.voiceCallID = ""
+		}
+		return
+	}
+	if r.voiceCallID == call.ID {
+		return
+	}
+	r.voiceCallID = call.ID
+	foreground := mainWindowForeground(r.window) && !r.window.Hidden() && !r.window.Minimized()
+	if !foreground {
+		r.stopAttention()
+		r.window.Show()
+		r.ui.SetWindowVisible(true)
+	}
+	if foreground {
+		return
+	}
+	name := defaultIfEmpty(call.PeerName, i18n.T("未知联系人"))
+	title, body := i18n.T("语音通话")+" · "+name, i18n.T("邀请你进行语音通话")
+	if s.Locked || s.Settings.HideNotificationText {
+		title, body = i18n.T("语音通话"), i18n.T("收到一个语音通话邀请")
+	}
+	if s.Settings.DesktopNotifications {
+		if err := app.SendNotification(app.Notification{Title: title, Body: body}); err != nil && !r.notificationError {
+			r.notificationError = true
+			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("系统通知暂不可用：") + err.Error()})
+		}
+	}
+	if s.Settings.Sound {
+		_ = app.PlaySystemSound(app.SoundInformation)
 	}
 }
 

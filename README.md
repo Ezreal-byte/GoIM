@@ -41,6 +41,8 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
 | 本地记录、会话搜索、未读、置顶与离线补发 | 文件和文件夹可生成链接及二维码，按项目设置访问密码 |
 | 联系人分组、个人资料、应用锁与系统验证、两种主题与中英界面 | 设备分享主页可展示公开分享项目，并接收浏览器上传 |
 
+单聊支持双向语音通话，包括来电接听、挂断、麦克风静音和扬声器开关；可在设置的「通话」页选择默认麦克风与扬声器，并分别调节输入和播放音量。
+
 使用 `Alt+A` 或聊天输入框里的剪刀截图。Windows 和 macOS 13.3 及以上使用随包提供的 Shotlet，支持标注、滚动截图、OCR 和贴图。确认截图后可直接粘贴到聊天。Shotlet 在 Windows 和 macOS 15 及以上提供录屏功能。Linux 和 macOS 13.0–13.2 使用 GoIM 内置的截图工具。macOS 首次使用 Shotlet 需允许屏幕录制。
 
 ## 安装
@@ -53,7 +55,7 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
 | macOS 13 或更新版本 | Intel、Apple 芯片 | `.dmg`、`.zip` |
 | Linux（X11 或 XWayland） | x64、ARM64 | `.deb`、`.tar.gz` |
 
-Linux 安装包使用 Viva 的纯 Go 构建路径，不要求 GLIBC 2.32 或 2.34。发布校验只允许基础 libc、libpthread 和 libdl，并拒绝高于 GLIBC 2.31 的符号要求。系统仍需要提供 DEB 依赖中列出的 libc、X11、XKB 和 Vulkan 运行库；银河麒麟与统信系统将使用同一份兼容构建。
+Linux 安装包使用 Viva 的纯 Go 构建路径，不要求 GLIBC 2.32 或 2.34。发布校验只允许基础 libc、libpthread 和 libdl，并拒绝高于 GLIBC 2.31 的符号要求。系统仍需要提供 DEB 依赖中列出的 libc、X11、XKB、Vulkan 和 ALSA（`libasound2`）运行库；银河麒麟与统信系统将使用同一份兼容构建。
 
 Windows 使用 Viva 安装向导 `Setup.exe`，默认只给当前用户安装。从使用独立 MSI 的旧版本换用 Setup 时，请先卸载旧程序。GoIM 的本地资料和聊天记录保存在独立的用户数据目录。
 

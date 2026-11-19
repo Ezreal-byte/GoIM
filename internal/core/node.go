@@ -77,6 +77,7 @@ type Node struct {
 	compatibilityDisabled bool
 	compatScheduled       bool
 	version               string
+	voice                 *voiceSession
 }
 
 func New(opts Options) (*Node, error) {
@@ -122,6 +123,7 @@ func New(opts Options) (*Node, error) {
 		n.data.State.Settings.EnsureDefaultShortcuts()
 	}
 	settings := &n.data.State.Settings
+	settings.EnsureVoiceDefaults()
 	if settings.IPMSG.Port == 0 {
 		settings.IPMSG = domain.CompatibilityConfig{Enabled: true, Port: domain.IPMSGPort}
 	}
@@ -147,7 +149,7 @@ func New(opts Options) (*Node, error) {
 			n.data.State.Settings.Nickname = host
 		}
 	}
-	n.data.State.Self = domain.Peer{ID: keyID(key.Public().(ed25519.PublicKey)), Name: n.data.State.Settings.Nickname, Avatar: n.data.State.Settings.Avatar, PublicKey: append([]byte(nil), key.Public().(ed25519.PublicKey)...), Address: listener.Addr().String(), Online: true}
+	n.data.State.Self = domain.Peer{ID: keyID(key.Public().(ed25519.PublicKey)), Name: n.data.State.Settings.Nickname, Avatar: n.data.State.Settings.Avatar, PublicKey: append([]byte(nil), key.Public().(ed25519.PublicKey)...), Address: listener.Addr().String(), Online: true, VoiceSupported: true}
 	n.data.State.Self.Signature = n.data.State.Settings.Signature
 	n.data.State.Self.Presence = n.data.State.Settings.Presence
 	n.data.State.Self.Details = n.data.State.Settings.ProfileDetails
@@ -233,6 +235,9 @@ func (n *Node) snapshot(urls bool) domain.State {
 	}
 	n.hydrateGroupAvatars(&s)
 	n.attachShareLinks(&s, urls)
+	if n.voice != nil {
+		s.VoiceCall = n.voice.call
+	}
 	return s
 }
 func (n *Node) Submit(c domain.Command) {
@@ -287,6 +292,7 @@ func (n *Node) Close() error {
 	for _, cancel := range n.transfers {
 		cancel()
 	}
+	n.closeVoiceLocked()
 	legacy := n.legacy
 	if n.legacyLive != nil {
 		n.legacyLive.Store(false)
