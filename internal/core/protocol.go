@@ -25,6 +25,7 @@ const maxFrame = 4 << 20
 
 type envelope struct {
 	RecallSupported bool `json:",omitempty"`
+	PrintSupported  bool `json:",omitempty"`
 	Version         int
 	ID              string
 	Type            string
@@ -35,6 +36,11 @@ type envelope struct {
 	File            domain.File
 	Files           []domain.File
 	CatalogRevision uint64
+	Printers        []domain.PrinterShare
+	PrinterRevision uint64
+	PrintJob        domain.PrintJob
+	PrintJobID      string
+	PrintStatus     string
 	TransferID      string
 	Offset          int64
 	Status          string
@@ -101,6 +107,7 @@ func (n *Node) hello() envelope {
 	e := n.profileEnvelope()
 	e.Type = "hello"
 	e.RecallSupported = true
+	e.PrintSupported = true
 	return e
 }
 func (n *Node) advertisedAddress() string {
@@ -164,6 +171,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 	hello.Peer.Transport, hello.Peer.ClientType = domain.TransportGoIM, domain.ClientGoIM
 	hello.Peer.Avatar = ""
 	hello.Peer.RecallSupported = hello.RecallSupported
+	hello.Peer.PrintSupported = hello.PrintSupported
 	if len(hello.Avatar) > 0 {
 		path, err := n.cacheAvatar(hello.Peer.ID, hello.Avatar)
 		if err != nil {
@@ -252,7 +260,14 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 		return
 	}
 	notify(true)
-	n.async(func() { n.replay(pc.peer.ID); n.sendCatalog(pc.peer.ID) })
+	n.async(func() {
+		n.replay(pc.peer.ID)
+		n.sendCatalog(pc.peer.ID)
+		if pc.peer.PrintSupported {
+			n.sendPrinterCatalog(pc.peer.ID)
+			n.sendPrintStatuses(pc.peer.ID)
+		}
+	})
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(25 * time.Second))
 		e, err := readFrame(conn)
@@ -525,6 +540,14 @@ func (n *Node) receive(peer string, e envelope) error {
 		})
 	case "catalog_request":
 		n.sendCatalog(peer)
+		if n.snapshot(false).Peer(peer).PrintSupported {
+			n.sendPrinterCatalog(peer)
+			n.sendPrintStatuses(peer)
+		}
+	case "printer_catalog":
+		err = n.receivePrinterCatalog(peer, e)
+	case "print_status":
+		err = n.receivePrintStatus(peer, e)
 	case "get_shared":
 		err = n.offerShared(peer, e.File.ID)
 	default:

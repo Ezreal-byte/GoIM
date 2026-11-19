@@ -98,6 +98,9 @@ func (n *Node) execute(c domain.Command) error {
 			return errors.New("找不到传输任务")
 		}
 		t := s.Transfers[i]
+		if t.PrintJobID != "" {
+			return errors.New("打印任务已结束；请从打印共享重新发起")
+		}
 		return n.retryTransfer(t)
 	case domain.RejectTransfer, domain.CancelTransfer:
 		s := n.snapshot(false)
@@ -139,6 +142,9 @@ func (n *Node) execute(c domain.Command) error {
 			}
 			return []pending{{PeerID: t.PeerID, Envelope: envelope{Type: "file_status", TransferID: t.ID, Status: status}}}
 		})
+		if err == nil && cancelled && t.PrintJobID != "" {
+			n.failPrintTransfer(t.ID, "打印任务已取消")
+		}
 		if err == nil && cancelled && t.LegacyTransport == transportNWT && t.Direction == "receive" {
 			_ = os.Remove(n.nativePartialPath(t.ID))
 			n.removeFinishedGroupFolderStage(t.ID)
@@ -243,6 +249,19 @@ func (n *Node) execute(c domain.Command) error {
 				_ = n.send(p.ID, envelope{Type: "catalog_request"})
 			}
 		}
+	case domain.RefreshPrinters:
+		n.refreshPrinters()
+		for _, p := range n.snapshot(false).Peers {
+			if p.Online && p.PrintSupported {
+				_ = n.send(p.ID, envelope{Type: "catalog_request"})
+			}
+		}
+	case domain.SharePrinter:
+		return n.sharePrinter(c)
+	case domain.UnsharePrinter:
+		return n.unsharePrinter(c)
+	case domain.PrintFile:
+		return n.printFile(c)
 	case domain.GetShared:
 		s := n.snapshot(false)
 		f := s.File(c.FileID)
@@ -466,7 +485,7 @@ func (n *Node) setting(c domain.Command) error {
 		settings.Theme = c.Value
 	case "last_section":
 		switch c.Value {
-		case "messages", "contacts", "transfers", "shares", "settings":
+		case "messages", "contacts", "transfers", "shares", "print", "settings":
 			settings.LastSection = c.Value
 		default:
 			return errors.New("无效的启动页面")

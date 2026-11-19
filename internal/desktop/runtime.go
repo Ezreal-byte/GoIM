@@ -25,6 +25,7 @@ type desktopRuntime struct {
 	application         *app.Application
 	window              *app.Window
 	conversationWindows map[string]*detachedConversationWindow
+	printWindows        map[string]*printWindowEntry
 	tray                *app.StatusItem
 	seen                map[string]bool
 	badge               int
@@ -49,7 +50,7 @@ type desktopRuntime struct {
 	viewerPending       bool
 	viewerSavePath      string
 	viewerSaving        bool
-	detachedRevision    uint64
+	windowRevision      uint64
 }
 
 type detachedConversationWindow struct {
@@ -71,6 +72,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		ui: shell, backend: backend, seen: make(map[string]bool), badge: -1,
 		trayNormal: statusIcon, trayFlash: attentionIcon(statusIcon),
 		conversationWindows: make(map[string]*detachedConversationWindow),
+		printWindows:        make(map[string]*printWindowEntry),
 		screenshotContext:   screenshotContext,
 	}
 	shell.panels.setAutostartProvider(
@@ -125,6 +127,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 			shell.invalidator.Invalidate()
 		}
 		shell.presentDetached = r.openDetachedConversation
+		shell.panels.presentPrint = r.openPrintWindow
 		shell.dismissViewer = r.closeViewer
 		shell.pinViewer = r.pinViewer
 		shell.saveViewer = r.requestSaveViewer
@@ -137,6 +140,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		config.OnClosed = func() {
 			r.closeViewer()
 			r.closeDetachedConversations()
+			r.closePrintWindows()
 			if closed != nil {
 				closed()
 			}
@@ -215,10 +219,16 @@ func (r *desktopRuntime) observe() {
 	for _, detached := range r.conversationWindows {
 		detached.conceal(locked)
 	}
-	if s.Revision != r.detachedRevision {
-		r.detachedRevision = s.Revision
+	for _, printWindow := range r.printWindows {
+		printWindow.conceal(locked)
+	}
+	if s.Revision != r.windowRevision {
+		r.windowRevision = s.Revision
 		for _, detached := range r.conversationWindows {
 			detached.ui.invalidator.Invalidate()
+		}
+		for _, printWindow := range r.printWindows {
+			printWindow.view.wake.Invalidate()
 		}
 	}
 	r.applyGlobal(s)
@@ -284,6 +294,9 @@ func (r *desktopRuntime) observe() {
 		body := m.Text
 		if m.Kind == "file" {
 			body = i18n.T("[文件] ") + body
+		}
+		if m.Kind == "print" {
+			body = i18n.T("[打印] ") + body
 		}
 		if m.Kind == "image" {
 			body = i18n.T("[图片]")

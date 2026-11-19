@@ -45,12 +45,27 @@ func cloneShellState(state domain.State) domain.State {
 	clone.Invitations = slices.Clone(state.Invitations)
 	clone.Files = slices.Clone(state.Files)
 	clone.Transfers = slices.Clone(state.Transfers)
+	clone.LocalPrinters = slices.Clone(state.LocalPrinters)
+	clone.Printers = slices.Clone(state.Printers)
+	clone.PrintJobs = slices.Clone(state.PrintJobs)
 	clone.GroupNicknames = slices.Clone(state.GroupNicknames)
 	clone.Settings.Shortcuts = slices.Clone(state.Settings.Shortcuts)
 	for index := range clone.Groups {
 		clone.Groups[index].Members = slices.Clone(clone.Groups[index].Members)
 		clone.Groups[index].Pending = slices.Clone(clone.Groups[index].Pending)
 		clone.Groups[index].Ownership = slices.Clone(clone.Groups[index].Ownership)
+	}
+	for index := range clone.LocalPrinters {
+		clone.LocalPrinters[index].Capabilities.Papers = slices.Clone(clone.LocalPrinters[index].Capabilities.Papers)
+		clone.LocalPrinters[index].Capabilities.Orientations = slices.Clone(clone.LocalPrinters[index].Capabilities.Orientations)
+		clone.LocalPrinters[index].Capabilities.ColorModes = slices.Clone(clone.LocalPrinters[index].Capabilities.ColorModes)
+		clone.LocalPrinters[index].Capabilities.DuplexModes = slices.Clone(clone.LocalPrinters[index].Capabilities.DuplexModes)
+	}
+	for index := range clone.Printers {
+		clone.Printers[index].Capabilities.Papers = slices.Clone(clone.Printers[index].Capabilities.Papers)
+		clone.Printers[index].Capabilities.Orientations = slices.Clone(clone.Printers[index].Capabilities.Orientations)
+		clone.Printers[index].Capabilities.ColorModes = slices.Clone(clone.Printers[index].Capabilities.ColorModes)
+		clone.Printers[index].Capabilities.DuplexModes = slices.Clone(clone.Printers[index].Capabilities.DuplexModes)
 	}
 	return clone
 }
@@ -82,6 +97,12 @@ func (backend *shellTestBackend) commandLog() []domain.Command {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	return slices.Clone(backend.commands)
+}
+
+func (backend *shellTestBackend) clearCommands() {
+	backend.mu.Lock()
+	backend.commands = nil
+	backend.mu.Unlock()
 }
 
 func hasCommandKind(commands []domain.Command, kind domain.CommandKind) bool {

@@ -360,6 +360,8 @@ func (u *UI) drawMessage(f ui.C, conversation domain.Conversation, message domai
 		u.drawImageMessage(f, conversation, message, own, bubbleWidth)
 	case "file":
 		u.drawFileMessage(f, conversation, message, own, bubbleWidth)
+	case "print":
+		u.drawPrintMessage(f, conversation, message, own, bubbleWidth)
 	default:
 		u.drawTextMessage(f, conversation, message, own, bubbleWidth)
 	}
@@ -565,6 +567,76 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 			if card.Clicked() {
 				u.openFileDetail(file.ID, "chat")
 			}
+			ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
+				u.messageTime(f, message, own)
+			})
+		})
+		if own {
+			u.ownMessageAvatar(f)
+		}
+	})
+}
+
+func (u *UI) drawPrintMessage(f ui.C, conversation domain.Conversation, message domain.Message,
+	own bool, maxWidth float32) {
+	job := u.state.PrintJob(message.PrintJobID)
+	if job.ID == "" {
+		u.drawFileMessage(f, conversation, message, own, maxWidth)
+		return
+	}
+	justify := ui.Start
+	if own {
+		justify = ui.End
+	}
+	status, kind := printStatusPresentation(job.Status)
+	statusColor := u.palette.secondaryText
+	switch kind {
+	case "completed":
+		statusColor = u.palette.success
+	case "failed":
+		statusColor = u.palette.danger
+	case "active", "queued":
+		statusColor = u.palette.selectedText
+	}
+	ui.Row(f).FillWidth().Justify(justify).Items(ui.Start).Gap(10).Children(func() {
+		if !own {
+			peer := u.state.Peer(message.SenderID)
+			u.chatPeerAvatar(f, u.messageAvatarIDs[message.ID], peer.ID,
+				u.messageSenderName(conversation, message), peer.Avatar, 34)
+		}
+		ui.Column(f).Gap(4).Children(func() {
+			if !own && conversation.Kind == "group" {
+				ui.Text(f, u.messageSenderName(conversation, message)).FontSize(11.5).Muted().Ellipsis()
+			}
+			cardWidth := min(float32(480), max(maxWidth, float32(310)))
+			ui.Column(f).Width(cardWidth).Pad(14).Radius(11).
+				Background(u.palette.fileCard).Border(1, u.palette.fileBorder).Gap(9).
+				HitWith(u.messageIDs[message.ID], i18n.T("打印记录 ")+job.FileName,
+					gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
+				Children(func() {
+					ui.Row(f).Items(ui.Center).Gap(11).Children(func() {
+						ui.Row(f).Size(40, 40).Radius(9).Items(ui.Center).Justify(ui.Center).
+							Background(panelTint(u.theme.Primary, .10, u.palette.fileCard)).Children(func() {
+							ui.Icon(f, panelPrintIcon).Size(21, 21).Color(u.theme.Primary)
+						})
+						ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
+							ui.Text(f, job.FileName).FontSize(14).Weight(gfx.WeightSemibold).Ellipsis()
+							ui.Text(f, i18n.T("打印机 ")+job.PrinterName).FontSize(11).Muted().Ellipsis()
+						})
+						ui.Row(f).Gap(6).Items(ui.Center).Children(func() {
+							ui.Row(f).Size(7, 7).Radius(4).Background(statusColor)
+							ui.Text(f, status).FontSize(11).Color(statusColor)
+						})
+					})
+					ui.Row(f).Items(ui.Center).Gap(7).Children(func() {
+						ui.Text(f, printOptionSummary(job.Options)).FontSize(11).Muted().Ellipsis()
+						if job.Error != "" {
+							ui.Spacer(f)
+							ui.Text(f, job.Error).FontSize(10.5).Color(u.palette.danger).Ellipsis()
+						}
+					})
+				})
+			u.messageContextPointer(f.Canvas(), u.messageIDs[message.ID], message)
 			ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
 				u.messageTime(f, message, own)
 			})

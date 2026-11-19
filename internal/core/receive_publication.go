@@ -265,6 +265,9 @@ func (n *Node) finishReceivePublication(ctx context.Context, id string, publicat
 	if err == nil && discard {
 		removeReceiveStage(publication, id)
 	}
+	if err == nil && problem == nil {
+		n.startPrintIfReady(id)
+	}
 	return errors.Join(err, problem)
 }
 

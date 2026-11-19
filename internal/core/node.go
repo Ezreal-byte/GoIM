@@ -20,6 +20,7 @@ import (
 	"goim/internal/domain"
 	ipmsgproto "goim/internal/ipmsg"
 	"goim/internal/neiwangtong"
+	"goim/internal/printing"
 )
 
 type Options struct {
@@ -31,6 +32,7 @@ type Options struct {
 	DisableCompatibility bool
 	Version              string
 	DownloadDir          string
+	PrintBackend         printing.Backend
 }
 type Node struct {
 	mu                    sync.Mutex
@@ -77,6 +79,14 @@ type Node struct {
 	compatibilityDisabled bool
 	compatScheduled       bool
 	version               string
+	printBackend          printing.Backend
+	printPollDelay        time.Duration
+	printPollLimit        time.Duration
+	localPrinters         []domain.LocalPrinter
+	printersLoading       bool
+	printError            string
+	printPolls            map[string]bool
+	printSubmitTokens     chan struct{}
 }
 
 func New(opts Options) (*Node, error) {
@@ -110,7 +120,19 @@ func New(opts Options) (*Node, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	n := &Node{data: data, db: db, key: key, tls: tlsConfig, dir: opts.DataDir, ctx: ctx, cancel: cancel, listener: listener, connections: make(map[string]*peerConn), dialing: make(map[string]bool), commands: make(chan domain.Command, 256), updates: make(chan struct{}, 1), transfers: make(map[string]context.CancelFunc), discovery: !opts.DisableDiscovery}
+	printBackend := opts.PrintBackend
+	if printBackend == nil {
+		printBackend = printing.System{}
+	}
+	n := &Node{
+		data: data, db: db, key: key, tls: tlsConfig, dir: opts.DataDir, ctx: ctx, cancel: cancel,
+		listener: listener, connections: make(map[string]*peerConn), dialing: make(map[string]bool),
+		commands: make(chan domain.Command, 256), updates: make(chan struct{}, 1),
+		transfers: make(map[string]context.CancelFunc), discovery: !opts.DisableDiscovery,
+		printBackend: printBackend, printPollDelay: 900 * time.Millisecond,
+		printPollLimit: 30 * time.Minute, printPolls: make(map[string]bool),
+		printSubmitTokens: make(chan struct{}, 2),
+	}
 	newSettings := n.data.State.Settings.Theme == ""
 	if newSettings {
 		downloads := filepath.Join(opts.DataDir, "downloads")
@@ -148,6 +170,7 @@ func New(opts Options) (*Node, error) {
 		}
 	}
 	n.data.State.Self = domain.Peer{ID: keyID(key.Public().(ed25519.PublicKey)), Name: n.data.State.Settings.Nickname, Avatar: n.data.State.Settings.Avatar, PublicKey: append([]byte(nil), key.Public().(ed25519.PublicKey)...), Address: listener.Addr().String(), Online: true}
+	n.data.State.Self.PrintSupported = true
 	n.data.State.Self.Signature = n.data.State.Settings.Signature
 	n.data.State.Self.Presence = n.data.State.Settings.Presence
 	n.data.State.Self.Details = n.data.State.Settings.ProfileDetails
@@ -202,6 +225,7 @@ func New(opts Options) (*Node, error) {
 			n.startReceive(t.ID, "")
 		}
 	}
+	n.resumePrintJobs()
 	return n, nil
 }
 
@@ -220,6 +244,9 @@ func (n *Node) snapshot(urls bool) domain.State {
 	_ = json.Unmarshal(b, &s)
 	s.LockResult = n.lockResult
 	s.LocalIP = n.localIP
+	s.LocalPrinters = append([]domain.LocalPrinter(nil), n.localPrinters...)
+	s.PrintersLoading = n.printersLoading
+	s.PrintError = n.printError
 	s.ShareFeedback = n.shareFeedback
 	s.IPMSGStatus = n.ipmsgStatus
 	if s.IPMSGStatus.Pending != nil {

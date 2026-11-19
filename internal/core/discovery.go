@@ -135,6 +135,7 @@ func (n *Node) discoveryLoop() {
 			p.Details, p.Version = domain.ProfileDetails{}, ""
 			p.Address = n.advertisedAddress()
 			p.RecallSupported = false
+			p.PrintSupported = false
 			a := announcement{Version: protocolVersion, Peer: p}
 			raw, _ := json.Marshal(a)
 			a.Signature = ed25519.Sign(n.key, raw)

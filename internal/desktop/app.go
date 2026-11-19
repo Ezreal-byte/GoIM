@@ -33,6 +33,7 @@ const (
 	sectionContacts   = "contacts"
 	sectionTransfers  = "transfers"
 	sectionShares     = "shares"
+	sectionPrint      = "print"
 	sectionSettings   = "settings"
 	titlebarHeight    = float32(48)
 	railWidth         = float32(68)
@@ -190,6 +191,7 @@ type appIDs struct {
 	navContacts   gfx.ID
 	navTransfers  gfx.ID
 	navShares     gfx.ID
+	navPrint      gfx.ID
 	navLock       gfx.ID
 	navTheme      gfx.ID
 	navSettings   gfx.ID
@@ -746,6 +748,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.panels.setMediaSubmit(u.media.submitOne)
 	u.panels.setToast(u.showToast)
 	u.panels.setInvalidator(func() { u.invalidator.Invalidate() })
+	u.panels.printAvatar = u.paintPrintAvatar
 	u.panels.settingsExtra.chooseBackground = u.requestBackgroundPicker
 	u.panels.shareQRWorker.setNotify(u.invalidator.Invalidate)
 	if backend != nil {
@@ -753,6 +756,9 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 		u.section = restoreMainSection(u.state.Settings.LastSection)
 		u.recentEmoji = append([]string(nil), u.state.Settings.RecentEmoji...)
 		u.queueMediaJobs()
+		if u.section == sectionPrint {
+			u.submit(domain.Command{Kind: domain.RefreshPrinters})
+		}
 		if watch {
 			go u.watchUpdates()
 		}
@@ -1098,6 +1104,7 @@ func (u *UI) initIDs() {
 	u.ids.navContacts = u.tree.ID(u.ids.nav, "contacts")
 	u.ids.navTransfers = u.tree.ID(u.ids.nav, "transfers")
 	u.ids.navShares = u.tree.ID(u.ids.nav, "shares")
+	u.ids.navPrint = u.tree.ID(u.ids.nav, "print")
 	u.ids.navLock = u.tree.ID(u.ids.nav, "lock")
 	u.ids.navTheme = u.tree.ID(u.ids.nav, "appearance")
 	u.ids.navSettings = u.tree.ID(u.ids.nav, "settings")
@@ -1317,7 +1324,8 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 }
 
 func (u *UI) isPanelSection() bool {
-	return u.section == sectionSettings || u.section == sectionTransfers || u.section == sectionShares
+	return u.section == sectionSettings || u.section == sectionTransfers ||
+		u.section == sectionShares || u.section == sectionPrint
 }
 
 func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
@@ -1356,7 +1364,7 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 
 func restoreMainSection(section string) string {
 	switch section {
-	case sectionMessages, sectionContacts, sectionTransfers, sectionShares, sectionSettings:
+	case sectionMessages, sectionContacts, sectionTransfers, sectionShares, sectionPrint, sectionSettings:
 		return section
 	default:
 		return sectionContacts
@@ -1381,7 +1389,7 @@ func (u *UI) toggleMainPinned() {
 func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	canvas.Fill(bounds, u.palette.rail)
 	var avatarSlot ui.Box
-	var messages, contacts, transfers, shares, lock, themeToggle, settings ui.Box
+	var messages, contacts, transfers, shares, printShare, lock, themeToggle, settings ui.Box
 	unreadBadge, unreadHint := "", ""
 	if unread := u.unreadTotal(); unread > 0 {
 		unreadBadge = compactCount(unread)
@@ -1408,6 +1416,7 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 			transfers = u.railItemBadged(f, u.ids.navTransfers, u.iconTransfers, i18n.T("传输"),
 				u.section == sectionTransfers, transferBadge, transferHint)
 			shares = u.railItem(f, u.ids.navShares, FolderOutput, "文件共享", u.section == sectionShares)
+			printShare = u.railItem(f, u.ids.navPrint, panelPrintIcon, "打印共享", u.section == sectionPrint)
 			ui.Spacer(f)
 			lock = u.railItem(f, u.ids.navLock, u.iconLock, i18n.T("锁定应用"), false)
 			themeIcon, themeLabel := u.iconMoon, "切换到暗色外观"
@@ -1429,6 +1438,9 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	}
 	if shares.Clicked() {
 		u.setSection(sectionShares)
+	}
+	if printShare.Clicked() {
+		u.setSection(sectionPrint)
 	}
 	if lock.Clicked() {
 		u.requestLock()
@@ -2476,6 +2488,9 @@ func (u *UI) setSection(section string) {
 	if section == sectionSettings {
 		u.panels.refreshNetwork = true
 		u.invalidator.Invalidate()
+	}
+	if section == sectionPrint {
+		u.submit(domain.Command{Kind: domain.RefreshPrinters})
 	}
 	u.closeChatPickers()
 	u.closeShellMenu()

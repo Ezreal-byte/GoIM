@@ -23,6 +23,7 @@ const (
 	panelModuleSettings  = "settings"
 	panelModuleTransfers = "transfers"
 	panelModuleShares    = "shares"
+	panelModulePrint     = "print"
 
 	panelSettingsWidth = 300
 )
@@ -306,6 +307,10 @@ type Panels struct {
 	shareQR       shareQRDialogState
 	shareQRCache  map[shareQRKey]shareQRResult
 
+	print        printPanel
+	printAvatar  func(f ui.C, peerID, name, path string, size float32, online bool)
+	presentPrint func(shareID string) bool
+
 	listRevision uint64
 	listLanguage string
 	listDirty    bool
@@ -433,6 +438,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.shareQRClose = tree.ID(shares, "share-qr-close")
 	p.ids.shareQRDismissButton = tree.ID(shares, "share-qr-dismiss-button")
 	p.ids.shareQRCopy = tree.ID(shares, "share-qr-copy")
+	p.print.init(tree)
 
 	p.build = panelReadBuildInfo()
 	p.refreshNetworks()
@@ -457,6 +463,7 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 		p.closeShareInteractions()
 		p.shareToast = shareToastState{}
 		p.settingsExtra.resetSecrets()
+		p.print.resetInteractions()
 	}
 	p.module = module
 	p.shareAnchor = ui.Box{}
@@ -478,6 +485,8 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 			p.drawTransfers(f, theme, bounds, state, submit)
 		case panelModuleShares:
 			p.drawShares(f, theme, bounds, state, submit)
+		case panelModulePrint:
+			p.drawPrint(f, theme, bounds, state, submit)
 		}
 	})
 	if module == panelModuleShares {
@@ -641,6 +650,10 @@ func (p *Panels) Key(event gfx.KeyEvent) gfx.EventResult {
 			}
 		}
 	}
+	if p.module == panelModulePrint && p.print.shareOpen && event.Key == gfx.KeyEscape {
+		p.print.closeShareDialog()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	}
 	return p.page.Key(event)
 }
 
@@ -719,6 +732,7 @@ func (p *Panels) updateLists(state domain.State) {
 	}
 	p.rebuildTransfers(state)
 	p.rebuildShares(state)
+	p.print.rebuild(state)
 	p.listRevision, p.listLanguage, p.listDirty = state.Revision, language, false
 }
 

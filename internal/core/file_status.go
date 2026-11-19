@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"goim/internal/domain"
+	"strings"
 	"time"
 )
 
@@ -51,6 +52,17 @@ func (n *Node) receiveFileStatus(peer string, e envelope) error {
 		t.Status = e.Status
 		if len(e.Error) <= 2048 {
 			t.Error = e.Error
+		}
+		if e.Status == "failed" || e.Status == "cancelled" || e.Status == "rejected" {
+			if j := printJobForTransferIndex(&p.State, t.ID); j >= 0 && !p.State.PrintJobs[j].Terminal() {
+				problem := e.Error
+				if strings.TrimSpace(problem) == "" {
+					problem = "文件未能送达打印机主人"
+				}
+				p.State.PrintJobs[j].Status = domain.PrintStatusFailed
+				p.State.PrintJobs[j].Error = problem
+				p.State.PrintJobs[j].UpdatedAt = time.Now()
+			}
 		}
 		t.Speed = 0
 		t.UpdatedAt = time.Now()

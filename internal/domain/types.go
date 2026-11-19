@@ -5,6 +5,7 @@ import "time"
 
 type Peer struct {
 	RecallSupported      bool `json:"RecallSupported,omitempty"`
+	PrintSupported       bool `json:"PrintSupported,omitempty"`
 	ID                   string
 	Name                 string
 	Address              string
@@ -115,9 +116,10 @@ type Message struct {
 	ID             string
 	ConversationID string
 	SenderID       string
-	Kind           string // text, image, file, system
+	Kind           string // text, image, file, print, system
 	Text           string
 	FileID         string
+	PrintJobID     string `json:",omitempty"`
 	CreatedAt      time.Time
 	Status         string // pending, sent, delivered, failed
 	Nickname       string
@@ -219,6 +221,103 @@ type Transfer struct {
 	FolderMaxItem     int64  `json:",omitempty"`
 	FolderStage       string `json:",omitempty"` // private staging directory of a group folder download
 	RemotePeerID      string `json:",omitempty"` // wire identity of an existing compatibility transfer
+	PrintJobID        string `json:",omitempty"` // local print task served by this transfer
+}
+
+// PrintCapabilities is the portable subset of printer options both sides can
+// present consistently. An empty slice means the local driver did not report
+// that capability; the platform defaults still apply.
+type PrintCapabilities struct {
+	Papers            []string `json:",omitempty"`
+	Orientations      []string `json:",omitempty"`
+	ColorModes        []string `json:",omitempty"`
+	DuplexModes       []string `json:",omitempty"`
+	SupportsPageRange bool     `json:",omitempty"`
+}
+
+const (
+	PrintOrientationPortrait  = "portrait"
+	PrintOrientationLandscape = "landscape"
+
+	PrintColorColor      = "color"
+	PrintColorMonochrome = "monochrome"
+
+	PrintDuplexSimplex       = "simplex"
+	PrintDuplexLongEdge      = "long-edge"
+	PrintDuplexShortEdge     = "short-edge"
+	PrintStatusSending       = "sending"
+	PrintStatusReceiving     = "receiving"
+	PrintStatusSubmitting    = "submitting"
+	PrintStatusQueued        = "queued"
+	PrintStatusCompleted     = "completed"
+	PrintStatusFailed        = "failed"
+	PrintPageRangeAll        = ""
+	PrintPageRangeCustomized = "custom"
+)
+
+type PrintOptions struct {
+	Paper       string
+	Copies      int
+	Orientation string
+	PageRange   string
+	Color       string
+	Duplex      string
+}
+
+// LocalPrinter is a transient inventory entry read from the operating system.
+// LocalPrinter.ID is the queue name and never enters a remote catalog.
+type LocalPrinter struct {
+	ID           string
+	Name         string
+	Available    bool
+	Default      bool
+	Status       string            `json:",omitempty"`
+	Capabilities PrintCapabilities
+}
+
+// PrinterShare is a peer-visible printer catalog entry. DeviceName is needed so
+// the owner can address its local queue after a restart; remote peers cannot
+// submit to anything except this record's authenticated OwnerID.
+type PrinterShare struct {
+	ID           string
+	OwnerID      string
+	OwnerName    string
+	Name         string
+	DeviceName   string
+	Available    bool
+	Capabilities PrintCapabilities
+	CreatedAt    time.Time
+}
+
+// PrintJob is the durable record kept on both peers. LocalJobID is populated
+// only on the receiving machine and is never sent over the wire.
+type PrintJob struct {
+	ID               string
+	MessageID        string
+	TransferID       string
+	FileID           string
+	ConversationID   string
+	PrinterID        string
+	PrinterName      string
+	PrinterDevice    string
+	PrinterOwnerID   string
+	PrinterOwnerName string
+	SenderID         string
+	SenderName       string
+	FileName         string
+	FileSize         int64
+	MIME             string `json:",omitempty"`
+	Options          PrintOptions
+	Status           string // sending, receiving, submitting, queued, completed, failed
+	Error            string `json:",omitempty"`
+	LocalJobID       string `json:",omitempty"`
+	SubmitKey        string `json:",omitempty"`
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+func (j PrintJob) Terminal() bool {
+	return j.Status == PrintStatusCompleted || j.Status == PrintStatusFailed
 }
 
 type Shortcut struct {
@@ -310,6 +409,11 @@ type State struct {
 	Invitations       []Invitation
 	Files             []File
 	Transfers         []Transfer
+	LocalPrinters     []LocalPrinter `json:"-"`
+	Printers          []PrinterShare
+	PrintJobs         []PrintJob
+	PrintersLoading   bool `json:"-"`
+	PrintError        string `json:"-"`
 	Settings          Settings
 	Error             string
 	Notice            string
@@ -378,6 +482,22 @@ func (s State) File(id string) File {
 	}
 	return File{}
 }
+func (s State) Printer(id string) PrinterShare {
+	for _, v := range s.Printers {
+		if v.ID == id {
+			return v
+		}
+	}
+	return PrinterShare{}
+}
+func (s State) PrintJob(id string) PrintJob {
+	for _, v := range s.PrintJobs {
+		if v.ID == id {
+			return v
+		}
+	}
+	return PrintJob{}
+}
 func (s State) ChatMessages(id string) []Message {
 	var out []Message
 	for _, m := range s.Messages {
@@ -435,6 +555,10 @@ const (
 	RemoveShare        CommandKind = "remove_share"
 	RefreshShares      CommandKind = "refresh_shares"
 	GetShared          CommandKind = "get_shared"
+	RefreshPrinters    CommandKind = "refresh_printers"
+	SharePrinter       CommandKind = "share_printer"
+	UnsharePrinter     CommandKind = "unshare_printer"
+	PrintFile          CommandKind = "print_file"
 	ClearError         CommandKind = "clear_error"
 )
 
@@ -471,6 +595,8 @@ type Command struct {
 	ProfileDetails *ProfileDetails
 	Presence       Presence
 	Request        uint64
+	PrinterID      string
+	PrintOptions   PrintOptions
 }
 
 // Backend snapshots are detached copies. Submit queues work, never blocks the UI.

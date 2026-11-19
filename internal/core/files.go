@@ -239,10 +239,11 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 	if !validFile(f) || f.SenderID != peer || transferErr != nil || len(transferBytes) != 16 || e.TransferID != strings.ToLower(e.TransferID) {
 		return errors.New("无效文件邀请")
 	}
+	isPrint := e.PrintJob.ID != ""
 	if f.InlineImage && (f.Shared || !validInlineImage(f)) {
 		return errors.New("无效聊天图片")
 	}
-	requested, suppressed := false, false
+	requested, suppressed, autoReceive := false, false, false
 	var denied error
 	err := n.durable(func(p *persisted) []pending {
 		s := &p.State
@@ -257,6 +258,30 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 		if !conversationAllows(s, f.ConversationID, peer) {
 			denied = errors.New("群文件权限无效")
 			return nil
+		}
+		var printJob domain.PrintJob
+		if isPrint {
+			var printErr error
+			printJob, autoReceive, printErr = n.receivePrintOffer(peer, p, f, e)
+			if printErr != nil {
+				if printOfferRejected(printErr) {
+					p.TransferTombstones[peer+":"+e.TransferID] = "rejected"
+					return []pending{{PeerID: peer, Envelope: envelope{
+						Type: "file_status", TransferID: e.TransferID, Status: "rejected", Error: printErr.Error(),
+					}}}
+				}
+				denied = printErr
+				return nil
+			}
+			if transferIndex(s, e.TransferID) < 0 && pendingPrintBytes(s)+f.Size > maxPendingPrintBytes {
+				denied = errors.New("本机打印接收缓存已达上限，请稍后重试")
+				return nil
+			}
+			if transferIndex(s, e.TransferID) < 0 && printJobIndex(s, printJob.ID) >= 0 {
+				denied = errors.New("打印任务身份冲突")
+				return nil
+			}
+			f.ConversationID = printJob.ConversationID
 		}
 		if !strings.HasPrefix(f.ConversationID, "group:") {
 			f.ConversationID = directID(s.Self.ID, peer)
@@ -283,29 +308,53 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 		}
 		if transferIndex(s, e.TransferID) < 0 {
 			status := "offered"
-			if f.InlineImage {
+			if f.InlineImage || isPrint {
 				status = "waiting"
 			}
-			s.Transfers = append(s.Transfers, domain.Transfer{ID: e.TransferID, FileID: f.ID, ConversationID: f.ConversationID, PeerID: peer, Direction: "receive", Status: status, Name: f.Name, Size: f.Size, UpdatedAt: time.Now()})
+			transfer := domain.Transfer{ID: e.TransferID, FileID: f.ID, ConversationID: f.ConversationID, PeerID: peer,
+				Direction: "receive", Status: status, Name: f.Name, Size: f.Size, UpdatedAt: time.Now()}
 			kind := "file"
 			if f.InlineImage {
 				kind = "image"
 			}
+			if isPrint {
+				kind = "print"
+				transfer.PrintJobID = printJob.ID
+				transfer.Path = printReceivePath(n.dir, printJob)
+				if err := ensurePrintDirectory(transfer.Path); err != nil {
+					denied = err
+					return nil
+				}
+			}
+			s.Transfers = append(s.Transfers, transfer)
 			found := false
 			for _, m := range s.Messages {
-				if m.ID == f.ID {
+				if m.ID == f.ID || isPrint && m.ID == printJob.MessageID {
 					found = true
 					break
 				}
 			}
 			if !found {
-				s.Messages = append(s.Messages, domain.Message{ID: f.ID, ConversationID: f.ConversationID, SenderID: peer, Kind: kind, Text: f.Name, FileID: f.ID, Status: "delivered", CreatedAt: f.CreatedAt})
+				message := domain.Message{ID: f.ID, ConversationID: f.ConversationID, SenderID: peer,
+					Kind: kind, Text: f.Name, FileID: f.ID, Status: "delivered", CreatedAt: f.CreatedAt}
+				if isPrint {
+					message.ID = printJob.MessageID
+					message.PrintJobID = printJob.ID
+					message.Text = "打印 " + f.Name
+					message.CreatedAt = printJob.CreatedAt
+				}
+				addMessageState(s, message)
 				if i := convIndex(s, f.ConversationID); i >= 0 {
-					s.Conversations[i].Hidden = false
-					s.Conversations[i].Unread++
-					s.Conversations[i].Preview = attachmentPreview(f)
+					if isPrint {
+						s.Conversations[i].Preview = "打印 " + f.Name
+					} else {
+						s.Conversations[i].Preview = attachmentPreview(f)
+					}
 					s.Conversations[i].UpdatedAt = f.CreatedAt
 				}
+			}
+			if isPrint {
+				s.PrintJobs = append(s.PrintJobs, printJob)
 			}
 		}
 		return nil
@@ -313,11 +362,31 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 	if err != nil || denied != nil {
 		return errors.Join(err, denied)
 	}
-	if !suppressed && (f.InlineImage || requested) {
+	if !suppressed && (f.InlineImage || requested || autoReceive) {
 		n.startReceive(e.TransferID, "")
 	}
 	return nil
 }
+
+func printOfferRejected(err error) bool {
+	message := err.Error()
+	return strings.Contains(message, "打印机已停止共享") ||
+		strings.Contains(message, "共享打印机当前不可用") ||
+		strings.Contains(message, "打印机不支持") ||
+		strings.Contains(message, "打印接收缓存已达上限")
+}
+
+func pendingPrintBytes(s *domain.State) int64 {
+	var total int64
+	for _, transfer := range s.Transfers {
+		if transfer.PrintJobID == "" || terminalTransfer(transfer.Status) {
+			continue
+		}
+		total += transfer.Size
+	}
+	return total
+}
+
 func (n *Node) setTransfer(id, status string, done int64, speed float64, problem string) {
 	n.change(func(s *domain.State) {
 		if i := transferIndex(s, id); i >= 0 {
@@ -394,6 +463,9 @@ func (n *Node) startReceive(id, destination string) {
 					status = "waiting"
 				}
 				n.setTransfer(id, status, t.Done, 0, err.Error())
+				if status == "failed" && t.PrintJobID != "" {
+					n.failPrintTransfer(id, err.Error())
+				}
 				n.reliable(t.PeerID, envelope{Type: "file_status", TransferID: id, Status: status})
 			}
 		}
@@ -440,7 +512,11 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 	if destination != "" {
 		if info, e := os.Stat(destination); e == nil && info.Mode().IsRegular() && info.Size() == f.Size {
 			if hash, e := fileHashContext(ctx, destination); e == nil && hash == f.Hash {
-				return n.completeReceive(t, destination)
+				if err := n.completeReceive(t, destination); err != nil {
+					return err
+				}
+				n.startPrintIfReady(id)
+				return nil
 			}
 		}
 	}

@@ -29,6 +29,7 @@ type persisted struct {
 	MessageTargets      map[string][]string
 	MessageRecalls      map[string]bool
 	CatalogRevisions    map[string]uint64
+	PrinterCatalogRevisions map[string]uint64
 	NextSequence        uint64
 	TransferTombstones  map[string]string
 	ReceivePublications map[string]receivePublication `json:",omitempty"`
@@ -82,6 +83,9 @@ func openStore(dir string) (*bolt.DB, persisted, error) {
 	}
 	if data.CatalogRevisions == nil {
 		data.CatalogRevisions = make(map[string]uint64)
+	}
+	if data.PrinterCatalogRevisions == nil {
+		data.PrinterCatalogRevisions = make(map[string]uint64)
 	}
 	if data.TransferTombstones == nil {
 		data.TransferTombstones = make(map[string]string)
