@@ -1428,6 +1428,10 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	canvas.Fill(bounds, u.palette.rail)
 	var avatarSlot ui.Box
 	var messages, contacts, transfers, shares, printShare, lock, themeToggle, settings ui.Box
+	itemHeight, itemGap, railPadding, avatarSize, avatarGap := float32(58), float32(5), float32(14), float32(42), float32(10)
+	if bounds.Height < 660 {
+		itemHeight, itemGap, railPadding, avatarSize, avatarGap = 48, 2, 8, 36, 4
+	}
 	unreadBadge, unreadHint := "", ""
 	if unread := u.unreadTotal(); unread > 0 {
 		unreadBadge = compactCount(unread)
@@ -1441,28 +1445,28 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	selfName := u.selfDisplayName()
 	selfAvatar := u.selfAvatarPath()
 	u.railPage.Draw(canvas, bounds, func(f ui.C) {
-		ui.Column(f).Fill().PadY(14).Items(ui.Center).Gap(5).Children(func() {
-			avatarSlot = ui.Stack(f).Size(42, 42).HitWith(u.ids.profileAvatar, i18n.T("编辑个人资料"),
+		ui.Column(f).Fill().PadY(railPadding).Items(ui.Center).Gap(itemGap).Children(func() {
+			avatarSlot = ui.Stack(f).Size(avatarSize, avatarSize).HitWith(u.ids.profileAvatar, i18n.T("编辑个人资料"),
 				gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("编辑昵称和头像")}).
 				Children(func() {
-					u.avatarStatusOn(f, selfName, selfAvatar, 42, u.state.Self.Presence != domain.PresenceInvisible, u.palette.rail)
+					u.avatarStatusOn(f, selfName, selfAvatar, avatarSize, u.state.Self.Presence != domain.PresenceInvisible, u.palette.rail)
 				})
-			ui.Row(f).Height(10)
+			ui.Row(f).Height(avatarGap)
 			messages = u.railItemBadged(f, u.ids.navMessages, u.iconMessage, i18n.T("消息"),
-				u.section == sectionMessages, unreadBadge, unreadHint)
-			contacts = u.railItem(f, u.ids.navContacts, u.iconUsers, i18n.T("联系人"), u.section == sectionContacts)
+				u.section == sectionMessages, unreadBadge, unreadHint, itemHeight)
+			contacts = u.railItem(f, u.ids.navContacts, u.iconUsers, i18n.T("联系人"), u.section == sectionContacts, itemHeight)
 			transfers = u.railItemBadged(f, u.ids.navTransfers, u.iconTransfers, i18n.T("传输"),
-				u.section == sectionTransfers, transferBadge, transferHint)
-			shares = u.railItem(f, u.ids.navShares, FolderOutput, "文件共享", u.section == sectionShares)
-			printShare = u.railItem(f, u.ids.navPrint, panelPrintIcon, "打印共享", u.section == sectionPrint)
+				u.section == sectionTransfers, transferBadge, transferHint, itemHeight)
+			shares = u.railItem(f, u.ids.navShares, FolderOutput, "文件共享", u.section == sectionShares, itemHeight)
+			printShare = u.railItem(f, u.ids.navPrint, panelPrintIcon, "打印共享", u.section == sectionPrint, itemHeight)
 			ui.Spacer(f)
-			lock = u.railItem(f, u.ids.navLock, u.iconLock, i18n.T("锁定应用"), false)
+			lock = u.railItem(f, u.ids.navLock, u.iconLock, i18n.T("锁定应用"), false, itemHeight)
 			themeIcon, themeLabel := u.iconMoon, "切换到暗色外观"
 			if u.isDark() {
 				themeIcon, themeLabel = u.iconSun, "切换到明亮外观"
 			}
-			themeToggle = u.railItem(f, u.ids.navTheme, themeIcon, themeLabel, false)
-			settings = u.railItem(f, u.ids.navSettings, u.iconSettings, i18n.T("设置"), u.section == sectionSettings)
+			themeToggle = u.railItem(f, u.ids.navTheme, themeIcon, themeLabel, false, itemHeight)
+			settings = u.railItem(f, u.ids.navSettings, u.iconSettings, i18n.T("设置"), u.section == sectionSettings, itemHeight)
 		})
 	})
 	if messages.Clicked() {
@@ -1495,12 +1499,12 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	canvas.Fill(ui.Rect{X: bounds.X + bounds.Width - 1, Y: bounds.Y, Width: 1, Height: bounds.Height}, u.palette.border)
 }
 
-func (u *UI) railItem(f ui.C, id gfx.ID, icon gfx.Icon, label string, active bool) ui.Box {
-	return u.railItemBadged(f, id, icon, label, active, "", "")
+func (u *UI) railItem(f ui.C, id gfx.ID, icon gfx.Icon, label string, active bool, height float32) ui.Box {
+	return u.railItemBadged(f, id, icon, label, active, "", "", height)
 }
 
 func (u *UI) railItemBadged(f ui.C, id gfx.ID, icon gfx.Icon, label string,
-	active bool, badge, badgeHint string) ui.Box {
+	active bool, badge, badgeHint string, height float32) ui.Box {
 	background := ui.Color{}
 	foreground := u.palette.icon
 	if active {
@@ -1525,7 +1529,7 @@ func (u *UI) railItemBadged(f ui.C, id gfx.ID, icon gfx.Icon, label string,
 	if badge != "" && badgeHint != "" {
 		accessible += "，" + badgeHint
 	}
-	box := ui.Column(f).Size(56, 58).Radius(10).Items(ui.Center).Justify(ui.Center).Gap(4).
+	box := ui.Column(f).Size(56, height).Radius(10).Items(ui.Center).Justify(ui.Center).Gap(4).
 		Background(background).Hover(ui.Look{}.Background(hover)).
 		HitWith(id, accessible, gfx.HitOptions{Role: gfx.RoleButton, Selected: active, Hint: accessible}).
 		Children(func() {
