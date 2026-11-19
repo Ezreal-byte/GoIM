@@ -75,9 +75,11 @@ func TestCheckAndVerifiedDownload(t *testing.T) {
 	mode := "resume"
 	transport := transportFunc(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
-		case FeedURL:
+		case latestReleaseURL:
+			return releaseRedirectFixture(req, "0.1.5"), nil
+		case Releases + "/download/v0.1.5/" + FeedName:
 			return fixtureResponse(req, 200, body, int64(len(body))), nil
-		case FeedURL + ".sig":
+		case Releases + "/download/v0.1.5/" + FeedName + ".sig":
 			return fixtureResponse(req, 200, signature, int64(len(signature))), nil
 		case feed.Latest.Assets[0].URL:
 			if mode == "corrupt" {

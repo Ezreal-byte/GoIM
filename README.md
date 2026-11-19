@@ -61,6 +61,12 @@ Windows 使用 Viva 安装向导 `Setup.exe`，默认只给当前用户安装。
 
 压缩包需完整解压，保留 GoIM 与截图工具的相对位置。Windows 包未使用商业证书签名，macOS 应用使用 ad-hoc 签名且未经 Apple 公证。可用发布附带的 `SHA256SUMS` 校验下载。
 
+### 软件更新
+
+GoIM 默认在启动时通过 GitHub Releases 检查稳定版，也可在「设置 → 关于」手动检查。Windows 的当前用户 Setup 安装版，以及复制到可写目录的 macOS `GoIM.app`，可下载经签名校验的更新并在确认后安装重启。macOS 请先把 `.app` 从磁盘映像拖到可写的「应用程序」目录（如 `~/Applications`）。
+
+Linux `.deb` 由系统包管理器更新。GoIM 提示新版本后，可下载对应架构的 `.deb` 并通过系统安装器升级。
+
 ## 快速开始
 
 1. 两台设备连入同一个可互通的局域网并运行 GoIM。

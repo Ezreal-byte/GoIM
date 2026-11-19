@@ -85,6 +85,27 @@ func TestUpdateDialogShowsReleaseNotes(t *testing.T) {
 	}
 }
 
+func TestUpdateWithoutSignedFeedOpensReleasePage(t *testing.T) {
+	h := newShellTestHarness(t, shellMinimalState(t))
+	page := selfupdate.ReleaseURL("0.1.6")
+	h.ui.updater = &updateController{view: updateView{phase: updateOffered, offer: selfupdate.Offer{
+		Version: "0.1.6", NotesURL: page, DownloadURL: page, FeedUnavailable: true,
+	}}}
+	if err := h.driver.Paint(); err != nil {
+		t.Fatal(err)
+	}
+	h.clickID(h.ui.updateIDs.chrome)
+	h.settle()
+	requireShellLayout(t, h.snapshot())
+	if hit, ok := h.findHit(h.ui.updateIDs.action); !ok || hit.Label != "打开发布页" {
+		t.Fatalf("fallback action = %+v", hit)
+	}
+	h.clickID(h.ui.updateIDs.action)
+	if opened, ok := h.driver.LastOpenedURL(); !ok || opened != page {
+		t.Fatalf("fallback opened %q, want %q", opened, page)
+	}
+}
+
 func TestUpdateRestartWaitsForAnActiveTransfer(t *testing.T) {
 	state := shellMinimalState(t)
 	state.Transfers = []domain.Transfer{{ID: "running", Status: "transferring"}}

@@ -101,18 +101,25 @@ type Offer struct {
 	Version, NotesURL, DownloadURL string
 	Bytes                          int64
 	Automatic                      bool
-	asset                          update.Asset
+	// FeedUnavailable means the release was found but the signed feed could not be reached.
+	FeedUnavailable bool
+	asset           update.Asset
+}
+
+func manualOffer(version string, target Target) Offer {
+	offer := Offer{Version: version, NotesURL: ReleaseURL(version), DownloadURL: ReleaseURL(version)}
+	if (target.Arch == "amd64" || target.Arch == "arm64") && target.downloadSuffix() != "" {
+		offer.DownloadURL = AssetURL(version, target.OS, target.Arch, target.downloadSuffix())
+	}
+	return offer
 }
 
 func selectOffer(feed *update.Feed, target Target) (Offer, error) {
 	version, ok := StableVersion(feed.Latest.Version)
 	if !ok || version != feed.Latest.Version {
-		return Offer{}, errors.New("update release is not a stable GoIM version")
+		return Offer{}, fmt.Errorf("%w: release is not a stable GoIM version", update.ErrManifest)
 	}
-	offer := Offer{Version: version, NotesURL: ReleaseURL(version), DownloadURL: ReleaseURL(version)}
-	if (target.Arch == "amd64" || target.Arch == "arm64") && target.downloadSuffix() != "" {
-		offer.DownloadURL = AssetURL(version, target.OS, target.Arch, target.downloadSuffix())
-	}
+	offer := manualOffer(version, target)
 	if !target.automatic() {
 		return offer, nil
 	}
@@ -123,7 +130,7 @@ func selectOffer(feed *update.Feed, target Target) (Offer, error) {
 	for _, asset := range feed.Latest.Assets {
 		if asset.OS == target.OS && asset.Arch == target.Arch && asset.Format == format {
 			if asset.URL != AssetURL(version, target.OS, target.Arch, suffix) {
-				return Offer{}, errors.New("update asset is outside the expected GoIM release")
+				return Offer{}, fmt.Errorf("%w: asset is outside the expected GoIM release", update.ErrManifest)
 			}
 			offer.asset, offer.Automatic, offer.Bytes = asset, true, asset.Size
 			break
@@ -135,6 +142,7 @@ func selectOffer(feed *update.Feed, target Target) (Offer, error) {
 type Client struct {
 	client      *update.Client
 	notesClient *http.Client
+	publicKey   ed25519.PublicKey
 	target      Target
 	cache       string
 	version     string
@@ -173,18 +181,27 @@ func newClient(version, publicKey, cache string, target Target, transport http.R
 	if err != nil {
 		return nil, err
 	}
+	if transport == nil {
+		transport = updateTransport()
+	}
 	httpClient := &http.Client{Transport: transport, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 || !trustedUpdateHost(req.URL) {
-			return errors.New("update redirect is outside GitHub releases")
+			return fmt.Errorf("%w: update redirect is outside GitHub releases", ErrUpdateSource)
 		}
 		return nil
 	}}
-	client, err := update.New(update.Config{FeedURL: FeedURL, App: AppID, Channel: Channel, Current: version,
-		PublicKeys: []ed25519.PublicKey{key}, HTTP: httpClient, MaxAssetBytes: 512 << 20})
+	c := &Client{notesClient: httpClient, publicKey: key, target: target, cache: cache, version: version}
+	client, err := c.signedClient(FeedURL, httpClient)
 	if err != nil {
 		return nil, err
 	}
-	return &Client{client: client, notesClient: httpClient, target: target, cache: cache, version: version}, nil
+	c.client = client
+	return c, nil
+}
+
+func (c *Client) signedClient(feedURL string, httpClient *http.Client) (*update.Client, error) {
+	return update.New(update.Config{FeedURL: feedURL, App: AppID, Channel: Channel, Current: c.version,
+		PublicKeys: []ed25519.PublicKey{c.publicKey}, HTTP: httpClient, MaxAssetBytes: 512 << 20})
 }
 
 func trustedUpdateHost(u *url.URL) bool {
@@ -198,14 +215,6 @@ func trustedUpdateHost(u *url.URL) bool {
 	default:
 		return false
 	}
-}
-
-func (c *Client) Check(ctx context.Context) (Offer, error) {
-	feed, err := c.client.Check(ctx)
-	if err != nil || feed == nil {
-		return Offer{}, err
-	}
-	return selectOffer(feed, c.target)
 }
 
 // ReleaseNotes returns the release-note Markdown without interpreting it. The

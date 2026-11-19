@@ -101,6 +101,9 @@ func (v updateView) status() string {
 	case updateCurrent:
 		return i18n.T("当前已是最新版本")
 	case updateOffered:
+		if v.offer.FeedUnavailable {
+			return i18n.T("检测到新版本，签名更新清单暂不可用。可前往发布页下载。")
+		}
 		if !v.offer.Automatic {
 			return i18n.T("请下载与当前安装方式对应的软件包。")
 		}
@@ -120,10 +123,10 @@ func (p *Panels) drawUpdateSettings(f ui.C, theme ui.Theme, state domain.State, 
 	panelSection(f, i18n.T("软件更新"), "", func() {
 		p.settingsRow(f, theme, i18n.T("自动检查更新"), i18n.T("启动 GoIM 时在后台检查新版本"), func() {
 			p.settingsControl(f, 80, func() {
-				disabled := ui.State[bool](f, "disable-auto-update-check")
-				*disabled = state.Settings.DisableAutoUpdateCheck
-				if ui.Switch(f, disabled, "").Hit(p.ids.aboutAutoUpdate, i18n.T("自动检查更新")).Changed() {
-					p.submitBool(submit, state, "disable_auto_update_check", *disabled)
+				enabled := ui.State[bool](f, "auto-update-check")
+				*enabled = !state.Settings.DisableAutoUpdateCheck
+				if ui.Switch(f, enabled, "").Hit(p.ids.aboutAutoUpdate, i18n.T("自动检查更新")).Changed() {
+					p.submitBool(submit, state, "disable_auto_update_check", !*enabled)
 				}
 			})
 		})
@@ -183,7 +186,15 @@ func (u *UI) drawUpdateDialog(c *gfx.Canvas, viewport gfx.Rect) {
 				if view.phase == updateReady && installBlocked {
 					ui.Paragraph(f, i18n.T("请等文件传输或截图结束，再安装更新。"), 2).Muted()
 				}
-				if view.offer.NotesURL != "" {
+				if view.phase == updateCheckFailed {
+					if namedButton(f, ids.notes, i18n.T("打开发布页")).Small().Ghost().Clicked() {
+						open(selfupdate.Releases + "/latest")
+					}
+				} else if view.offer.FeedUnavailable {
+					if namedButton(f, ids.notes, i18n.T("重新检查")).Small().Ghost().Clicked() {
+						u.updater.checkNow()
+					}
+				} else if view.offer.NotesURL != "" {
 					ui.Row(f).Gap(6).Children(func() {
 						if namedButton(f, ids.notes, i18n.T("发布说明")).Small().Ghost().Clicked() {
 							open(view.offer.NotesURL)
@@ -208,7 +219,11 @@ func (u *UI) drawUpdateDialog(c *gfx.Canvas, viewport gfx.Rect) {
 				}
 			case updateOffered, updateDownloadFailed:
 				if !view.offer.Automatic {
-					if dialogActionButton(f, ids.action, i18n.T("官方下载")).Clicked() {
+					label := "官方下载"
+					if view.offer.FeedUnavailable {
+						label = "打开发布页"
+					}
+					if dialogActionButton(f, ids.action, i18n.T(label)).Clicked() {
 						open(view.offer.DownloadURL)
 					}
 				} else {

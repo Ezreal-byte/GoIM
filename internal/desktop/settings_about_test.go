@@ -274,7 +274,7 @@ func TestAboutAutomaticUpdateCheckSwitchDefaultsOn(t *testing.T) {
 		X: 68, Y: 0, Width: 1372, Height: 1800,
 	})
 	hit, ok := h.findHit(h.panels.ids.aboutAutoUpdate)
-	if !ok || hit.Checked {
+	if !ok || !hit.Checked {
 		t.Fatalf("automatic update switch = %+v, found=%v", hit, ok)
 	}
 	h.requireLayout()

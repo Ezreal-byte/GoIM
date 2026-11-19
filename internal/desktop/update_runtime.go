@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"errors"
+	"net"
 	"sync"
 	"time"
 
@@ -145,38 +146,56 @@ func (u *updateController) checkNow() {
 }
 
 func (u *updateController) check() {
-	ctx, cancel := context.WithTimeout(u.ctx, 20*time.Second)
-	defer cancel()
-	offer, err := u.client.Check(ctx)
+	offer, err := u.client.Check(u.ctx)
 	u.change(func(v *updateView) {
 		v.progress = 0
 		v.notes, v.notesProblem, v.notesLoading = "", "", false
 		switch {
 		case err != nil:
-			v.phase, v.problem, v.offer = updateCheckFailed, updateProblem(err, "暂时无法检查更新"), selfupdate.Offer{}
+			v.phase, v.problem, v.offer = updateCheckFailed, updateCheckProblem(err), selfupdate.Offer{}
 		case offer.Version == "":
 			v.phase, v.problem, v.offer = updateCurrent, "", selfupdate.Offer{}
 		default:
-			v.phase, v.problem, v.offer, v.notesLoading = updateOffered, "", offer, true
+			v.phase, v.problem, v.offer, v.notesLoading = updateOffered, "", offer, !offer.FeedUnavailable
 		}
 	})
-	if err != nil || offer.Version == "" {
+	if err != nil || offer.Version == "" || offer.FeedUnavailable {
 		return
 	}
 	notesCtx, cancelNotes := context.WithTimeout(u.ctx, 8*time.Second)
 	defer cancelNotes()
 	notes, notesErr := u.client.ReleaseNotes(notesCtx, offer)
 	u.change(func(v *updateView) {
-		v.notesLoading = false
 		if v.offer.Version != offer.Version || v.phase != updateOffered {
 			return
 		}
+		v.notesLoading = false
 		if notesErr != nil {
 			v.notesProblem = "暂时无法加载发布说明"
 			return
 		}
 		v.notes = notes
 	})
+}
+
+func updateCheckProblem(err error) string {
+	var networkError net.Error
+	switch {
+	case errors.Is(err, update.ErrSignature):
+		return updateProblem(err, "")
+	case errors.Is(err, update.ErrManifest), errors.Is(err, update.ErrInsecureURL), errors.Is(err, update.ErrTooLarge), errors.Is(err, selfupdate.ErrUpdateSource):
+		return "无法验证更新源，请查看官方发布页"
+	case errors.Is(err, selfupdate.ErrUpdateRate):
+		return "GitHub 暂时限制更新请求，请稍后重试"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "连接 GitHub 超时，请检查网络或代理"
+	case errors.Is(err, selfupdate.ErrUpdateHTTP):
+		return "GitHub 更新源暂不可用，请稍后重试"
+	case errors.As(err, &networkError):
+		return "无法连接 GitHub，请检查网络或代理"
+	default:
+		return "暂时无法检查更新"
+	}
 }
 
 func (u *updateController) download() {
