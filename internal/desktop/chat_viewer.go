@@ -321,6 +321,9 @@ func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool
 	theme := ui.DarkTheme()
 	background := ui.RGB(8, 10, 14)
 	muted := ui.RGB(167, 174, 186)
+	if u.isDark() {
+		theme, background, muted = u.theme, u.palette.chat, u.palette.secondaryText
+	}
 	topHeight, bottomHeight := float32(58), float32(82)
 	if detached {
 		theme = themeForName(u.state.Settings.Theme)

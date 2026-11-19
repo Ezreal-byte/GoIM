@@ -136,6 +136,12 @@ Windows and macOS packaging builds the Shotlet capture SDK helper from pinned re
 
 `pwsh -File scripts/smoke-headless.ps1` builds a fresh headless client and runs a three-process test of messaging, file transfer, and browser sharing. Use `scripts/build.ps1` to build the desktop app and screenshot companion without starting them, or `scripts/promo-headless.ps1` to regenerate the demo gallery. See [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/release.yml) for platform packaging and validation.
 
+See the [release guidelines](docs/releases/README.md) for the release notes format.
+
+## Acknowledgements
+
+Thanks to [imjakey / Shotlet](https://github.com/imjakey/shotlet) for the open-source screenshot tool. GoIM integrates a Shotlet-based capture helper on Windows and macOS.
+
 ## License
 
 [MIT](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)

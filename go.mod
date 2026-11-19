@@ -20,5 +20,5 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
-// Temporary until the native window capability and Windows drag-preview fixes reach Viva upstream.
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261118134906-340c6424d555
+// Temporary until the Windows window, drag-preview, and transparent text fixes reach Viva upstream.
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261119042216-11760a8ae36c

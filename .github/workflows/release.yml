@@ -6,7 +6,7 @@ on:
     inputs:
       version:
         description: Package version
-        default: 0.1.10
+        default: 0.1.11
         required: true
         type: string
 permissions:
@@ -98,7 +98,7 @@ jobs:
         if: matrix.os == 'windows'
         run: |
           mkdir -p artifacts
-          go test github.com/vivaui/viva/internal/platform/windows -run '^TestDirectTextLayoutOriginByValue$' -count=1
+          go test github.com/vivaui/viva/internal/platform/windows -run '^Test(DirectTextLayoutOriginByValue|HiddenNativeEditorDoesNotDrawColorEmoji)$' -count=1
           go test github.com/vivaui/viva/internal/platform/windows -run '^$' -bench '^BenchmarkRasterizeOnly$' -benchtime=100ms -benchmem -count=3 > artifacts/framework-render-benchmark.txt
       - name: Windows three-process smoke
         if: matrix.os == 'windows'
@@ -168,6 +168,8 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: GoIM-*
@@ -239,8 +241,21 @@ jobs:
           assert len(frameworks)==len(toolchains)==1, (frameworks,toolchains)
           assert public_keys == {os.environ['GOIM_UPDATE_PUBLIC_KEY'].strip()}, 'packaged trust key mismatch'
           (root/'SHA256SUMS').write_text('\n'.join(sums)+'\n')
-          notes=f'GoIM {version}\n\nSix native targets and twelve packages passed CI. Includes Windows ZIP and Viva NSIS Setup, macOS ZIP and DMG, and Linux tar.gz and DEB. Windows installer, shortcut icon and three-process smoke checks and Linux race checks passed.\n\nSource: {os.environ["SOURCE_COMMIT"]}\nViva: {next(iter(frameworks))}\nGo: {next(iter(toolchains))}\n'
-          (root/'RELEASE_NOTES.md').write_text(notes)
+          notes_path = pathlib.Path('docs/releases') / f'{version}.md'
+          if os.environ['GITHUB_REF_TYPE'] == 'tag':
+              assert notes_path.is_file(), f'Missing release notes: {notes_path}'
+          notes = notes_path.read_text(encoding='utf-8') if notes_path.is_file() else f'# GoIM {version}'
+          body, thanks_heading, thanks = notes.partition('\n## 感谢贡献者\n')
+          build_info = (
+              '## 构建信息\n\n六个平台架构和十二个软件包通过 CI 校验。\n\n'
+              f'- 源码 `{os.environ["SOURCE_COMMIT"]}`\n'
+              f'- Viva `{next(iter(frameworks))}`\n'
+              f'- Go `{next(iter(toolchains))}`\n'
+          )
+          report = f'{body.rstrip()}\n\n{build_info}'
+          if thanks_heading:
+              report += f'{thanks_heading}{thanks.rstrip()}\n'
+          (root/'RELEASE_NOTES.md').write_text(report, encoding='utf-8')
           PY
       - name: Verify Linux packages on a GLIBC 2.31 baseline
         run: |

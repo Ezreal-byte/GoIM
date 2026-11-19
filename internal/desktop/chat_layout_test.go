@@ -2,12 +2,12 @@ package desktop
 
 import (
 	"errors"
-	"github.com/vivaui/viva/gfx"
 	"testing"
 	"time"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
@@ -298,8 +298,7 @@ func TestChatHistorySplitterKeepsBothPanesUsable(t *testing.T) {
 	}
 
 	harness.dragLabel("调整聊天记录和输入框高度", 0, 10000)
-	maxHistory := float32(960-titlebarHeight) - (chatHeaderExtent + chatDividerExtent) -
-		chatSplitterExtent - chatComposerMinHeight
+	maxHistory := float32(960-titlebarHeight) - chatHeaderExtent - chatSplitterExtent - chatComposerMinHeight
 	if surface.history.Pos != maxHistory {
 		t.Fatalf("history pane maximum is %.1f, want %.0f", surface.history.Pos, maxHistory)
 	}
@@ -329,9 +328,7 @@ func TestChatHistorySplitterKeepsBothPanesUsable(t *testing.T) {
 	harness.clickID(harness.ui.ids.chatSearchClose)
 	harness.settle()
 	if surface.history.Pos != maxHistory {
-		t.Fatalf("closing search did not restore the history pane: %.1f, want %.1f (open %v, clamp %.1f, before %.1f, searchOpen %v)",
-			surface.history.Pos, maxHistory, harness.ui.chatFind.open,
-			surface.historyClamp, surface.historyBefore, surface.searchOpen)
+		t.Fatalf("closing search did not restore the history pane: %.1f, want %.1f", surface.history.Pos, maxHistory)
 	}
 
 	editor, ok := harness.chatEditorHit()
@@ -339,6 +336,49 @@ func TestChatHistorySplitterKeepsBothPanesUsable(t *testing.T) {
 		t.Fatalf("composer editor is not usable at the splitter limit: %+v", editor.Bounds)
 	}
 	requireShellLayout(t, harness.snapshot())
+}
+
+func TestChatComposerResizesAndKeepsTheManualHeight(t *testing.T) {
+	harness := newShellTestHarnessAtSize(t, shellTestState(t), 1440, 850)
+	shell := harness.ui
+	resize := func(width, height int) {
+		t.Helper()
+		if err := harness.driver.Resize(width, height); err != nil {
+			t.Fatal(err)
+		}
+		harness.settle()
+		requireShellLayout(t, harness.snapshot())
+	}
+	initial := shell.composerBox.Rect().Height
+	resize(1000, 700)
+	compact := shell.composerBox.Rect().Height
+	if compact >= initial || compact < chatComposerMinHeight {
+		t.Fatalf("composer did not adapt to the shorter window: %.1f -> %.1f", initial, compact)
+	}
+	toolbar, toolbarOK := harness.findHit(shell.ids.chatEmoji)
+	editor, editorOK := harness.chatEditorHit()
+	send, sendOK := harness.findHit(shell.ids.chatSend)
+	if !toolbarOK || !editorOK || !sendOK || !send.Disabled ||
+		toolbar.Bounds.Bottom() > editor.Bounds.Y || editor.Bounds.Bottom() > send.Bounds.Y {
+		t.Fatalf("expected toolbar, editor and disabled send button in order: %+v, %+v, %+v", toolbar, editor, send)
+	}
+	harness.dragLabel("调整聊天记录和输入框高度", 0, -48)
+	manual := shell.composerBox.Rect().Height
+	if manual <= compact {
+		t.Fatalf("drag did not grow the editor: %.1f -> %.1f", compact, manual)
+	}
+	resize(1440, 960)
+	if height := shell.composerBox.Rect().Height; height < manual-1 || height > manual+1 {
+		t.Fatalf("window resize moved the manual composer height: %.1f -> %.1f", manual, height)
+	}
+	harness.typeIntoLabel("消息输入框", "版式检查")
+	if send, ok := harness.findHit(shell.ids.chatSend); !ok || send.Disabled {
+		t.Fatal("typing a draft did not enable the send button")
+	}
+	harness.clickID(shell.ids.chatSend)
+	if command, ok := findShellCommand(harness.backend.commandLog(), domain.SendText); !ok || command.Text != "版式检查" {
+		t.Fatalf("clicking Send did not submit the draft: %+v", command)
+	}
 }
 
 func TestChatFilesPaneDocksClosesAndCompressesChat(t *testing.T) {

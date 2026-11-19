@@ -1,6 +1,8 @@
 /build/
 /dist/
 /.runtime/
+/go.work
+/go.work.sum
 /artifacts/
 *.log
 *.exe

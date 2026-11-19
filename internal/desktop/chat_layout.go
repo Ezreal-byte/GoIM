@@ -2,27 +2,28 @@ package desktop
 
 import (
 	"github.com/vivaui/viva/gfx"
-	"goim/internal/i18n"
-
 	"github.com/vivaui/viva/ui"
 
-	"goim/internal/domain"
+	"goim/internal/i18n"
 )
 
 const (
-	chatSidebarMinWidth   = float32(240)
-	chatSidebarMaxWidth   = float32(420)
-	chatWorkspaceMinWidth = float32(620)
-	chatHistoryMinHeight  = float32(200)
-	chatComposerMinHeight = float32(168)
-	chatReadOnlyMinHeight = float32(104)
-	chatSplitterExtent    = float32(8)
-	chatFilesMinWidth     = float32(260)
-	chatFilesMaxWidth     = float32(400)
-	chatHeaderExtent      = float32(64)
-	chatDividerExtent     = float32(1)
-	chatSearchExtent      = float32(53)
-	chatComposerDefault   = float32(188)
+	chatSidebarMinWidth      = float32(240)
+	chatSidebarMaxWidth      = float32(420)
+	chatWorkspaceMinWidth    = float32(620)
+	chatHistoryMinHeight     = float32(200)
+	chatComposerToolHeight   = float32(40)
+	chatComposerFooterHeight = float32(42)
+	chatEditorMinHeight      = float32(64)
+	chatComposerMinHeight    = chatComposerToolHeight + chatEditorMinHeight + chatComposerFooterHeight
+	chatComposerDefaultMax   = float32(260)
+	chatReadOnlyMinHeight    = float32(104)
+	chatSplitterExtent       = float32(8)
+	chatFilesMinWidth        = float32(260)
+	chatFilesMaxWidth        = float32(400)
+	chatHeaderExtent         = float32(60)
+	chatSearchExtent         = float32(52)
+	chatContentInset         = float32(16)
 )
 
 type chatSurfaceIDs struct {
@@ -46,11 +47,9 @@ type chatSurface struct {
 	sidebar   ui.SplitterState
 	history   ui.SplitterState
 
-	historyReady   bool
-	searchOpen     bool
-	historyBefore  float32
-	historyClamp   float32
-	historyRestore float32
+	historySpan       float32
+	historyPlaced     float32
+	composerPreferred float32
 
 	sidebarWidth float32
 	filesPane    ui.Rect
@@ -167,63 +166,24 @@ func (u *UI) chatSidebarBoundary() float32 {
 	return railWidth + width
 }
 
-func (u *UI) prepareChatHistory(chatHeight float32, conversation domain.Conversation, searchDeclared bool) {
-	surface := u.surface
-	if surface.historyReady {
-		u.clampChatHistory(chatHeight, conversation, searchDeclared)
-		return
+func (s *chatSurface) layoutHistory(chatHeight, composerMinimum float32, searchVisible bool) {
+	if s.historySpan > 0 && s.history.Pos != s.historyPlaced {
+		s.composerPreferred = s.historySpan - s.history.Pos
 	}
-	chrome := chatHeaderExtent + chatDividerExtent
-	composer := chatComposerDefault
-	if u.chatReadOnlyReason(conversation) != "" {
-		composer = chatReadOnlyMinHeight
+	span := chatHeight - chatHeaderExtent - chatSplitterExtent
+	if searchVisible {
+		span -= chatSearchExtent
 	}
-	height := chatHeight - chrome - chatSplitterExtent - composer
-	surface.history.Pos = max(chatHistoryMinHeight, height)
-	surface.historyReady = true
-	u.clampChatHistory(chatHeight, conversation, searchDeclared)
-}
-
-// clampChatHistory keeps the history pane out of the composer when the
-// conversation search bar appears. The size the user dragged to comes back
-// when search closes, unless they moved the splitter while it was open.
-func (u *UI) clampChatHistory(chatHeight float32, conversation domain.Conversation, searchDeclared bool) {
-	surface := u.surface
-	open := u.chatFind.open
-	if open != surface.searchOpen {
-		if open {
-			surface.historyBefore = surface.history.Pos
-			surface.historyRestore = 0
-		} else if surface.historyClamp > 0 && surface.history.Pos == surface.historyClamp {
-			surface.historyRestore = surface.historyBefore
+	preferred := s.composerPreferred
+	if preferred <= 0 {
+		preferred = composerMinimum
+		if composerMinimum == chatComposerMinHeight {
+			preferred = min(chatHeight*0.29, chatComposerDefaultMax)
 		}
-		surface.searchOpen = open
-		surface.historyClamp = 0
 	}
-	if !open && !searchDeclared && surface.historyRestore > 0 {
-		surface.history.Pos = max(surface.historyRestore, chatHistoryMinHeight)
-		surface.historyRestore = 0
-	}
-	chrome := chatHeaderExtent + chatDividerExtent
-	if open || searchDeclared {
-		chrome += chatSearchExtent
-	}
-	composer := chatComposerMinHeight
-	if u.chatReadOnlyReason(conversation) != "" {
-		composer = chatReadOnlyMinHeight
-	}
-	maxHistory := chatHeight - chrome - chatSplitterExtent - composer
-	if maxHistory > 0 && surface.history.Pos > maxHistory {
-		surface.history.Pos = max(maxHistory, chatHistoryMinHeight)
-		surface.historyClamp = surface.history.Pos
-	}
-}
-
-func (u *UI) chatComposerMinimum(conversation domain.Conversation) float32 {
-	if u.chatReadOnlyReason(conversation) != "" {
-		return chatReadOnlyMinHeight
-	}
-	return chatComposerMinHeight
+	s.historySpan = span
+	s.historyPlaced = max(chatHistoryMinHeight, span-max(composerMinimum, preferred))
+	s.history.Pos = s.historyPlaced
 }
 
 // chatOverlayKey runs before the shell's normal keyboard routing. It keeps the

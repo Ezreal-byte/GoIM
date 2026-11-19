@@ -343,6 +343,19 @@ func TestEmojiPickerInsertsUnicodeTextWithoutSending(t *testing.T) {
 	if !harness.hasText("最近使用") || !harness.hasHit(harness.ui.emojiRecentIDs["grin"]) {
 		t.Fatal("recent emoji did not appear when reopening the picker")
 	}
+	firstRow, firstOK := harness.findHit(harness.ui.emojiIDs["grin"])
+	secondRow, secondOK := harness.findHit(harness.ui.emojiIDs["star-eyes"])
+	if !firstOK || !secondOK || secondRow.Bounds.Y <= firstRow.Bounds.Y {
+		t.Fatal("test emoji is not on the second row")
+	}
+	harness.clickHit(secondRow)
+	if snapshot := harness.snapshot(); snapshot.Editor == nil || snapshot.Editor.Value != "😀🤩" {
+		t.Fatalf("second-row selection did not insert once and restore focus: %+v", snapshot.Editor)
+	}
+	harness.clickID(harness.ui.ids.sidebarSearch)
+	if harness.snapshot().Focused == harness.ui.ids.chatEditorField || harness.ui.chatEditor.String() != "😀🤩" {
+		t.Fatal("blurring the composer changed the selected emoji")
+	}
 
 	for _, command := range harness.backend.commandLog() {
 		if command.Kind == domain.SendText {

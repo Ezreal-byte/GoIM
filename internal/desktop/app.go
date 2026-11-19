@@ -3385,7 +3385,17 @@ func (u *UI) isDark() bool { return u.theme.Background.Red < 0.5 }
 
 func themeForName(name string) ui.Theme {
 	if strings.EqualFold(name, "dark") {
-		return ui.DarkTheme()
+		theme := ui.DarkTheme()
+		theme.Background = ui.RGB(33, 39, 46)
+		theme.Card = theme.Background
+		theme.CardElevated = ui.RGB(43, 51, 60)
+		theme.Popover = ui.RGB(40, 47, 56)
+		theme.Muted = theme.CardElevated
+		theme.Secondary = theme.CardElevated
+		theme.Hover = ui.RGB(48, 57, 67)
+		theme.Accent = theme.Hover
+		theme.MutedForeground = ui.RGB(166, 175, 187)
+		return theme
 	}
 	return ui.LightTheme()
 }
@@ -3394,24 +3404,24 @@ func paletteFor(theme ui.Theme) palette {
 	dark := theme.Background.Red < 0.5
 	if dark {
 		return palette{
-			rail:          ui.RGB(15, 17, 21),
-			sidebar:       ui.RGB(18, 20, 25),
-			chat:          ui.RGB(11, 13, 17),
-			header:        ui.RGB(14, 16, 20),
+			rail:          theme.Background,
+			sidebar:       theme.Background,
+			chat:          theme.Background,
+			header:        theme.Background,
 			border:        ui.RGBA(255, 255, 255, 0.09),
-			hover:         ui.RGB(27, 30, 37),
+			hover:         theme.Hover,
 			selected:      ui.RGB(25, 47, 88),
 			selectedText:  ui.RGB(152, 195, 255),
 			icon:          ui.RGB(205, 210, 220),
-			secondaryText: ui.RGB(145, 151, 164),
-			mutedAvatar:   ui.RGB(39, 44, 54),
+			secondaryText: theme.MutedForeground,
+			mutedAvatar:   theme.CardElevated,
 			avatarText:    ui.RGB(225, 231, 241),
-			incoming:      ui.RGB(32, 35, 42),
-			own:           ui.RGB(23, 49, 95),
+			incoming:      theme.CardElevated,
+			own:           ui.RGB(35, 56, 82),
 			bubbleBorder:  ui.RGBA(255, 255, 255, 0.06),
-			fileCard:      ui.RGB(19, 31, 55),
-			fileBorder:    ui.RGBA(98, 155, 255, 0.20),
-			invite:        ui.RGB(27, 30, 38),
+			fileCard:      ui.RGB(42, 50, 63),
+			fileBorder:    ui.RGBA(172, 196, 230, 0.15),
+			invite:        theme.Popover,
 			success:       ui.RGB(55, 197, 118),
 			danger:        ui.RGB(255, 112, 116),
 		}

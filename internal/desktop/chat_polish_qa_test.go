@@ -3,13 +3,13 @@
 package desktop
 
 import (
-	"github.com/vivaui/viva/gfx"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/headless"
 )
 
@@ -22,12 +22,12 @@ func TestChatPolishQA(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := promoState(t)
+	state.Settings.Theme = "dark"
 	state.Settings.RecentEmoji = []string{"🌹", "😂", "🤭", "🥺", "😺", "🤔", "😎", "🥰", "😁", "🙏"}
-	state.Notice = "已保存"
 	u := New(newShellTestBackend(state))
 	defer u.Close()
 	cfg := u.Config()
-	cfg.Width, cfg.Height = 1440, 980
+	cfg.Width, cfg.Height = 1440, 850
 	session, err := headless.Open(cfg, nil, headless.Options{Scale: 1.25})
 	if err != nil {
 		t.Fatal(err)
@@ -70,6 +70,22 @@ func TestChatPolishQA(t *testing.T) {
 	}
 	click(u.ids.navMessages)
 	click(u.convRowIDs["north"])
+	shot("composer-empty")
+	click(u.ids.chatEditorField)
+	if err := session.Type("哈"); err != nil {
+		t.Fatal(err)
+	}
+	click(u.ids.chatEmoji)
+	click(u.emojiIDs["star-eyes"])
+	click(u.ids.chatEmoji)
+	click(u.emojiIDs["kiss"])
+	if err := session.Type("哈哈"); err != nil {
+		t.Fatal(err)
+	}
+	shot("composer-focused")
+	click(u.ids.sidebarSearch)
+	shot("composer-blurred")
+
 	screenshotHit, ok := findSessionHit(session.Snapshot().Hits, u.ids.chatScreenshot)
 	if !ok {
 		t.Fatal("missing screenshot composer action")

@@ -136,6 +136,12 @@ Windows 和 macOS 打包时，使用 CMake 3.20+ 从固定提交构建 Shotlet �
 
 `pwsh -File scripts/smoke-headless.ps1` 会重新构建无头客户端，使用三个独立进程验证消息、文件传输和网页分享。`scripts/build.ps1` 只构建桌面程序和截图工具，`scripts/promo-headless.ps1` 可重新生成演示截图。发布构建及各平台校验见 [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/release.yml)。
 
+版本说明按[发布规范](docs/releases/README.md)编写。
+
+## 致谢
+
+感谢 [imjakey / Shotlet](https://github.com/imjakey/shotlet) 提供开源截图工具。GoIM 在 Windows 和 macOS 上集成了基于 Shotlet 的截图助手。
+
 ## 许可证
 
 [MIT](LICENSE) · [第三方许可](THIRD_PARTY_NOTICES.md)

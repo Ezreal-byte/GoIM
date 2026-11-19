@@ -1,7 +1,6 @@
 package desktop
 
 import (
-	"goim/internal/i18n"
 	"strings"
 
 	"github.com/vivaui/viva/app"
@@ -9,6 +8,7 @@ import (
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
+	"goim/internal/i18n"
 )
 
 type chatFindState struct {
@@ -165,8 +165,8 @@ func (u *UI) drawChatSearchBar(f ui.C) {
 	if !u.chatFind.open {
 		return
 	}
-	ui.Row(f).FillWidth().Height(52).PadSides(12, 36, 10, 36).
-		Background(u.palette.header).Items(ui.Center).Gap(10).Children(func() {
+	ui.Row(f).FillWidth().Height(chatSearchExtent).PadX(chatContentInset).
+		Items(ui.Center).Gap(10).Children(func() {
 		ui.Icon(f, u.iconSearch).Size(16, 16).Color(u.palette.secondaryText)
 		ui.TextFieldID(f, u.ids.chatSearchField, &u.chatFind.field,
 			i18n.T("搜索当前会话"), i18n.T("搜索消息文字或文件名")).Height(34).Grow(1)
