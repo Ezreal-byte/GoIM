@@ -262,7 +262,7 @@ try {
     Send-Command $taskAlice 'wait 300'
     Send-Command $taskAlice 'expect layout clean'
     Save-Screenshot $taskAlice 'real-share-list.png'
-    Send-Command $taskAlice 'rightclick "共享文件 真实文件.txt"'
+    Send-Command $taskAlice 'rightclick "真实文件.txt"'
     Send-Command $taskAlice 'click "查看二维码"'
     Send-Command $taskAlice 'waitfor "分享二维码" 10000'
     Send-Command $taskAlice 'wait 300'
@@ -283,8 +283,8 @@ try {
     Send-Command $taskAlice 'wait 200'
     Send-Command $taskAlice 'expect layout clean'
     Send-Command $taskAlice 'click "创建分享"'
-    Wait-Control $taskAlice '共享文件夹 交付资料'
-    Send-Command $taskAlice 'rightclick "共享文件夹 交付资料"'
+    Wait-Control $taskAlice '交付资料'
+    Send-Command $taskAlice 'rightclick "交付资料"'
     Send-Command $taskAlice 'click "复制项目链接"'
     $taskFolderURL=[regex]::Match((Send-Command $taskAlice 'clip'),'http://127\.0\.0\.1:\d+/s/[a-zA-Z0-9_-]+').Value
     if(!$taskFolderURL -or $taskFolderURL -eq $taskURL){throw 'No distinct browser folder share URL was copied'}
@@ -331,7 +331,7 @@ try {
     if($taskClosedHome.StatusCode -ne 404){throw 'Disabled device page did not return 404'}
     $taskProject=Invoke-WebRequest -UseBasicParsing -Uri $taskFolderURL -TimeoutSec 8
     if($taskProject.Content -notmatch '界面设计'){throw 'Closing the device homepage revoked a direct project link'}
-    Send-Command $taskAlice 'rightclick "共享文件夹 交付资料"'
+    Send-Command $taskAlice 'rightclick "交付资料"'
     Send-Command $taskAlice 'click "取消分享"'
     Send-Command $taskAlice 'waitfor "已取消分享" 10000'
     $taskRevokedProject=Invoke-WebRequest -UseBasicParsing -Uri $taskFolderURL -SkipHttpErrorCheck -TimeoutSec 8

@@ -1519,6 +1519,9 @@ func (u *UI) railItemBadged(f ui.C, id gfx.ID, icon gfx.Icon, label string,
 	if label == "文件共享" && i18n.Language() == i18n.English {
 		visual = "Shares"
 	}
+	if label == "打印共享" && i18n.Language() == i18n.English {
+		visual = "Print"
+	}
 	if label == "切换到暗色外观" || label == "切换到明亮外观" {
 		visual = "外观"
 		if i18n.Language() == i18n.English {

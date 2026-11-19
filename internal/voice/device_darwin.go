@@ -71,7 +71,7 @@ type coreAudioAPI struct {
 	cfRelease    func(value uintptr)
 	queueNewIn   func(format *audioStreamBasicDescription, callback, userData, runLoop, mode uintptr, flags uint32, queue *uintptr) int32
 	queueNewOut  func(format *audioStreamBasicDescription, callback, userData, runLoop, mode uintptr, flags uint32, queue *uintptr) int32
-	queueAlloc   func(queue uintptr, bytes uint32, buffer *uintptr) int32
+	queueAlloc   func(queue uintptr, bytes uint32, buffer *unsafe.Pointer) int32
 	queueQueue   func(queue, buffer uintptr, packetCount uint32, packets uintptr) int32
 	queueStart   func(queue uintptr, time uintptr) int32
 	queueStop    func(queue uintptr, immediate uint8) int32
@@ -161,7 +161,7 @@ func audioOutputCallback(userData, _ uintptr, buffer *audioQueueBuffer) {
 	if !ok || playback.closed.Load() {
 		return
 	}
-	address := uintptr(unsafe.Pointer(buffer))
+	address := unsafe.Pointer(buffer)
 	for index, pointer := range playback.buffers {
 		if pointer == address {
 			select {
@@ -263,7 +263,7 @@ type darwinCapture struct {
 	api       *coreAudioAPI
 	queue     uintptr
 	contextID uintptr
-	buffers   []uintptr
+	buffers   []unsafe.Pointer
 	data      chan []byte
 	done      chan struct{}
 	pending   []byte
@@ -293,13 +293,13 @@ func openCapture(id string) (Capture, error) {
 		return nil, err
 	}
 	for range 4 {
-		var buffer uintptr
+		var buffer unsafe.Pointer
 		if status := api.queueAlloc(capture.queue, PCMFrameBytes, &buffer); status != 0 {
 			capture.Close()
 			return nil, fmt.Errorf("%w: 无法分配麦克风缓冲: OSStatus %d", ErrDevice, status)
 		}
 		capture.buffers = append(capture.buffers, buffer)
-		if status := api.queueQueue(capture.queue, buffer, 0, 0); status != 0 {
+		if status := api.queueQueue(capture.queue, uintptr(buffer), 0, 0); status != 0 {
 			capture.Close()
 			return nil, fmt.Errorf("%w: 无法启动麦克风缓冲: OSStatus %d", ErrDevice, status)
 		}
@@ -361,7 +361,7 @@ type darwinPlayback struct {
 	api       *coreAudioAPI
 	queue     uintptr
 	contextID uintptr
-	buffers   []uintptr
+	buffers   []unsafe.Pointer
 	free      chan int
 	done      chan struct{}
 	closed    atomic.Bool
@@ -390,7 +390,7 @@ func openPlayback(id string) (Playback, error) {
 		return nil, err
 	}
 	for i := range 4 {
-		var buffer uintptr
+		var buffer unsafe.Pointer
 		if status := api.queueAlloc(playback.queue, PCMFrameBytes, &buffer); status != 0 {
 			playback.Close()
 			return nil, fmt.Errorf("%w: 无法分配扬声器缓冲: OSStatus %d", ErrDevice, status)
@@ -417,14 +417,14 @@ func (p *darwinPlayback) Write(pcm []byte) (int, error) {
 		if p.closed.Load() {
 			return written, ErrClosed
 		}
-		buffer := (*audioQueueBuffer)(unsafe.Pointer(p.buffers[index]))
+		buffer := (*audioQueueBuffer)(p.buffers[index])
 		size := min(len(pcm), int(buffer.Capacity))
 		if size == 0 || buffer.Data == nil {
 			return written, fmt.Errorf("%w: 扬声器缓冲为空", ErrDevice)
 		}
 		copy(unsafe.Slice((*byte)(buffer.Data), size), pcm[:size])
 		buffer.ByteSize = uint32(size)
-		if status := p.api.queueQueue(p.queue, p.buffers[index], 0, 0); status != 0 {
+		if status := p.api.queueQueue(p.queue, uintptr(p.buffers[index]), 0, 0); status != 0 {
 			return written, fmt.Errorf("%w: 无法播放语音: OSStatus %d", ErrDevice, status)
 		}
 		pcm, written = pcm[size:], written+size
