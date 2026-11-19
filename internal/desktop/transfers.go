@@ -2,11 +2,11 @@ package desktop
 
 import (
 	"errors"
-	"github.com/vivaui/viva/gfx"
 	"strings"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
@@ -14,8 +14,11 @@ import (
 )
 
 const (
-	panelPageTop     = 32
-	panelTabFontSize = float32(16)
+	panelPageTop          = 32
+	panelTabFontSize      = float32(16)
+	panelTableRowHeight   = float32(56)
+	panelTableHeadHeight  = float32(38)
+	panelTableActionWidth = float32(116)
 )
 
 func panelPageInset(width float32) float32 {
@@ -62,7 +65,8 @@ func newTransferActionIDs(tree *gfx.Tree, scope gfx.Scope, entry panelTransferEn
 
 func (p *Panels) drawTransfers(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.State, submit func(domain.Command)) {
 	pad := panelPageInset(bounds.Width)
-	compact := bounds.Width < 800
+	compact := bounds.Width < 900
+	columns := measureTransferColumns(bounds.Width - 2*pad)
 	ui.Column(f).Fill().PadSides(panelPageTop, pad, 18, pad).Children(func() {
 		p.drawTransferHeader(f, theme, bounds.Width, state.Settings.DownloadDir)
 		if p.localError != "" || state.Error != "" {
@@ -71,39 +75,80 @@ func (p *Panels) drawTransfers(f ui.C, theme ui.Theme, bounds ui.Rect, state dom
 				p.panelFeedback(f, theme, state, submit, p.ids.transfersDismiss, p.ids.transfersClearError)
 			})
 		}
-		if len(p.transferIncoming) > 0 {
-			p.drawIncomingTransfers(f, theme, bounds, submit)
-		}
+		p.drawTableSearch(f, theme, p.ids.transferSearch, &p.transferSearch, i18n.T("搜索文件"))
 		p.drawTransferTabs(f, compact)
 		ui.Divider(f).FillWidth()
+		p.drawTransferTableHead(f, theme, columns)
+		entries := p.transferEntries()
 		ui.Scroll(f.KeyInt(int(p.transferFilter))).Grow(1).FillWidth().Children(func() {
 			ui.Column(f).FillWidth().Children(func() {
-				entries := p.transferPending
-				emptyTitle, emptyDescription := i18n.T("暂无进行中的传输"), i18n.T("收到文件邀请或开始发送后，任务会显示在这里。")
-				if p.transferFilter == panelTransferFinished {
-					entries = p.transferFinished
-					emptyTitle, emptyDescription = i18n.T("暂无已结束的传输"), i18n.T("已完成、已拒绝、已取消和失败的任务会显示在这里。")
-				} else if len(p.transferIncoming) > 0 {
-					emptyDescription = i18n.T("接收上方文件后，可在这里查看传输进度。")
-				}
 				if len(entries) == 0 {
 					ui.Column(f).FillWidth().PadSides(24, 0, 0, 0).Children(func() {
-						panelEmpty(f, theme, emptyTitle, emptyDescription)
+						panelEmpty(f, theme, i18n.T("暂无匹配的传输"), i18n.T("换个筛选或关键词试试。"))
 					})
+					return
 				}
 				for i := range entries {
-					p.drawTransferRow(f, theme, &entries[i], bounds.Width-2*pad, compact, submit)
+					p.drawTransferRow(f, theme, columns, &entries[i], submit)
 				}
 			})
 		})
 	})
 }
 
-func (p *Panels) drawTransferTabs(f ui.C, compact bool) {
-	top := float32(29)
-	if compact || len(p.transferIncoming) == 0 {
-		top = 21
+func measureTransferColumns(width float32) panelTableColumns {
+	actions := panelTableActionWidth
+	if width < 760 {
+		actions = 92
 	}
+	if width >= 1180 {
+		return panelTableColumns{
+			peer:    150,
+			size:    96,
+			status:  220,
+			actions: actions,
+		}
+	}
+	if width >= 900 {
+		return panelTableColumns{
+			peer:    112,
+			size:    84,
+			status:  156,
+			actions: actions,
+		}
+	}
+	return panelTableColumns{
+		peer:    86,
+		size:    74,
+		status:  118,
+		actions: actions,
+	}
+}
+
+func (p *Panels) drawTableSearch(f ui.C, theme ui.Theme, id gfx.ID, field *ui.Field, placeholder string) {
+	ui.Row(f).FillWidth().PadSides(22, 0, 0, 0).Gap(9).Items(ui.Center).Children(func() {
+		ui.Icon(f, Search).Size(15, 15).Color(theme.MutedForeground)
+		ui.TextFieldID(f, id, field, placeholder, placeholder).Height(35).Width(220)
+	})
+}
+
+func (p *Panels) transferEntries() []panelTransferEntry {
+	entries := p.transferRows
+	if p.transferFilter != panelTransferAll {
+		switch p.transferFilter {
+		case panelTransferIncoming:
+			entries = p.transferIncoming
+		case panelTransferPending:
+			entries = p.transferPending
+		case panelTransferFinished:
+			entries = p.transferFinished
+		}
+	}
+	return panelFilterTransfers(entries, strings.TrimSpace(p.transferSearch.Text()))
+}
+
+func (p *Panels) drawTransferTabs(f ui.C, compact bool) {
+	top := float32(24)
 	var widest float32
 	for _, label := range p.transferLabels {
 		widest = max(widest, f.Canvas().TextWidthWeight(label, panelTabFontSize, gfx.WeightMedium))
@@ -111,7 +156,7 @@ func (p *Panels) drawTransferTabs(f ui.C, compact bool) {
 	ui.Row(f).FillWidth().PadSides(top, 0, 0, 0).Children(func() {
 		tabs := ui.Tabs(f.Part("transfer-filter"), &p.transferFilter, transferFilters[:],
 			func(filter transferFilter) string { return p.transferLabels[filter] }).
-			Line().FontSize(panelTabFontSize).Width(2*max(104, widest+24) + 4)
+			Line().FontSize(panelTabFontSize).Width(4*max(104, widest+24) + 4)
 		if tabs.Changed() {
 			p.transferMenu = ""
 		}
@@ -186,6 +231,16 @@ func (p *Panels) drawIncomingTransfers(f ui.C, theme ui.Theme, bounds ui.Rect, s
 	})
 }
 
+func (p *Panels) drawTransferTableHead(f ui.C, theme ui.Theme, columns panelTableColumns) {
+	ui.Row(f).FillWidth().Height(panelTableHeadHeight).PadX(15).Gap(12).Items(ui.Center).Children(func() {
+		ui.Text(f, i18n.T("文件名")).Muted().Grow(1).FontSize(13)
+		ui.Text(f, i18n.T("对方")).Muted().Width(columns.peer).FontSize(13)
+		ui.Text(f, i18n.T("大小")).Muted().Width(columns.size).FontSize(13)
+		ui.Text(f, i18n.T("状态")).Muted().Width(columns.status).FontSize(13)
+		ui.Row(f).Width(columns.actions)
+	})
+}
+
 func drawTransferIdentity(f ui.C, theme ui.Theme, entry *panelTransferEntry) {
 	icon, ink, fill := transferFileIcon(theme, entry.fileKind)
 	ui.Row(f).Grow(1).MinWidth(0).Gap(15).Items(ui.Center).Children(func() {
@@ -197,6 +252,19 @@ func drawTransferIdentity(f ui.C, theme ui.Theme, entry *panelTransferEntry) {
 			ui.Text(f, entry.meta).FontSize(15).Muted().Ellipsis()
 		})
 	})
+}
+
+func panelFilterTransfers(entries []panelTransferEntry, query string) []panelTransferEntry {
+	if query == "" {
+		return entries
+	}
+	filtered := make([]panelTransferEntry, 0, len(entries))
+	for _, entry := range entries {
+		if strings.Contains(strings.ToLower(entry.name), strings.ToLower(query)) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
 }
 
 func transferFileIcon(theme ui.Theme, kind string) (gfx.Icon, ui.Color, ui.Color) {
@@ -216,59 +284,57 @@ func transferFileIcon(theme ui.Theme, kind string) (gfx.Icon, ui.Color, ui.Color
 	}
 }
 
-func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, entry *panelTransferEntry, width float32, compact bool, submit func(domain.Command)) {
-	ui.Column(f).FillWidth().MinHeight(85).PadSides(17, 18, 17, 18).Gap(7).Justify(ui.Center).Children(func() {
-		ui.Row(f).FillWidth().Gap(12).Items(ui.Center).Children(func() {
-			drawTransferIdentity(f, theme, entry)
-			if !compact {
-				ui.Row(f).Width(width * .37).Items(ui.Center).Children(func() {
-					drawTransferStatus(f, theme, entry)
-				})
-			}
-			ui.Row(f).MinWidth(91).Gap(10).Items(ui.Center).Justify(ui.End).Children(func() {
-				p.drawTransferActions(f, theme, entry, submit)
+func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, columns panelTableColumns, entry *panelTransferEntry, submit func(domain.Command)) {
+	row := ui.Row(f).FillWidth().Height(panelTableRowHeight).PadX(15).Gap(12).Items(ui.Center).Radius(7).
+		Hover(ui.Look{}.Background(theme.Hover)).
+		HitWith(entry.ids.more, entry.name, gfx.HitOptions{Role: gfx.RoleButton, Hint: entry.name}).
+		Tooltip(entry.name)
+	row.Children(func() {
+		ui.Row(f).Grow(1).MinWidth(0).Gap(11).Items(ui.Center).Children(func() {
+			icon, ink, fill := transferFileIcon(theme, entry.fileKind)
+			ui.Row(f).Size(32, 32).Radius(7).Background(fill).Items(ui.Center).Justify(ui.Center).Children(func() {
+				ui.Icon(f, icon).Size(20, 20).Color(ink)
 			})
+			ui.Text(f, entry.name).FontSize(15).Weight(gfx.WeightMedium).MinWidth(0).Ellipsis()
 		})
-		if compact {
-			ui.Row(f).FillWidth().PadSides(0, 0, 0, 52).Children(func() {
-				drawTransferStatus(f, theme, entry)
-			})
-		}
-		if entry.err != "" {
-			ui.Paragraph(f, i18n.T(entry.err), 2).PadSides(0, 0, 0, 52).FontSize(13).Color(theme.Danger)
-		}
+		ui.Text(f, entry.peer).Width(columns.peer).FontSize(13).Ellipsis()
+		ui.Text(f, entry.size).Width(columns.size).FontSize(13).Ellipsis()
+		drawTransferStatus(f, theme, entry, columns.status)
+		p.drawTransferActions(f, theme, columns, entry, submit)
 	})
 	ui.Divider(f).FillWidth()
 }
 
-func drawTransferStatus(f ui.C, theme ui.Theme, entry *panelTransferEntry) {
-	if entry.percent == "" {
-		ui.Text(f, entry.status).FontSize(15).Color(panelStatusColor(theme, entry.transfer.Status)).Ellipsis()
-		return
+func drawTransferStatus(f ui.C, theme ui.Theme, entry *panelTransferEntry, width float32) ui.Box {
+	if entry.err != "" {
+		return ui.Text(f, i18n.T(entry.status)+" · "+i18n.T(entry.err)).Width(width).
+			FontSize(13).Color(theme.Danger).Ellipsis()
 	}
-	ui.Column(f).Grow(1).MinWidth(0).MaxWidth(310).Gap(5).Children(func() {
-		ui.Row(f).FillWidth().Gap(12).Items(ui.Center).Children(func() {
-			ui.Progress(f, entry.fraction).Grow(1).MinWidth(32).Height(7)
-			ui.Text(f, entry.percent).Muted().FontSize(15)
-		})
-		ui.Text(f, entry.progress).Muted().FontSize(14).Ellipsis()
-		if entry.transfer.Status != "transferring" {
-			ui.Text(f, entry.status).Muted().FontSize(13).Ellipsis()
-		}
+	if entry.percent == "" {
+		return ui.Text(f, entry.status).Width(width).FontSize(13).Color(panelStatusColor(theme, entry.transfer.Status)).Ellipsis()
+	}
+	return ui.Row(f).Width(width).Gap(7).Items(ui.Center).Clip().Children(func() {
+		ui.Progress(f, entry.fraction).Grow(1).MinWidth(24).Height(6)
+		ui.Text(f, entry.percent).Muted().FontSize(13).MinWidth(38)
 	})
 }
 
-func (p *Panels) drawTransferActions(f ui.C, theme ui.Theme, entry *panelTransferEntry, submit func(domain.Command)) {
-	if entry.retry && namedButton(f, entry.ids.retry, i18n.T("重试")).Small().Outline().Clicked() {
-		submit(domain.Command{Kind: domain.RetryTransfer, TransferID: entry.transfer.ID})
-	}
-	if entry.open && namedButton(f, entry.ids.open, i18n.T("打开")).Small().Outline().Clicked() {
-		panelOpenLocal(f.Canvas(), p, entry.path, false)
-	}
-	if entry.cancel && panelActionIcon(f, theme, entry.ids.cancel, X, i18n.T("取消传输"), false, false).Clicked() {
-		submit(domain.Command{Kind: domain.CancelTransfer, TransferID: entry.transfer.ID})
-	}
-	p.drawTransferMore(f, theme, entry, false)
+func (p *Panels) drawTransferActions(f ui.C, theme ui.Theme, columns panelTableColumns, entry *panelTransferEntry, submit func(domain.Command)) {
+	ui.Row(f).Width(columns.actions).Gap(5).Items(ui.Center).Justify(ui.End).Children(func() {
+		if entry.accept && namedButton(f, entry.ids.accept, i18n.T("接收")).Small().Clicked() {
+			submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: entry.transfer.ID})
+		}
+		if entry.retry && namedButton(f, entry.ids.retry, i18n.T("重试")).Small().Outline().Clicked() {
+			submit(domain.Command{Kind: domain.RetryTransfer, TransferID: entry.transfer.ID})
+		}
+		if entry.open && namedButton(f, entry.ids.open, i18n.T("打开")).Small().Outline().Clicked() {
+			panelOpenLocal(f.Canvas(), p, entry.path, false)
+		}
+		if entry.cancel && panelActionIcon(f, theme, entry.ids.cancel, X, i18n.T("取消传输"), false, false).Clicked() {
+			submit(domain.Command{Kind: domain.CancelTransfer, TransferID: entry.transfer.ID})
+		}
+		p.drawTransferMore(f, theme, entry, false)
+	})
 }
 
 func (p *Panels) drawTransferMore(f ui.C, theme ui.Theme, entry *panelTransferEntry, bordered bool) {
@@ -307,6 +373,9 @@ func (p *Panels) drawTransferMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rec
 	if entry.reveal {
 		height += 32
 	}
+	if entry.saveAs {
+		height += 41
+	}
 	if entry.reject {
 		height += 41
 	}
@@ -318,6 +387,10 @@ func (p *Panels) drawTransferMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rec
 	menu.AddItem(components.ContextMenuItem{ID: p.ids.transferMenuCopy, Label: i18n.T("复制文件名"), Icon: Copy})
 	if entry.reveal {
 		menu.AddItem(components.ContextMenuItem{ID: entry.ids.reveal, Label: i18n.T("打开文件夹"), Icon: FolderOpen})
+	}
+	if entry.saveAs {
+		menu.AddSeparator()
+		menu.AddItem(components.ContextMenuItem{ID: entry.ids.saveAs, Label: i18n.T("另存为…"), Icon: FolderOpen})
 	}
 	if entry.reject {
 		menu.AddSeparator()
@@ -335,6 +408,8 @@ func (p *Panels) drawTransferMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rec
 		})
 	case entry.reveal && c.Clicked(entry.ids.reveal):
 		panelOpenLocal(c, p, entry.path, true)
+	case entry.saveAs && c.Clicked(entry.ids.saveAs):
+		p.saveTransferAs(c, submit, entry.transfer)
 	case entry.reject && c.Clicked(entry.ids.reject):
 		submit(domain.Command{Kind: domain.RejectTransfer, TransferID: entry.transfer.ID})
 	case c.Clicked(p.ids.transferMenuDismiss):

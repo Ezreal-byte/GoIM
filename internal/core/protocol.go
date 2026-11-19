@@ -50,6 +50,9 @@ type envelope struct {
 	Avatar          []byte
 	GroupAvatar     []byte
 	Peers           []domain.Peer
+	Voice           domain.VoiceSignal
+	CallID          string
+	Audio           []byte
 }
 type peerConn struct {
 	conn     *tls.Conn
@@ -254,6 +257,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 					}
 				}
 			})
+			n.voicePeerDisconnected(pc.peer.ID)
 		}
 	}()
 	if err != nil {
@@ -550,6 +554,10 @@ func (n *Node) receive(peer string, e envelope) error {
 		err = n.receivePrintStatus(peer, e)
 	case "get_shared":
 		err = n.offerShared(peer, e.File.ID)
+	case "voice_signal":
+		err = n.receiveVoiceSignal(peer, e.Voice)
+	case "voice_audio":
+		n.receiveVoiceAudio(peer, e)
 	default:
 		err = fmt.Errorf("不支持的消息类型: %s", e.Type)
 	}

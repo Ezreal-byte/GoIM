@@ -189,4 +189,74 @@ func TestInterfaceFontPickerUsesNativeWheelAndDraggableScrollbar(t *testing.T) {
 	if font.scroll == before {
 		t.Fatal("dragging the native scrollbar did not move the font list")
 	}
+
+	before = font.scroll
+	if err := h.driver.Paint(); err != nil {
+		t.Fatal(err)
+	}
+	if font.scroll != before {
+		t.Fatal("an idle paint moved the native font-list scroll state")
+	}
+	if font.builtList != len(font.families) {
+		t.Fatalf("font list rebuilt on idle paint: built=%d families=%d", font.builtList, len(font.families))
+	}
+
+	h.click(font.cancel)
+	h.click(font.trigger)
+	waitForInterfaceFonts(t, h)
+	if err := h.driver.Scroll(gfx.ScrollEvent{
+		X: center.X, Y: center.Y, DeltaY: interfaceFontRowStep, Precise: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.requireLayout()
+	before = font.scroll
+	if err := h.driver.Paint(); err != nil {
+		t.Fatal(err)
+	}
+	if font.scroll != before {
+		t.Fatal("reopening the font picker moved its scroll state on an idle paint")
+	}
+}
+
+func TestInterfaceFontSizeSettingSubmitsWholePointRange(t *testing.T) {
+	i18n.SetLanguage(i18n.Chinese)
+	t.Cleanup(func() { i18n.SetLanguage(i18n.Chinese) })
+	state := panelTestDefaultState(t)
+	h := panelTestNewHarnessBounds(t, panelModuleSettings, state, ui.Rect{
+		X: 68, Y: 0, Width: 1372, Height: 1500,
+	})
+	extra := &h.panels.settingsExtra
+	if !h.hasText("14 pt") {
+		t.Fatal("the default interface font size is not displayed")
+	}
+
+	h.click(extra.interfaceFontSizeDown)
+	if command := h.requireLastCommand(); command.Setting != "interface_font_size" || command.Value != "13" {
+		t.Fatalf("font size down command = %+v", command)
+	}
+	h.clearCommands()
+	state.Settings.InterfaceFontSize = 13
+	h.publish(state)
+
+	h.click(extra.interfaceFontSizeUp)
+	if command := h.requireLastCommand(); command.Setting != "interface_font_size" || command.Value != "14" {
+		t.Fatalf("font size up command = %+v", command)
+	}
+	h.clearCommands()
+	state.Settings.InterfaceFontSize = 14
+	h.publish(state)
+
+	h.click(extra.interfaceFontSizeReset)
+	if command := h.requireLastCommand(); command.Setting != "interface_font_size" || command.Value != "14" {
+		t.Fatalf("font size reset command = %+v", command)
+	}
+	h.clearCommands()
+
+	state.Settings.InterfaceFontSize = domain.InterfaceFontSizeMinimum
+	h.publish(state)
+	h.click(extra.interfaceFontSizeDown)
+	if commands := h.snapshotCommands(); len(commands) != 0 {
+		t.Fatalf("minimum font size still submitted commands: %+v", commands)
+	}
 }

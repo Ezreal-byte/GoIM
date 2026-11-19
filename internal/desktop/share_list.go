@@ -3,6 +3,7 @@ package desktop
 import (
 	"errors"
 	"github.com/vivaui/viva/gfx"
+	"strings"
 	"time"
 
 	"github.com/vivaui/viva/app"
@@ -36,7 +37,7 @@ type shareToastState struct {
 }
 
 type shareColumns struct {
-	kind, access, date float32
+	size, access, date, actions float32
 }
 
 var shareHomeIcon = gfx.Icon{ViewBox: 24, Stroke: 2, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
@@ -55,12 +56,12 @@ var shareQRIcon = gfx.Icon{ViewBox: 24, Stroke: 2, Cap: gfx.CapRound, Join: gfx.
 
 func measureShareColumns(width float32) shareColumns {
 	if width >= 1020 {
-		return shareColumns{width * .106, width * .143, width * .22}
+		return shareColumns{width * .16, width * .143, width * .17, panelTableActionWidth}
 	}
 	if width >= 740 {
-		return shareColumns{0, 124, 152}
+		return shareColumns{0, 124, 152, 108}
 	}
-	return shareColumns{0, 98, 0}
+	return shareColumns{0, 98, 0, 92}
 }
 
 func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.State, submit func(domain.Command)) {
@@ -68,6 +69,7 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 	columns := measureShareColumns(bounds.Width - 2*pad)
 	ui.Column(f).Fill().PadSides(panelPageTop, pad, 18, pad).Children(func() {
 		p.drawShareToolbar(f, theme, state.DeviceShare, bounds.Width)
+		p.drawTableSearch(f, theme, p.ids.shareSearch, &p.shareSearch, i18n.T("搜索文件"))
 		ui.Row(f).FillWidth().PadSides(18, 0, 0, 0).Items(ui.Center).Children(func() {
 			if ui.Tabs(f.Part("share-filter"), &p.shareFilter, shareFilters[:],
 				func(filter shareFilter) string { return p.shareLabels[filter] }).Line().
@@ -89,6 +91,7 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 		if p.shareFilter == panelSharesRemote {
 			entries = p.sharesRemote
 		}
+		entries = panelFilterShares(entries, strings.TrimSpace(p.shareSearch.Text()))
 		if len(entries) > 0 {
 			p.drawShareTableHead(f, theme, columns)
 		}
@@ -163,17 +166,28 @@ func (p *Panels) drawShareToolbar(f ui.C, theme ui.Theme, device domain.DeviceSh
 }
 
 func (p *Panels) drawShareTableHead(f ui.C, theme ui.Theme, columns shareColumns) {
-	ui.Row(f).FillWidth().Height(59).PadX(15).Gap(12).Items(ui.Center).Children(func() {
+	ui.Row(f).FillWidth().Height(panelTableHeadHeight).PadX(15).Gap(12).Items(ui.Center).Children(func() {
 		ui.Text(f, i18n.T("名称")).Muted().Grow(1).FontSize(13)
-		if columns.kind > 0 {
-			ui.Text(f, i18n.T("类型")).Muted().Width(columns.kind).FontSize(13)
-		}
+		ui.Text(f, i18n.T("大小 · 项目数")).Muted().Width(columns.size).FontSize(13)
 		ui.Text(f, i18n.T("访问方式")).Muted().Width(columns.access).FontSize(13)
 		if columns.date > 0 {
 			ui.Text(f, i18n.T("分享时间")).Muted().Width(columns.date).FontSize(13)
 		}
-		ui.Row(f).Width(92)
+		ui.Row(f).Width(columns.actions)
 	})
+}
+
+func panelFilterShares(entries []panelShareEntry, query string) []panelShareEntry {
+	if query == "" {
+		return entries
+	}
+	filtered := make([]panelShareEntry, 0, len(entries))
+	for _, entry := range entries {
+		if strings.Contains(strings.ToLower(entry.title), strings.ToLower(query)) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
 }
 
 func panelActionIcon(f ui.C, theme ui.Theme, id gfx.ID, icon gfx.Icon, label string, active, disabled bool) ui.Box {
@@ -197,39 +211,22 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 	selected := p.shareSelected == entry.file.ID
 	menuOpen := p.shareMenu.kind == shareMenuProject && p.shareMenu.project == entry.file.ID
 	canvas := f.Canvas()
-	height := float32(72)
-	if columns.kind > 0 {
-		height = 80
-	}
-	row := ui.Row(f).FillWidth().Height(height).PadX(15).Gap(12).Items(ui.Center).Radius(8).
+	row := ui.Row(f).FillWidth().Height(panelTableRowHeight).PadX(15).Gap(12).Items(ui.Center).Radius(7).
 		Hover(ui.Look{}.Background(theme.Hover)).
-		HitWith(entry.rowID, entry.label, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected})
+		HitWith(entry.rowID, entry.title, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected, Hint: entry.title}).
+		Tooltip(entry.title)
 	if selected || canvas.FocusVisible() == entry.rowID {
 		row.Background(panelAccentSurface(theme)).Stroke(1, panelAccentText(theme))
 	}
 	row.Children(func() {
 		ui.Row(f).MinWidth(0).Grow(1).Gap(13).Items(ui.Center).Children(func() {
 			icon, ink, fill := shareProjectIcon(theme, entry)
-			ui.Row(f).Size(36, 36).Radius(8).Background(fill).Items(ui.Center).Justify(ui.Center).Children(func() {
-				ui.Icon(f, icon).Size(23, 23).Color(ink)
+			ui.Row(f).Size(32, 32).Radius(7).Background(fill).Items(ui.Center).Justify(ui.Center).Children(func() {
+				ui.Icon(f, icon).Size(20, 20).Color(ink)
 			})
-			ui.Column(f).MinWidth(0).Grow(1).Gap(4).Children(func() {
-				ui.Row(f).MinWidth(0).Gap(7).Items(ui.Center).Children(func() {
-					ui.Text(f, entry.title).FontSize(16).Weight(gfx.WeightSemibold).MinWidth(0).Ellipsis()
-					if entry.file.ShareProtected && columns.kind > 0 {
-						panelPill(f, theme, i18n.T("密码保护"), panelAccentText(theme))
-					}
-				})
-				meta := entry.meta
-				if columns.date == 0 {
-					meta = entry.compactMeta
-				}
-				ui.Text(f, meta).Muted().FontSize(12).Ellipsis()
-			})
+			ui.Text(f, entry.title).FontSize(15).Weight(gfx.WeightMedium).MinWidth(0).Ellipsis()
 		})
-		if columns.kind > 0 {
-			ui.Text(f, entry.kind).Width(columns.kind).FontSize(13)
-		}
+		ui.Text(f, entry.meta).Width(columns.size).FontSize(13).Ellipsis()
 		ui.Row(f).Width(columns.access).Gap(7).Items(ui.Center).Children(func() {
 			icon, color := Users, theme.MutedForeground
 			if entry.file.ShareProtected {
@@ -243,7 +240,7 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 		if columns.date > 0 {
 			ui.Text(f, entry.date).Width(columns.date).Muted().FontSize(13).Ellipsis()
 		}
-		ui.Row(f).Width(92).Gap(7).Items(ui.Center).Justify(ui.End).Children(func() {
+		ui.Row(f).Width(columns.actions).Gap(5).Items(ui.Center).Justify(ui.End).Children(func() {
 			if entry.file.ShareURL != "" {
 				if panelActionIcon(f, theme, entry.copyID, Copy, i18n.T("复制链接"), false, false).Clicked() {
 					p.copyShareLink(canvas, entry.file.ShareURL)

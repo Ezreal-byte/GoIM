@@ -669,8 +669,8 @@ func printFileIcon(job domain.PrintJob) gfx.Icon {
 	case strings.Contains(mime, "image"), strings.HasSuffix(ext, ".png"),
 		strings.HasSuffix(ext, ".jpg"), strings.HasSuffix(ext, ".jpeg"):
 		return Image
-		case strings.Contains(mime, "pdf"), strings.HasSuffix(ext, ".pdf"),
-			strings.Contains(mime, "text"), strings.HasSuffix(ext, ".txt"):
+	case strings.Contains(mime, "pdf"), strings.HasSuffix(ext, ".pdf"),
+		strings.Contains(mime, "text"), strings.HasSuffix(ext, ".txt"):
 		return FileText
 	default:
 		return File

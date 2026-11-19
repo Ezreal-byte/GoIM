@@ -28,7 +28,10 @@ type panelSettingsExtra struct {
 	passwordOpen, passwordPending, passwordRefocus, passwordSystem                                      bool
 	passwordRequest                                                                                     uint64
 	passwordTrigger, passwordScope, passwordDismiss, passwordClose, passwordCancel                      gfx.ID
+	interfaceFontSizeDown, interfaceFontSizeReset, interfaceFontSizeUp                                  gfx.ID
 	interfaceFont                                                                                       panelInterfaceFontPicker
+	voiceMicrophoneLevel, voiceSpeakerLevel                                                             panelVoiceLevelState
+	voiceDevices                                                                                        panelVoiceDeviceState
 	autostart                                                                                           panelAutostartState
 	openProfile                                                                                         func()
 	chooseBackground                                                                                    func(*gfx.Canvas)
@@ -175,6 +178,9 @@ func (s *panelSettingsExtra) init(tree *gfx.Tree, scope gfx.Scope) {
 	s.passwordClose = tree.ID(scope, "password-close")
 	s.passwordCancel = tree.ID(scope, "password-cancel")
 	s.interfaceFont.init(tree, scope)
+	s.interfaceFontSizeDown = tree.ID(scope, "interface-font-size-down")
+	s.interfaceFontSizeReset = tree.ID(scope, "interface-font-size-reset")
+	s.interfaceFontSizeUp = tree.ID(scope, "interface-font-size-up")
 	s.resetSecrets()
 }
 

@@ -389,6 +389,23 @@ func TestMainSectionRestoresAndPersistsNavigation(t *testing.T) {
 	}
 }
 
+func TestGlobalInterfaceFontSizeAppliesToShellTheme(t *testing.T) {
+	state := shellTestState(t)
+	state.Settings.InterfaceFontSize = 18
+	harness := newShellTestHarness(t, state)
+	if harness.ui.theme.Metrics.FontSizeM != 18 {
+		t.Fatalf("theme medium font size = %v, want 18", harness.ui.theme.Metrics.FontSizeM)
+	}
+	base := themeForName(state.Settings.Theme)
+	wantSmall := base.Metrics.FontSizeS * 18 / base.Metrics.FontSizeM
+	wantLarge := base.Metrics.FontSizeL * 18 / base.Metrics.FontSizeM
+	if harness.ui.theme.Metrics.FontSizeS != wantSmall || harness.ui.theme.Metrics.FontSizeL != wantLarge {
+		t.Fatalf("scaled font sizes = small %v/%v large %v/%v",
+			harness.ui.theme.Metrics.FontSizeS, wantSmall,
+			harness.ui.theme.Metrics.FontSizeL, wantLarge)
+	}
+}
+
 func TestShellLayoutKeepsRailSidebarAndChatGeometry(t *testing.T) {
 	harness := newShellTestHarness(t, shellTestState(t))
 	snapshot := harness.snapshot()

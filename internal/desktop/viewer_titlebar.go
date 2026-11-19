@@ -29,14 +29,15 @@ func newViewerMenuIDs(tree *gfx.Tree, dialog gfx.Scope) viewerMenuIDs {
 }
 
 func (u *UI) imageViewerConfig() app.Config {
-	colors := paletteFor(themeForName(u.state.Settings.Theme))
+	theme := themeForSettings(u.state.Settings)
+	colors := paletteFor(theme)
 	return app.Config{
 		Tree: &u.tree, Title: i18n.T("GoIM · 图片查看"), Class: "GoIM.Desktop", Icon: windowIcon(),
 		Width: 920, Height: 680, MinWidth: 640, MinHeight: 310,
 		WindowMode: app.WindowCustomTitlebar, TitlebarHeight: viewerTitlebarHeight,
 		ClearColor: colorToApp(colors.chat),
 		WindowControls: func() app.WindowControlsStyle {
-			return windowControlsFor(paletteFor(themeForName(u.state.Settings.Theme)))
+			return windowControlsFor(paletteFor(themeForSettings(u.state.Settings)))
 		},
 		Paint: func(c *gfx.Canvas, size ui.Size) {
 			u.drawImageViewer(c, ui.Rect{Width: size.Width, Height: size.Height}, true)

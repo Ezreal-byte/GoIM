@@ -279,6 +279,18 @@ func (n *Node) execute(c domain.Command) error {
 		n.change(func(s *domain.State) { s.Error = ""; s.Notice = "" })
 	case domain.ReportError:
 		n.change(func(s *domain.State) { s.Error = c.Text })
+	case domain.StartVoiceCall:
+		return n.startVoiceCall(c.PeerID)
+	case domain.AcceptVoiceCall:
+		return n.acceptVoiceCall(c.CallID)
+	case domain.RejectVoiceCall:
+		return n.rejectVoiceCall(c.CallID)
+	case domain.EndVoiceCall:
+		return n.endVoiceCall(c.CallID)
+	case domain.SetVoiceMuted:
+		return n.setVoiceMuted(c.CallID, c.Bool)
+	case domain.SetVoiceSpeakerMuted:
+		return n.setVoiceSpeakerMuted(c.CallID, c.Bool)
 	default:
 		return fmt.Errorf("未知操作 %s", c.Kind)
 	}
@@ -498,10 +510,39 @@ func (n *Node) setting(c domain.Command) error {
 			return errors.New("无效的界面字体")
 		}
 		settings.InterfaceFont = family
+	case "interface_font_size":
+		size, err := strconv.Atoi(strings.TrimSpace(c.Value))
+		if err != nil || size < domain.InterfaceFontSizeMinimum || size > domain.InterfaceFontSizeMaximum {
+			return fmt.Errorf("界面字号须在 %d 到 %d 之间", domain.InterfaceFontSizeMinimum, domain.InterfaceFontSizeMaximum)
+		}
+		settings.InterfaceFontSize = size
 	case "desktop_notifications":
 		settings.DesktopNotifications = c.Bool
 	case "sound":
 		settings.Sound = c.Bool
+	case "voice_microphone", "voice_speaker":
+		value := strings.TrimSpace(c.Value)
+		if len(value) > 512 || strings.IndexFunc(value, func(r rune) bool {
+			return r < 0x20 || r == 0x7f
+		}) >= 0 {
+			return errors.New("无效的音频设备")
+		}
+		if c.Setting == "voice_microphone" {
+			settings.VoiceMicrophone = value
+		} else {
+			settings.VoiceSpeaker = value
+		}
+	case "voice_microphone_volume", "voice_speaker_volume":
+		volume, err := strconv.Atoi(strings.TrimSpace(c.Value))
+		if err != nil || volume < 0 || volume > domain.VoiceVolumeMaximum {
+			return errors.New("语音音量须在 0 到 100 之间")
+		}
+		settings.EnsureVoiceDefaults()
+		if c.Setting == "voice_microphone_volume" {
+			settings.VoiceMicrophoneVolume = volume
+		} else {
+			settings.VoiceSpeakerVolume = volume
+		}
 	case "auto_accept":
 		settings.AutoAccept = c.Bool
 	case "close_to_tray":

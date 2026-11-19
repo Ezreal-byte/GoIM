@@ -77,7 +77,7 @@ func (u *UI) DetachedConfig() app.Config {
 }
 
 func (u *UI) paintDetached(canvas *gfx.Canvas, size ui.Size) {
-	u.theme = themeForName(u.state.Settings.Theme)
+	u.theme = themeForSettings(u.state.Settings)
 	u.palette = paletteFor(u.theme)
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, u.palette.chat)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/vivaui/viva/gfx"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/vivaui/viva/app"
@@ -87,6 +88,8 @@ func (p *Panels) drawSettings(f ui.C, theme ui.Theme, state domain.State, submit
 							p.drawSettingsProfile(f, contentTheme, state, submit)
 						case panelSettingsNotifications:
 							p.drawSettingsNotifications(f, contentTheme, state, submit)
+						case panelSettingsVoice:
+							p.drawSettingsVoice(f, contentTheme, state, submit)
 						case panelSettingsNetwork:
 							p.drawSettingsNetwork(f, contentTheme, state, submit)
 						case panelSettingsTransfers:
@@ -155,6 +158,8 @@ func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme) {
 				icon = Users
 			case panelSettingsNotifications:
 				icon = panelSettingsBellIcon
+			case panelSettingsVoice:
+				icon = Phone
 			case panelSettingsNetwork:
 				icon = Wifi
 			case panelSettingsTransfers:
@@ -193,6 +198,11 @@ func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme) {
 					p.settingsExtra.resetSecrets()
 				}
 				p.settingsTab = tab
+				if tab == panelSettingsVoice && !p.settingsExtra.voiceDevices.known {
+					s := &p.settingsExtra.voiceDevices
+					s.refreshing = true
+					f.After(p.refreshVoiceDevices)
+				}
 			}
 		}
 		ui.Spacer(f)
@@ -212,6 +222,8 @@ func (p *Panels) drawSettingsHeader(f ui.C, theme ui.Theme) {
 		description = i18n.T("设置消息提醒、声音和预览")
 	case panelSettingsNetwork:
 		description = i18n.T("局域网发现、网卡和手动连接")
+	case panelSettingsVoice:
+		description = i18n.T("选择语音通话使用的麦克风和扬声器")
 	case panelSettingsTransfers:
 		description = i18n.T("设置接收方式和文件保存位置")
 	case panelSettingsSecurity:
@@ -255,6 +267,24 @@ func (p *Panels) drawSettingsGeneral(f ui.C, theme ui.Theme, state domain.State,
 			if ui.Choice(f.Part("language"), &language, panelLanguages[:], panelLanguageLabel).FillWidth().Changed() {
 				p.submitString(submit, state, "language", language)
 			}
+		})
+	})
+	p.settingsRow(f, theme, i18n.T("界面字号"), i18n.T("调整 GoIM 全窗口文字大小"), func() {
+		p.settingsControl(f, 190, func() {
+			size := domain.NormalizeInterfaceFontSize(settings.InterfaceFontSize)
+			ui.Row(f).Gap(6).Items(ui.Center).Children(func() {
+				if namedButton(f, p.settingsExtra.interfaceFontSizeDown, "−").Small().Outline().
+					Disabled(size <= domain.InterfaceFontSizeMinimum).Clicked() {
+					p.submitString(submit, state, "interface_font_size", strconv.Itoa(size-1))
+				}
+				if namedButton(f, p.settingsExtra.interfaceFontSizeReset, strconv.Itoa(size)+" pt").Small().Clicked() {
+					p.submitString(submit, state, "interface_font_size", strconv.Itoa(domain.InterfaceFontSizeDefault))
+				}
+				if namedButton(f, p.settingsExtra.interfaceFontSizeUp, "+").Small().Outline().
+					Disabled(size >= domain.InterfaceFontSizeMaximum).Clicked() {
+					p.submitString(submit, state, "interface_font_size", strconv.Itoa(size+1))
+				}
+			})
 		})
 	})
 	p.settingsRow(f, theme, i18n.T("界面字体"), p.interfaceFontDescription(settings), func() {
