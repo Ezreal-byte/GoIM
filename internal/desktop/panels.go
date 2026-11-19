@@ -44,7 +44,9 @@ const (
 type transferFilter uint8
 
 const (
-	panelTransferPending transferFilter = iota
+	panelTransferAll transferFilter = iota
+	panelTransferIncoming
+	panelTransferPending
 	panelTransferFinished
 )
 
@@ -55,7 +57,12 @@ const (
 	panelSharesRemote
 )
 
-var transferFilters = [...]transferFilter{panelTransferPending, panelTransferFinished}
+var transferFilters = [...]transferFilter{
+	panelTransferAll,
+	panelTransferIncoming,
+	panelTransferPending,
+	panelTransferFinished,
+}
 var shareFilters = [...]shareFilter{panelSharesMine, panelSharesRemote}
 
 var (
@@ -107,6 +114,8 @@ type panelIDs struct {
 
 	transferActions     gfx.Scope
 	transferDirectory   gfx.ID
+	transferSearch      gfx.ID
+	shareSearch         gfx.ID
 	transferMenuScope   gfx.ID
 	transferMenuDismiss gfx.ID
 	transferMenuCopy    gfx.ID
@@ -186,12 +195,12 @@ type panelLocalAction struct {
 }
 
 type panelTransferEntry struct {
-	transfer                            domain.Transfer
-	ids                                 transferActionIDs
-	name, peer, status, meta, err, path string
-	progress, percent, fileKind         string
-	fraction                            float32
-	updated                             time.Time
+	transfer                                  domain.Transfer
+	ids                                       transferActionIDs
+	name, peer, status, meta, err, path, size string
+	progress, percent, fileKind               string
+	fraction                                  float32
+	updated                                   time.Time
 
 	accept bool
 	saveAs bool
@@ -206,12 +215,17 @@ type panelShareEntry struct {
 	file                                                    domain.File
 	rowID, copyID, moreID                                   gfx.ID
 	title, label, kind, date, access, compactMeta, iconKind string
+	size                                                    string
 	sender                                                  string
 	meta                                                    string
 	state                                                   string
 	own                                                     bool
 	path                                                    string
 	available                                               bool
+}
+
+type panelTableColumns struct {
+	name, peer, size, status, access, date, actions float32
 }
 
 type panelPendingKind uint8
@@ -262,10 +276,13 @@ type Panels struct {
 	transferAnchor     ui.Box
 	transferMenuEntry  *panelTransferEntry
 	transferPickerOpen bool
+	transferSearch     ui.Field
+	transferRows       []panelTransferEntry
 	shareFilter        shareFilter
 	shareAnchor        ui.Box
 	shareSelected      string
 	sharePickerOpen    bool
+	shareSearch        ui.Field
 	shareToast         shareToastState
 	lastShareFeedback  uint64
 
@@ -292,7 +309,7 @@ type Panels struct {
 	transferIncoming      []panelTransferEntry
 	transferPending       []panelTransferEntry
 	transferFinished      []panelTransferEntry
-	transferLabels        [2]string
+	transferLabels        [4]string
 	transferIncomingLabel string
 	sharesAll             []panelShareEntry
 	sharesMine            []panelShareEntry
@@ -378,6 +395,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	transfers := tree.Feature("transfers-panel")
 	p.ids.transferActions = tree.Sub(transfers, tree.Name("task"))
 	p.ids.transferDirectory = tree.ID(transfers, "receive-directory")
+	p.ids.transferSearch = tree.ID(transfers, "search")
 	p.ids.transferMenuScope = tree.ID(transfers, "action-menu")
 	p.ids.transferMenuDismiss = tree.ID(transfers, "action-menu-dismiss")
 	p.ids.transferMenuCopy = tree.ID(transfers, "copy-file-name")
@@ -386,6 +404,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 
 	shares := tree.Feature("shares-panel")
 	p.ids.sharesFeature = shares
+	p.ids.shareSearch = tree.ID(shares, "search")
 	p.ids.sharesRefresh = tree.ID(shares, "refresh")
 	p.ids.sharesAdd = tree.ID(shares, "add")
 	p.ids.sharePickFiles = tree.ID(shares, "pick-files")
@@ -739,11 +758,26 @@ func (p *Panels) rebuildTransfers(state domain.State) {
 			p.transferPending = append(p.transferPending, entry)
 		}
 	}
+	p.refreshTransferRows()
+}
+
+func (p *Panels) refreshTransferRows() {
+	p.transferRows = p.transferRows[:0]
+	for _, group := range [][]panelTransferEntry{
+		p.transferIncoming,
+		p.transferPending,
+		p.transferFinished,
+	} {
+		p.transferRows = append(p.transferRows, group...)
+	}
+	sort.SliceStable(p.transferRows, func(i, j int) bool { return p.transferRows[i].updated.After(p.transferRows[j].updated) })
 	for _, entries := range [][]panelTransferEntry{p.transferIncoming, p.transferPending, p.transferFinished} {
 		sort.SliceStable(entries, func(i, j int) bool { return entries[i].updated.After(entries[j].updated) })
 	}
 	p.transferIncomingLabel = fmt.Sprintf(i18n.T("待接收 %d"), len(p.transferIncoming))
-	p.transferLabels = [2]string{
+	p.transferLabels = [4]string{
+		fmt.Sprintf(i18n.T("全部 %d"), len(p.transferRows)),
+		fmt.Sprintf(i18n.T("待接收 %d"), len(p.transferIncoming)),
 		fmt.Sprintf(i18n.T("传输中 %d"), len(p.transferPending)),
 		fmt.Sprintf(i18n.T("已结束 %d"), len(p.transferFinished)),
 	}
@@ -781,6 +815,7 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer) panelTrans
 		direction = fmt.Sprintf(i18n.T("%s 发来"), name)
 	}
 	size := panelFormatBytes(transfer.Size)
+	entry.size = size
 	entry.meta = direction + " · " + size
 	if panelTransferIsFinished(transfer.Status) && !transfer.UpdatedAt.IsZero() {
 		entry.meta += " · " + transfer.UpdatedAt.Local().Format("2006-01-02 15:04")

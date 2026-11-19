@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/vivaui/viva/gfx"
 	"net"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
+	"goim/internal/i18n"
 )
 
 type panelTestHarness struct {
@@ -242,6 +244,14 @@ func (h *panelTestHarness) findText(value string) (gfx.Text, bool) {
 		}
 	}
 	return gfx.Text{}, false
+}
+
+func (h *panelTestHarness) typeInto(id gfx.ID, value string) {
+	h.t.Helper()
+	h.click(id)
+	if err := h.driver.Type(value); err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 func TestTransferAndShareTabsUseTheSameFontSize(t *testing.T) {
@@ -738,21 +748,23 @@ func TestPanelTransfersSubmitActionsAndOpenCompletedFiles(t *testing.T) {
 	if err := h.driver.QueueSaveFile(savePath, nil); err != nil {
 		t.Fatal(err)
 	}
+	var command domain.Command
+	h.click(incoming.ids.accept)
+	command = h.requireLastCommand()
+	if command.Kind != domain.AcceptTransfer || command.TransferID != "receive-offer" || len(command.Paths) != 0 {
+		t.Fatalf("accept command = %+v", command)
+	}
+
+	h.clearCommands()
+	h.click(incoming.ids.more)
 	h.click(incoming.ids.saveAs)
-	command := h.requireLastCommand()
+	command = h.requireLastCommand()
 	if command.Kind != domain.AcceptTransfer || command.TransferID != "receive-offer" ||
 		len(command.Paths) != 1 || command.Paths[0] != savePath {
 		t.Fatalf("save-as command = %+v", command)
 	}
 	if request, ok := h.driver.LastSaveFileRequest(); !ok || request.SuggestedName != "report.txt" {
 		t.Fatalf("save picker request = %+v, observed %v", request, ok)
-	}
-
-	h.clearCommands()
-	h.click(incoming.ids.accept)
-	command = h.requireLastCommand()
-	if command.Kind != domain.AcceptTransfer || command.TransferID != "receive-offer" || len(command.Paths) != 0 {
-		t.Fatalf("accept command = %+v", command)
 	}
 
 	h.clearCommands()
@@ -776,9 +788,6 @@ func TestPanelTransfersSubmitActionsAndOpenCompletedFiles(t *testing.T) {
 	}
 	if h.panels.transferFilter != panelTransferFinished {
 		t.Fatal("Right arrow did not select the completed transfer tab")
-	}
-	if !h.hasText("report.txt") {
-		t.Fatal("incoming requests were hidden while viewing the history")
 	}
 	completedIndex := panelTestTransferIndex(h.panels.transferFinished, "completed")
 	failedIndex := panelTestTransferIndex(h.panels.transferFinished, "failed")
@@ -804,6 +813,116 @@ func TestPanelTransfersSubmitActionsAndOpenCompletedFiles(t *testing.T) {
 	command = h.requireLastCommand()
 	if command.Kind != domain.RetryTransfer || command.TransferID != "failed" {
 		t.Fatalf("retry command = %+v", command)
+	}
+}
+
+func TestPanelTransferAndShareTablesSearchFilterLongNamesAndThemes(t *testing.T) {
+	now := time.Now()
+	longName := "北岭计划 · 跨部门交付资料与最终验收清单第一版修改稿.xlsx"
+	state := panelTestDefaultState(t)
+	state.Peers = []domain.Peer{{ID: "peer-a", Name: "林晚"}}
+	state.Transfers = []domain.Transfer{
+		{ID: "long", PeerID: "peer-a", Direction: "receive", Status: "offered", Name: longName, Size: 100, UpdatedAt: now},
+		{ID: "short", PeerID: "peer-a", Direction: "receive", Status: "completed", Name: "设计规范_v2.1.pdf", Size: 200, Done: 200, UpdatedAt: now.Add(-time.Minute)},
+		{ID: "active", PeerID: "peer-a", Direction: "send", Status: "transferring", Name: "项目素材包.zip", Size: 1000, Done: 300, Speed: 100, UpdatedAt: now.Add(-2 * time.Minute)},
+		{ID: "failed", PeerID: "peer-a", Direction: "receive", Status: "failed", Name: "failed.zip", Error: "源文件不可用", UpdatedAt: now.Add(-3 * time.Minute)},
+	}
+	for index := range 60 {
+		state.Transfers = append(state.Transfers, domain.Transfer{
+			ID: fmt.Sprintf("history-%d", index), PeerID: "peer-a", Direction: "receive",
+			Status: "completed", Name: fmt.Sprintf("归档文件-%02d.zip", index), Size: 1000, Done: 1000,
+			UpdatedAt: now.Add(time.Duration(index+3) * -time.Minute),
+		})
+	}
+	state.Files = []domain.File{
+		{ID: "share-long", Name: longName, Size: 100, SenderID: "self", Shared: true, CreatedAt: now},
+		{ID: "share-other", Name: "品牌资产库.zip", Size: 200, SenderID: "peer-a", Shared: true, CreatedAt: now.Add(-time.Minute)},
+	}
+	state.Revision = 2
+
+	h := panelTestNewHarnessBounds(t, panelModuleTransfers, state, ui.Rect{X: 68, Y: 0, Width: 1372, Height: 620})
+	h.requireLayout()
+	if len(h.panels.transferRows) != 64 || len(h.panels.transferIncoming) != 1 ||
+		len(h.panels.transferPending) != 1 || len(h.panels.transferFinished) != 62 {
+		t.Fatalf("transfer list groups: total=%d incoming=%d active=%d finished=%d",
+			len(h.panels.transferRows), len(h.panels.transferIncoming), len(h.panels.transferPending), len(h.panels.transferFinished))
+	}
+	if !h.hasText(longName) || !h.hasText("30%") {
+		t.Fatal("long transfer name or progress is not visible")
+	}
+	h.typeInto(h.panels.ids.transferSearch, "设计规范")
+	if !h.hasText("设计规范_v2.1.pdf") || h.hasText("项目素材包.zip") {
+		t.Fatal("transfer search did not filter by file name")
+	}
+	h.panels.transferSearch.SetText("")
+	h.publish(state)
+	h.clickLabelRole(h.panels.transferLabels[panelTransferIncoming], gfx.RoleTab)
+	if !h.hasText(longName) || h.hasText("归档文件-59.zip") {
+		t.Fatal("incoming filter is not exclusive")
+	}
+	h.panels.transferSearch.SetText("")
+	h.clickLabelRole(h.panels.transferLabels[panelTransferFinished], gfx.RoleTab)
+	h.theme = ui.DarkTheme()
+	h.publish(state)
+	h.requireLayout()
+	if !h.hasText("文件名") || !h.hasText("状态") {
+		t.Fatal("dark transfer table is incomplete")
+	}
+
+	h.showModule(panelModuleShares)
+	h.requireLayout()
+	if len(h.panels.sharesAll) != 2 || len(h.panels.sharesMine) != 1 {
+		t.Fatalf("share rows: all=%d mine=%d", len(h.panels.sharesAll), len(h.panels.sharesMine))
+	}
+	if !h.hasText(longName) {
+		t.Fatal("share table is incomplete")
+	}
+	h.typeInto(h.panels.ids.shareSearch, "品牌")
+	if !h.hasText("暂无共享文件") {
+		t.Fatal("share search did not filter by file name")
+	}
+	h.panels.shareSearch.SetText("")
+	h.publish(state)
+	h.theme = ui.LightTheme()
+	h.publish(state)
+	h.requireLayout()
+	if !h.hasText("名称") || !h.hasText("分享时间") {
+		t.Fatal("light share table is incomplete")
+	}
+}
+
+func TestPanelFileTablesLocalizeEnglishChrome(t *testing.T) {
+	previous := i18n.Language()
+	i18n.SetLanguage(i18n.English)
+	t.Cleanup(func() { i18n.SetLanguage(previous) })
+
+	now := time.Now()
+	state := panelTestDefaultState(t)
+	state.Transfers = []domain.Transfer{
+		{ID: "offer", Direction: "receive", Status: "offered", Name: "release.zip", Size: 10, UpdatedAt: now},
+		{ID: "failed", Direction: "receive", Status: "failed", Name: "missing.zip", Error: "源文件不可用", UpdatedAt: now.Add(-time.Minute)},
+	}
+	state.Files = []domain.File{{
+		ID: "share", Name: "release.zip", Size: 10, SenderID: "self", Shared: true, CreatedAt: now,
+	}}
+	state.Revision = 2
+
+	h := panelTestNewHarness(t, panelModuleTransfers, state)
+	for _, label := range []string{"All 2", "Awaiting acceptance 1", "In progress 0", "Finished 1",
+		"File name", "Peer", "Size", "Search files"} {
+		if !h.hasText(label) {
+			t.Fatalf("English transfer UI is missing %q", label)
+		}
+	}
+	if !h.hasText("Failed · Source file unavailable") {
+		t.Fatal("English transfer UI does not show the failed-transfer reason")
+	}
+
+	h.showModule(panelModuleShares)
+	for _, label := range []string{"Size · Items", "Access", "Date shared", "Search files"} {
+		if !h.hasText(label) {
+			t.Fatalf("English share UI is missing %q", label)
+		}
 	}
 }
 
@@ -849,13 +968,13 @@ func TestPanelSharesAddFilterGetRemoveAndOpen(t *testing.T) {
 	if _, ok := h.findHit(h.panels.ids.shareMenuGet); ok {
 		t.Fatal("own share was rendered with a remote-only Get action")
 	}
-	h.click(h.panels.shareEntriesForTest()[0].moreID)
+	h.click(h.panels.sharesMine[0].moreID)
 	h.click(h.panels.ids.shareMenuOpen)
 	h.waitMedia()
 	if path, ok := h.driver.LastOpenedPath(); !ok || path != ownPath {
 		t.Fatalf("opened share path = %q, observed %v", path, ok)
 	}
-	h.click(h.panels.shareEntriesForTest()[0].moreID)
+	h.click(h.panels.sharesMine[0].moreID)
 	h.click(h.panels.ids.shareMenuFolder)
 	h.waitMedia()
 	if path, ok := h.driver.LastRevealedPath(); !ok || path != ownPath {
@@ -941,7 +1060,7 @@ func TestPanelSharesUseWakeCachedTransferPathsAndUnavailableOwnFiles(t *testing.
 	}
 
 	h.clickLabelRole(h.panels.shareLabels[panelSharesRemote], gfx.RoleTab)
-	h.click(h.panels.shareEntriesForTest()[0].moreID)
+	h.click(h.panels.sharesRemote[0].moreID)
 	h.click(h.panels.ids.shareMenuOpen)
 	h.waitMedia()
 	if path, ok := h.driver.LastOpenedPath(); !ok || path != latestPath {
@@ -959,7 +1078,7 @@ func TestPanelSharesUseWakeCachedTransferPathsAndUnavailableOwnFiles(t *testing.
 	if err := os.Remove(latestPath); err != nil {
 		t.Fatal(err)
 	}
-	h.click(h.panels.shareEntriesForTest()[0].moreID)
+	h.click(h.panels.sharesRemote[0].moreID)
 	h.click(h.panels.ids.shareMenuFolder)
 	h.waitMedia()
 	if path, ok := h.driver.LastRevealedPath(); ok {
@@ -980,11 +1099,4 @@ func TestPanelSharesUseWakeCachedTransferPathsAndUnavailableOwnFiles(t *testing.
 		t.Fatal(err)
 	}
 	h.requireLayout()
-}
-
-func (p *Panels) shareEntriesForTest() []panelShareEntry {
-	if p.shareFilter == panelSharesRemote {
-		return p.sharesRemote
-	}
-	return p.sharesMine
 }
