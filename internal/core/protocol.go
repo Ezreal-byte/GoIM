@@ -42,6 +42,7 @@ type envelope struct {
 	Target          string
 	Proof           domain.Ownership
 	Avatar          []byte
+	GroupAvatar     []byte
 	Peers           []domain.Peer
 }
 type peerConn struct {

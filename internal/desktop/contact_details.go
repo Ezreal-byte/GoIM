@@ -39,7 +39,7 @@ func (u *UI) contactGroupRow(f ui.C, c domain.Conversation) {
 		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(u.convRowIDs[c.ID], group.Name, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
-			u.initialsAvatar(f, group.Name, 34)
+			u.avatarWithPresence(f, group.Name, group.Avatar, 34, false, false, ui.Color{})
 			ui.Column(f).Grow(1).Gap(2).Children(func() {
 				ui.Text(f, group.Name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
 				ui.Text(f, intString(len(group.Members))+" "+i18n.T("位成员")).FontSize(11).Muted()
@@ -259,7 +259,7 @@ func (u *UI) contactProfileFacts(f ui.C, peer domain.Peer, group domain.Group, a
 
 func (u *UI) drawContactGroupProfile(f ui.C, group domain.Group, compact bool) {
 	ui.Row(f).FillWidth().Items(ui.Center).Gap(13).Children(func() {
-		u.initialsAvatar(f, group.Name, 62)
+		u.avatarWithPresence(f, group.Name, group.Avatar, 62, false, false, ui.Color{})
 		ui.Column(f).Grow(1).Gap(5).Children(func() {
 			ui.Text(f, group.Name).FontSize(22).Weight(gfx.WeightSemibold).Ellipsis()
 			ui.Text(f, intString(len(group.Members))+" "+i18n.T("位成员")).FontSize(12).Muted()

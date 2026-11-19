@@ -43,6 +43,9 @@ func verifyGroup(g domain.Group) bool {
 	if g.Transport != domain.TransportGoIM || len(g.RootKey) != ed25519.PublicKeySize || g.ID != groupID(g.RootKey, g.Nonce) || len(g.Members) > 256 || utf8.RuneCountInString(g.Name) > 30 {
 		return false
 	}
+	if g.AvatarHash != "" && !validGroupAvatarHash(g.AvatarHash) {
+		return false
+	}
 	key := g.RootKey
 	epoch := uint64(0)
 	for _, p := range g.Ownership {
@@ -109,11 +112,14 @@ func installGroupState(s *domain.State, g domain.Group) {
 func groupDeliveries(s domain.State, g domain.Group, extra ...string) []pending {
 	var out []pending
 	var ids []string
+	avatar := groupAvatarBytes(g)
 	all := append(append(append([]string(nil), g.Members...), g.Pending...), extra...)
 	for _, id := range all {
 		if id != "" && id != s.Self.ID && !contains(ids, id) {
 			ids = append(ids, id)
-			out = append(out, pending{PeerID: id, Envelope: envelope{Type: "group_state", Group: g, Peers: groupPeers(s, g)}})
+			out = append(out, pending{PeerID: id, Envelope: envelope{
+				Type: "group_state", Group: g, GroupAvatar: avatar, Peers: groupPeers(s, g),
+			}})
 		}
 	}
 	return out
@@ -188,7 +194,10 @@ func (n *Node) broadcastGroup(g domain.Group) {
 }
 func invitationDelivery(s domain.State, g domain.Group, peer string) (domain.Invitation, pending) {
 	v := domain.Invitation{ID: newID(), GroupID: g.ID, GroupName: g.Name, FromID: s.Self.ID, FromName: s.Self.Name, ToID: peer, Kind: "join", Status: "pending", CreatedAt: time.Now()}
-	return v, pending{PeerID: peer, Envelope: envelope{Type: "group_invite", Group: g, Invitation: v, Peers: groupPeers(s, g)}}
+	return v, pending{PeerID: peer, Envelope: envelope{
+		Type: "group_invite", Group: g, GroupAvatar: groupAvatarBytes(g),
+		Invitation: v, Peers: groupPeers(s, g),
+	}}
 }
 func (n *Node) createGroup(name string, ids []string) error {
 	n.groupMu.Lock()
@@ -362,6 +371,12 @@ func (n *Node) manageGroup(c domain.Command) error {
 			}
 			return n.renameNativeGroup(g, s.Self.ID, name)
 		}
+		if c.Kind == domain.SetGroupAvatar {
+			if g.OwnerID != s.Self.ID {
+				return errors.New("只有群主可以执行此操作")
+			}
+			return n.setNativeGroupAvatar(g, c)
+		}
 		return errors.New("内网通群不支持这个管理操作")
 	}
 	if c.Kind == domain.LeaveGroup {
@@ -397,6 +412,12 @@ func (n *Node) manageGroup(c domain.Command) error {
 			return errors.New("群名需为 1 至 30 个字符")
 		}
 		g.Name = name
+	case domain.SetGroupAvatar:
+		path, hash, _, err := n.prepareGroupAvatar(c)
+		if err != nil {
+			return err
+		}
+		g.Avatar, g.AvatarHash, g.AvatarMD5 = path, hash, ""
 	case domain.RemoveMember, domain.WithdrawInvite:
 		if c.PeerID == "" {
 			for _, v := range s.Invitations {
@@ -434,7 +455,9 @@ func (n *Node) manageGroup(c domain.Command) error {
 			p.OwnerOffers[inv.ID] = ownershipOffer{PeerID: target.ID, GroupID: g.ID, Stage: "offered", CreatedAt: time.Now()}
 			p.State.Invitations = append(p.State.Invitations, inv)
 			p.State.Notice = "已发送群主转让请求"
-			return append(out, pending{PeerID: target.ID, Envelope: envelope{Type: "ownership_offer", Group: g, Invitation: inv}})
+			return append(out, pending{PeerID: target.ID, Envelope: envelope{
+				Type: "ownership_offer", Group: g, GroupAvatar: groupAvatarBytes(g), Invitation: inv,
+			}})
 		})
 	default:
 		return errors.New("未知群管理操作")
@@ -468,6 +491,13 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 		}
 		if old := s.Group(g.ID); old.ID != "" && !extendsOwnership(old, g) {
 			return errors.New("群主历史不能回退或分叉")
+		}
+		if g.AvatarHash != "" {
+			var err error
+			g, err = n.prepareReceivedGroupAvatar(g, e.GroupAvatar)
+			if err != nil {
+				return err
+			}
 		}
 		if err := n.durable(func(p *persisted) []pending {
 			installGroupState(&p.State, g)
@@ -573,6 +603,13 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 			if !extendsOwnership(old, g) {
 				return errors.New("群主历史不能回退或分叉")
 			}
+			if g.AvatarHash != "" {
+				var err error
+				g, err = n.prepareReceivedGroupAvatar(g, e.GroupAvatar)
+				if err != nil {
+					return err
+				}
+			}
 			if err := n.durable(func(p *persisted) []pending {
 				installGroupState(&p.State, g)
 				for id, v := range p.OwnerOffers {
@@ -658,7 +695,9 @@ func (n *Node) receiveGroup(peer string, e envelope) error {
 					p.State.Invitations[i].Status = "accepted"
 				}
 			}
-			return []pending{{PeerID: peer, Envelope: envelope{Type: "group_state", Group: g, Proof: proof}}}
+			return []pending{{PeerID: peer, Envelope: envelope{
+				Type: "group_state", Group: g, GroupAvatar: groupAvatarBytes(g), Proof: proof,
+			}}}
 		}); err != nil {
 			return err
 		}

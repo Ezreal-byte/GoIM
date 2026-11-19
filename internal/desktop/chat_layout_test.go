@@ -14,9 +14,10 @@ import (
 )
 
 type testWindowGeometry struct {
-	frame ui.Rect
-	sizes [][2]int
-	err   error
+	frame   ui.Rect
+	sizes   [][2]int
+	err     error
+	topmost bool
 }
 
 func (window *testWindowGeometry) Frame() (ui.Rect, bool) {
@@ -29,6 +30,37 @@ func (window *testWindowGeometry) SetSize(width, height int) error {
 		window.frame.Width, window.frame.Height = float32(width), float32(height)
 	}
 	return window.err
+}
+
+func (window *testWindowGeometry) SetAlwaysOnTop(enabled bool) error {
+	if window.err != nil {
+		return window.err
+	}
+	window.topmost = enabled
+	return nil
+}
+
+func (window *testWindowGeometry) AlwaysOnTop() bool {
+	return window.topmost
+}
+
+func TestMainTitlebarPinUsesNativeAlwaysOnTop(t *testing.T) {
+	harness := newChatSurfaceHarness(t, shellTestState(t), 1000, 700)
+	window := &testWindowGeometry{frame: ui.Rect{Width: 1000, Height: 700}}
+	harness.ui.attachNativeWindow(window)
+	harness.settle()
+
+	if !harness.hasHit(harness.ui.ids.mainPin) {
+		t.Fatal("main window pin is missing from the titlebar")
+	}
+	harness.clickID(harness.ui.ids.mainPin)
+	if !window.topmost || !harness.ui.mainPinned {
+		t.Fatalf("main pin state = native:%v ui:%v", window.topmost, harness.ui.mainPinned)
+	}
+	harness.clickID(harness.ui.ids.mainPin)
+	if window.topmost || harness.ui.mainPinned {
+		t.Fatalf("main pin did not toggle off: native:%v ui:%v", window.topmost, harness.ui.mainPinned)
+	}
 }
 
 // chatSurfaceConfig drives drawMainBody, the splitter hooks and the viewer hooks

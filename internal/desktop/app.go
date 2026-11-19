@@ -209,6 +209,8 @@ type appIDs struct {
 	chatImage                                                              gfx.ID
 	chatFile                                                               gfx.ID
 	chatEmoji                                                              gfx.ID
+	chatEditorField                                                        gfx.ID
+	mainPin                                                                gfx.ID
 	chatHeaderFile                                                         gfx.ID
 	chatHeaderSearch                                                       gfx.ID
 	chatHeaderMembers                                                      gfx.ID
@@ -301,6 +303,7 @@ type appIDs struct {
 	memberScope          gfx.ID
 	memberDismiss        gfx.ID
 	memberClose          gfx.ID
+	memberAvatar         gfx.ID
 	memberSearch         gfx.ID
 	memberInvite         gfx.ID
 	memberStartRename    gfx.ID
@@ -321,6 +324,16 @@ type appIDs struct {
 	memberProfileTalk    gfx.ID
 	memberMuteToggle     gfx.ID
 	memberPinToggle      gfx.ID
+	groupAvatarScope     gfx.ID
+	groupAvatarDismiss   gfx.ID
+	groupAvatarClose     gfx.ID
+	groupAvatarCanvas    gfx.ID
+	groupAvatarZoom      gfx.ID
+	groupAvatarOut       gfx.ID
+	groupAvatarIn        gfx.ID
+	groupAvatarRemove    gfx.ID
+	groupAvatarCancel    gfx.ID
+	groupAvatarConfirm   gfx.ID
 
 	fileScope       gfx.ID
 	fileDismiss     gfx.ID
@@ -450,10 +463,13 @@ type UI struct {
 	focusedID      gfx.ID
 	titleLeading   float32
 	titleTrailing  float32
+	mainPinned     bool
 	lastBody       ui.Rect
 	lastChat       ui.Rect
 	lastDialogBody ui.Rect
 	profile        profileState
+	groupAvatar    profileAvatarCropState
+	avatarGroup    string
 	filePickerOpen bool
 	nativeWindow   windowGeometry
 
@@ -599,7 +615,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 		backend:             backend,
 		theme:               ui.LightTheme(),
 		done:                make(chan struct{}),
-		section:             sectionMessages,
+		section:             sectionContacts,
 		collapsed:           make(map[string]bool),
 		chatEditor:          text.NewEditor(""),
 		drafts:              make(map[string]string),
@@ -734,6 +750,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.panels.shareQRWorker.setNotify(u.invalidator.Invalidate)
 	if backend != nil {
 		u.refresh()
+		u.section = restoreMainSection(u.state.Settings.LastSection)
 		u.recentEmoji = append([]string(nil), u.state.Settings.RecentEmoji...)
 		u.queueMediaJobs()
 		if watch {
@@ -963,6 +980,7 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 				u.cacheAvatarBitmap(result.path)
 			}
 			u.syncProfileAvatarCrop(result.path)
+			u.syncGroupAvatarCrop(result.path)
 			if u.profile.open && u.profile.avatar == result.path {
 				if _, ok := u.imageCache[result.path]; ok {
 					u.profile.err = ""
@@ -977,6 +995,9 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 			delete(u.avatarCache, result.path)
 			if u.profile.crop.open && u.profile.crop.source == result.path {
 				u.profile.crop.err = i18n.T("无法读取这张图片")
+			}
+			if u.groupAvatar.open && u.groupAvatar.source == result.path {
+				u.groupAvatar.err = i18n.T("无法读取这张图片")
 			}
 			if u.profile.open && u.profile.avatar == result.path {
 				u.profile.err = i18n.T("无法读取这张图片")
@@ -993,6 +1014,7 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 			u.cacheAvatarBitmap(result.path)
 		}
 		u.syncProfileAvatarCrop(result.path)
+		u.syncGroupAvatarCrop(result.path)
 		if u.profile.open && u.profile.avatar == result.path {
 			u.profile.err = ""
 		}
@@ -1030,7 +1052,7 @@ func (u *UI) markSelectedConversationRead() {
 
 func (u *UI) modalOpen() bool {
 	return u.confirm.open || u.compose.open || u.connectOpen || u.updateOpen ||
-		u.profile.open || u.memberProfile != "" || u.organize.open ||
+		u.profile.open || u.groupAvatar.open || u.memberProfile != "" || u.organize.open ||
 		u.shellMenu.open || u.lockVisible()
 }
 
@@ -1105,6 +1127,8 @@ func (u *UI) initIDs() {
 	u.ids.chatImage = u.tree.ID(u.ids.chat, "send-image")
 	u.ids.chatFile = u.tree.ID(u.ids.chat, "send-file")
 	u.ids.chatEmoji = u.tree.ID(u.ids.chat, "emoji")
+	u.ids.chatEditorField = u.tree.ID(u.ids.chat, "composer-editor")
+	u.ids.mainPin = u.tree.ID(u.ids.page, "main-pin")
 	u.ids.chatHeaderSearch = u.tree.ID(u.ids.chat, "header-search")
 	u.ids.chatHeaderFile = u.tree.ID(u.ids.chat, "header-files")
 	u.ids.chatHeaderMembers = u.tree.ID(u.ids.chat, "header-members")
@@ -1191,6 +1215,7 @@ func (u *UI) initIDs() {
 	u.ids.memberScope = u.tree.ID(u.ids.dialog, "member-scope")
 	u.ids.memberDismiss = u.tree.ID(u.ids.dialog, "member-dismiss")
 	u.ids.memberClose = u.tree.ID(u.ids.dialog, "member-close")
+	u.ids.memberAvatar = u.tree.ID(u.ids.dialog, "member-avatar")
 	u.ids.memberSearch = u.tree.ID(u.ids.dialog, "member-search")
 	u.ids.memberInvite = u.tree.ID(u.ids.dialog, "member-invite")
 	u.ids.memberStartRename = u.tree.ID(u.ids.dialog, "member-start-rename")
@@ -1211,6 +1236,16 @@ func (u *UI) initIDs() {
 	u.ids.memberProfileTalk = u.tree.ID(u.ids.dialog, "member-profile-message")
 	u.ids.memberMuteToggle = u.tree.ID(u.ids.dialog, "member-mute")
 	u.ids.memberPinToggle = u.tree.ID(u.ids.dialog, "member-pin")
+	u.ids.groupAvatarScope = u.tree.ID(u.ids.dialog, "group-avatar-crop-scope")
+	u.ids.groupAvatarDismiss = u.tree.ID(u.ids.dialog, "group-avatar-crop-dismiss")
+	u.ids.groupAvatarClose = u.tree.ID(u.ids.dialog, "group-avatar-crop-close")
+	u.ids.groupAvatarCanvas = u.tree.ID(u.ids.dialog, "group-avatar-crop-canvas")
+	u.ids.groupAvatarZoom = u.tree.ID(u.ids.dialog, "group-avatar-crop-zoom")
+	u.ids.groupAvatarOut = u.tree.ID(u.ids.dialog, "group-avatar-crop-zoom-out")
+	u.ids.groupAvatarIn = u.tree.ID(u.ids.dialog, "group-avatar-crop-zoom-in")
+	u.ids.groupAvatarRemove = u.tree.ID(u.ids.dialog, "group-avatar-crop-remove")
+	u.ids.groupAvatarCancel = u.tree.ID(u.ids.dialog, "group-avatar-crop-cancel")
+	u.ids.groupAvatarConfirm = u.tree.ID(u.ids.dialog, "group-avatar-crop-confirm")
 
 	u.ids.fileScope = u.tree.ID(u.ids.dialog, "file-scope")
 	u.ids.fileDismiss = u.tree.ID(u.ids.dialog, "file-dismiss")
@@ -1290,7 +1325,7 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 		return
 	}
 	canvas.Fill(bounds, u.palette.rail)
-	var brand, status ui.Box
+	var brand, status, pin ui.Box
 	u.titlePage.Draw(canvas, bounds, func(f ui.C) {
 		ui.Row(f).Fill().MovesWindow().
 			PadSides(0, u.titleTrailing+14, 0, u.titleLeading+20).
@@ -1301,11 +1336,46 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 			ui.Spacer(f)
 			u.drawUpdateTitlebar(f, bounds.Width >= 650)
 			status = u.drawLANStatus(f, bounds.Width >= 480)
+			pinLabel := i18n.T("窗口置顶")
+			if u.mainPinned {
+				pinLabel = i18n.T("取消窗口置顶")
+			}
+			pin = u.iconButton(f, u.ids.mainPin, u.iconPin, pinLabel, 30)
+			if u.mainPinned {
+				pin = pin.Background(u.palette.selected)
+			}
 		})
 	})
 	paintGoIMMark(canvas, brand.Rect(), titleMark)
 	u.lanAnchor = status.Rect()
+	if pin.Clicked() {
+		u.toggleMainPinned()
+	}
 	canvas.Fill(ui.Rect{X: bounds.X, Y: bounds.Y + bounds.Height - 1, Width: bounds.Width, Height: 1}, u.palette.border)
+}
+
+func restoreMainSection(section string) string {
+	switch section {
+	case sectionMessages, sectionContacts, sectionTransfers, sectionShares, sectionSettings:
+		return section
+	default:
+		return sectionContacts
+	}
+}
+
+func (u *UI) toggleMainPinned() {
+	pinner, ok := u.nativeWindow.(interface{ SetAlwaysOnTop(bool) error })
+	if !ok {
+		u.showToast(i18n.T("无法更改主窗口置顶"), i18n.T("当前系统不支持窗口置顶。"), components.ToastWarning)
+		return
+	}
+	next := !u.mainPinned
+	if err := pinner.SetAlwaysOnTop(next); err != nil {
+		u.showToast(i18n.T("无法更改主窗口置顶"), err.Error(), components.ToastWarning)
+		return
+	}
+	u.mainPinned = next
+	u.invalidator.Invalidate()
 }
 
 func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
@@ -1481,9 +1551,13 @@ func (u *UI) iconButton(f ui.C, id gfx.ID, icon gfx.Icon, label string, size flo
 }
 
 func (u *UI) sizedIconButton(f ui.C, id gfx.ID, icon gfx.Icon, label string, size, glyph float32) ui.Box {
+	return u.sizedIconButtonWithHint(f, id, icon, label, label, size, glyph)
+}
+
+func (u *UI) sizedIconButtonWithHint(f ui.C, id gfx.ID, icon gfx.Icon, label, hint string, size, glyph float32) ui.Box {
 	return ui.Row(f).Size(size, size).Radius(8).Items(ui.Center).Justify(ui.Center).
 		Hover(ui.Look{}.Background(u.palette.hover)).
-		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: label}).
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: hint}).
 		Children(func() {
 			ui.Icon(f, icon).Size(glyph, glyph).Color(u.palette.icon)
 		})
@@ -1972,8 +2046,10 @@ func (u *UI) conversationCard(conversation domain.Conversation) conversationCard
 		muted: conversation.Muted, unread: conversation.Unread,
 	}
 	if conversation.Kind == "group" {
-		_, onlineCount := u.groupCounts(u.state.Group(conversation.GroupID))
+		group := u.state.Group(conversation.GroupID)
+		_, onlineCount := u.groupCounts(group)
 		card.online = onlineCount > 0
+		card.avatarPath = group.Avatar
 	} else {
 		peer := u.state.Peer(conversation.PeerID)
 		card.online = peer.ID != "" && peer.Online
@@ -2380,7 +2456,8 @@ func (u *UI) setSection(section string) {
 		u.requestCloseComposeThen(func() { u.setSection(section) })
 		return
 	}
-	if u.connectOpen || u.confirm.open || u.profile.open || u.memberProfile != "" || u.organize.open {
+	if u.connectOpen || u.confirm.open || u.profile.open || u.groupAvatar.open ||
+		u.memberProfile != "" || u.organize.open {
 		return
 	}
 	if !u.guardGroupRenameNavigation(func() { u.setSection(section) }) {
@@ -2390,6 +2467,9 @@ func (u *UI) setSection(section string) {
 		u.saveCurrentDraft()
 	}
 	u.section = section
+	u.state.Settings.LastSection = section
+	u.submit(domain.Command{Kind: domain.SetSetting, Setting: "last_section", Value: section})
+	u.invalidator.Invalidate()
 	if section != sectionMessages {
 		u.pendingPeer, u.pendingGroup = "", ""
 	}
@@ -2583,6 +2663,9 @@ func (u *UI) drawOverlays(canvas *gfx.Canvas, viewport ui.Rect) {
 	if u.profile.crop.open {
 		u.drawProfileAvatarEditor(canvas, viewport)
 	}
+	if u.groupAvatar.open {
+		u.drawGroupAvatarEditor(canvas, viewport)
+	}
 	if u.organize.open {
 		u.drawOrganizeDialog(canvas, viewport)
 	}
@@ -2634,9 +2717,9 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 }
 
 func (u *UI) onScroll(event gfx.ScrollEvent) gfx.EventResult {
-	if u.profile.crop.open {
-		state, result := u.profile.crop.layout.Scroll(event, u.profile.crop.state)
-		u.profile.crop.state = state
+	if crop := u.activeAvatarCrop(); crop != nil {
+		state, result := crop.layout.Scroll(event, crop.state)
+		crop.state = state
 		if result.Handled {
 			return result
 		}
@@ -2680,9 +2763,9 @@ func (u *UI) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if result, handled := u.dragConversationPointer(event); handled {
 		return result
 	}
-	if u.profile.crop.open {
-		state, result := u.profile.crop.layout.Pointer(event, u.profile.crop.state)
-		u.profile.crop.state = state
+	if crop := u.activeAvatarCrop(); crop != nil {
+		state, result := crop.layout.Pointer(event, crop.state)
+		crop.state = state
 		if result.Handled {
 			return result
 		}
@@ -2737,6 +2820,9 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 		case u.profile.crop.open:
 			u.closeProfileAvatarEditor()
 			return gfx.EventResult{Handled: true, Repaint: true}
+		case u.groupAvatar.open:
+			u.closeGroupAvatarEditor()
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.organize.open:
 			u.closeOrganize()
 			return gfx.EventResult{Handled: true, Repaint: true}
@@ -2779,9 +2865,9 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if u.shellMenu.open {
 		return gfx.EventResult{Handled: true}
 	}
-	if u.profile.crop.open {
-		state, result := u.profile.crop.layout.Key(event, u.profile.crop.state)
-		u.profile.crop.state = state
+	if crop := u.activeAvatarCrop(); crop != nil {
+		state, result := crop.layout.Key(event, crop.state)
+		crop.state = state
 		if result.Handled {
 			return result
 		}
@@ -3003,6 +3089,12 @@ func (u *UI) refreshImages() {
 	} else if u.profile.open {
 		u.markAvatarImage(u.profile.avatar)
 	}
+	if u.groupAvatar.open {
+		u.markImage(u.groupAvatar.source)
+	}
+	for _, group := range u.state.Groups {
+		u.markAvatarImage(group.Avatar)
+	}
 	u.markImage(u.state.Settings.Background)
 	for _, message := range u.messages {
 		if message.Kind != "image" && message.Kind != "file" {
@@ -3072,7 +3164,8 @@ func (u *UI) queueImage(path string) {
 		u.mediaImageQueued[path] = generation
 	}
 	limit := 512
-	if u.profile.crop.open && u.profile.crop.source == path {
+	if u.profile.crop.open && u.profile.crop.source == path ||
+		u.groupAvatar.open && u.groupAvatar.source == path {
 		// Keep enough source pixels for an 8x crop to remain sharp on a
 		// high-DPI display while bounding worker-thread memory.
 		limit = 4096

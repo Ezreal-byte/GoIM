@@ -25,6 +25,10 @@ func (window *conversationTestWindow) SetAlwaysOnTop(enabled bool) error {
 	return nil
 }
 
+func (window *conversationTestWindow) AlwaysOnTop() bool {
+	return window.topmost
+}
+
 func TestConversationRowDraggedOutsideOpensDetachedWindow(t *testing.T) {
 	h := newShellTestHarness(t, shellTestState(t))
 	h.ui.attachNativeWindow(&conversationTestWindow{Driver: h.driver})

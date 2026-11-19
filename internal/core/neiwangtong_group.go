@@ -77,6 +77,26 @@ func (n *Node) renameNativeGroup(g domain.Group, selfID, name string) error {
 	})
 }
 
+func (n *Node) setNativeGroupAvatar(g domain.Group, c domain.Command) error {
+	path, hash, avatarMD5, err := n.prepareGroupAvatar(c)
+	if err != nil {
+		return err
+	}
+	if g.AvatarHash == hash && g.AvatarMD5 == avatarMD5 {
+		return nil
+	}
+	return n.durable(func(p *persisted) []pending {
+		room := p.NativeGroups[g.ID]
+		room.InfoVersion++
+		p.NativeGroups[g.ID] = room
+		g.Avatar, g.AvatarHash, g.AvatarMD5 = path, hash, avatarMD5
+		g.Epoch = max(room.InfoVersion, room.MembersVersion)
+		installGroupState(&p.State, g)
+		p.State.Notice = "群头像已更新"
+		return nativeRosterDeliveries(g)
+	})
+}
+
 func (n *Node) addNativeGroupMembers(group domain.Group, state domain.State, ids []string) error {
 	previousSize := len(group.Members)
 	for _, id := range ids {
@@ -115,7 +135,8 @@ func (n *Node) nativeRosterForDelivery(groupID, recipient string) (neiwangtong.G
 	}
 	roster := neiwangtong.GroupRoster{ID: room.WireID, Name: group.Name, OwnerID: room.Owner,
 		InfoVersion: room.InfoVersion, MembersVersion: room.MembersVersion,
-		Members: make([]neiwangtong.GroupMember, 0, len(group.Members))}
+		PhotoMD5: group.AvatarMD5,
+		Members:  make([]neiwangtong.GroupMember, 0, len(group.Members))}
 	for _, id := range group.Members {
 		if id == state.Self.ID {
 			roster.Members = append(roster.Members, neiwangtong.GroupMember{ID: room.Owner, Name: state.Self.Name})
@@ -153,6 +174,7 @@ func (n *Node) receiveNeiwangtongGroupRoster(peerID string, roster neiwangtong.G
 			found = found || member.ID == self
 		}
 		i := groupIndex(s, id)
+		currentGroup := s.Group(id)
 		if !found && !known {
 			return nil // an unrelated group's announcement must not create a conversation
 		}
@@ -192,8 +214,13 @@ func (n *Node) receiveNeiwangtongGroupRoster(peerID string, roster neiwangtong.G
 		if notMember {
 			members = without(members, s.Self.ID)
 		}
+		avatarHash, avatarPath := "", ""
+		if roster.PhotoMD5 != "" && roster.PhotoMD5 == currentGroup.AvatarMD5 {
+			avatarHash, avatarPath = currentGroup.AvatarHash, currentGroup.Avatar
+		}
 		g := domain.Group{ID: id, Name: roster.Name, OwnerID: owner.ID, Transport: transportNWT, Members: members,
-			Epoch: max(roster.InfoVersion, roster.MembersVersion), Left: notMember}
+			Epoch: max(roster.InfoVersion, roster.MembersVersion), Left: notMember,
+			AvatarHash: avatarHash, AvatarMD5: roster.PhotoMD5, Avatar: avatarPath}
 		if i < 0 {
 			s.Groups = append(s.Groups, g)
 		} else {

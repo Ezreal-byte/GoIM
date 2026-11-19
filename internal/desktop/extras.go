@@ -238,6 +238,16 @@ func (u *UI) closeProfileAvatarEditor() {
 	u.profile.crop = profileAvatarCropState{}
 }
 
+func (u *UI) activeAvatarCrop() *profileAvatarCropState {
+	if u.groupAvatar.open {
+		return &u.groupAvatar
+	}
+	if u.profile.crop.open {
+		return &u.profile.crop
+	}
+	return nil
+}
+
 func (u *UI) drawProfileAvatarEditor(canvas *gfx.Canvas, viewport ui.Rect) {
 	crop := &u.profile.crop
 	bitmap := u.imageCache[crop.source]
@@ -531,7 +541,7 @@ func (u *UI) insertMention() bool {
 	if u.selected != "" {
 		u.drafts[u.selected] = u.chatEditor.String()
 	}
-	u.chatInput.State = app.TextStateOf(u.chatEditor)
+	u.syncChatInput(true)
 	return true
 }
 

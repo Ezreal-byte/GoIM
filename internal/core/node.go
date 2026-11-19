@@ -231,6 +231,7 @@ func (n *Node) snapshot(urls bool) domain.State {
 		pending := *s.NeiwangtongStatus.Pending
 		s.NeiwangtongStatus.Pending = &pending
 	}
+	n.hydrateGroupAvatars(&s)
 	n.attachShareLinks(&s, urls)
 	return s
 }

@@ -81,7 +81,7 @@ func (n *Node) execute(c domain.Command) error {
 		return n.answerInvite(c.InvitationID, true)
 	case domain.RejectInvite:
 		return n.answerInvite(c.InvitationID, false)
-	case domain.RenameGroup, domain.RemoveMember, domain.LeaveGroup, domain.TransferOwner, domain.DissolveGroup, domain.WithdrawInvite:
+	case domain.RenameGroup, domain.SetGroupAvatar, domain.RemoveMember, domain.LeaveGroup, domain.TransferOwner, domain.DissolveGroup, domain.WithdrawInvite:
 		return n.manageGroup(c)
 	case domain.SetGroupNickname:
 		return n.setGroupNickname(c.GroupID, c.Value)
@@ -464,6 +464,13 @@ func (n *Node) setting(c domain.Command) error {
 			return errors.New("仅支持明亮和暗黑主题")
 		}
 		settings.Theme = c.Value
+	case "last_section":
+		switch c.Value {
+		case "messages", "contacts", "transfers", "shares", "settings":
+			settings.LastSection = c.Value
+		default:
+			return errors.New("无效的启动页面")
+		}
 	case "interface_font":
 		family := strings.TrimSpace(c.Value)
 		if len(family) > 96 || strings.IndexFunc(family, func(r rune) bool {
@@ -552,7 +559,7 @@ func (n *Node) setting(c domain.Command) error {
 		settings.CompatibilityConfigured = s.Settings.CompatibilityConfigured
 		settings.CompatibilityDefaultsVersion = s.Settings.CompatibilityDefaultsVersion
 		s.Settings = settings
-		if c.Setting == "theme" {
+		if c.Setting == "theme" || c.Setting == "last_section" {
 			s.Notice = ""
 		} else {
 			s.Notice = "已保存"

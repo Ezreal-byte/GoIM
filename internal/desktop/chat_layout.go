@@ -14,7 +14,7 @@ const (
 	chatSidebarMaxWidth   = float32(420)
 	chatWorkspaceMinWidth = float32(620)
 	chatHistoryMinHeight  = float32(200)
-	chatComposerMinHeight = float32(132)
+	chatComposerMinHeight = float32(168)
 	chatReadOnlyMinHeight = float32(104)
 	chatSplitterExtent    = float32(8)
 	chatFilesMinWidth     = float32(260)
@@ -22,7 +22,7 @@ const (
 	chatHeaderExtent      = float32(64)
 	chatDividerExtent     = float32(1)
 	chatSearchExtent      = float32(53)
-	chatComposerDefault   = float32(148)
+	chatComposerDefault   = float32(188)
 )
 
 type chatSurfaceIDs struct {
@@ -315,6 +315,9 @@ func (u *UI) setWindowFullscreen(fullscreen bool) {
 
 func (u *UI) attachNativeWindow(window windowGeometry) {
 	u.nativeWindow = window
+	if topmost, ok := window.(interface{ AlwaysOnTop() bool }); ok {
+		u.mainPinned = topmost.AlwaysOnTop()
+	}
 }
 
 // syncFilesWindow expands a normal window by the width of the docked files

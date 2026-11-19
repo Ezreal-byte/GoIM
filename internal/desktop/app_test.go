@@ -129,6 +129,7 @@ func shellTestState(t *testing.T) domain.State {
 	now := time.Now()
 	settings := domain.DefaultSettings(t.TempDir())
 	settings.SendKey = "Enter"
+	settings.LastSection = "messages"
 	return domain.State{
 		Self: domain.Peer{ID: "self", Name: "我", Online: true},
 		Peers: []domain.Peer{
@@ -168,9 +169,11 @@ func shellTestState(t *testing.T) domain.State {
 
 func shellMinimalState(t *testing.T) domain.State {
 	t.Helper()
+	settings := domain.DefaultSettings(t.TempDir())
+	settings.LastSection = "messages"
 	return domain.State{
 		Self:     domain.Peer{ID: "self", Name: "我", Online: true},
-		Settings: domain.DefaultSettings(t.TempDir()),
+		Settings: settings,
 	}
 }
 
@@ -324,6 +327,44 @@ func requireShellLayout(t *testing.T, snapshot app.Snapshot) {
 			continue
 		}
 		t.Errorf("layout %s at %+v for %q: %s", problem.Kind, problem.Bounds, problem.Text, problem.Detail)
+	}
+}
+
+func TestMainSectionRestoresAndPersistsNavigation(t *testing.T) {
+	tests := []struct {
+		name    string
+		restore string
+		want    string
+	}{
+		{name: "first install", restore: "", want: sectionContacts},
+		{name: "saved settings", restore: sectionSettings, want: sectionSettings},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := shellTestState(t)
+			state.Settings.LastSection = test.restore
+			harness := newShellTestHarness(t, state)
+			if harness.ui.section != test.want {
+				t.Fatalf("restored section = %q, want %q", harness.ui.section, test.want)
+			}
+		})
+	}
+
+	state := shellTestState(t)
+	state.Settings.LastSection = sectionSettings
+	harness := newShellTestHarness(t, state)
+	harness.clickID(harness.ui.ids.navMessages)
+	var persisted bool
+	for _, command := range harness.backend.commandLog() {
+		if command.Kind == domain.SetSetting && command.Setting == "last_section" && command.Value == sectionMessages {
+			persisted = true
+		}
+	}
+	if !persisted {
+		t.Fatalf("section navigation commands = %+v", harness.backend.commandLog())
+	}
+	if harness.ui.section != sectionMessages || harness.ui.state.Settings.LastSection != sectionMessages {
+		t.Fatalf("section navigation state = %q / %q", harness.ui.section, harness.ui.state.Settings.LastSection)
 	}
 }
 

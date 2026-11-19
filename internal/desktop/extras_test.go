@@ -227,6 +227,50 @@ func TestProfileAvatarCropCanRestageTheCurrentSource(t *testing.T) {
 	}
 }
 
+func TestOwnerCanCropAndSubmitGroupAvatar(t *testing.T) {
+	harness := newShellTestHarnessAtSize(t, shellTestState(t), 1000, 700)
+	avatar := writeExtraTestPNG(t, "group-avatar.png")
+	if err := harness.driver.QueueOpenFiles([]string{avatar}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	harness.clickID(harness.ui.ids.chatHeaderMembers)
+	harness.settle()
+	harness.clickID(harness.ui.ids.memberAvatar)
+	if !harness.ui.groupAvatar.open || harness.ui.avatarGroup != "group-1" {
+		t.Fatalf("group avatar crop state = %+v for %q", harness.ui.groupAvatar, harness.ui.avatarGroup)
+	}
+	request, ok := harness.driver.LastOpenFilesRequest()
+	if !ok || request.Title != "选择群头像" || request.AllowMultiple {
+		t.Fatalf("group avatar picker request = %+v", request)
+	}
+	harness.waitFor(func() bool {
+		return bitmapReady(harness.ui.imageCache[avatar]) && harness.ui.groupAvatar.layout.Ready
+	})
+
+	harness.ui.groupAvatar.state.Zoom = 2
+	harness.ui.groupAvatar.state.CenterX = .125
+	harness.ui.groupAvatar.state.CenterY = .5
+	harness.clickID(harness.ui.ids.groupAvatarConfirm)
+	harness.waitFor(func() bool { return !harness.ui.groupAvatar.open })
+
+	command := harness.lastCommand()
+	if command.Kind != domain.SetGroupAvatar || command.GroupID != "group-1" ||
+		command.AvatarSize != 256 || len(command.AvatarBGRA) != 256*256*4 {
+		t.Fatalf("group avatar command = %+v", command)
+	}
+	if pixel := command.AvatarBGRA[:4]; pixel[0] != 221 || pixel[1] != 96 || pixel[2] != 31 || pixel[3] != 255 {
+		t.Fatalf("group avatar used the unstaged center crop: %v", pixel)
+	}
+
+	state := harness.backend.Snapshot()
+	state.Groups[0].Avatar = avatar
+	state.Revision++
+	harness.publish(state)
+	harness.waitFor(func() bool { return bitmapReady(harness.ui.avatarBitmap(avatar)) })
+	requireShellLayout(t, harness.snapshot())
+}
+
 func TestStateAvatarsAreDecodedOnWake(t *testing.T) {
 	selfAvatar := writeExtraTestPNG(t, "我的头像.png")
 	peerAvatar := writeExtraTestPNG(t, "联系人头像.png")
@@ -278,6 +322,19 @@ func TestEmojiPickerInsertsUnicodeTextWithoutSending(t *testing.T) {
 	if emojiLabels != 1 {
 		t.Fatalf("focused composer painted %d copies of the selected emoji", emojiLabels)
 	}
+	emojiTexts := 0
+	for _, text := range harness.snapshot().Texts {
+		if text.Value == "😀" {
+			emojiTexts++
+		}
+	}
+	if emojiTexts != 1 {
+		t.Fatalf("focused composer declared %d copies of the selected emoji", emojiTexts)
+	}
+	if snapshot := harness.snapshot(); snapshot.Editor == nil || snapshot.Editor.Value != "😀" ||
+		!snapshot.Editor.HideNativeOverlays {
+		t.Fatalf("focused composer native editor did not mirror one hidden emoji: %+v", snapshot.Editor)
+	}
 	requireShellLayout(t, harness.snapshot())
 	if cmd := harness.lastCommand(); cmd.Kind != domain.RememberEmoji || cmd.Text != "😀" {
 		t.Fatalf("recent emoji was not persisted: %+v", cmd)
@@ -292,6 +349,36 @@ func TestEmojiPickerInsertsUnicodeTextWithoutSending(t *testing.T) {
 			t.Fatalf("emoji selection sent the message: %+v", command)
 		}
 	}
+}
+
+func TestComposerActionsExposeTooltipHintsAndComfortableTargets(t *testing.T) {
+	harness := newShellTestHarnessAtSize(t, shellTestState(t), 1000, 700)
+	tests := []struct {
+		id   gfx.ID
+		hint string
+	}{
+		{id: harness.ui.ids.chatEmoji, hint: "插入表情"},
+		{id: harness.ui.ids.chatImage, hint: "发送图片"},
+		{id: harness.ui.ids.chatFile, hint: "发送文件"},
+		{id: harness.ui.ids.chatScreenshot, hint: "截图标注  Alt+A"},
+	}
+	for _, test := range tests {
+		hit, ok := harness.findHit(test.id)
+		if !ok {
+			t.Fatalf("composer action %v is missing", test.id)
+		}
+		if hit.Hint != test.hint {
+			t.Fatalf("composer action %v hint = %q, want %q", test.id, hit.Hint, test.hint)
+		}
+		if hit.Bounds.Width < 34 || hit.Bounds.Height < 34 {
+			t.Fatalf("composer action %v is %.1fx%.1f, want at least 34x34",
+				test.id, hit.Bounds.Width, hit.Bounds.Height)
+		}
+	}
+	if !harness.hasText("Enter 发送，Shift+Enter 换行") {
+		t.Fatal("composer does not show the configured send shortcut")
+	}
+	requireShellLayout(t, harness.snapshot())
 }
 
 func TestMentionAutocompleteSupportsTypingKeyboardSelectionAndEscape(t *testing.T) {

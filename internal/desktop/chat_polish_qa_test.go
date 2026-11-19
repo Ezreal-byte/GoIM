@@ -70,6 +70,28 @@ func TestChatPolishQA(t *testing.T) {
 	}
 	click(u.ids.navMessages)
 	click(u.convRowIDs["north"])
+	screenshotHit, ok := findSessionHit(session.Snapshot().Hits, u.ids.chatScreenshot)
+	if !ok {
+		t.Fatal("missing screenshot composer action")
+	}
+	if err := session.Move(
+		screenshotHit.Bounds.X+screenshotHit.Bounds.Width/2,
+		screenshotHit.Bounds.Y+screenshotHit.Bounds.Height/2,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Wait(700 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Expect("layout", "clean"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Screenshot(filepath.Join(dir, "composer-screenshot-hover.png")); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Move(720, 22); err != nil {
+		t.Fatal(err)
+	}
 	click(u.ids.chatEmoji)
 	if err := session.Expect("text", "所有表情"); err != nil {
 		t.Fatal(err)
