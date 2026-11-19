@@ -35,6 +35,7 @@ const (
 	panelSettingsAbout
 	panelSettingsProfile
 	panelSettingsNotifications
+	panelSettingsVoice
 	panelSettingsNetwork
 	panelSettingsTransfers
 	panelSettingsSecurity
@@ -66,9 +67,9 @@ var transferFilters = [...]transferFilter{
 var shareFilters = [...]shareFilter{panelSharesMine, panelSharesRemote}
 
 var (
-	panelSettingsLabels = [...]string{"常规", "快捷键", "关于", "个人资料", "通知", "网络", "文件传输", "安全"}
+	panelSettingsLabels = [...]string{"常规", "快捷键", "关于", "个人资料", "通知", "通话", "网络", "文件传输", "安全"}
 	panelSettingsOrder  = [...]panelSettingsTab{panelSettingsProfile, panelSettingsGeneral, panelSettingsNotifications,
-		panelSettingsNetwork, panelSettingsTransfers, panelSettingsShortcuts, panelSettingsSecurity, panelSettingsAbout}
+		panelSettingsVoice, panelSettingsNetwork, panelSettingsTransfers, panelSettingsShortcuts, panelSettingsSecurity, panelSettingsAbout}
 )
 
 type panelIDs struct {
@@ -83,6 +84,7 @@ type panelIDs struct {
 	settingsChooseDir     gfx.ID
 	settingsOpenDir       gfx.ID
 	settingsRefreshNet    gfx.ID
+	settingsRefreshVoice  gfx.ID
 	settingsDismissLocal  gfx.ID
 	settingsClearError    gfx.ID
 
@@ -361,6 +363,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.settingsChooseDir = tree.ID(settings, "choose-download-directory")
 	p.ids.settingsOpenDir = tree.ID(settings, "open-download-directory")
 	p.ids.settingsRefreshNet = tree.ID(settings, "refresh-networks")
+	p.ids.settingsRefreshVoice = tree.ID(settings, "refresh-voice-devices")
 	p.ids.settingsDismissLocal = tree.ID(settings, "dismiss-local-error")
 	p.ids.settingsClearError = tree.ID(settings, "clear-error")
 	p.ids.networkDefer = tree.ID(settings, "network-defer")
@@ -1274,6 +1277,14 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 			return settings.Network == pending.value || settings.PendingNetwork == pending.value
 		case "send_key":
 			return settings.SendKey == pending.value
+		case "voice_microphone":
+			return settings.VoiceMicrophone == pending.value
+		case "voice_speaker":
+			return settings.VoiceSpeaker == pending.value
+		case "voice_microphone_volume":
+			return strconv.Itoa(settings.VoiceMicrophoneVolume) == pending.value
+		case "voice_speaker_volume":
+			return strconv.Itoa(settings.VoiceSpeakerVolume) == pending.value
 		case "background_shade":
 			return strconv.Itoa(settings.BackgroundShade) == pending.value
 		}

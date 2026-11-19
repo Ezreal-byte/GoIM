@@ -48,6 +48,16 @@ func TestMacUpdateZIPHasGoIMBundleAtRoot(t *testing.T) {
 	}
 }
 
+func TestMacBundleDeclaresMicrophoneUsage(t *testing.T) {
+	info := darwinBundleInfo("0.1.12")
+	for _, extra := range info.Extra {
+		if extra.Key == "NSMicrophoneUsageDescription" && strings.Contains(extra.Value, "microphone") {
+			return
+		}
+	}
+	t.Fatalf("macOS bundle does not declare NSMicrophoneUsageDescription: %+v", info.Extra)
+}
+
 func TestPackageBuildFactsUsesTheRealGitHubRun(t *testing.T) {
 	environment := map[string]string{
 		"GITHUB_ACTIONS":    "true",

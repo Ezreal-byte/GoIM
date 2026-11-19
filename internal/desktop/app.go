@@ -215,6 +215,7 @@ type appIDs struct {
 	chatHeaderSearch                                                       gfx.ID
 	chatHeaderMembers                                                      gfx.ID
 	chatHeaderMore                                                         gfx.ID
+	chatHeaderCall                                                         gfx.ID
 	chatSearchField                                                        gfx.ID
 	chatSearchClose                                                        gfx.ID
 	chatEmptyConnect                                                       gfx.ID
@@ -257,6 +258,7 @@ type appIDs struct {
 	connectClose         gfx.ID
 	connectField         gfx.ID
 	contactTalk          gfx.ID
+	contactCall          gfx.ID
 	contactRefreshAvatar gfx.ID
 	contactMemberScope   gfx.Scope
 	chatHeaderAvatar     gfx.ID
@@ -358,6 +360,13 @@ type appIDs struct {
 	confirmClose   gfx.ID
 	confirmCancel  gfx.ID
 	confirmRun     gfx.ID
+
+	voiceScope   gfx.Scope
+	voiceMute    gfx.ID
+	voiceSpeaker gfx.ID
+	voiceAccept  gfx.ID
+	voiceReject  gfx.ID
+	voiceHangup  gfx.ID
 }
 
 // UI is the native Viva desktop application. It reads detached backend
@@ -365,6 +374,8 @@ type appIDs struct {
 type UI struct {
 	backend                       domain.Backend
 	state                         domain.State
+	voiceAudio                    *voiceAudioRuntime
+	voiceFocusedFor               string
 	theme                         ui.Theme
 	palette                       palette
 	tree                          gfx.Tree
@@ -602,6 +613,12 @@ type UI struct {
 	iconArchive       gfx.Icon
 	iconLink          gfx.Icon
 	iconCopy          gfx.Icon
+	iconPhone         gfx.Icon
+	iconPhoneOff      gfx.Icon
+	iconMic           gfx.Icon
+	iconMicOff        gfx.Icon
+	iconVolume        gfx.Icon
+	iconVolumeX       gfx.Icon
 }
 
 // New creates the shell from an already-running backend. It takes the first
@@ -723,6 +740,12 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 		iconArchive:       Archive,
 		iconLink:          Link,
 		iconCopy:          Copy,
+		iconPhone:         Phone,
+		iconPhoneOff:      PhoneOff,
+		iconMic:           Mic,
+		iconMicOff:        MicOff,
+		iconVolume:        Volume2,
+		iconVolumeX:       VolumeX,
 	}
 	u.chatEditorField.Bind(u.chatEditor)
 	u.chatFind.field.Bind(u.ensureChatSearchEditor())
@@ -730,6 +753,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.palette = paletteFor(u.theme)
 	u.titleLeading, u.titleTrailing = app.TitlebarInsets()
 	u.media = newMediaWorker(func() { u.invalidator.Invalidate() })
+	u.voiceAudio = newVoiceAudioRuntime(backend, u.submit, u.invalidator.Invalidate)
 	u.initSystemUnlock()
 	u.initIDs()
 	page := func(root string) *ui.Page {
@@ -794,6 +818,7 @@ func (u *UI) Config() app.Config {
 // intentionally safe to call both directly and from Config.OnClosed.
 func (u *UI) Close() {
 	u.closeOnce.Do(func() {
+		u.voiceAudio.close()
 		for _, page := range []*ui.Page{
 			u.titlePage, u.railPage, u.sidebarPage, u.chatPage, u.drawerPage,
 			u.dialogPage, u.mentionPage, u.emojiPage, u.surface.workspace, u.panels.page,
@@ -835,6 +860,10 @@ func (u *UI) watchUpdates() {
 
 func (u *UI) onWake() {
 	u.refresh()
+	u.voiceAudio.sync(u.state.VoiceCall, u.state.Settings)
+	if notice := u.voiceAudio.takeNotice(); notice != "" {
+		u.showToast(i18n.T("语音通话已结束"), notice, components.ToastError)
+	}
 	u.collectSystemUnlock()
 	u.updater.setAutomatic(!u.state.Settings.DisableAutoUpdateCheck)
 	u.observeUpdate()
@@ -1053,7 +1082,7 @@ func (u *UI) markSelectedConversationRead() {
 func (u *UI) modalOpen() bool {
 	return u.confirm.open || u.compose.open || u.connectOpen || u.updateOpen ||
 		u.profile.open || u.groupAvatar.open || u.memberProfile != "" || u.organize.open ||
-		u.shellMenu.open || u.lockVisible()
+		u.shellMenu.open || u.lockVisible() || u.voiceVisible()
 }
 
 func (u *UI) unreadTotal() int {
@@ -1133,6 +1162,7 @@ func (u *UI) initIDs() {
 	u.ids.chatHeaderFile = u.tree.ID(u.ids.chat, "header-files")
 	u.ids.chatHeaderMembers = u.tree.ID(u.ids.chat, "header-members")
 	u.ids.chatHeaderMore = u.tree.ID(u.ids.chat, "header-more")
+	u.ids.chatHeaderCall = u.tree.ID(u.ids.chat, "header-call")
 	u.ids.chatSearchField = u.tree.ID(u.ids.chat, "find-field")
 	u.ids.chatSearchClose = u.tree.ID(u.ids.chat, "find-close")
 	u.ids.chatEmptyConnect = u.tree.ID(u.ids.chat, "empty-connect")
@@ -1167,6 +1197,7 @@ func (u *UI) initIDs() {
 	u.ids.connectField = u.tree.ID(u.ids.dialog, "connect-address")
 	contacts := u.tree.Feature("contact-details")
 	u.ids.contactTalk = u.tree.ID(contacts, "primary-action")
+	u.ids.contactCall = u.tree.ID(contacts, "call-action")
 	u.ids.contactRefreshAvatar = u.tree.ID(contacts, "refresh-avatar")
 	u.ids.contactMemberScope = u.tree.Sub(contacts, u.tree.Name("members"))
 	u.ids.chatHeaderAvatar = u.tree.ID(u.ids.chat, "peer-avatar")
@@ -1270,6 +1301,13 @@ func (u *UI) initIDs() {
 	u.ids.confirmClose = u.tree.ID(u.ids.dialog, "confirm-close")
 	u.ids.confirmCancel = u.tree.ID(u.ids.dialog, "confirm-cancel")
 	u.ids.confirmRun = u.tree.ID(u.ids.dialog, "confirm-run")
+
+	u.ids.voiceScope = u.tree.Sub(u.ids.dialog, u.tree.Name("voice-call"))
+	u.ids.voiceMute = u.tree.ID(u.ids.voiceScope, "mute")
+	u.ids.voiceSpeaker = u.tree.ID(u.ids.voiceScope, "speaker")
+	u.ids.voiceAccept = u.tree.ID(u.ids.voiceScope, "accept")
+	u.ids.voiceReject = u.tree.ID(u.ids.voiceScope, "reject")
+	u.ids.voiceHangup = u.tree.ID(u.ids.voiceScope, "hangup")
 
 	for _, choice := range emojiChoices {
 		u.emojiIDs[choice.Name] = u.tree.ID(u.ids.chat, "emoji:"+choice.Name)
@@ -2681,6 +2719,7 @@ func (u *UI) drawOverlays(canvas *gfx.Canvas, viewport ui.Rect) {
 	if u.updateOpen {
 		u.drawUpdateDialog(canvas, viewport)
 	}
+	u.drawVoiceCall(canvas, viewport)
 }
 
 func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
@@ -2760,6 +2799,9 @@ func (u *UI) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if u.detachedWindow && u.lockVisible() {
 		return gfx.EventResult{Handled: true}
 	}
+	if u.voiceVisible() {
+		return gfx.EventResult{}
+	}
 	if result, handled := u.dragConversationPointer(event); handled {
 		return result
 	}
@@ -2786,6 +2828,9 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 		// The only registered hits while locked belong to the lock screen.
 		// Let Viva deliver text keys, focus traversal and Enter to those hits.
 		return u.lockKey(event)
+	}
+	if u.voiceVisible() {
+		return gfx.EventResult{}
 	}
 	if result, handled := u.chatOverlayKey(event); handled {
 		return result

@@ -84,6 +84,12 @@ func (backend *shellTestBackend) commandLog() []domain.Command {
 	return slices.Clone(backend.commands)
 }
 
+func (backend *shellTestBackend) clearCommands() {
+	backend.mu.Lock()
+	backend.commands = nil
+	backend.mu.Unlock()
+}
+
 func hasCommandKind(commands []domain.Command, kind domain.CommandKind) bool {
 	for _, command := range commands {
 		if command.Kind == kind {

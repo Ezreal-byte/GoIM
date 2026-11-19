@@ -58,13 +58,17 @@ func (n *Node) updateLock(c domain.Command) error {
 		if err != nil {
 			return err
 		}
-		return n.durable(func(p *persisted) []pending {
+		err = n.durable(func(p *persisted) []pending {
 			p.LockCredential = next
 			p.State.Settings.HasLockPassword = true
 			p.State.Locked = c.Bool
 			p.State.Error, p.State.Notice = "", "锁定密码已保存"
 			return nil
 		})
+		if err == nil && c.Bool {
+			n.endVoiceBeforeLock()
+		}
+		return err
 	case domain.SetSystemUnlock:
 		if remaining > 0 && old.set() {
 			return errors.New("请稍等片刻后再试")
@@ -92,6 +96,7 @@ func (n *Node) updateLock(c domain.Command) error {
 		if !old.set() {
 			return errors.New("请先设置锁定密码")
 		}
+		n.endVoiceBeforeLock()
 		return n.change(func(s *domain.State) {
 			s.Locked = true
 			s.Error, s.Notice = "", ""

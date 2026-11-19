@@ -107,6 +107,12 @@ func (u *UI) drawContactEmpty(f ui.C) {
 
 func (u *UI) contactPeerAction(f ui.C, peer domain.Peer) {
 	self := peer.ID == u.state.Self.ID
+	if !self && peer.VoiceSupported {
+		if namedButton(f, u.ids.contactCall, i18n.T("语音通话")).MinWidth(88).Height(36).PadX(14).
+			Outline().Disabled(!peer.VisibleOnline()).Clicked() {
+			u.startVoiceCall(peer.ID)
+		}
+	}
 	label := i18n.T("发消息")
 	if self {
 		label = i18n.T("编辑资料")

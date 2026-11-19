@@ -29,6 +29,8 @@ type panelSettingsExtra struct {
 	passwordRequest                                                                                     uint64
 	passwordTrigger, passwordScope, passwordDismiss, passwordClose, passwordCancel                      gfx.ID
 	interfaceFont                                                                                       panelInterfaceFontPicker
+	voiceMicrophoneLevel, voiceSpeakerLevel                                                             panelVoiceLevelState
+	voiceDevices                                                                                        panelVoiceDeviceState
 	autostart                                                                                           panelAutostartState
 	openProfile                                                                                         func()
 	chooseBackground                                                                                    func(*gfx.Canvas)

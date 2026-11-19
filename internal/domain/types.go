@@ -5,6 +5,7 @@ import "time"
 
 type Peer struct {
 	RecallSupported      bool `json:"RecallSupported,omitempty"`
+	VoiceSupported       bool `json:",omitempty"`
 	ID                   string
 	Name                 string
 	Address              string
@@ -255,17 +256,101 @@ type Settings struct {
 	AutoAcceptImages             bool
 	// DisableAutoUpdateCheck preserves the zero value as the desired default:
 	// existing profiles keep checking for updates unless the user opts out.
-	DisableAutoUpdateCheck bool
-	DesktopNotifications   bool
-	Sound                  bool
-	DownloadDir            string
-	DuplicatePolicy        string
-	AutoAccept             bool
-	Network                string
-	PendingNetwork         string
-	CloseToTray            bool
-	SendKey                string
-	Shortcuts              []Shortcut
+	DisableAutoUpdateCheck    bool
+	DesktopNotifications      bool
+	Sound                     bool
+	VoiceMicrophone           string `json:",omitempty"` // empty selects the system default
+	VoiceSpeaker              string `json:",omitempty"` // empty selects the system default
+	VoiceMicrophoneVolume     int
+	VoiceSpeakerVolume        int
+	VoiceAudioDefaultsVersion int `json:",omitempty"`
+	DownloadDir               string
+	DuplicatePolicy           string
+	AutoAccept                bool
+	Network                   string
+	PendingNetwork            string
+	CloseToTray               bool
+	SendKey                   string
+	Shortcuts                 []Shortcut
+}
+
+// VoiceCallStatus is the lifecycle state of the one direct voice call this
+// device participates in. Calls are ephemeral and never enter chat history.
+type VoiceCallStatus string
+
+const (
+	VoiceCallRinging VoiceCallStatus = "ringing"
+	VoiceCallActive  VoiceCallStatus = "active"
+	VoiceCallEnded   VoiceCallStatus = "ended"
+)
+
+type VoiceCallDirection string
+
+const (
+	VoiceCallOutgoing VoiceCallDirection = "outgoing"
+	VoiceCallIncoming VoiceCallDirection = "incoming"
+)
+
+const (
+	VoiceCodecPCMU      = "pcmu"
+	VoiceSampleRate     = 16000
+	VoiceFrameMillis    = 20
+	VoiceFrameSamples   = VoiceSampleRate * VoiceFrameMillis / 1000
+	VoiceFrameBytes     = VoiceFrameSamples * 2
+	VoiceEncodedBytes   = VoiceFrameSamples
+	VoiceMaxEncodedSize = VoiceEncodedBytes * 4
+)
+
+const (
+	VoiceVolumeDefault        = 100
+	VoiceVolumeMaximum        = 100
+	VoiceAudioDefaultsVersion = 1
+)
+
+func ClampVoiceVolume(volume int) int {
+	return min(max(volume, 0), VoiceVolumeMaximum)
+}
+
+// EnsureVoiceDefaults distinguishes an old profile with no volume fields from
+// a new profile where the user deliberately selected zero percent.
+func (s *Settings) EnsureVoiceDefaults() {
+	if s.VoiceAudioDefaultsVersion < VoiceAudioDefaultsVersion {
+		s.VoiceMicrophoneVolume = VoiceVolumeDefault
+		s.VoiceSpeakerVolume = VoiceVolumeDefault
+		s.VoiceAudioDefaultsVersion = VoiceAudioDefaultsVersion
+	}
+	s.VoiceMicrophoneVolume = ClampVoiceVolume(s.VoiceMicrophoneVolume)
+	s.VoiceSpeakerVolume = ClampVoiceVolume(s.VoiceSpeakerVolume)
+}
+
+// VoiceCall is a detached, UI-facing view of the live call. It is omitted from
+// persisted state and becomes zero once the final status has been presented.
+type VoiceCall struct {
+	ID           string
+	PeerID       string
+	PeerName     string
+	PeerAvatar   string
+	Direction    VoiceCallDirection
+	Status       VoiceCallStatus
+	StartedAt    time.Time
+	ConnectedAt  time.Time
+	Muted        bool
+	SpeakerMuted bool
+	Reason       string
+}
+
+func (c VoiceCall) Live() bool {
+	return c.ID != "" && c.Status != VoiceCallEnded
+}
+
+type VoiceSignal struct {
+	CallID       string
+	Action       string // invite, accept, reject, busy, end
+	Reason       string
+	Codec        string
+	SampleRate   int
+	Muted        bool
+	SpeakerMuted bool
 }
 
 func DefaultSettings(downloadDir string) Settings {
@@ -274,7 +359,9 @@ func DefaultSettings(downloadDir string) Settings {
 		Neiwangtong: CompatibilityConfig{Enabled: true, Port: NeiwangtongDiscoveryPort},
 		LastSection: "contacts",
 		Language:    "zh-CN", Theme: "light", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
-		DuplicatePolicy: "rename", CloseToTray: true, SendKey: "Enter", Shortcuts: []Shortcut{
+		VoiceMicrophoneVolume: VoiceVolumeDefault, VoiceSpeakerVolume: VoiceVolumeDefault,
+		VoiceAudioDefaultsVersion: VoiceAudioDefaultsVersion,
+		DuplicatePolicy:           "rename", CloseToTray: true, SendKey: "Enter", Shortcuts: []Shortcut{
 			{Action: "会话内搜索", Keys: "Ctrl+F", Scope: "应用内"},
 			{Action: "快速查找", Keys: "Ctrl+K", Scope: "应用内"},
 			{Action: "创建群聊", Keys: "Ctrl+Shift+N", Scope: "应用内"},
@@ -311,6 +398,7 @@ type State struct {
 	Files             []File
 	Transfers         []Transfer
 	Settings          Settings
+	VoiceCall         VoiceCall `json:"-"`
 	Error             string
 	Notice            string
 	Locked            bool
@@ -391,51 +479,57 @@ func (s State) ChatMessages(id string) []Message {
 type CommandKind string
 
 const (
-	Connect            CommandKind = "connect"
-	SetCompatibility   CommandKind = "set_compatibility"
-	RefreshPeerAvatar  CommandKind = "refresh_peer_avatar"
-	StartChat          CommandKind = "start_chat"
-	SendText           CommandKind = "send_text"
-	SendFiles          CommandKind = "send_files"
-	AcceptTransfer     CommandKind = "accept_transfer"
-	RejectTransfer     CommandKind = "reject_transfer"
-	CancelTransfer     CommandKind = "cancel_transfer"
-	RetryTransfer      CommandKind = "retry_transfer"
-	CreateGroup        CommandKind = "create_group"
-	InviteMembers      CommandKind = "invite_members"
-	AcceptInvite       CommandKind = "accept_invite"
-	RejectInvite       CommandKind = "reject_invite"
-	RenameGroup        CommandKind = "rename_group"
-	SetGroupAvatar     CommandKind = "set_group_avatar"
-	RemoveMember       CommandKind = "remove_member"
-	LeaveGroup         CommandKind = "leave_group"
-	TransferOwner      CommandKind = "transfer_owner"
-	DissolveGroup      CommandKind = "dissolve_group"
-	SetSetting         CommandKind = "set_setting"
-	SetProfile         CommandKind = "set_profile"
-	SetContactGroup    CommandKind = "set_contact_group"
-	CreateContactGroup CommandKind = "create_contact_group"
-	RenameContactGroup CommandKind = "rename_contact_group"
-	DeleteContactGroup CommandKind = "delete_contact_group"
-	SetGroupNickname   CommandKind = "set_group_nickname"
-	WithdrawInvite     CommandKind = "withdraw_invite"
-	TogglePin          CommandKind = "toggle_pin"
-	ToggleMute         CommandKind = "toggle_mute"
-	DeleteConversation CommandKind = "delete_conversation"
-	SetSharePassword   CommandKind = "set_share_password"
-	SetLockPassword    CommandKind = "set_lock_password"
-	SetSystemUnlock    CommandKind = "set_system_unlock"
-	LockApp            CommandKind = "lock_app"
-	UnlockApp          CommandKind = "unlock_app"
-	UnlockAppSystem    CommandKind = "unlock_app_system"
-	MarkRead           CommandKind = "mark_read"
-	SaveDraft          CommandKind = "save_draft"
-	ShareFiles         CommandKind = "share_files"
-	SetDeviceShare     CommandKind = "set_device_share"
-	RemoveShare        CommandKind = "remove_share"
-	RefreshShares      CommandKind = "refresh_shares"
-	GetShared          CommandKind = "get_shared"
-	ClearError         CommandKind = "clear_error"
+	Connect              CommandKind = "connect"
+	SetCompatibility     CommandKind = "set_compatibility"
+	RefreshPeerAvatar    CommandKind = "refresh_peer_avatar"
+	StartChat            CommandKind = "start_chat"
+	SendText             CommandKind = "send_text"
+	SendFiles            CommandKind = "send_files"
+	AcceptTransfer       CommandKind = "accept_transfer"
+	RejectTransfer       CommandKind = "reject_transfer"
+	CancelTransfer       CommandKind = "cancel_transfer"
+	RetryTransfer        CommandKind = "retry_transfer"
+	CreateGroup          CommandKind = "create_group"
+	InviteMembers        CommandKind = "invite_members"
+	AcceptInvite         CommandKind = "accept_invite"
+	RejectInvite         CommandKind = "reject_invite"
+	RenameGroup          CommandKind = "rename_group"
+	SetGroupAvatar       CommandKind = "set_group_avatar"
+	RemoveMember         CommandKind = "remove_member"
+	LeaveGroup           CommandKind = "leave_group"
+	TransferOwner        CommandKind = "transfer_owner"
+	DissolveGroup        CommandKind = "dissolve_group"
+	SetSetting           CommandKind = "set_setting"
+	SetProfile           CommandKind = "set_profile"
+	SetContactGroup      CommandKind = "set_contact_group"
+	CreateContactGroup   CommandKind = "create_contact_group"
+	RenameContactGroup   CommandKind = "rename_contact_group"
+	DeleteContactGroup   CommandKind = "delete_contact_group"
+	SetGroupNickname     CommandKind = "set_group_nickname"
+	WithdrawInvite       CommandKind = "withdraw_invite"
+	TogglePin            CommandKind = "toggle_pin"
+	ToggleMute           CommandKind = "toggle_mute"
+	DeleteConversation   CommandKind = "delete_conversation"
+	SetSharePassword     CommandKind = "set_share_password"
+	SetLockPassword      CommandKind = "set_lock_password"
+	SetSystemUnlock      CommandKind = "set_system_unlock"
+	LockApp              CommandKind = "lock_app"
+	UnlockApp            CommandKind = "unlock_app"
+	UnlockAppSystem      CommandKind = "unlock_app_system"
+	MarkRead             CommandKind = "mark_read"
+	SaveDraft            CommandKind = "save_draft"
+	ShareFiles           CommandKind = "share_files"
+	SetDeviceShare       CommandKind = "set_device_share"
+	RemoveShare          CommandKind = "remove_share"
+	RefreshShares        CommandKind = "refresh_shares"
+	GetShared            CommandKind = "get_shared"
+	ClearError           CommandKind = "clear_error"
+	StartVoiceCall       CommandKind = "start_voice_call"
+	AcceptVoiceCall      CommandKind = "accept_voice_call"
+	RejectVoiceCall      CommandKind = "reject_voice_call"
+	EndVoiceCall         CommandKind = "end_voice_call"
+	SetVoiceMuted        CommandKind = "set_voice_muted"
+	SetVoiceSpeakerMuted CommandKind = "set_voice_speaker_muted"
 )
 
 const (
@@ -471,6 +565,7 @@ type Command struct {
 	ProfileDetails *ProfileDetails
 	Presence       Presence
 	Request        uint64
+	CallID         string
 }
 
 // Backend snapshots are detached copies. Submit queues work, never blocks the UI.
@@ -478,4 +573,11 @@ type Backend interface {
 	Snapshot() State
 	Submit(Command)
 	Updates() <-chan struct{}
+}
+
+// VoiceAudioBackend is implemented by backends that can carry live encoded
+// call audio. The UI uses a type assertion so test backends remain minimal.
+type VoiceAudioBackend interface {
+	VoiceAudio(callID string) <-chan []byte
+	SendVoiceAudio(callID string, encoded []byte) error
 }
