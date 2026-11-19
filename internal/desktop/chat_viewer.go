@@ -634,7 +634,7 @@ func (u *UI) viewerTextButton(canvas *gfx.Canvas, bounds ui.Rect, id gfx.ID,
 		Color: u.viewerForeground(disabled, selected),
 	})
 	if canvas.FocusVisible() == id {
-		canvas.RoundedBorder(bounds, 10, 1, ui.RGBA(255, 255, 255, 0.7), ui.Color{})
+		canvas.RoundedBorder(bounds, radiusControl, 1, ui.RGBA(255, 255, 255, 0.7), ui.Color{})
 	}
 	canvas.HitWithOptions(id, bounds, label, gfx.HitOptions{
 		Role: gfx.RoleButton, Hint: label, Disabled: disabled, Cursor: gfx.PointerCursorHand,
@@ -651,7 +651,7 @@ func (u *UI) viewerIconButton(canvas *gfx.Canvas, bounds ui.Rect, id gfx.ID,
 	}
 	canvas.DrawIconTransformed(icon, iconBounds, u.viewerForeground(disabled, selected), transform)
 	if canvas.FocusVisible() == id {
-		canvas.RoundedBorder(bounds, 10, 1, ui.RGBA(255, 255, 255, 0.7), ui.Color{})
+		canvas.RoundedBorder(bounds, radiusControl, 1, ui.RGBA(255, 255, 255, 0.7), ui.Color{})
 	}
 	canvas.HitWithOptions(id, bounds, label, gfx.HitOptions{
 		Role: gfx.RoleButton, Hint: label, Disabled: disabled, Cursor: gfx.PointerCursorHand,
@@ -672,7 +672,7 @@ func (u *UI) viewerButtonSurface(canvas *gfx.Canvas, bounds ui.Rect, id gfx.ID,
 	case canvas.Hovered() == id:
 		color = ui.RGBA(255, 255, 255, 0.15)
 	}
-	canvas.Rounded(bounds, 10, color)
+	canvas.Rounded(bounds, radiusControl, color)
 }
 
 func (u *UI) viewerForeground(disabled, selected bool) ui.Color {

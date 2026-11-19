@@ -1437,7 +1437,7 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	if bounds.Height < 660 {
 		itemHeight, itemGap, railPadding, avatarSize, avatarGap = 48, 2, 8, 36, 4
 	}
-	itemHeight = max(itemHeight, 46+11*u.theme.Metrics.EffectiveTextScale())
+	itemHeight = max(itemHeight, 37+11*u.theme.Metrics.EffectiveTextScale())
 	unreadBadge, unreadHint := "", ""
 	if unread := u.unreadTotal(); unread > 0 {
 		unreadBadge = compactCount(unread)

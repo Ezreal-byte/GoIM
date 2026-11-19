@@ -1396,7 +1396,7 @@ func (u *UI) drawComposeBody(f ui.C, create bool, group domain.Group) {
 						ui.Row(f).Height(38).Items(ui.Center).Gap(8).Children(func() {
 							u.avatarStatus(f, peer.Name, peer.Avatar, 26, true)
 							ui.Text(f, peer.Name).FontSize(12).Grow(1).Ellipsis()
-							remove := ui.Row(f).Size(24, 24).Radius(6).Items(ui.Center).
+							remove := ui.Row(f).Size(24, 24).Radius(radiusControl).Items(ui.Center).
 								Justify(ui.Center).Hover(ui.Look{}.Background(u.palette.hover)).
 								HitWith(u.groupRemoveIDs[peer.ID], i18n.T("移除 ")+peer.Name,
 									gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("移除")}).
@@ -1466,7 +1466,7 @@ func (u *UI) drawComposeCandidates(f ui.C, create bool, group domain.Group) {
 		shown += len(peers)
 		collapsed := u.collapsed[contactGroup.Name] && query == ""
 		headerID := u.composeGroupHeadIDs[contactGroup.Name]
-		header := ui.Row(f).Height(28).Items(ui.Center).Gap(6).Radius(6).
+		header := ui.Row(f).Height(28).Items(ui.Center).Gap(6).Radius(radiusControl).
 			Hover(ui.Look{}.Background(u.palette.hover)).
 			HitWith(headerID, contactGroup.Name,
 				gfx.HitOptions{Role: gfx.RoleButton, Expanded: !collapsed}).

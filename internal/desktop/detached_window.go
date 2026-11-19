@@ -284,13 +284,13 @@ func (u *UI) paintConversationDragCard(canvas *gfx.Canvas, card ui.Rect, data co
 	}
 	shadow := card
 	shadow.Y += 3
-	canvas.Rounded(shadow, 11, gfx.RGBA(0, 0, 0, 0.14))
+	canvas.Rounded(shadow, radiusCard, gfx.RGBA(0, 0, 0, 0.14))
 	fill := u.palette.sidebar
 	if selected {
 		fill = u.palette.selected
 	}
-	canvas.Rounded(card, 11, fill)
-	canvas.RoundedOutline(card, 11, 1, u.palette.border)
+	canvas.Rounded(card, radiusCard, fill)
+	canvas.RoundedOutline(card, radiusCard, 1, u.palette.border)
 	u.previewPage.Draw(canvas, card, func(f ui.C) {
 		ui.Row(f).Fill().PadSides(8, 7, 8, 7).Items(ui.Center).Gap(9).Children(func() {
 			u.conversationCardBody(f, data)

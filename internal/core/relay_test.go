@@ -174,6 +174,14 @@ func TestVoiceHistoryIsPersistedOnceOnBothSides(t *testing.T) {
 }
 
 func TestDiscoveryReconnectsMovedIdentityWithoutDuplicatingContact(t *testing.T) {
+	host := "127.0.0.2"
+	probe, probeErr := net.Listen("tcp", net.JoinHostPort(host, "0"))
+	if probeErr != nil {
+		host = "127.0.0.1"
+		t.Log("secondary loopback unavailable; verifying identity across a changed port instead")
+	} else {
+		_ = probe.Close()
+	}
 	first, second := testNode(t, "Windows"), testNode(t, "移动设备")
 	connectNodes(t, first, second)
 	conversationID := direct(t, first, second)
@@ -185,7 +193,7 @@ func TestDiscoveryReconnectsMovedIdentityWithoutDuplicatingContact(t *testing.T)
 	if err := second.Close(); err != nil {
 		t.Fatal(err)
 	}
-	second, err := New(Options{DataDir: directory, Listen: "127.0.0.2:0", Name: "移动设备", DisableDiscovery: true, DisableCompatibility: true})
+	second, err := New(Options{DataDir: directory, Listen: net.JoinHostPort(host, "0"), Name: "移动设备", DisableDiscovery: true, DisableCompatibility: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +203,7 @@ func TestDiscoveryReconnectsMovedIdentityWithoutDuplicatingContact(t *testing.T)
 	body, _ := json.Marshal(packet)
 	packet.Signature = ed25519.Sign(second.key, body)
 	body, _ = json.Marshal(packet)
-	first.handleDiscoveryMessage(body, net.ParseIP("127.0.0.2"))
+	first.handleDiscoveryMessage(body, net.ParseIP(host))
 	eventually(t, "moved address authenticated", func() bool {
 		peer := first.Snapshot().Peer(identity)
 		return peer.Online && peer.Address == second.Address()

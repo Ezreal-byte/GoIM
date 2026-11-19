@@ -35,7 +35,7 @@ func (u *UI) drawEmojiPicker(c *gfx.Canvas, viewport ui.Rect) {
 	})
 	c.HitWithOptions(u.ids.emojiDismiss, anchor, i18n.T("关闭表情面板"), gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true, Backdrop: true})
 	c.SetEscapeTarget(u.ids.emojiDismiss)
-	c.RoundedBorder(panel, 12, 1, u.palette.border, u.theme.Popover)
+	c.RoundedBorder(panel, radiusCard, 1, u.palette.border, u.theme.Popover)
 	c.Block(panel)
 	columns := max(1, min(10, int((panel.Width-28)/42)))
 
