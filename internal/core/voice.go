@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"time"
 	"unicode"
 
@@ -356,8 +357,38 @@ func (n *Node) endVoiceLocked(reason string) {
 	}
 	n.voice.call.Status = domain.VoiceCallEnded
 	n.voice.call.Reason = voiceReason(reason)
+	n.recordVoiceHistoryLocked(n.voice.call)
 	callID := n.voice.call.ID
 	n.voice.clearTimer = time.AfterFunc(voiceEndedLinger, func() { n.clearEndedVoice(callID) })
+}
+
+func (n *Node) recordVoiceHistoryLocked(call domain.VoiceCall) {
+	messageID := "voice:" + call.ID
+	for _, message := range n.data.State.Messages {
+		if message.ID == messageID {
+			return
+		}
+	}
+	state := &n.data.State
+	conversationID := directID(state.Self.ID, call.PeerID)
+	ensureDirect(state, state.Peer(call.PeerID))
+	detail := map[string]string{
+		"declined": "通话已拒绝", "busy": "对方忙线", "no_answer": "无人接听",
+		"cancelled": "通话已取消", "disconnected": "连接已断开", "unavailable": "对方不可用",
+		"incompatible": "客户端不兼容", "ended": "通话已结束",
+	}[call.Reason]
+	if !call.ConnectedAt.IsZero() {
+		seconds := max(int(time.Since(call.ConnectedAt).Seconds()), 0)
+		detail = fmt.Sprintf("通话时长 %02d:%02d", seconds/60, seconds%60)
+	}
+	addMessageState(state, domain.Message{
+		ID: messageID, ConversationID: conversationID, SenderID: state.Self.ID,
+		Kind: "system", Text: "语音通话 · " + detail, CreatedAt: time.Now(), Status: "delivered",
+	})
+	state.Revision++
+	if err := saveStore(n.db, &n.data); err != nil {
+		state.Error = "保存通话记录失败：" + err.Error()
+	}
 }
 
 func (n *Node) clearEndedVoice(callID string) {

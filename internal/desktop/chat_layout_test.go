@@ -229,17 +229,17 @@ func TestChatSidebarSplitterDragsAndMovesWithKeyboard(t *testing.T) {
 	requireShellLayout(t, harness.snapshot())
 }
 
-func TestFilesPaneExpandsAndRestoresANormalWindow(t *testing.T) {
+func TestFilesDrawerKeepsNormalWindowGeometry(t *testing.T) {
 	harness := newChatSurfaceHarness(t, shellTestState(t), 1440, 960)
 	harness.ui.selected = "conv-group"
 	window := &testWindowGeometry{frame: ui.Rect{Width: 1440, Height: 960}}
 	harness.ui.attachNativeWindow(window)
 	harness.ui.toggleFilesPane()
-	if len(window.sizes) != 1 || window.sizes[0] != [2]int{1840, 960} {
+	if len(window.sizes) != 0 {
 		t.Fatalf("open sizes = %v", window.sizes)
 	}
 	harness.ui.toggleFilesPane()
-	if len(window.sizes) != 2 || window.sizes[1] != [2]int{1440, 960} {
+	if len(window.sizes) != 0 {
 		t.Fatalf("close sizes = %v", window.sizes)
 	}
 }
@@ -269,10 +269,8 @@ func TestFilesPaneSizeFailureLeavesTheWindowAlone(t *testing.T) {
 	window := &testWindowGeometry{frame: ui.Rect{Width: 1440, Height: 960}, err: errors.New("resize failed")}
 	harness.ui.attachNativeWindow(window)
 	harness.ui.toggleFilesPane()
-	surface := harness.ui.surface
-	if len(window.sizes) != 1 || surface.filesWindowRestoreValid || surface.filesWindowExpanded {
-		t.Fatalf("failed resize left state: sizes=%v valid=%t expanded=%t",
-			window.sizes, surface.filesWindowRestoreValid, surface.filesWindowExpanded)
+	if len(window.sizes) != 0 {
+		t.Fatalf("drawer attempted native resize: sizes=%v", window.sizes)
 	}
 }
 
@@ -381,7 +379,7 @@ func TestChatComposerResizesAndKeepsTheManualHeight(t *testing.T) {
 	}
 }
 
-func TestChatFilesPaneDocksClosesAndCompressesChat(t *testing.T) {
+func TestChatFilesDrawerOverlaysWithoutCompressingChat(t *testing.T) {
 	harness := newChatSurfaceHarness(t, shellTestState(t), 1440, 960)
 	harness.clickID(harness.ui.ids.chatHeaderFile)
 	harness.settle()
@@ -390,7 +388,7 @@ func TestChatFilesPaneDocksClosesAndCompressesChat(t *testing.T) {
 	}
 	surface := harness.ui.surface
 	pane := surface.filesPane
-	if pane.Width < chatFilesMinWidth || pane.Width > chatFilesMaxWidth {
+	if pane.Width < chatFilesMinWidth || pane.Width > 420 {
 		t.Fatalf("docked pane width %.1f is outside %.0f..%.0f", pane.Width, chatFilesMinWidth, chatFilesMaxWidth)
 	}
 	if pane.X+pane.Width > 1440.01 || pane.Y < titlebarHeight {
@@ -398,12 +396,12 @@ func TestChatFilesPaneDocksClosesAndCompressesChat(t *testing.T) {
 	}
 
 	header, ok := harness.findHit(harness.ui.ids.chatHeaderFile)
-	if !ok || header.Bounds.X+header.Bounds.Width > pane.X {
-		t.Fatalf("chat header did not compress beside the pane: %+v vs %+v", header.Bounds, pane)
+	if !ok || header.Bounds.Right() <= pane.X {
+		t.Fatalf("drawer compressed the chat header: %+v vs %+v", header.Bounds, pane)
 	}
 	editor, ok := harness.chatEditorHit()
-	if !ok || editor.Bounds.X+editor.Bounds.Width > pane.X+0.01 {
-		t.Fatalf("chat composer did not compress beside the pane: %+v vs %+v", editor.Bounds, pane)
+	if !ok || editor.Bounds.Right() <= pane.X {
+		t.Fatalf("drawer compressed the composer: %+v vs %+v", editor.Bounds, pane)
 	}
 	search, ok := harness.findHit(harness.ui.ids.fileSearch)
 	if !ok || search.Bounds.X < pane.X || search.Bounds.X+search.Bounds.Width > pane.X+pane.Width+0.01 {
@@ -458,12 +456,12 @@ func TestChatFilesPaneCompressesWhenMaximizedAtMinimumSize(t *testing.T) {
 	harness.clickID(harness.ui.ids.chatHeaderFile)
 	harness.settle()
 	pane := harness.ui.surface.filesPane
-	if pane.Width < chatFilesMinWidth || pane.Width > chatFilesMaxWidth {
+	if pane.Width < chatFilesMinWidth || pane.Width > 420 {
 		t.Fatalf("maximized pane width %.1f is outside %.0f..%.0f", pane.Width, chatFilesMinWidth, chatFilesMaxWidth)
 	}
 	header, ok := harness.findHit(harness.ui.ids.chatHeaderFile)
-	if !ok || header.Bounds.X+header.Bounds.Width > pane.X {
-		t.Fatalf("maximized chat did not compress beside the pane: %+v vs %+v", header.Bounds, pane)
+	if !ok || header.Bounds.Right() <= pane.X {
+		t.Fatalf("drawer compressed the maximized chat: %+v vs %+v", header.Bounds, pane)
 	}
 	if pane.X+pane.Width > 1000.01 || pane.Y+pane.Height > 700.01 {
 		t.Fatalf("maximized pane is outside the window: %+v", pane)

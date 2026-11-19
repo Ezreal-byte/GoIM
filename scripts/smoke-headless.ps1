@@ -188,6 +188,29 @@ try {
     Send-Command $taskBob ('closewindow '+$taskViewer.Groups[1].Value)
     Send-Command $taskBob 'window 1'
     $taskCharlie=Start-Peer '陈序' (Get-PeerAddress $taskAlice)
+
+    Send-Command $taskAlice 'click "语音通话"'
+    foreach($taskPeer in @($taskAlice,$taskBob)) {
+        Send-Command $taskPeer 'settle 150'
+        $taskVoiceWindows=Send-Command $taskPeer 'windows'
+        $taskVoice=[regex]::Match($taskVoiceWindows,'id=(\d+).*title="语音通话 · GoIM"')
+        if(!$taskVoice.Success){throw "Independent voice window did not open: $taskVoiceWindows"}
+        Send-Command $taskPeer 'window 1'
+        Send-Command $taskPeer 'click "消息输入框"'
+        Send-Command $taskPeer 'type 通话期间输入不受阻塞'
+        Send-Command $taskPeer 'expect exists "消息输入框"'
+        Send-Command $taskPeer ('window '+$taskVoice.Groups[1].Value)
+        Send-Command $taskPeer 'expect layout clean'
+        Save-Screenshot $taskPeer ('voice-window-'+$taskPeer.Id+'.png')
+        if($taskPeer -eq $taskBob){Send-Command $taskPeer 'click "拒绝"'}
+    }
+    foreach($taskPeer in @($taskAlice,$taskBob)) {
+        Send-Command $taskPeer 'window 1'
+        Send-Command $taskPeer 'waitfor "语音通话 · 通话已拒绝" 10000'
+        Send-Command $taskPeer 'click "消息输入框"'
+        Send-Command $taskPeer 'select 0 11'
+        Send-Command $taskPeer 'key backspace'
+    }
     Send-Command $taskAlice 'click id:goim/navigation/contacts'
     Send-Command $taskAlice 'waitfor "陈序" 10000'
     Send-Command $taskAlice 'click id:goim/sidebar/create'

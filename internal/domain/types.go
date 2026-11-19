@@ -7,6 +7,7 @@ type Peer struct {
 	RecallSupported      bool `json:"RecallSupported,omitempty"`
 	PrintSupported       bool `json:"PrintSupported,omitempty"`
 	VoiceSupported       bool `json:",omitempty"`
+	RelaySupported       bool `json:",omitempty"`
 	ID                   string
 	Name                 string
 	Address              string
@@ -617,6 +618,7 @@ const (
 	Connect              CommandKind = "connect"
 	SetCompatibility     CommandKind = "set_compatibility"
 	RefreshPeerAvatar    CommandKind = "refresh_peer_avatar"
+	RefreshContacts      CommandKind = "refresh_contacts"
 	StartChat            CommandKind = "start_chat"
 	SendText             CommandKind = "send_text"
 	SendFiles            CommandKind = "send_files"

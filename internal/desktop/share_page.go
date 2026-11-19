@@ -209,7 +209,7 @@ func (p *Panels) drawShareSendDialog(f ui.C, theme ui.Theme, submit func(domain.
 			if count > 3 {
 				names = append(names, fmt.Sprintf(i18n.T("等 %d 个文件"), count))
 			}
-			ui.Text(f, strings.Join(names, "、")).FontSize(theme.Metrics.FontSizeS + 1).
+			ui.Text(f, strings.Join(names, "、")).FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).
 				Weight(gfx.WeightMedium).Ellipsis()
 			field := ui.TextFieldID(f, p.ids.shareDialogPassword, &p.shareDialog.password,
 				i18n.T("访问密码（可选）"), i18n.T("留空表示无需密码")).FillWidth()
@@ -287,18 +287,18 @@ func (p *Panels) drawShareQRDialog(f ui.C, theme ui.Theme) {
 						FontSize(theme.Metrics.FontSizeS + 1).MaxWidth(280)
 				})
 			case p.shareQR.loading:
-				ui.Row(f).Size(224, 224).Radius(10).Background(theme.Muted).
+				ui.Row(f).Size(224, 224).Radius(radiusControl).Background(theme.Muted).
 					Items(ui.Center).Justify(ui.Center).Children(func() {
 					ui.Spinner(f).Size(20, 20)
 				})
 			default:
-				ui.Row(f).Size(224, 224).Radius(10).Background(ui.RGB(255, 255, 255)).
+				ui.Row(f).Size(224, 224).Radius(radiusControl).Background(ui.RGB(255, 255, 255)).
 					Items(ui.Center).Justify(ui.Center).Children(func() {
 					ui.Image(f, p.shareQR.bitmap).Size(208, 208)
 				})
 			}
 			if p.shareQR.url != "" {
-				ui.Text(f, p.shareQR.url).Muted().FontSize(theme.Metrics.FontSizeS).
+				ui.Text(f, p.shareQR.url).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS)).
 					Ellipsis().MaxWidth(300)
 			}
 			ui.Text(f, i18n.T("手机与电脑连接同一局域网后，即可扫码打开。")).Muted().

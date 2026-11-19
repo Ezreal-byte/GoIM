@@ -285,14 +285,14 @@ func transferFileIcon(theme ui.Theme, kind string) (gfx.Icon, ui.Color, ui.Color
 }
 
 func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, columns panelTableColumns, entry *panelTransferEntry, submit func(domain.Command)) {
-	row := ui.Row(f).FillWidth().Height(panelTableRowHeight).PadX(15).Gap(12).Items(ui.Center).Radius(7).
+	row := ui.Row(f).FillWidth().Height(panelTableRowHeight).PadX(15).Gap(12).Items(ui.Center).Radius(radiusControl).
 		Hover(ui.Look{}.Background(theme.Hover)).
 		HitWith(entry.ids.more, entry.name, gfx.HitOptions{Role: gfx.RoleButton, Hint: entry.name}).
 		Tooltip(entry.name)
 	row.Children(func() {
 		ui.Row(f).Grow(1).MinWidth(0).Gap(11).Items(ui.Center).Children(func() {
 			icon, ink, fill := transferFileIcon(theme, entry.fileKind)
-			ui.Row(f).Size(32, 32).Radius(7).Background(fill).Items(ui.Center).Justify(ui.Center).Children(func() {
+			ui.Row(f).Size(32, 32).Radius(radiusControl).Background(fill).Items(ui.Center).Justify(ui.Center).Children(func() {
 				ui.Icon(f, icon).Size(20, 20).Color(ink)
 			})
 			ui.Text(f, entry.name).FontSize(15).Weight(gfx.WeightMedium).MinWidth(0).Ellipsis()

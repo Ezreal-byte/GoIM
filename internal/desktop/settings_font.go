@@ -281,13 +281,13 @@ func (p *Panels) drawInterfaceFontPicker(f ui.C, theme ui.Theme, state domain.St
 			ui.Column(f).Height(interfaceFontListHeight).Shrink(0).Children(func() {
 				switch {
 				case font.loading:
-					ui.Text(f, i18n.T("正在读取已安装的字体…")).Muted().FontSize(theme.Metrics.FontSizeS + 1).
+					ui.Text(f, i18n.T("正在读取已安装的字体…")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).
 						TextCenter().PadY(24)
 				case len(font.filtered) == 0 && font.known && len(font.families) == 0:
-					ui.Text(f, i18n.T("当前平台没有可枚举的系统字体。")).Muted().FontSize(theme.Metrics.FontSizeS + 1).
+					ui.Text(f, i18n.T("当前平台没有可枚举的系统字体。")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).
 						TextCenter().PadY(24)
 				case len(font.filtered) == 0:
-					ui.Text(f, i18n.T("未找到匹配的字体。")).Muted().FontSize(theme.Metrics.FontSizeS + 1).
+					ui.Text(f, i18n.T("未找到匹配的字体。")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).
 						TextCenter().PadY(24)
 				default:
 					p.drawInterfaceFontRows(f, theme, font)
@@ -342,10 +342,10 @@ func (p *Panels) drawInterfaceFontRows(f ui.C, theme ui.Theme, font *panelInterf
 				font.selected = row
 			}
 			line.Children(func() {
-				ui.Text(f, entry.label).FontSize(theme.Metrics.FontSizeM + 1).Weight(gfx.WeightMedium).
+				ui.Text(f, entry.label).FontSize(fontToken(theme, theme.Metrics.FontSizeM+1)).Weight(gfx.WeightMedium).
 					Color(color).LineHeight(20).Grow(1).Ellipsis()
 				if font.entries[font.filtered[row]].family == strings.TrimSpace(font.settings.InterfaceFont) {
-					ui.Text(f, i18n.T("当前")).Muted().FontSize(theme.Metrics.FontSizeS)
+					ui.Text(f, i18n.T("当前")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
 				}
 			})
 		}
@@ -360,9 +360,9 @@ func (p *Panels) drawInterfaceFontPreview(f ui.C, theme ui.Theme, font *panelInt
 	entry := font.entries[font.filtered[font.selected]]
 	ui.Column(f).Height(interfaceFontPreviewHeight).Shrink(0).PadSides(12, 12, 8, 8).
 		Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl).Children(func() {
-		first := ui.Text(f, interfaceFontSample).FontSize(theme.Metrics.FontSizeM).
+		first := ui.Text(f, interfaceFontSample).FontSize(fontToken(theme, theme.Metrics.FontSizeM)).
 			Color(theme.Foreground).LineHeight(22).Height(22)
-		second := ui.Text(f, interfaceFontSampleSymbols).FontSize(theme.Metrics.FontSizeM).
+		second := ui.Text(f, interfaceFontSampleSymbols).FontSize(fontToken(theme, theme.Metrics.FontSizeM)).
 			Color(theme.MutedForeground).LineHeight(22).Height(22)
 		if entry.family != "" {
 			face := gfx.MonoFamily(entry.family)

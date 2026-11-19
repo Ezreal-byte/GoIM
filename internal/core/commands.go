@@ -23,6 +23,12 @@ func (n *Node) execute(c domain.Command) error {
 		return nil
 	}
 	switch c.Kind {
+	case domain.RefreshContacts:
+		select {
+		case n.discoveryWake <- struct{}{}:
+		default:
+		}
+		return nil
 	case domain.Connect:
 		if strings.TrimSpace(c.Address) == "" {
 			return errors.New("请输入 IP 或 IP:端口")

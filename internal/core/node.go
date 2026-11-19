@@ -56,6 +56,8 @@ type Node struct {
 	closing               bool
 	transfers             map[string]context.CancelFunc
 	discovery             bool
+	discoveryWake         chan struct{}
+	relayRoutes           map[string]map[string]bool
 	webServer             *http.Server
 	webAddress            string
 	webKey                [32]byte
@@ -130,6 +132,7 @@ func New(opts Options) (*Node, error) {
 		listener: listener, connections: make(map[string]*peerConn), dialing: make(map[string]bool),
 		commands: make(chan domain.Command, 256), updates: make(chan struct{}, 1),
 		transfers: make(map[string]context.CancelFunc), discovery: !opts.DisableDiscovery,
+		discoveryWake: make(chan struct{}, 1), relayRoutes: make(map[string]map[string]bool),
 		printBackend: printBackend, printPollDelay: 900 * time.Millisecond,
 		printPollLimit: 30 * time.Minute, printPolls: make(map[string]bool),
 		printSubmitTokens: make(chan struct{}, 2),

@@ -21,4 +21,4 @@ require (
 )
 
 // Temporary until the Windows windowing, transparent text, and Linux Fcitx 4 fixes reach Viva upstream.
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261119115650-15819aec0c1b
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261119173556-4c73c350089a

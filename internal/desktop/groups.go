@@ -18,6 +18,8 @@ import (
 
 func (u *UI) drawSideDrawer(canvas *gfx.Canvas) {
 	switch u.drawer {
+	case "files":
+		u.drawChatFilesPane(canvas, u.lastChat)
 	case "members":
 		u.drawMemberDrawer(canvas, u.lastChat)
 	}
@@ -30,7 +32,6 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.drawer = ""
 		u.activeFileID = ""
 		u.fileReturn = ""
-		u.syncFilesWindow()
 		return
 	}
 	native := group.Transport == domain.TransportNeiwangtong
@@ -131,7 +132,7 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 						continue
 					}
 					shown++
-					row := ui.Row(f).FillWidth().Height(58).PadSides(7, 8, 7, 8).Radius(9).
+					row := ui.Row(f).FillWidth().Height(58).PadSides(7, 8, 7, 8).Radius(radiusControl).
 						Gap(10).Background(func() ui.Color {
 						if peer.ID == u.memberMenu {
 							return u.palette.selected
@@ -701,7 +702,6 @@ func (u *UI) closeDrawer() {
 	u.nicknameGroup = ""
 	u.nicknameErr = ""
 	u.memberSearch.SetText("")
-	u.syncFilesWindow()
 }
 
 func (u *UI) requestCloseDrawer() {
@@ -773,24 +773,15 @@ func (u *UI) drawChatFilesPane(canvas *gfx.Canvas, viewport ui.Rect) {
 		title = i18n.T("文件详情")
 		subtitle = u.state.File(u.activeFileID).Name
 	}
-	canvas.Fill(viewport, u.palette.header)
-	canvas.PushFocusScope(u.ids.fileScope)
-	defer canvas.PopFocusScope()
-	closeClicked := false
-	u.drawerPage.Draw(canvas, viewport, func(f ui.C) {
+	drawer := components.BeginDrawer(canvas, u.theme, viewport, components.DrawerOptions{
+		Layer: 60, Scope: u.ids.fileScope, DismissID: u.ids.fileDismiss, CloseID: u.ids.fileClose,
+		Side: components.DrawerRight, ContentExtent: min(float32(420), viewport.Width),
+	})
+	layout := drawer.Begin(title, subtitle)
+	surface.filesPane = layout.Content
+	defer drawer.End()
+	u.drawerPage.Draw(canvas, layout.Body, func(f ui.C) {
 		ui.Column(f).Fill().Children(func() {
-			ui.Row(f).Height(64).FillWidth().PadSides(18, 16, 0, 14).
-				Items(ui.Center).Gap(8).Children(func() {
-				ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
-					ui.Text(f, title).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis()
-					ui.Text(f, subtitle).FontSize(11).Muted().Ellipsis()
-				})
-				closeButton := u.iconButton(f, u.ids.fileClose, u.iconX, i18n.T("关闭聊天文件"), 30)
-				if closeButton.Clicked() {
-					closeClicked = true
-				}
-			})
-			ui.Divider(f)
 			ui.Column(f).Grow(1).PadSides(14, 16, 12, 16).Children(func() {
 				if detail {
 					u.drawFileDetail(f, u.state.File(u.activeFileID))
@@ -800,7 +791,7 @@ func (u *UI) drawChatFilesPane(canvas *gfx.Canvas, viewport ui.Rect) {
 			})
 		})
 	})
-	if closeClicked || canvas.Clicked(u.ids.fileClose) {
+	if canvas.Clicked(u.ids.fileClose) || canvas.Clicked(u.ids.fileDismiss) {
 		u.closeDrawer()
 		surface.filesPane = ui.Rect{}
 	}
@@ -851,12 +842,12 @@ func (u *UI) drawFileList(f ui.C) {
 					continue
 				}
 				shown++
-				row := ui.Row(f).FillWidth().MinHeight(64).Pad(10).Radius(9).Gap(10).
+				row := ui.Row(f).FillWidth().MinHeight(64).Pad(10).Radius(radiusControl).Gap(10).
 					Hover(ui.Look{}.Background(u.palette.hover)).
 					HitWith(u.fileRowIDs[file.ID], file.Name,
 						gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("文件详情")}).
 					Children(func() {
-						ui.Row(f).Size(36, 36).Radius(9).Items(ui.Center).Justify(ui.Center).
+						ui.Row(f).Size(36, 36).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
 							Background(fileIconTint(file)).Children(func() {
 							ui.Icon(f, u.fileIcon(file)).Size(19, 19).Color(fileIconColor(file))
 						})
@@ -902,7 +893,7 @@ func (u *UI) drawFileDetail(f ui.C, file domain.File) {
 			}
 		}
 		ui.Row(f).Items(ui.Center).Gap(13).Children(func() {
-			ui.Row(f).Size(52, 52).Radius(12).Items(ui.Center).Justify(ui.Center).
+			ui.Row(f).Size(52, 52).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
 				Background(fileIconTint(file)).Children(func() {
 				ui.Icon(f, u.fileIcon(file)).Size(25, 25).Color(fileIconColor(file))
 			})
@@ -913,7 +904,7 @@ func (u *UI) drawFileDetail(f ui.C, file domain.File) {
 		})
 		if fileIsImage(file) {
 			if bitmap := u.fileBitmap(u.fileLocalPath[file.ID]); bitmap.Width > 0 && bitmap.Height > 0 {
-				ui.Stack(f).FillWidth().Height(190).Radius(10).Clip().
+				ui.Stack(f).FillWidth().Height(190).Radius(radiusControl).Clip().
 					Background(u.palette.mutedAvatar).Children(func() {
 					ui.Image(f, bitmap).Fill()
 				})
@@ -970,7 +961,7 @@ func (u *UI) drawTransferRowActions(f ui.C, transfer domain.Transfer) {
 			u.submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID})
 		}
 		if namedButton(f, u.fileSaveIDs[transfer.ID], i18n.T("另存为…")).XSmall().Outline().Clicked() {
-			u.chooseTransferDestination(transfer)
+			u.chooseTransferDestination(f.Canvas(), transfer)
 		}
 		if namedButton(f, u.fileRejectIDs[transfer.ID], i18n.T("拒绝")).XSmall().Outline().Clicked() {
 			u.submit(domain.Command{Kind: domain.RejectTransfer, TransferID: transfer.ID})
@@ -1051,28 +1042,35 @@ func (u *UI) groupedFileTransfers(fileID string) []domain.Transfer {
 	return active
 }
 
-func (u *UI) chooseTransferDestination(transfer domain.Transfer) {
-	suggested := ""
-	for _, file := range u.state.Files {
-		if file.ID == transfer.FileID {
-			suggested = file.Name
-			break
-		}
+func (u *UI) chooseTransferDestination(canvas *gfx.Canvas, transfer domain.Transfer) {
+	if u.filePickerOpen {
+		return
 	}
-	path, err := app.SaveFile(app.SaveFileOptions{
-		Title: i18n.T("选择接收位置"), SuggestedName: suggested,
-	})
-	if err != nil {
-		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) ||
-			errors.Is(err, app.ErrUnsupported) {
+	u.filePickerOpen = true
+	canvas.AfterPaint(func() {
+		defer func() { u.filePickerOpen = false; canvas.RequestFrame() }()
+		suggested := ""
+		for _, file := range u.state.Files {
+			if file.ID == transfer.FileID {
+				suggested = file.Name
+				break
+			}
+		}
+		path, err := app.SaveFile(app.SaveFileOptions{
+			Title: i18n.T("选择接收位置"), SuggestedName: suggested,
+		})
+		if err != nil {
+			if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) ||
+				errors.Is(err, app.ErrUnsupported) {
+				return
+			}
 			return
 		}
-		return
-	}
-	if path == "" {
-		return
-	}
-	u.submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID, Paths: []string{path}})
+		if path == "" {
+			return
+		}
+		u.submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID, Paths: []string{path}})
+	})
 }
 
 func (u *UI) fileInfoRow(f ui.C, label, value string) {
@@ -1493,7 +1491,7 @@ func (u *UI) drawComposeCandidates(f ui.C, create bool, group domain.Group) {
 			supported := peer.SupportsGroups()
 			matches := !fixedTransport || peer.Transport == transport
 			available := peer.Online && (selected || supported && matches)
-			row := ui.Row(f.Key(peer.ID)).FillWidth().Height(46).PadSides(5, 8, 5, 8).Radius(7).Gap(8).
+			row := ui.Row(f.Key(peer.ID)).FillWidth().Height(46).PadSides(5, 8, 5, 8).Radius(radiusControl).Gap(8).
 				Background(func() ui.Color {
 					if selected {
 						return u.palette.selected

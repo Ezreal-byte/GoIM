@@ -7,6 +7,8 @@ import (
 )
 
 const (
+	radiusControl          = float32(8)
+	radiusCard             = float32(8)
 	dialogActionButtonSize = components.ButtonSizeLarge
 	dialogActionMinWidth   = float32(88)
 	dialogActionHeight     = float32(40)
@@ -15,6 +17,16 @@ const (
 // namedButton keeps the ID shared with a focus request or a shell action.
 func namedButton(c ui.C, id gfx.ID, label string) ui.Box {
 	return ui.Button(c, label).Hit(id, label)
+}
+
+func fontToken(theme gfx.Theme, size float32) float32 {
+	return size / theme.Metrics.EffectiveTextScale()
+}
+
+func (u *UI) railExtent() float32 { return max(railWidth, 56*u.theme.Metrics.EffectiveTextScale()) }
+
+func (u *UI) textExtent(base, extra float32) float32 {
+	return base + extra*max(u.theme.Metrics.EffectiveTextScale()-1, 0)
 }
 
 func dialogActionButton(c ui.C, id gfx.ID, label string) ui.Box {

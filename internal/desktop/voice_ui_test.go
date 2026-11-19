@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/vivaui/viva/app"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,7 +31,7 @@ func openVoiceQA(t *testing.T, state domain.State, width, height int) (*UI, *viv
 	shell := New(backend)
 	// Visual QA must never open a physical microphone or speaker.
 	shell.voiceAudio = nil
-	config := shell.Config()
+	config := shell.voiceConfig()
 	config.Width, config.Height = width, height
 	session, err := vivaheadless.Open(config, nil, vivaheadless.Options{Scale: 1})
 	if err != nil {
@@ -48,7 +49,7 @@ func TestVoiceCallOutgoingOverlayAndControls(t *testing.T) {
 		Direction: domain.VoiceCallOutgoing, Status: domain.VoiceCallRinging,
 		StartedAt: time.Now(),
 	}
-	h := newShellTestHarness(t, voiceUIState(t, call))
+	h := newVoiceWindowHarness(t, voiceUIState(t, call))
 	if !h.hasText("等待对方接听…") {
 		t.Fatal("outgoing call does not show the waiting state")
 	}
@@ -97,7 +98,7 @@ func TestVoiceCallIncomingOverlayAcceptsAndDeclines(t *testing.T) {
 		{"decline", domain.RejectVoiceCall},
 	} {
 		t.Run(action.name, func(t *testing.T) {
-			h := newShellTestHarness(t, voiceUIState(t, base))
+			h := newVoiceWindowHarness(t, voiceUIState(t, base))
 			id := h.ui.ids.voiceAccept
 			if action.name == "decline" {
 				id = h.ui.ids.voiceReject
@@ -123,7 +124,7 @@ func TestVoiceCallActiveOverlayShowsDurationAndSpeakerControl(t *testing.T) {
 		Direction: domain.VoiceCallOutgoing, Status: domain.VoiceCallActive,
 		StartedAt: time.Now().Add(-time.Minute), ConnectedAt: time.Now().Add(-65 * time.Second),
 	})
-	h := newShellTestHarness(t, state)
+	h := newVoiceWindowHarness(t, state)
 	h.settle()
 	h.backend.clearCommands()
 	if !h.hasText("通话中") || !h.hasText("01:05") {
@@ -137,6 +138,21 @@ func TestVoiceCallActiveOverlayShowsDurationAndSpeakerControl(t *testing.T) {
 	if command.Kind != domain.SetVoiceSpeakerMuted || command.CallID != "call-active" || !command.Bool {
 		t.Fatalf("speaker command = %+v", command)
 	}
+}
+
+func newVoiceWindowHarness(t *testing.T, state domain.State) *shellTestHarness {
+	t.Helper()
+	backend := newShellTestBackend(state)
+	shell := newUIShell(backend, false)
+	driver, err := app.NewDriver(shell.voiceConfig(), nil)
+	if err != nil {
+		shell.Close()
+		t.Fatal(err)
+	}
+	harness := &shellTestHarness{t: t, ui: shell, backend: backend, driver: driver}
+	t.Cleanup(driver.Close)
+	t.Cleanup(shell.Close)
+	return harness
 }
 
 func TestChatHeaderStartsVoiceCallForSupportedOnlinePeer(t *testing.T) {
@@ -204,7 +220,7 @@ func TestVoiceCallScreenshotQA(t *testing.T) {
 			t.Run(test.name+"-"+theme, func(t *testing.T) {
 				state := voiceUIState(t, test.call)
 				state.Settings.Theme = theme
-				_, session := openVoiceQA(t, state, 1000, 700)
+				_, session := openVoiceQA(t, state, 430, 540)
 				shellQAShot(t, session, directory, filepath.Join("voice-"+test.name+"-"+theme+".png"))
 			})
 		}

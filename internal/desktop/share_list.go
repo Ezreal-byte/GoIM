@@ -191,7 +191,7 @@ func panelFilterShares(entries []panelShareEntry, query string) []panelShareEntr
 }
 
 func panelActionIcon(f ui.C, theme ui.Theme, id gfx.ID, icon gfx.Icon, label string, active, disabled bool) ui.Box {
-	box := ui.Row(f).Size(36, 32).Radius(7).Items(ui.Center).Justify(ui.Center).
+	box := ui.Row(f).Size(36, 32).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
 		Hover(ui.Look{}.Background(theme.Hover)).
 		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: label, Disabled: disabled, Expanded: active})
 	if active || f.Canvas().FocusVisible() == id {
@@ -211,7 +211,7 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 	selected := p.shareSelected == entry.file.ID
 	menuOpen := p.shareMenu.kind == shareMenuProject && p.shareMenu.project == entry.file.ID
 	canvas := f.Canvas()
-	row := ui.Row(f).FillWidth().Height(panelTableRowHeight).PadX(15).Gap(12).Items(ui.Center).Radius(7).
+	row := ui.Row(f).FillWidth().Height(panelTableRowHeight).PadX(15).Gap(12).Items(ui.Center).Radius(radiusControl).
 		Hover(ui.Look{}.Background(theme.Hover)).
 		HitWith(entry.rowID, entry.title, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected, Hint: entry.title}).
 		Tooltip(entry.title)
@@ -221,7 +221,7 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 	row.Children(func() {
 		ui.Row(f).MinWidth(0).Grow(1).Gap(13).Items(ui.Center).Children(func() {
 			icon, ink, fill := shareProjectIcon(theme, entry)
-			ui.Row(f).Size(32, 32).Radius(7).Background(fill).Items(ui.Center).Justify(ui.Center).Children(func() {
+			ui.Row(f).Size(32, 32).Radius(radiusControl).Background(fill).Items(ui.Center).Justify(ui.Center).Children(func() {
 				ui.Icon(f, icon).Size(20, 20).Color(ink)
 			})
 			ui.Text(f, entry.title).FontSize(15).Weight(gfx.WeightMedium).MinWidth(0).Ellipsis()

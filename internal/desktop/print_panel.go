@@ -517,7 +517,7 @@ func (p *Panels) drawPrintCardGrid(f ui.C, theme ui.Theme, width float32, cards 
 
 func (p *Panels) drawPrintCard(f ui.C, theme ui.Theme, card panelPrintCard,
 	mine bool, submit func(domain.Command)) {
-	ui.Row(f).Fill().MinHeight(112).PadSides(18, 16, 18, 16).Gap(14).Radius(10).
+	ui.Row(f).Fill().MinHeight(112).PadSides(18, 16, 18, 16).Gap(14).Radius(radiusControl).
 		Background(theme.Background).Border(1, theme.Border).Children(func() {
 		p.drawPrintAvatar(f, card, theme, 54)
 		ui.Column(f).Grow(1).MinWidth(0).Gap(5).Justify(ui.Center).Children(func() {
@@ -550,7 +550,7 @@ func (p *Panels) drawPrintCard(f ui.C, theme ui.Theme, card panelPrintCard,
 			} else if !card.available {
 				hint = i18n.T("共享打印机当前不可用")
 			}
-			box := ui.Row(f).Height(34).PadSides(13, 11, 13, 11).Gap(7).Radius(7).
+			box := ui.Row(f).Height(34).PadSides(13, 11, 13, 11).Gap(7).Radius(radiusControl).
 				Border(1, theme.Border).Hover(ui.Look{}.Background(theme.Hover)).
 				HitWith(card.printActionID, hint, gfx.HitOptions{
 					Role: gfx.RoleButton, Hint: hint, Disabled: disabled,
@@ -611,7 +611,7 @@ func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records
 			Hover(ui.Look{}.Background(theme.Hover))
 		row.Children(func() {
 			ui.Row(f).Grow(1).MinWidth(0).Gap(10).Items(ui.Center).Children(func() {
-				ui.Row(f).Size(30, 30).Radius(7).Background(panelTint(theme.Primary, .10, theme.Background)).
+				ui.Row(f).Size(30, 30).Radius(radiusControl).Background(panelTint(theme.Primary, .10, theme.Background)).
 					Items(ui.Center).Justify(ui.Center).Children(func() {
 					ui.Icon(f, printFileIcon(record.job)).Size(17, 17).Color(theme.Primary)
 				})
@@ -722,9 +722,9 @@ func (p *Panels) drawPrinterShareDialog(f ui.C, theme ui.Theme, state domain.Sta
 			}
 			submitted = field.Submitted()
 			ui.Text(f, i18n.T("同一账号可共享多台打印机，局域网成员无需密码即可选择并使用。")).
-				Muted().FontSize(theme.Metrics.FontSizeS)
+				Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
 			if state.PrintError != "" {
-				ui.Text(f, state.PrintError).FontSize(theme.Metrics.FontSizeS).Color(theme.Danger)
+				ui.Text(f, state.PrintError).FontSize(fontToken(theme, theme.Metrics.FontSizeS)).Color(theme.Danger)
 			}
 		})
 	})

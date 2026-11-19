@@ -33,7 +33,7 @@ func (u *UI) drawRecalledMessage(f ui.C, c domain.Conversation, m domain.Message
 		label = u.messageSenderName(c, m) + i18n.T(" 撤回了一条消息")
 	}
 	ui.Row(f).FillWidth().Justify(ui.Center).Children(func() {
-		ui.Row(f).PadSides(6, 10, 6, 10).Radius(7).Background(u.palette.mutedAvatar).
+		ui.Row(f).PadSides(6, 10, 6, 10).Radius(radiusControl).Background(u.palette.mutedAvatar).
 			HitWith(id, label, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).Children(func() {
 			ui.Text(f, label).FontSize(11).Muted()
 		})
@@ -107,9 +107,9 @@ func (u *UI) drawMessageContextMenu(c *gfx.Canvas, viewport ui.Rect) {
 	case c.Clicked(u.ids.messageMenuSave):
 		u.closeShellMenu()
 		if available {
-			u.saveMessageAttachment(f, path)
+			u.saveMessageAttachment(c, f, path)
 		} else if offer.ID != "" {
-			u.chooseTransferDestination(offer)
+			u.chooseTransferDestination(c, offer)
 		}
 	case c.Clicked(u.ids.messageMenuRecall):
 		u.closeShellMenu()
@@ -151,23 +151,30 @@ func (u *UI) canRecallMessage(conv domain.Conversation, peer domain.Peer, m doma
 	}
 }
 
-func (u *UI) saveMessageAttachment(file domain.File, source string) {
-	name := filepath.Base(file.Name)
-	if name == "" || name == "." {
-		name = filepath.Base(source)
-	}
-	path, err := app.SaveFile(app.SaveFileOptions{Title: i18n.T("另存为…"), SuggestedName: name,
-		DefaultExtension: strings.TrimPrefix(filepath.Ext(name), ".")})
-	if errors.Is(err, app.ErrCanceled) || (err == nil && path == "") {
+func (u *UI) saveMessageAttachment(canvas *gfx.Canvas, file domain.File, source string) {
+	if u.filePickerOpen {
 		return
 	}
-	if err != nil {
-		u.submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("无法保存文件：") + err.Error()})
-		return
-	}
-	go func() {
-		if err := copyViewerImage(source, path); err != nil {
-			u.submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("无法保存文件：") + err.Error()})
+	u.filePickerOpen = true
+	canvas.AfterPaint(func() {
+		defer func() { u.filePickerOpen = false; canvas.RequestFrame() }()
+		name := filepath.Base(file.Name)
+		if name == "" || name == "." {
+			name = filepath.Base(source)
 		}
-	}()
+		path, err := app.SaveFile(app.SaveFileOptions{Title: i18n.T("另存为…"), SuggestedName: name,
+			DefaultExtension: strings.TrimPrefix(filepath.Ext(name), ".")})
+		if errors.Is(err, app.ErrCanceled) || (err == nil && path == "") {
+			return
+		}
+		if err != nil {
+			u.submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("无法保存文件：") + err.Error()})
+			return
+		}
+		go func() {
+			if err := copyViewerImage(source, path); err != nil {
+				u.submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("无法保存文件：") + err.Error()})
+			}
+		}()
+	})
 }

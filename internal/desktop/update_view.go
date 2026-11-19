@@ -72,7 +72,7 @@ func (u *UI) drawUpdateTitlebar(f ui.C, wide bool) {
 	if wide {
 		size = 28
 	}
-	button := ui.Stack(f).Size(size, size).Radius(7).Items(ui.Center).Justify(ui.Center).
+	button := ui.Stack(f).Size(size, size).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
 		Background(panelTint(u.palette.success, 0.16, u.palette.rail)).
 		Hover(ui.Look{}.Background(panelTint(u.palette.success, 0.24, u.palette.rail))).
 		HitWith(u.updateIDs.chrome, label, gfx.HitOptions{

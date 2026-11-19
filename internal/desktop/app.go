@@ -201,6 +201,7 @@ type appIDs struct {
 	sidebarCreate  gfx.ID
 	sidebarConnect gfx.ID
 	sidebarSearch  gfx.ID
+	sidebarRefresh gfx.ID
 	filterAll      gfx.ID
 	filterOnline   gfx.ID
 	emptyConnect   gfx.ID
@@ -378,6 +379,7 @@ type UI struct {
 	state                         domain.State
 	voiceAudio                    *voiceAudioRuntime
 	voiceFocusedFor               string
+	voiceWindow                   bool
 	theme                         ui.Theme
 	palette                       palette
 	tree                          gfx.Tree
@@ -866,7 +868,9 @@ func (u *UI) watchUpdates() {
 
 func (u *UI) onWake() {
 	u.refresh()
-	u.voiceAudio.sync(u.state.VoiceCall, u.state.Settings)
+	if !u.detachedWindow && !u.voiceWindow {
+		u.voiceAudio.sync(u.state.VoiceCall, u.state.Settings)
+	}
 	if notice := u.voiceAudio.takeNotice(); notice != "" {
 		u.showToast(i18n.T("语音通话已结束"), notice, components.ToastError)
 	}
@@ -1143,6 +1147,7 @@ func (u *UI) initIDs() {
 	u.ids.sidebarCreate = u.tree.ID(u.ids.side, "create")
 	u.ids.sidebarConnect = u.tree.ID(u.ids.side, "connect")
 	u.ids.sidebarSearch = u.tree.ID(u.ids.side, "search")
+	u.ids.sidebarRefresh = u.tree.ID(u.ids.side, "refresh")
 	u.ids.filterAll = u.tree.ID(u.ids.side, "filter-all")
 	u.ids.filterOnline = u.tree.ID(u.ids.side, "filter-online")
 	u.ids.emptyConnect = u.tree.ID(u.ids.side, "empty-connect")
@@ -1432,6 +1437,7 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	if bounds.Height < 660 {
 		itemHeight, itemGap, railPadding, avatarSize, avatarGap = 48, 2, 8, 36, 4
 	}
+	itemHeight = max(itemHeight, 46+11*u.theme.Metrics.EffectiveTextScale())
 	unreadBadge, unreadHint := "", ""
 	if unread := u.unreadTotal(); unread > 0 {
 		unreadBadge = compactCount(unread)
@@ -1532,16 +1538,17 @@ func (u *UI) railItemBadged(f ui.C, id gfx.ID, icon gfx.Icon, label string,
 	if badge != "" && badgeHint != "" {
 		accessible += "，" + badgeHint
 	}
-	box := ui.Column(f).Size(56, height).Radius(10).Items(ui.Center).Justify(ui.Center).Gap(4).
+	box := ui.Column(f).Size(u.railExtent()-12, height).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).Gap(4).
 		Background(background).Hover(ui.Look{}.Background(hover)).
 		HitWith(id, accessible, gfx.HitOptions{Role: gfx.RoleButton, Selected: active, Hint: accessible}).
 		Children(func() {
-			ui.Stack(f).Width(36).Height(24).Children(func() {
+			badgeHeight := max(float32(16), 9*u.theme.Metrics.EffectiveTextScale()+7)
+			ui.Stack(f).Width(max(36, badgeHeight+20)).Height(max(24, badgeHeight)).Children(func() {
 				ui.Stack(f).Size(21, 21).Absolute().Left(7).Top(2).Children(func() {
 					ui.Icon(f, icon).Size(21, 21).Color(foreground)
 				})
 				if badge != "" {
-					ui.Row(f).MinWidth(16).Height(16).PadX(4).Radius(8).Absolute().Right(0).Top(0).
+					ui.Row(f).MinWidth(badgeHeight).Height(badgeHeight).PadX(4).Radius(badgeHeight / 2).Absolute().Right(0).Top(0).
 						Background(u.theme.Primary).Items(ui.Center).Justify(ui.Center).
 						Children(func() {
 							ui.Text(f, badge).FontSize(9).Weight(gfx.WeightSemibold).
@@ -1564,6 +1571,13 @@ func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 					Height(38).Grow(1)
 				connect = u.iconButton(f, u.ids.sidebarConnect, u.iconUserPlus, i18n.T("手动连接"), 32)
 				create = u.iconButton(f, u.ids.sidebarCreate, u.iconPlus, i18n.T("创建群聊"), 32)
+				if u.section == sectionContacts {
+					refresh := u.iconButton(f, u.ids.sidebarRefresh, u.iconRefresh, i18n.T("刷新联系人"), 32)
+					if refresh.Clicked() {
+						u.submit(domain.Command{Kind: domain.RefreshContacts})
+						u.showToast(i18n.T("正在刷新局域网联系人"), "", components.ToastInfo)
+					}
+				}
 			})
 			ui.Row(f).Height(10)
 			if u.section == sectionContacts {
@@ -1719,7 +1733,7 @@ func (u *UI) selfContactRow(f ui.C) {
 		!containsFold(i18n.T("个人资料"), query) {
 		return
 	}
-	row := ui.Row(f).FillWidth().Height(sidebarSelfHeight).PadSides(8, 7, 8, 7).Radius(9).Gap(9).
+	row := ui.Row(f).FillWidth().Height(u.textExtent(sidebarSelfHeight, 30)).PadSides(8, 7, 8, 7).Radius(radiusControl).Gap(9).
 		Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(u.ids.selfRow, name+i18n.T("，个人资料"),
 			gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("编辑个人资料")}).
@@ -1791,7 +1805,7 @@ func (u *UI) drawInvitations(f ui.C) {
 }
 
 func (u *UI) invitationCard(f ui.C, invitation domain.Invitation, ownership bool) {
-	ui.Column(f).FillWidth().Pad(11).Radius(10).Background(u.palette.invite).
+	ui.Column(f).FillWidth().Pad(11).Radius(radiusControl).Background(u.palette.invite).
 		Border(1, u.palette.fileBorder).Gap(8).Children(func() {
 		ui.Row(f).Items(ui.Center).Gap(9).Children(func() {
 			u.initialsAvatar(f, invitation.GroupName, 30)
@@ -1873,7 +1887,7 @@ func (u *UI) contactGroupHeader(f ui.C, group contactGroupView, collapsed bool) 
 	if collapsed {
 		icon = u.iconChevronRight
 	}
-	header := ui.Row(f).Height(32).Items(ui.Center).Gap(6).Radius(7).
+	header := ui.Row(f).Height(u.textExtent(32, 10)).Items(ui.Center).Gap(6).Radius(radiusControl).
 		Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(id, group.Name, gfx.HitOptions{Role: gfx.RoleButton, Expanded: !collapsed}).
 		Children(func() {
@@ -1899,7 +1913,7 @@ func (u *UI) contactRow(f ui.C, peer domain.Peer) {
 	if selected {
 		background = u.palette.selected
 	}
-	row := ui.Row(f).FillWidth().Height(sidebarContactHeight).PadSides(8, 7, 8, 7).Radius(9).Gap(9).
+	row := ui.Row(f).FillWidth().Height(u.textExtent(sidebarContactHeight, 30)).PadSides(8, 7, 8, 7).Radius(radiusCard).Gap(9).
 		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(id, peer.Name, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
@@ -1928,6 +1942,7 @@ func (u *UI) contactRow(f ui.C, peer domain.Peer) {
 	if row.Clicked() {
 		u.showContact(peer.ID)
 	}
+	u.drawSidebarDivider(f)
 }
 
 func (u *UI) drawGroupChats(f ui.C) {
@@ -1935,7 +1950,7 @@ func (u *UI) drawGroupChats(f ui.C) {
 		return
 	}
 	ui.Row(f).Height(6)
-	ui.Row(f).Height(32).Items(ui.Center).Gap(6).Children(func() {
+	ui.Row(f).Height(u.textExtent(32, 10)).Items(ui.Center).Gap(6).Children(func() {
 		ui.Icon(f, u.iconChevronDown).Size(15, 15).Color(u.palette.secondaryText)
 		ui.Text(f, i18n.T("我的群聊")).FontSize(13).Weight(gfx.WeightSemibold)
 		ui.Spacer(f)
@@ -1978,7 +1993,7 @@ func (u *UI) conversationRow(f ui.C, conversation domain.Conversation) {
 		background = u.palette.selected
 	}
 	card := u.conversationCard(conversation)
-	row := ui.Row(f).FillWidth().Height(sidebarConversationHeight).PadSides(8, 7, 8, 7).Radius(9).Gap(9).
+	row := ui.Row(f).FillWidth().Height(u.textExtent(sidebarConversationHeight, 30)).PadSides(8, 7, 8, 7).Radius(radiusCard).Gap(9).
 		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(id, card.title, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
@@ -1996,6 +2011,13 @@ func (u *UI) conversationRow(f ui.C, conversation domain.Conversation) {
 		}
 		u.selectConversation(conversation.ID)
 	}
+	u.drawSidebarDivider(f)
+}
+
+func (u *UI) drawSidebarDivider(f ui.C) {
+	ui.Row(f).FillWidth().Height(0.5).PadSides(0, 10, 0, 52).Children(func() {
+		ui.Stack(f).Fill().Background(u.palette.border)
+	})
 }
 
 func (u *UI) conversationCardBody(f ui.C, card conversationCardData) {
@@ -2075,8 +2097,9 @@ func (u *UI) badgeText(f ui.C, label string, primary bool) {
 		background = u.theme.Primary
 		foreground = u.theme.PrimaryForeground
 	}
-	width := max(21, float32(len([]rune(label)))*7+12)
-	ui.Stack(f).Width(width).Height(20).Radius(10).Background(background).Children(func() {
+	scale := u.theme.Metrics.EffectiveTextScale()
+	width := max(21, float32(len([]rune(label)))*7*scale+12)
+	ui.Stack(f).Width(width).Height(max(20, 10.5*scale+7)).Radius(radiusControl).Background(background).Children(func() {
 		ui.Text(f, label).FontSize(10.5).Weight(gfx.WeightSemibold).Color(foreground).TextCenter()
 	})
 }
@@ -2592,7 +2615,6 @@ func (u *UI) openCompose(mode, groupID string) {
 	u.moreOpen = false
 	u.drawer = ""
 	u.memberProfile = ""
-	u.syncFilesWindow()
 }
 
 func (u *UI) submitCompose() {
@@ -3468,7 +3490,10 @@ func themeForName(name string) ui.Theme {
 }
 
 func themeForSettings(settings domain.Settings) ui.Theme {
-	return themeForName(settings.Theme).WithFontSize(float32(domain.NormalizeInterfaceFontSize(settings.InterfaceFontSize)))
+	theme := themeForName(settings.Theme)
+	theme.Metrics.RadiusSurface = radiusCard
+	return theme.WithRadius(radiusControl).
+		WithTextScale(float32(domain.NormalizeInterfaceFontSize(settings.InterfaceFontSize)) / domain.InterfaceFontSizeDefault)
 }
 
 func paletteFor(theme ui.Theme) palette {

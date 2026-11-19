@@ -53,6 +53,9 @@ type desktopRuntime struct {
 	windowRevision      uint64
 	detachedRevision    uint64
 	voiceCallID         string
+	voiceWindow         *app.Window
+	voiceView           *UI
+	voiceDismissedID    string
 }
 
 type detachedConversationWindow struct {
@@ -140,6 +143,9 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		config.OnMinimize = func(minimized bool) { shell.SetWindowVisible(!minimized && (r.window == nil || !r.window.Hidden())) }
 		closed := config.OnClosed
 		config.OnClosed = func() {
+			if r.voiceWindow != nil {
+				r.voiceWindow.Close()
+			}
 			r.closeViewer()
 			r.closeDetachedConversations()
 			r.closePrintWindows()
@@ -235,6 +241,7 @@ func (r *desktopRuntime) observe() {
 	}
 	r.applyGlobal(s)
 	r.observeVoiceCall(s)
+	r.syncVoiceWindow(s, locked)
 	attention := false
 	unread := 0
 	for _, c := range s.Conversations {

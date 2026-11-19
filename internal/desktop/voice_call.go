@@ -14,7 +14,7 @@ import (
 )
 
 func (u *UI) voiceVisible() bool {
-	return u.state.VoiceCall.ID != ""
+	return u.voiceWindow && u.state.VoiceCall.ID != ""
 }
 
 func (u *UI) startVoiceCall(peerID string) {
@@ -38,17 +38,22 @@ func (u *UI) startVoiceCall(peerID string) {
 
 func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 	call := u.state.VoiceCall
-	if call.ID == "" || u.lockVisible() {
+	if !u.voiceVisible() || u.lockVisible() {
 		u.voiceFocusedFor = ""
 		return
 	}
-	canvas.Fill(viewport, ui.RGBA(6, 8, 12, 0.68))
+	if !u.voiceWindow {
+		canvas.Fill(viewport, ui.RGBA(6, 8, 12, 0.68))
+	}
 	width := min(max(viewport.Width-64, min(viewport.Width-24, 320)), 430)
 	height := min(max(viewport.Height-72, min(viewport.Height-24, 460)), 600)
 	card := ui.Rect{
 		X:     viewport.X + (viewport.Width-width)/2,
 		Y:     viewport.Y + (viewport.Height-height)/2,
 		Width: width, Height: height,
+	}
+	if u.voiceWindow {
+		card, width, height = viewport, viewport.Width, viewport.Height
 	}
 	accent := u.theme.Primary
 	if call.Status == domain.VoiceCallActive {
@@ -73,7 +78,7 @@ func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 	u.dialogPage.Draw(canvas, viewport, func(f ui.C) {
 		f.Canvas().Block(viewport)
 		ui.Row(f).Fill().Items(ui.Center).Justify(ui.Center).Children(func() {
-			ui.Column(f).Width(width).Height(height).PadSides(30, 32, 26, 32).Gap(0).Radius(26).
+			ui.Column(f).Width(width).Height(height).PadSides(30, 32, 26, 32).Gap(0).Radius(radiusCard).
 				Background(surface).Border(1, u.palette.border).Shadow(gfx.ShadowLG).
 				Children(func() {
 					ui.Row(f).FillWidth().Justify(ui.Center).Gap(7).Items(ui.Center).Children(func() {
@@ -179,7 +184,7 @@ func (u *UI) voiceControl(f ui.C, id gfx.ID, icon gfx.Icon, label string, backgr
 	if primary {
 		diameter = 68
 	}
-	button := ui.Column(f).Width(104).Gap(8).Items(ui.Center).
+	button := ui.Column(f).Width(88).Gap(8).Items(ui.Center).
 		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected})
 	button.Children(func() {
 		circle := ui.Row(f).Size(diameter, diameter).Radius(diameter / 2).Background(background).
@@ -190,7 +195,7 @@ func (u *UI) voiceControl(f ui.C, id gfx.ID, icon gfx.Icon, label string, backgr
 		circle.Children(func() {
 			ui.Icon(f, icon).Size(24, 24).Color(foreground)
 		})
-		ui.Text(f, label).FontSize(11.5).Weight(gfx.WeightMedium).Muted().TextCenter().MaxLines(1)
+		ui.Text(f, label).FillWidth().FontSize(11.5).Weight(gfx.WeightMedium).Muted().TextCenter().MaxLines(2)
 	})
 	return button
 }

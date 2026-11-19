@@ -113,9 +113,9 @@ func (p *Panels) drawSettings(f ui.C, theme ui.Theme, state domain.State, submit
 func (p *Panels) settingsRow(f ui.C, theme ui.Theme, title, description string, control func()) {
 	labels := func() {
 		ui.Column(f).Gap(3).Children(func() {
-			ui.Text(f, title).FontSize(theme.Metrics.FontSizeM + 1).Weight(gfx.WeightMedium)
+			ui.Text(f, title).FontSize(fontToken(theme, theme.Metrics.FontSizeM+1)).Weight(gfx.WeightMedium)
 			if description != "" {
-				ui.Paragraph(f, description, 3).Muted().FontSize(theme.Metrics.FontSizeS)
+				ui.Paragraph(f, description, 3).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
 			}
 		})
 	}
@@ -231,7 +231,7 @@ func (p *Panels) drawSettingsHeader(f ui.C, theme ui.Theme) {
 	}
 	panelPageHeader(f, theme, title, description, func() {
 		if p.saveFailed {
-			ui.Text(f, i18n.T("保存失败")).FontSize(theme.Metrics.FontSizeS + 1).Color(theme.Danger)
+			ui.Text(f, i18n.T("保存失败")).FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).Color(theme.Danger)
 		}
 	})
 }
@@ -277,7 +277,7 @@ func (p *Panels) drawSettingsGeneral(f ui.C, theme ui.Theme, state domain.State,
 					Disabled(size <= domain.InterfaceFontSizeMinimum).Clicked() {
 					p.submitString(submit, state, "interface_font_size", strconv.Itoa(size-1))
 				}
-				if namedButton(f, p.settingsExtra.interfaceFontSizeReset, strconv.Itoa(size)+" pt").Small().Clicked() {
+				if namedButton(f, p.settingsExtra.interfaceFontSizeReset, strconv.Itoa(size)+" pt").Small().Outline().Clicked() {
 					p.submitString(submit, state, "interface_font_size", strconv.Itoa(domain.InterfaceFontSizeDefault))
 				}
 				if namedButton(f, p.settingsExtra.interfaceFontSizeUp, "+").Small().Outline().
@@ -381,7 +381,7 @@ func (p *Panels) drawSettingsTransfers(f ui.C, theme ui.Theme, state domain.Stat
 					ui.Row(f).Grow(1).Height(theme.Metrics.ControlHeight).PadX(10).
 						Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl).
 						Clip().Items(ui.Center).Children(func() {
-						ui.Text(f, display).FontSize(theme.Metrics.FontSizeS + 1).PadX(4).Grow(1).Ellipsis()
+						ui.Text(f, display).FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).PadX(4).Grow(1).Ellipsis()
 					})
 					if namedButton(f, p.ids.settingsChooseDir, i18n.T("更改…")).Small().Outline().Clicked() {
 						p.chooseDownloadDirectory(f.Canvas(), submit, state)
@@ -450,7 +450,7 @@ func (p *Panels) drawNetworkChangeConfirmation(f ui.C, theme ui.Theme, submit fu
 		ui.Column(f).FillWidth().PadSides(10, 12, 10, 12).Gap(10).
 			Background(panelTint(theme.Primary, 0.06, theme.Background)).
 			Border(1, panelTint(theme.Primary, 0.20, theme.Background)).Radius(8).Children(func() {
-			ui.Paragraph(f, text, 6).FontSize(theme.Metrics.FontSizeS + 1).
+			ui.Paragraph(f, text, 6).FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).
 				Width(max(p.settingsWidth-24, 160))
 			ui.Row(f).FillWidth().Gap(8).Justify(ui.End).Children(func() {
 				if namedButton(f, p.ids.networkCancel, i18n.T("取消更改")).Small().Ghost().Clicked() {
@@ -468,7 +468,7 @@ func (p *Panels) drawNetworkChangeConfirmation(f ui.C, theme ui.Theme, submit fu
 	ui.Row(f).FillWidth().PadSides(10, 12, 10, 12).Gap(12).Items(ui.Center).
 		Background(panelTint(theme.Primary, 0.06, theme.Background)).
 		Border(1, panelTint(theme.Primary, 0.20, theme.Background)).Radius(8).Children(func() {
-		ui.Paragraph(f, text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1)
+		ui.Paragraph(f, text, 3).FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).Grow(1)
 		if namedButton(f, p.ids.networkCancel, i18n.T("取消更改")).Small().Ghost().Clicked() {
 			p.networkChange = panelNetworkChange{}
 		}
@@ -524,13 +524,13 @@ func (p *Panels) drawSettingsShortcuts(f ui.C, theme ui.Theme, state domain.Stat
 			continue
 		}
 		ui.Column(f).FillWidth().PadY(10).Gap(2).Children(func() {
-			ui.Text(f, i18n.T(group.title)).FontSize(theme.Metrics.FontSizeM + 1).Weight(gfx.WeightSemibold)
-			ui.Text(f, i18n.T(group.description)).Muted().FontSize(theme.Metrics.FontSizeS)
+			ui.Text(f, i18n.T(group.title)).FontSize(fontToken(theme, theme.Metrics.FontSizeM+1)).Weight(gfx.WeightSemibold)
+			ui.Text(f, i18n.T(group.description)).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
 		})
 		if !p.settingsNarrow {
 			ui.Row(f).FillWidth().PadY(6).Gap(12).Items(ui.Center).Children(func() {
-				ui.Text(f, i18n.T("操作")).Muted().FontSize(theme.Metrics.FontSizeS).Grow(1)
-				ui.Text(f, i18n.T("点击键帽录制")).Muted().FontSize(theme.Metrics.FontSizeS).Width(220)
+				ui.Text(f, i18n.T("操作")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS)).Grow(1)
+				ui.Text(f, i18n.T("点击键帽录制")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS)).Width(220)
 			})
 		}
 		for index, shortcut := range state.Settings.Shortcuts {
@@ -540,8 +540,8 @@ func (p *Panels) drawSettingsShortcuts(f ui.C, theme ui.Theme, state domain.Stat
 			ui.Column(f).FillWidth().PadY(11).Gap(7).Children(func() {
 				if p.settingsNarrow {
 					ui.Column(f).FillWidth().Gap(2).Children(func() {
-						ui.Text(f, i18n.T(shortcut.Action)).FontSize(theme.Metrics.FontSizeM).Weight(gfx.WeightMedium)
-						ui.Text(f, i18n.T("点击键帽录制组合键")).Muted().FontSize(theme.Metrics.FontSizeS)
+						ui.Text(f, i18n.T(shortcut.Action)).FontSize(fontToken(theme, theme.Metrics.FontSizeM)).Weight(gfx.WeightMedium)
+						ui.Text(f, i18n.T("点击键帽录制组合键")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
 					})
 					ui.Row(f).FillWidth().Justify(ui.End).Children(func() {
 						if panelShortcutKeycap(f, p.ids.shortcutRecord.At(index), shortcut.Keys, min(240, p.settingsWidth)) {
@@ -551,8 +551,8 @@ func (p *Panels) drawSettingsShortcuts(f ui.C, theme ui.Theme, state domain.Stat
 				} else {
 					ui.Row(f).FillWidth().Gap(12).Items(ui.Center).Children(func() {
 						ui.Column(f).Grow(1).Gap(2).Children(func() {
-							ui.Text(f, i18n.T(shortcut.Action)).FontSize(theme.Metrics.FontSizeM).Weight(gfx.WeightMedium)
-							ui.Text(f, i18n.T("点击键帽录制组合键")).Muted().FontSize(theme.Metrics.FontSizeS)
+							ui.Text(f, i18n.T(shortcut.Action)).FontSize(fontToken(theme, theme.Metrics.FontSizeM)).Weight(gfx.WeightMedium)
+							ui.Text(f, i18n.T("点击键帽录制组合键")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
 						})
 						if panelShortcutKeycap(f, p.ids.shortcutRecord.At(index), shortcut.Keys, 220) {
 							p.beginShortcutEdit(index)
@@ -594,7 +594,7 @@ func (p *Panels) drawShortcutDialog(f ui.C, theme ui.Theme, state domain.State, 
 	})
 	dialog.Body(func() {
 		ui.Column(f).Fill().Gap(10).Children(func() {
-			ui.Text(f, i18n.T(shortcut.Action)).FontSize(theme.Metrics.FontSizeM).Weight(gfx.WeightMedium)
+			ui.Text(f, i18n.T(shortcut.Action)).FontSize(fontToken(theme, theme.Metrics.FontSizeM)).Weight(gfx.WeightMedium)
 			panelShortcutChord(f, theme, p.shortcutKeys)
 			message := problem
 			tone := theme.Danger
@@ -602,7 +602,7 @@ func (p *Panels) drawShortcutDialog(f ui.C, theme ui.Theme, state domain.State, 
 				message, tone = i18n.T("请按下组合键…"), theme.MutedForeground
 			}
 			if message != "" {
-				ui.Text(f, message).FontSize(theme.Metrics.FontSizeS).Color(tone)
+				ui.Text(f, message).FontSize(fontToken(theme, theme.Metrics.FontSizeS)).Color(tone)
 			}
 		})
 	})
@@ -671,7 +671,7 @@ func panelShortcutChord(f ui.C, theme ui.Theme, keys string) {
 	ui.Row(f).FillWidth().Height(38).PadX(12).Border(1, panelAccentText(theme)).
 		Background(panelAccentSurface(theme)).
 		Radius(theme.Metrics.RadiusControl).Items(ui.Center).Children(func() {
-		ui.Text(f, display).Grow(1).FontSize(theme.Metrics.FontSizeM).Weight(gfx.WeightMedium).Ellipsis()
+		ui.Text(f, display).Grow(1).FontSize(fontToken(theme, theme.Metrics.FontSizeM)).Weight(gfx.WeightMedium).Ellipsis()
 	})
 }
 
@@ -679,7 +679,7 @@ func panelKeyboardConfirm(f ui.C, theme ui.Theme, text string, cancelID, confirm
 	ui.Row(f).FillWidth().PadSides(10, 12, 10, 12).Gap(12).Items(ui.Center).
 		Background(panelTint(theme.Primary, 0.06, theme.Background)).
 		Border(1, panelTint(theme.Primary, 0.20, theme.Background)).Radius(8).Children(func() {
-		ui.Text(f, text).FontSize(theme.Metrics.FontSizeS + 1).Grow(1)
+		ui.Text(f, text).FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).Grow(1)
 		if namedButton(f, cancelID, i18n.T("取消")).Small().Ghost().Clicked() {
 			cancel()
 		}

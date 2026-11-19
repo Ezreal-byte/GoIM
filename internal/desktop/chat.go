@@ -20,30 +20,11 @@ import (
 
 func (u *UI) drawChat(canvas *gfx.Canvas, bounds ui.Rect) {
 	conversation := u.state.Conversation(u.selected)
-	chatBounds := bounds
-	surface := u.surface
-	surface.filesPane = ui.Rect{}
+	u.surface.filesPane = ui.Rect{}
 	if u.drawer == "files" && conversation.ID == "" {
 		u.closeDrawer()
 	}
-	if u.drawer == "files" && conversation.ID != "" {
-		paneWidth := chatFilesPaneWidth(bounds.Width)
-		if paneWidth <= 0 || bounds.Width-paneWidth-1 <= 0 {
-			u.drawChatSurface(canvas, chatBounds, conversation)
-			return
-		}
-		chatBounds = ui.Rect{X: bounds.X, Y: bounds.Y, Width: max(bounds.Width-paneWidth-1, 0), Height: bounds.Height}
-		pane := ui.Rect{
-			X: bounds.X + chatBounds.Width + 1, Y: bounds.Y,
-			Width: paneWidth, Height: bounds.Height,
-		}
-		u.drawChatSurface(canvas, chatBounds, conversation)
-		canvas.Fill(ui.Rect{X: chatBounds.X + chatBounds.Width, Y: bounds.Y, Width: 1, Height: bounds.Height},
-			u.palette.border)
-		u.drawChatFilesPane(canvas, pane)
-	} else {
-		u.drawChatSurface(canvas, chatBounds, conversation)
-	}
+	u.drawChatSurface(canvas, bounds, conversation)
 	// The image viewer is a shell-level overlay so it stays above menus and
 	// dialogs; the shell paints drawChatImageViewer after drawOverlays.
 }
@@ -83,7 +64,7 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 	if readOnlyReason != "" {
 		composerMinimum = chatReadOnlyMinHeight
 	}
-	var history, timeline ui.Box
+	var timeline ui.Box
 	u.chatPage.Draw(canvas, bounds, func(f ui.C) {
 		ui.Column(f).Fill().Children(func() {
 			u.drawChatHeader(f, conversation)
@@ -91,8 +72,8 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 			if searchVisible {
 				u.drawChatSearchBar(f)
 			}
-			surface.layoutHistory(bounds.Height, composerMinimum, searchVisible)
-			history = ui.Column(f).Height(surface.history.Pos).Children(func() {
+			surface.layoutHistory(bounds.Height-(u.textExtent(chatHeaderExtent, 32)-chatHeaderExtent), composerMinimum, searchVisible)
+			ui.Column(f).Height(surface.history.Pos).Children(func() {
 				u.drawChatNotice(f)
 				timeline = u.drawChatTimeline(f, conversation)
 			})
@@ -121,14 +102,17 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 	}
 	u.chatFind.restorePending = false
 	if u.dragging {
-		region := history.Rect()
+		region := u.composerBox.Rect()
 		overlay := ui.Rect{
 			X: region.X + chatContentInset, Y: region.Y + 8,
 			Width: max(region.Width-2*chatContentInset, 0), Height: max(region.Height-16, 0),
 		}
-		canvas.RoundedBorder(overlay, 12, 1, u.theme.Primary, ui.RGBA(31, 96, 221, 0.06))
+		canvas.PushLayer(10)
+		defer canvas.PopLayer()
+		canvas.Rounded(overlay, radiusControl, u.palette.chat.WithAlpha(0.96))
+		canvas.DashedRoundedOutline(overlay, radiusControl, 1.5, u.theme.MutedForeground)
 		canvas.LabelCenter(i18n.T("松开以发送文件"), overlay, gfx.TextStyle{
-			Size: 16, Weight: gfx.WeightMedium, Color: u.theme.Primary,
+			Size: 16 * u.theme.Metrics.EffectiveTextScale(), Weight: gfx.WeightMedium, Color: u.theme.Foreground,
 		})
 	}
 }
@@ -191,9 +175,9 @@ func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 		}
 	}
 
-	var callButton, searchButton, fileButton, memberButton, moreButton ui.Box
+	var searchButton, fileButton, memberButton, moreButton ui.Box
 	memberShown := false
-	ui.Row(f).Height(chatHeaderExtent).FillWidth().PadX(chatContentInset).Items(ui.Center).Gap(10).Children(func() {
+	ui.Row(f).Height(u.textExtent(chatHeaderExtent, 32)).FillWidth().PadX(chatContentInset).Items(ui.Center).Gap(10).Children(func() {
 		if conversation.Kind == "direct" {
 			peer := u.state.Peer(conversation.PeerID)
 			avatar = peer.Avatar
@@ -218,17 +202,6 @@ func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 			})
 		})
 		ui.Row(f).Items(ui.Center).Gap(3).Children(func() {
-			if conversation.Kind == "direct" {
-				peer := u.state.Peer(conversation.PeerID)
-				callLabel := i18n.T("语音通话")
-				if !peer.VoiceSupported {
-					callLabel = i18n.T("对方客户端不支持语音通话")
-				} else if !peer.VisibleOnline() {
-					callLabel = i18n.T("对方离线，暂时无法通话")
-				}
-				callButton = u.sizedIconButton(f, u.ids.chatHeaderCall, u.iconPhone, callLabel, 34, 19).
-					Disabled(!peer.VoiceSupported || !peer.VisibleOnline())
-			}
 			searchButton = u.sizedIconButton(f, u.ids.chatHeaderSearch, u.iconSearch, i18n.T("搜索当前会话"), 34, 20)
 			fileButton = u.sizedIconButton(f, u.ids.chatHeaderFile, u.iconFolder, i18n.T("聊天文件"), 34, 20)
 			if conversation.Kind == "group" {
@@ -244,9 +217,6 @@ func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 	if searchButton.Clicked() {
 		u.moreOpen = false
 		u.openChatSearch()
-	}
-	if conversation.Kind == "direct" && callButton.Clicked() {
-		u.startVoiceCall(conversation.PeerID)
 	}
 	if fileButton.Clicked() {
 		u.toggleFilesPane()
@@ -411,7 +381,7 @@ func (u *UI) messageBubble(f ui.C, conversation domain.Conversation, message dom
 	if own {
 		background = u.palette.own
 	}
-	bubble := ui.Column(f).MaxWidth(maxWidth).PadSides(10, 13, 9, 13).Radius(11).
+	bubble := ui.Column(f).MaxWidth(maxWidth).PadSides(10, 13, 9, 13).Radius(radiusControl).
 		HitWith(u.messageIDs[message.ID], i18n.T("聊天消息"), gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
 		Background(background).Border(1, u.palette.bubbleBorder).Gap(3).Children(func() {
 		if message.Text != "" {
@@ -478,7 +448,7 @@ func (u *UI) drawImageMessage(f ui.C, conversation domain.Conversation, message 
 			if !own && conversation.Kind == "group" {
 				ui.Text(f, u.messageSenderName(conversation, message)).FontSize(11.5).Muted().Ellipsis()
 			}
-			picture := ui.Stack(f).Width(width).Height(height).Radius(11).Clip().
+			picture := ui.Stack(f).Width(width).Height(height).Radius(radiusControl).Clip().
 				Background(u.palette.mutedAvatar)
 			if file.ID != "" {
 				picture = picture.HitWith(u.fileButtonIDs[file.ID], i18n.T("查看图片 ")+displayFileName(file, message),
@@ -492,7 +462,7 @@ func (u *UI) drawImageMessage(f ui.C, conversation domain.Conversation, message 
 				u.openImageViewer(file.ID)
 			}
 			if message.Text != "" && message.Text != file.Name {
-				ui.Column(f).MaxWidth(width).PadSides(8, 12, 7, 12).Radius(9).
+				ui.Column(f).MaxWidth(width).PadSides(8, 12, 7, 12).Radius(radiusControl).
 					Background(u.palette.incoming).Children(func() {
 					ui.Paragraph(f, message.Text, 4).FontSize(13).LineHeight(19)
 				})
@@ -536,13 +506,13 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 				ui.Text(f, u.messageSenderName(conversation, message)).FontSize(11.5).Muted().Ellipsis()
 			}
 			cardWidth := min(float32(480), max(maxWidth, float32(310)))
-			card := ui.Column(f).Width(cardWidth).Pad(14).Radius(11).
+			card := ui.Column(f).Width(cardWidth).Pad(14).Radius(radiusControl).
 				Background(u.palette.fileCard).Border(1, u.palette.fileBorder).Gap(10).
 				HitWith(u.fileButtonIDs[file.ID], i18n.T("查看 ")+displayFileName(file, message)+i18n.T(" 详情"),
 					gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("查看文件详情")}).
 				Children(func() {
 					ui.Row(f).Items(ui.Center).Gap(11).Children(func() {
-						ui.Row(f).Size(40, 40).Radius(9).Items(ui.Center).Justify(ui.Center).
+						ui.Row(f).Size(40, 40).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
 							Background(fileIconTint(file)).Children(func() {
 							ui.Icon(f, u.fileIcon(file)).Size(21, 21).Color(fileIconColor(file))
 						})
@@ -575,6 +545,16 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 							ui.Text(f, i18n.T("查看详情")).FontSize(11).Weight(gfx.WeightMedium).
 								Color(u.palette.selectedText)
 						})
+					}
+					if !own {
+						for _, transfer := range u.transfersFor[file.ID] {
+							if transfer.Direction == "receive" && (transfer.Status == "offered" || transfer.Status == "waiting") {
+								ui.Row(f).FillWidth().Items(ui.Center).Gap(8).Children(func() {
+									u.drawTransferRowActions(f, transfer)
+								})
+								break
+							}
+						}
 					}
 				})
 			u.messageContextPointer(f.Canvas(), u.fileButtonIDs[file.ID], message)
@@ -623,13 +603,13 @@ func (u *UI) drawPrintMessage(f ui.C, conversation domain.Conversation, message 
 				ui.Text(f, u.messageSenderName(conversation, message)).FontSize(11.5).Muted().Ellipsis()
 			}
 			cardWidth := min(float32(480), max(maxWidth, float32(310)))
-			ui.Column(f).Width(cardWidth).Pad(14).Radius(11).
+			ui.Column(f).Width(cardWidth).Pad(14).Radius(radiusControl).
 				Background(u.palette.fileCard).Border(1, u.palette.fileBorder).Gap(9).
 				HitWith(u.messageIDs[message.ID], i18n.T("打印记录 ")+job.FileName,
 					gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
 				Children(func() {
 					ui.Row(f).Items(ui.Center).Gap(11).Children(func() {
-						ui.Row(f).Size(40, 40).Radius(9).Items(ui.Center).Justify(ui.Center).
+						ui.Row(f).Size(40, 40).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
 							Background(panelTint(u.theme.Primary, .10, u.palette.fileCard)).Children(func() {
 							ui.Icon(f, panelPrintIcon).Size(21, 21).Color(u.theme.Primary)
 						})
@@ -694,6 +674,16 @@ func (u *UI) drawComposerToolbar(f ui.C) {
 		if images.Clicked() {
 			u.chooseChatFiles(f.Canvas(), true)
 		}
+		ui.Spacer(f)
+		conversation := u.state.Conversation(u.selected)
+		if conversation.Kind == "direct" {
+			peer := u.state.Peer(conversation.PeerID)
+			call := u.composerActionButton(f, u.ids.chatHeaderCall, u.iconPhone, i18n.T("语音通话"), "").
+				Disabled(!peer.VoiceSupported || !peer.VisibleOnline())
+			if call.Clicked() {
+				u.startVoiceCall(conversation.PeerID)
+			}
+		}
 	})
 }
 
@@ -705,7 +695,7 @@ func (u *UI) drawComposerFooter(f ui.C) {
 		hasText := u.chatEditor != nil && strings.TrimSpace(u.chatEditor.String()) != ""
 		background := u.palette.chat.Mix(u.theme.Foreground, 0.08)
 		foreground := u.theme.MutedForeground
-		send := ui.ButtonBase(f, label).Hit(u.ids.chatSend, label).Size(76, 30).Radius(7).Disabled(!hasText)
+		send := ui.ButtonBase(f, label).Hit(u.ids.chatSend, label).Size(76, 30).Radius(radiusControl).Disabled(!hasText)
 		if hasText {
 			background, foreground = u.theme.Primary, u.theme.PrimaryForeground
 			send.Hover(ui.Look{}.Background(background.Mix(foreground, 0.1))).
@@ -730,7 +720,7 @@ func (u *UI) composerActionButton(f ui.C, id gfx.ID, icon gfx.Icon, label, short
 	if id == u.ids.chatEmoji && u.emojiOpen {
 		background = u.palette.selected
 	}
-	return ui.Row(f).Size(34, 34).Radius(7).Background(background).Center().
+	return ui.Row(f).Size(34, 34).Radius(radiusControl).Background(background).Center().
 		Hover(ui.Look{}.Background(u.palette.chat.Mix(u.theme.Foreground, 0.09))).
 		Focus(ui.Look{}.Ring(1.5, u.theme.Ring)).
 		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Selected: background.Alpha > 0, Hint: hint}).
@@ -753,7 +743,7 @@ func (u *UI) drawChatReadOnly(f ui.C, reason string) {
 	}
 	ui.Column(f).Fill().PadX(chatContentInset).
 		Background(u.palette.chat).Justify(ui.Center).Children(func() {
-		ui.Row(f).FillWidth().PadSides(10, 14, 10, 14).Radius(10).Background(u.palette.incoming).
+		ui.Row(f).FillWidth().PadSides(10, 14, 10, 14).Radius(radiusControl).Background(u.palette.incoming).
 			Items(ui.Center).Gap(10).Children(func() {
 			ui.Row(f).Size(30, 30).Radius(8).Items(ui.Center).Justify(ui.Center).
 				Background(u.palette.mutedAvatar).Children(func() {
@@ -1216,7 +1206,6 @@ func (u *UI) toggleFilesPane() {
 	u.fileFilter = "all"
 	u.moreOpen = false
 	u.memberMenu = ""
-	u.syncFilesWindow()
 }
 
 func (u *UI) openFileDetail(fileID, from string) {
@@ -1228,7 +1217,6 @@ func (u *UI) openFileDetail(fileID, from string) {
 	u.fileReturn = from
 	u.moreOpen = false
 	u.memberMenu = ""
-	u.syncFilesWindow()
 }
 
 func (u *UI) ensureChatEditor() *text.Editor {

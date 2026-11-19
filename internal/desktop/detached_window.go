@@ -126,7 +126,7 @@ func (u *UI) drawDetachedTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	u.titlePage.Draw(canvas, bounds, func(f ui.C) {
 		ui.Row(f).Fill().MovesWindow().
 			PadSides(4, trailing+12, 4, leading+8).Items(ui.Center).Gap(8).Children(func() {
-			pin := ui.Row(f).Size(30, 30).Radius(7).Items(ui.Center).Justify(ui.Center).
+			pin := ui.Row(f).Size(30, 30).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
 				Background(func() ui.Color {
 					if u.detachedPinned {
 						return u.palette.selected

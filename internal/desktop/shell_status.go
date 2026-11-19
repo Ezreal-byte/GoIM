@@ -33,7 +33,7 @@ func (u *UI) drawLANStatus(f ui.C, wide bool) ui.Box {
 	if u.lanEndpoint != "" {
 		label, dot = i18n.T("局域网在线"), u.palette.success
 	}
-	return ui.Row(f).Height(24).PadX(3).Gap(7).Items(ui.Center).
+	return ui.Row(f).Height(max(24, 11*u.theme.Metrics.EffectiveTextScale()+7)).PadX(3).Gap(7).Items(ui.Center).
 		HitWith(u.ids.titleLAN, label, gfx.HitOptions{Role: gfx.RoleGroup, Hint: u.lanEndpoint}).
 		Children(func() {
 			ui.Stack(f).Size(7, 7).Radius(4).Background(dot)

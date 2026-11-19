@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"goim/internal/domain"
@@ -24,8 +25,10 @@ const protocolVersion = 1
 const maxFrame = 4 << 20
 
 type envelope struct {
-	RecallSupported bool `json:",omitempty"`
-	PrintSupported  bool `json:",omitempty"`
+	RelaySupported  bool         `json:",omitempty"`
+	Relay           *relayPacket `json:",omitempty"`
+	RecallSupported bool         `json:",omitempty"`
+	PrintSupported  bool         `json:",omitempty"`
 	Version         int
 	ID              string
 	Type            string
@@ -59,6 +62,7 @@ type peerConn struct {
 	peer     domain.Peer
 	write    sync.Mutex
 	outbound bool
+	lastRead atomic.Int64
 }
 
 func writeFrame(w io.Writer, e envelope) error {
@@ -111,6 +115,7 @@ func (n *Node) hello() envelope {
 	e.Type = "hello"
 	e.RecallSupported = true
 	e.PrintSupported = true
+	e.RelaySupported = true
 	return e
 }
 func (n *Node) advertisedAddress() string {
@@ -175,6 +180,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 	hello.Peer.Avatar = ""
 	hello.Peer.RecallSupported = hello.RecallSupported
 	hello.Peer.PrintSupported = hello.PrintSupported
+	hello.Peer.RelaySupported = hello.RelaySupported
 	if len(hello.Avatar) > 0 {
 		path, err := n.cacheAvatar(hello.Peer.ID, hello.Avatar)
 		if err != nil {
@@ -196,10 +202,11 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 		return
 	}
 	pc := &peerConn{conn: conn, peer: hello.Peer, outbound: outbound}
+	pc.lastRead.Store(time.Now().UnixNano())
 	n.mu.Lock()
 	preferred := n.data.State.Self.ID < pc.peer.ID
 	if old := n.connections[pc.peer.ID]; old != nil {
-		if old.outbound == preferred || outbound != preferred {
+		if old.peer.Address == pc.peer.Address && (old.outbound == preferred || outbound != preferred) {
 			n.mu.Unlock()
 			conn.Close()
 			notify(true)
@@ -239,6 +246,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 		current := n.connections[pc.peer.ID] == pc
 		if current {
 			delete(n.connections, pc.peer.ID)
+			delete(n.relayRoutes, pc.peer.ID)
 		}
 		n.mu.Unlock()
 		if current {
@@ -265,6 +273,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 	}
 	notify(true)
 	n.async(func() {
+		n.exchangePeerRoutes()
 		n.replay(pc.peer.ID)
 		n.sendCatalog(pc.peer.ID)
 		if pc.peer.PrintSupported {
@@ -278,6 +287,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 		if err != nil {
 			return
 		}
+		pc.lastRead.Store(time.Now().UnixNano())
 		if err = n.receive(pc.peer.ID, e); err != nil {
 			n.report(err)
 		}
@@ -288,7 +298,7 @@ func (n *Node) send(peer string, e envelope) error {
 	pc := n.connections[peer]
 	n.mu.Unlock()
 	if pc == nil {
-		return errors.New("等待对方上线")
+		return n.sendRelayed(peer, e)
 	}
 	if err := pc.send(e); err != nil {
 		pc.conn.Close()
@@ -465,6 +475,12 @@ func (n *Node) failCompatibilityDelivery(p pending, failure error) {
 	})
 }
 func (n *Node) receive(peer string, e envelope) error {
+	if e.Type == "peer_routes" {
+		return n.receivePeerRoutes(peer, e.Peers)
+	}
+	if e.Type == "relay" {
+		return n.receiveRelayed(peer, e.Relay)
+	}
 	if e.Type == "ping" {
 		return n.send(peer, envelope{Type: "pong"})
 	}

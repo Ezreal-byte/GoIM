@@ -90,7 +90,7 @@ func (u *UI) drawEmojiPicker(c *gfx.Canvas, viewport ui.Rect) {
 
 func (u *UI) emojiTile(f ui.C, choice emojiChoice, id gfx.ID) bool {
 	label := i18n.T(choice.Label)
-	tile := ui.Row(f).Size(42, 41).Radius(7).Items(ui.Center).Justify(ui.Center).
+	tile := ui.Row(f).Size(42, 41).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
 		Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(id, i18n.T("表情 ")+label, gfx.HitOptions{Role: gfx.RoleButton, Hint: label})
 	if f.Canvas().FocusVisible() == id {

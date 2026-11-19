@@ -583,7 +583,7 @@ func (u *UI) drawMentionPicker(canvas *gfx.Canvas, viewport ui.Rect) {
 				if index == u.mention.selected {
 					background = u.palette.selected
 				}
-				row := ui.Row(f).FillWidth().Height(36).PadSides(7, 8, 7, 8).Radius(7).
+				row := ui.Row(f).FillWidth().Height(36).PadSides(7, 8, 7, 8).Radius(radiusControl).
 					Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 					HitWith(u.mentionCandidateIDs[candidate.peerID], i18n.T("提及 ")+candidate.name,
 						gfx.HitOptions{Role: gfx.RoleButton, Selected: index == u.mention.selected}).

@@ -107,7 +107,7 @@ func (v *printWindowView) refresh() {
 	}
 	v.state = v.backend.Snapshot()
 	i18n.SetLanguage(v.state.Settings.Language)
-	v.theme = themeForName(v.state.Settings.Theme)
+	v.theme = themeForSettings(v.state.Settings)
 	v.palette = paletteFor(v.theme)
 	v.normalizeOptions()
 }
@@ -266,7 +266,7 @@ func (v *printWindowView) drawPrinterHeader(f ui.C, share domain.PrinterShare) {
 	}
 	available := share.ID != "" && share.Available && owner.Online
 	ui.Row(f).FillWidth().MinHeight(96).PadSides(18, 17, 18, 17).Gap(14).Items(ui.Center).
-		Background(v.palette.chat).Border(1, v.palette.border).Radius(11).Children(func() {
+		Background(v.palette.chat).Border(1, v.palette.border).Radius(radiusControl).Children(func() {
 		if v.avatar != nil {
 			v.avatar(f, share.OwnerID, ownerName, owner.Avatar, 54, owner.Online)
 		} else {
@@ -301,11 +301,11 @@ func (v *printWindowView) drawFileSection(f ui.C) {
 		ui.Text(f, i18n.T("打印文件")).FontSize(21).Weight(gfx.WeightSemibold)
 		if v.path == "" {
 			box := ui.Row(f).FillWidth().MinHeight(86).Pad(16).Gap(12).Items(ui.Center).
-				Background(v.palette.chat).Border(1, v.palette.border).Radius(10).
+				Background(v.palette.chat).Border(1, v.palette.border).Radius(radiusControl).
 				Hover(ui.Look{}.Background(v.palette.hover)).
 				HitWith(v.ids.chooseFile, i18n.T("选择文件"), gfx.HitOptions{Role: gfx.RoleButton})
 			box.Children(func() {
-				ui.Row(f).Size(42, 42).Radius(9).Background(v.palette.selected).
+				ui.Row(f).Size(42, 42).Radius(radiusControl).Background(v.palette.selected).
 					Items(ui.Center).Justify(ui.Center).Children(func() {
 					ui.Icon(f, Upload).Size(20, 20).Color(v.palette.selectedText)
 				})
@@ -321,8 +321,8 @@ func (v *printWindowView) drawFileSection(f ui.C) {
 			return
 		}
 		ui.Row(f).FillWidth().MinHeight(86).Pad(16).Gap(13).Items(ui.Center).
-			Background(v.palette.chat).Border(1, v.palette.border).Radius(10).Children(func() {
-			ui.Row(f).Size(44, 44).Radius(9).Background(panelTint(v.theme.Primary, .10, v.palette.chat)).
+			Background(v.palette.chat).Border(1, v.palette.border).Radius(radiusControl).Children(func() {
+			ui.Row(f).Size(44, 44).Radius(radiusControl).Background(panelTint(v.theme.Primary, .10, v.palette.chat)).
 				Items(ui.Center).Justify(ui.Center).Children(func() {
 				ui.Icon(f, printFileIcon(domain.PrintJob{MIME: "", FileName: v.fileName})).
 					Size(22, 22).Color(v.theme.Primary)

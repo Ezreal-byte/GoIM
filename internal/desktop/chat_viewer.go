@@ -357,18 +357,18 @@ func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool
 		canvas.Label(
 			intString(index+1)+" / "+intString(len(files)),
 			ui.Rect{X: viewport.X + 20, Y: top.Y, Width: 90, Height: top.Height},
-			gfx.TextStyle{Size: 12, Color: ui.RGBA(167, 174, 186, 1)},
+			gfx.TextStyle{Size: 12 * u.theme.Metrics.EffectiveTextScale(), Color: ui.RGBA(167, 174, 186, 1)},
 		)
 		titleWidth := max(viewport.Width-260, 160)
 		canvas.LabelCenter(
 			file.Name,
 			ui.Rect{X: viewport.X + 110, Y: top.Y, Width: titleWidth, Height: top.Height},
-			gfx.TextStyle{Size: 14, Weight: gfx.WeightMedium, Color: ui.RGBA(238, 241, 247, 1)},
+			gfx.TextStyle{Size: 14 * u.theme.Metrics.EffectiveTextScale(), Weight: gfx.WeightMedium, Color: ui.RGBA(238, 241, 247, 1)},
 		)
 
 	}
 	if detached {
-		canvas.LabelCenter(file.Name, ui.Rect{X: 12, Y: stage.Bottom(), Width: max(viewport.Width-24, 1), Height: bottomHeight}, gfx.TextStyle{Size: 12, Color: muted})
+		canvas.LabelCenter(file.Name, ui.Rect{X: 12, Y: stage.Bottom(), Width: max(viewport.Width-24, 1), Height: bottomHeight}, gfx.TextStyle{Size: 12 * u.theme.Metrics.EffectiveTextScale(), Color: muted})
 	}
 	if bitmapReady(bitmap) {
 		imageRect := u.viewerImageRect(state, stage, bitmap)
@@ -383,7 +383,7 @@ func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool
 			message = i18n.T("图片尚未保存到本机")
 		}
 		canvas.LabelCenter(message, stage, gfx.TextStyle{
-			Size: 14, Color: muted,
+			Size: 14 * u.theme.Metrics.EffectiveTextScale(), Color: muted,
 		})
 	}
 
@@ -589,7 +589,7 @@ func (u *UI) drawImageViewerToolbar(canvas *gfx.Canvas, viewport ui.Rect,
 	x += 40
 	percent := intString(int(math.Round(float64(u.viewerScale(state))*100))) + "%"
 	canvas.LabelCenter(percent, ui.Rect{X: x, Y: buttonY, Width: 62, Height: 38},
-		gfx.TextStyle{Size: 11.5, Color: ui.RGBA(206, 212, 222, 1)})
+		gfx.TextStyle{Size: 11.5 * u.theme.Metrics.EffectiveTextScale(), Color: ui.RGBA(206, 212, 222, 1)})
 	x += 64
 	if u.viewerTextButton(canvas, ui.Rect{X: x, Y: buttonY, Width: 38, Height: 38},
 		ids.viewerZoomIn, i18n.T("放大图片"), "+", false, false) {
@@ -630,7 +630,7 @@ func (u *UI) viewerTextButton(canvas *gfx.Canvas, bounds ui.Rect, id gfx.ID,
 	label, text string, disabled, selected bool) bool {
 	u.viewerButtonSurface(canvas, bounds, id, label, disabled, selected)
 	canvas.LabelCenter(text, bounds, gfx.TextStyle{
-		Size: 12, Weight: gfx.WeightMedium,
+		Size: 12 * u.theme.Metrics.EffectiveTextScale(), Weight: gfx.WeightMedium,
 		Color: u.viewerForeground(disabled, selected),
 	})
 	if canvas.FocusVisible() == id {

@@ -35,7 +35,7 @@ func (u *UI) contactGroupRow(f ui.C, c domain.Conversation) {
 	if selected {
 		background = u.palette.selected
 	}
-	row := ui.Row(f).FillWidth().Height(sidebarGroupHeight).PadX(8).Radius(9).Gap(9).Items(ui.Center).
+	row := ui.Row(f).FillWidth().Height(u.textExtent(sidebarGroupHeight, 30)).PadX(8).Radius(radiusControl).Gap(9).Items(ui.Center).
 		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 		HitWith(u.convRowIDs[c.ID], group.Name, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
@@ -48,6 +48,7 @@ func (u *UI) contactGroupRow(f ui.C, c domain.Conversation) {
 	if row.Clicked() {
 		u.contactGroup, u.contactPeer = group.ID, ""
 	}
+	u.drawSidebarDivider(f)
 }
 
 func (u *UI) drawContactDetails(canvas *gfx.Canvas, bounds ui.Rect) {
@@ -75,7 +76,7 @@ func (u *UI) drawContactDetails(canvas *gfx.Canvas, bounds ui.Rect) {
 			ui.Row(f).FillWidth().Justify(ui.Center).PadSides(28, 18, 24, 18).Children(func() {
 				ui.Column(f).FillWidth().MaxWidth(620).Gap(12).Children(func() {
 					ui.Text(f, title).FontSize(16).Weight(gfx.WeightSemibold)
-					ui.Column(f).FillWidth().Pad(20).Gap(16).Radius(12).
+					ui.Column(f).FillWidth().Pad(20).Gap(16).Radius(radiusControl).
 						Border(1, u.palette.border).Background(surface).Children(func() {
 						if isGroup {
 							u.drawContactGroupProfile(f, group, compact)
@@ -292,7 +293,7 @@ func (u *UI) drawContactGroupProfile(f ui.C, group domain.Group, compact bool) {
 		for _, id := range group.Members {
 			peer := u.state.Peer(id)
 			name := u.groupMemberName(group.ID, id)
-			row := ui.Row(f).FillWidth().Height(40).PadX(5).Radius(7).Items(ui.Center).Gap(9).
+			row := ui.Row(f).FillWidth().Height(40).PadX(5).Radius(radiusControl).Items(ui.Center).Gap(9).
 				Hover(ui.Look{}.Background(u.palette.hover)).
 				HitWith(u.contactMemberIDs[id], name, gfx.HitOptions{Role: gfx.RoleButton}).
 				Children(func() {

@@ -20,7 +20,7 @@ const (
 	chatReadOnlyMinHeight    = float32(104)
 	chatSplitterExtent       = float32(8)
 	chatFilesMinWidth        = float32(260)
-	chatFilesMaxWidth        = float32(400)
+	chatFilesMaxWidth        = float32(420)
 	chatHeaderExtent         = float32(60)
 	chatSearchExtent         = float32(52)
 	chatContentInset         = float32(16)
@@ -56,11 +56,6 @@ type chatSurface struct {
 	maximized    bool
 	fullscreen   bool
 	viewer       imageViewerState
-
-	filesWindowRestoreHeight int
-	filesWindowRestoreWidth  int
-	filesWindowRestoreValid  bool
-	filesWindowExpanded      bool
 }
 
 type windowGeometry interface {
@@ -97,7 +92,7 @@ func (u *UI) newChatSurface(workspace *ui.Page) *chatSurface {
 func (u *UI) drawMainBody(canvas *gfx.Canvas, body ui.Rect) {
 	rail := ui.Rect{
 		X: body.X, Y: body.Y,
-		Width: min(railWidth, body.Width), Height: body.Height,
+		Width: min(u.railExtent(), body.Width), Height: body.Height,
 	}
 	u.drawRail(canvas, rail)
 	if u.isPanelSection() {
@@ -105,8 +100,8 @@ func (u *UI) drawMainBody(canvas *gfx.Canvas, body ui.Rect) {
 			u.closeImageViewer()
 		}
 		main := ui.Rect{
-			X: railWidth, Y: body.Y,
-			Width: max(body.Width-railWidth, 0), Height: body.Height,
+			X: u.railExtent(), Y: body.Y,
+			Width: max(body.Width-u.railExtent(), 0), Height: body.Height,
 		}
 		u.panels.Draw(canvas, u.theme, main, u.section, u.state, u.submit)
 		return
@@ -118,8 +113,8 @@ func (u *UI) drawChatWorkspace(canvas *gfx.Canvas, body ui.Rect) {
 	surface := u.surface
 	surface.clampSidebar()
 	workspace := ui.Rect{
-		X: min(railWidth, body.Width), Y: body.Y,
-		Width: max(body.Width-railWidth, 0), Height: body.Height,
+		X: min(u.railExtent(), body.Width), Y: body.Y,
+		Width: max(body.Width-u.railExtent(), 0), Height: body.Height,
 	}
 	var sidebar, chat ui.Box
 	surface.workspace.Draw(canvas, workspace, func(f ui.C) {
@@ -163,7 +158,7 @@ func (u *UI) chatSidebarBoundary() float32 {
 	if width <= 0 {
 		width = sidebarWidth
 	}
-	return railWidth + width
+	return u.railExtent() + width
 }
 
 func (s *chatSurface) layoutHistory(chatHeight, composerMinimum float32, searchVisible bool) {
@@ -251,26 +246,12 @@ func (u *UI) chatOverlayWheel(event gfx.ScrollEvent) (gfx.EventResult, bool) {
 	return gfx.EventResult{}, false
 }
 
-// setWindowMaximized records the state of the shell's frame. A normal window is
-// expanded by the files-pane width; maximized windows keep their frame.
 func (u *UI) setWindowMaximized(maximized bool) {
-	surface := u.surface
-	surface.maximized = maximized
-	if !maximized {
-		u.syncFilesWindow()
-	} else {
-		surface.filesWindowExpanded = false
-	}
+	u.surface.maximized = maximized
 }
 
 func (u *UI) setWindowFullscreen(fullscreen bool) {
-	surface := u.surface
-	surface.fullscreen = fullscreen
-	if fullscreen {
-		surface.filesWindowExpanded = false
-	} else {
-		u.syncFilesWindow()
-	}
+	u.surface.fullscreen = fullscreen
 }
 
 func (u *UI) attachNativeWindow(window windowGeometry) {
@@ -278,49 +259,4 @@ func (u *UI) attachNativeWindow(window windowGeometry) {
 	if topmost, ok := window.(interface{ AlwaysOnTop() bool }); ok {
 		u.mainPinned = topmost.AlwaysOnTop()
 	}
-}
-
-// syncFilesWindow expands a normal window by the width of the docked files
-// pane, then restores the exact content size when the pane closes. Maximized and
-// fullscreen windows keep their frame and let the pane compress the chat side.
-func (u *UI) syncFilesWindow() {
-	surface := u.surface
-	open := u.drawer == "files" && u.state.Conversation(u.selected).ID != ""
-	if !open {
-		if surface.filesWindowRestoreValid && !surface.maximized && !surface.fullscreen && u.nativeWindow != nil {
-			_ = u.nativeWindow.SetSize(surface.filesWindowRestoreWidth, surface.filesWindowRestoreHeight)
-		}
-		surface.filesWindowRestoreValid = false
-		surface.filesWindowExpanded = false
-		return
-	}
-	if surface.maximized || surface.fullscreen || surface.filesWindowExpanded || surface.filesWindowRestoreValid || u.nativeWindow == nil {
-		return
-	}
-	frame, ok := u.nativeWindow.Frame()
-	if !ok || frame.Width < 1 || frame.Height < 1 {
-		return
-	}
-	width, height := int(frame.Width), int(frame.Height)
-	extra := int(chatFilesPaneWidth(frame.Width))
-	if extra < 1 {
-		return
-	}
-	surface.filesWindowRestoreWidth, surface.filesWindowRestoreHeight = width, height
-	surface.filesWindowRestoreValid = true
-	if err := u.nativeWindow.SetSize(width+extra, height); err != nil {
-		surface.filesWindowRestoreValid = false
-		return
-	}
-	surface.filesWindowExpanded = true
-}
-
-// chatFilesPaneWidth gives the docked file pane a readable share of the chat
-// column, bounded so both sides remain usable at the minimum window size.
-func chatFilesPaneWidth(chatWidth float32) float32 {
-	if chatWidth <= 0 {
-		return 0
-	}
-	width := min(max(chatWidth*0.38, chatFilesMinWidth), chatFilesMaxWidth)
-	return min(width, chatWidth)
 }
