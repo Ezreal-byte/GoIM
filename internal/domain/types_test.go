@@ -29,6 +29,22 @@ func TestEnsureDefaultShortcutsAddsOnlyMissingActions(t *testing.T) {
 	}
 }
 
+func TestNormalizeInterfaceFontSizePreservesValidAndMigratesOldProfiles(t *testing.T) {
+	for _, test := range []struct {
+		size, want int
+	}{
+		{size: 0, want: InterfaceFontSizeDefault},
+		{size: InterfaceFontSizeMinimum, want: InterfaceFontSizeMinimum},
+		{size: InterfaceFontSizeDefault, want: InterfaceFontSizeDefault},
+		{size: InterfaceFontSizeMaximum, want: InterfaceFontSizeMaximum},
+		{size: InterfaceFontSizeMaximum + 1, want: InterfaceFontSizeMaximum},
+	} {
+		if got := NormalizeInterfaceFontSize(test.size); got != test.want {
+			t.Fatalf("NormalizeInterfaceFontSize(%d) = %d, want %d", test.size, got, test.want)
+		}
+	}
+}
+
 func TestEnsureVoiceDefaultsMigratesOldProfilesAndPreservesZero(t *testing.T) {
 	var old Settings
 	old.EnsureVoiceDefaults()

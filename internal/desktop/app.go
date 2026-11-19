@@ -1316,7 +1316,7 @@ func (u *UI) initIDs() {
 }
 
 func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
-	u.theme = themeForName(u.state.Settings.Theme)
+	u.theme = themeForSettings(u.state.Settings)
 	u.palette = paletteFor(u.theme)
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, u.palette.sidebar)
@@ -2104,7 +2104,7 @@ func (u *UI) conversationCard(conversation domain.Conversation) conversationCard
 
 func (u *UI) rebuildPresentation(oldError string) {
 	u.ensureStateIDs()
-	u.theme = themeForName(u.state.Settings.Theme)
+	u.theme = themeForSettings(u.state.Settings)
 	u.palette = paletteFor(u.theme)
 
 	u.conversations = u.conversations[:0]
@@ -2536,7 +2536,7 @@ func (u *UI) toggleTheme() {
 		next = "light"
 	}
 	u.state.Settings.Theme = next
-	u.theme = themeForName(next)
+	u.theme = themeForSettings(u.state.Settings)
 	u.palette = paletteFor(u.theme)
 	u.submit(domain.Command{Kind: domain.SetSetting, Setting: "theme", Value: next})
 }
@@ -3443,6 +3443,10 @@ func themeForName(name string) ui.Theme {
 		return theme
 	}
 	return ui.LightTheme()
+}
+
+func themeForSettings(settings domain.Settings) ui.Theme {
+	return themeForName(settings.Theme).WithFontSize(float32(domain.NormalizeInterfaceFontSize(settings.InterfaceFontSize)))
 }
 
 func paletteFor(theme ui.Theme) palette {

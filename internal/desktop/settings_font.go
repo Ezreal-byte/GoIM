@@ -156,6 +156,7 @@ func (f *panelInterfaceFontPicker) rebuild(current string, selectCurrent bool) {
 	} else if previousFamily != "" {
 		f.selectFamily(previousFamily)
 	}
+	f.builtList = len(f.families)
 	f.scroll = min(max(f.scroll, 0), f.maxScroll())
 }
 

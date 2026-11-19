@@ -240,6 +240,7 @@ type Settings struct {
 	Language                     string
 	Theme                        string
 	InterfaceFont                string
+	InterfaceFontSize            int
 	Nickname                     string
 	Avatar                       string
 	Signature                    string
@@ -307,6 +308,19 @@ const (
 	VoiceAudioDefaultsVersion = 1
 )
 
+const (
+	InterfaceFontSizeMinimum = 9
+	InterfaceFontSizeDefault = 14
+	InterfaceFontSizeMaximum = 28
+)
+
+func NormalizeInterfaceFontSize(size int) int {
+	if size < InterfaceFontSizeMinimum {
+		return InterfaceFontSizeDefault
+	}
+	return min(size, InterfaceFontSizeMaximum)
+}
+
 func ClampVoiceVolume(volume int) int {
 	return min(max(volume, 0), VoiceVolumeMaximum)
 }
@@ -359,6 +373,7 @@ func DefaultSettings(downloadDir string) Settings {
 		Neiwangtong: CompatibilityConfig{Enabled: true, Port: NeiwangtongDiscoveryPort},
 		LastSection: "contacts",
 		Language:    "zh-CN", Theme: "light", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
+		InterfaceFontSize:     InterfaceFontSizeDefault,
 		VoiceMicrophoneVolume: VoiceVolumeDefault, VoiceSpeakerVolume: VoiceVolumeDefault,
 		VoiceAudioDefaultsVersion: VoiceAudioDefaultsVersion,
 		DuplicatePolicy:           "rename", CloseToTray: true, SendKey: "Enter", Shortcuts: []Shortcut{

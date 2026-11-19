@@ -491,6 +491,12 @@ func (n *Node) setting(c domain.Command) error {
 			return errors.New("无效的界面字体")
 		}
 		settings.InterfaceFont = family
+	case "interface_font_size":
+		size, err := strconv.Atoi(strings.TrimSpace(c.Value))
+		if err != nil || size < domain.InterfaceFontSizeMinimum || size > domain.InterfaceFontSizeMaximum {
+			return fmt.Errorf("界面字号须在 %d 到 %d 之间", domain.InterfaceFontSizeMinimum, domain.InterfaceFontSizeMaximum)
+		}
+		settings.InterfaceFontSize = size
 	case "desktop_notifications":
 		settings.DesktopNotifications = c.Bool
 	case "sound":

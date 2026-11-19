@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +101,10 @@ func (h *panelTestHarness) submit(command domain.Command) {
 
 func (h *panelTestHarness) clearCommands() {
 	h.commands = nil
+}
+
+func (h *panelTestHarness) snapshotCommands() []domain.Command {
+	return slices.Clone(h.commands)
 }
 
 func (h *panelTestHarness) publish(state domain.State) {

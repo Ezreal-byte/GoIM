@@ -1287,6 +1287,8 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 			return strconv.Itoa(settings.VoiceSpeakerVolume) == pending.value
 		case "background_shade":
 			return strconv.Itoa(settings.BackgroundShade) == pending.value
+		case "interface_font_size":
+			return strconv.Itoa(domain.NormalizeInterfaceFontSize(settings.InterfaceFontSize)) == pending.value
 		}
 	case panelPendingBool:
 		switch pending.setting {

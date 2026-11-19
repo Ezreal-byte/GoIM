@@ -21,6 +21,8 @@ var settingsEnglish = [...]struct {
 	{"录制快捷键", "Record shortcut"},
 	{"为“%s”按下组合键。Tab 在弹窗内移动焦点，Esc 取消。", "Press a key combination for “%s”. Tab moves focus in this dialog; Esc cancels."},
 	{"使用默认", "Use default"},
+	{"界面字号", "Interface font size"},
+	{"调整 GoIM 全窗口文字大小", "Change text size across GoIM windows"},
 	{"界面字体", "Interface font"},
 	{"更改 GoIM 窗口、菜单和设置页使用的字体", "Choose the font used by GoIM windows, menus, and settings"},
 	{"选择字体", "Choose font"},

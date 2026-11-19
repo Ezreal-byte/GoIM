@@ -123,6 +123,7 @@ func New(opts Options) (*Node, error) {
 		n.data.State.Settings.EnsureDefaultShortcuts()
 	}
 	settings := &n.data.State.Settings
+	settings.InterfaceFontSize = domain.NormalizeInterfaceFontSize(settings.InterfaceFontSize)
 	settings.EnsureVoiceDefaults()
 	if settings.IPMSG.Port == 0 {
 		settings.IPMSG = domain.CompatibilityConfig{Enabled: true, Port: domain.IPMSGPort}
