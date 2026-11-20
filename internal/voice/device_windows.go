@@ -197,6 +197,7 @@ func (c *windowsCapture) Close() error {
 }
 
 type windowsPlayback struct {
+	writeMu   sync.Mutex
 	handle    uintptr
 	contextID uintptr
 	headers   [waveBuffers]waveHeader
@@ -235,6 +236,8 @@ func waveOutProc(_, message, instance uintptr, header *waveHeader, _ uintptr) ui
 }
 
 func (p *windowsPlayback) Write(pcm []byte) (int, error) {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
 	written := 0
 	for len(pcm) > 0 {
 		var index int
@@ -269,6 +272,8 @@ func (p *windowsPlayback) Close() error {
 	p.closeOnce.Do(func() {
 		p.closed.Store(true)
 		close(p.done)
+		p.writeMu.Lock()
+		defer p.writeMu.Unlock()
 		if p.handle != 0 {
 			waveOutReset.Call(p.handle)
 			for i := range p.headers {

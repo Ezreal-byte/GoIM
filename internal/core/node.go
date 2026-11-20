@@ -189,7 +189,7 @@ func New(opts Options) (*Node, error) {
 	settings.CompatibilityDefaultsVersion = 1
 	removeUnverifiedBridges(&n.data)
 	for _, peer := range n.data.State.Peers {
-		migrateContactRemark(&n.data, peer.ID, peer.CompatibilityAliasOf)
+		migrateContactPreferences(&n.data, peer.ID, peer.CompatibilityAliasOf)
 	}
 	retireUnboundIPMSGDeliveries(&n.data)
 	n.ipmsgOverride, n.compatibilityDisabled, n.version = opts.DisableIPMSG, opts.DisableCompatibility, opts.Version
@@ -283,10 +283,13 @@ func (n *Node) snapshot(urls bool) domain.State {
 	_ = json.Unmarshal(b, &s)
 	for i := range s.Peers {
 		peer := &s.Peers[i]
-		peer.Remark = n.data.PeerRemarks[peer.ID]
+		id := peer.ID
 		if peer.CompatibilityAliasOf != "" {
-			peer.Remark = n.data.PeerRemarks[peer.CompatibilityAliasOf]
+			id = peer.CompatibilityAliasOf
 		}
+		peer.Remark = n.data.PeerRemarks[id]
+		peer.ContactHidden = n.data.ContactVisibility[id] == contactHidden
+		peer.ContactDeleted = n.data.ContactVisibility[id] == contactDeleted
 	}
 	s.LockResult = n.lockResult
 	s.ConnectionFeedback = n.connectionFeedback

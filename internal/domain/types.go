@@ -9,6 +9,8 @@ import (
 
 type Peer struct {
 	Remark               string `json:"-"` // local presentation only; never sent to another peer
+	ContactHidden        bool   `json:"-"` // keeps the original group while hidden locally
+	ContactDeleted       bool   `json:"-"` // retained for history until this peer reappears
 	RecallSupported      bool   `json:"RecallSupported,omitempty"`
 	PrintSupported       bool   `json:"PrintSupported,omitempty"`
 	VoiceSupported       bool   `json:",omitempty"`
@@ -125,7 +127,7 @@ func (s State) DirectReadOnlyReason(peer Peer) string {
 }
 
 func (p Peer) ListedContact() bool {
-	return p.CompatibilityAliasOf == "" && !p.IsLegacyNeiwangtong()
+	return !p.ContactDeleted && p.CompatibilityAliasOf == "" && !p.IsLegacyNeiwangtong()
 }
 
 func (p Peer) SupportsGroups() bool {
@@ -510,6 +512,31 @@ type VoiceCall struct {
 	Muted        bool
 	SpeakerMuted bool
 	Reason       string
+	Audio        CallAudioOptions
+}
+
+// CallAudioOptions contains only the local, temporary overrides for one call.
+// The flags distinguish system-default devices and zero volume from an unset override.
+type CallAudioOptions struct {
+	Microphone, Speaker                                              string
+	MicrophoneVolume, SpeakerVolume                                  int
+	HasMicrophone, HasSpeaker, HasMicrophoneVolume, HasSpeakerVolume bool
+}
+
+func (c VoiceCall) AudioSettings(s Settings) Settings {
+	if c.Audio.HasMicrophone {
+		s.VoiceMicrophone = c.Audio.Microphone
+	}
+	if c.Audio.HasSpeaker {
+		s.VoiceSpeaker = c.Audio.Speaker
+	}
+	if c.Audio.HasMicrophoneVolume {
+		s.VoiceMicrophoneVolume = c.Audio.MicrophoneVolume
+	}
+	if c.Audio.HasSpeakerVolume {
+		s.VoiceSpeakerVolume = c.Audio.SpeakerVolume
+	}
+	return s
 }
 
 func (c VoiceCall) Live() bool {
@@ -622,15 +649,26 @@ type ShareFeedback struct {
 }
 
 func (s State) Peer(id string) Peer {
+	if peer, ok := s.LookupPeer(id); ok || id == "" {
+		return peer
+	}
+	return Peer{ID: id, Name: "未知联系人"}
+}
+
+// LookupPeer looks up a current contact, including local records kept for history.
+func (s State) LookupPeer(id string) (Peer, bool) {
+	if id == "" {
+		return Peer{}, false
+	}
 	if s.Self.ID == id {
-		return s.Self
+		return s.Self, true
 	}
 	for _, p := range s.Peers {
 		if p.ID == id {
-			return p
+			return p, true
 		}
 	}
-	return Peer{ID: id, Name: "未知联系人"}
+	return Peer{}, false
 }
 func (s State) Conversation(id string) Conversation {
 	for _, v := range s.Conversations {
@@ -710,6 +748,8 @@ const (
 	SetProfile           CommandKind = "set_profile"
 	SetContactGroup      CommandKind = "set_contact_group"
 	SetContactRemark     CommandKind = "set_contact_remark"
+	SetContactHidden     CommandKind = "set_contact_hidden"
+	DeleteContact        CommandKind = "delete_contact"
 	CreateContactGroup   CommandKind = "create_contact_group"
 	RenameContactGroup   CommandKind = "rename_contact_group"
 	DeleteContactGroup   CommandKind = "delete_contact_group"
@@ -745,6 +785,11 @@ const (
 	EndVoiceCall         CommandKind = "end_voice_call"
 	SetVoiceMuted        CommandKind = "set_voice_muted"
 	SetVoiceSpeakerMuted CommandKind = "set_voice_speaker_muted"
+
+	SetCallMicrophone       CommandKind = "set_call_microphone"
+	SetCallSpeaker          CommandKind = "set_call_speaker"
+	SetCallMicrophoneVolume CommandKind = "set_call_microphone_volume"
+	SetCallSpeakerVolume    CommandKind = "set_call_speaker_volume"
 )
 
 const (
@@ -785,6 +830,7 @@ type Command struct {
 	PrinterID      string
 	PrintOptions   PrintOptions
 	CallID         string
+	ExpectedDevice *string // guard a failed device switch against a newer selection
 }
 
 // Backend snapshots are detached copies. Submit queues work, never blocks the UI.

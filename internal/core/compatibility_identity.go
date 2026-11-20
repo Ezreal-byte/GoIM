@@ -78,7 +78,7 @@ func preferNativeContact(data *persisted, peer *domain.Peer, bridge peerBridge) 
 	peer.CompatibilityAliasOf = ""
 	if peer.ID != bridge.CanonicalID {
 		peer.CompatibilityAliasOf = bridge.CanonicalID
-		migrateContactRemark(data, peer.ID, bridge.CanonicalID)
+		migrateContactPreferences(data, peer.ID, bridge.CanonicalID)
 	}
 }
 
@@ -225,6 +225,7 @@ func (n *Node) refreshCompatibilityContactLocked(data *persisted, id string) []s
 			continue
 		}
 		p.Online, p.Address, p.Presence, p.LastSeen = true, route.Address, route.Presence, time.Now()
+		data.restoreDeletedContact(p.ID)
 		p.Name, p.ClientType = route.Name, route.ClientType
 		if p.Transport == transportNWT {
 			p.Signature, p.Details, p.Version = route.Signature, route.Details, route.Version

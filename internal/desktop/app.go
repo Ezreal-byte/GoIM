@@ -35,7 +35,7 @@ const (
 	sectionShares     = "shares"
 	sectionPrint      = "print"
 	sectionSettings   = "settings"
-	titlebarHeight    = float32(48)
+	titlebarHeight    = float32(42)
 	railWidth         = float32(68)
 	sidebarWidth      = float32(300)
 	minimumWindowSize = float32(1000)
@@ -200,14 +200,16 @@ type appIDs struct {
 	profileAvatar gfx.ID
 	detachedPin   gfx.ID
 
-	sidebarCreate  gfx.ID
-	sidebarConnect gfx.ID
-	sidebarSearch  gfx.ID
-	sidebarRefresh gfx.ID
-	filterAll      gfx.ID
-	filterOnline   gfx.ID
-	emptyConnect   gfx.ID
-	emptyCompose   gfx.ID
+	sidebarCreate   gfx.ID
+	sidebarConnect  gfx.ID
+	sidebarSearch   gfx.ID
+	sidebarRefresh  gfx.ID
+	filterAll       gfx.ID
+	filterOnline    gfx.ID
+	filterHidden    gfx.ID
+	hiddenGroupHead gfx.ID
+	emptyConnect    gfx.ID
+	emptyCompose    gfx.ID
 
 	chatScreenshot                                                         gfx.ID
 	chatSend                                                               gfx.ID
@@ -239,6 +241,8 @@ type appIDs struct {
 	shellMenuDelete                                                        gfx.ID
 	shellMenuTalk                                                          gfx.ID
 	shellMenuOrganize                                                      gfx.ID
+	shellMenuHideContact                                                   gfx.ID
+	shellMenuDeleteContact                                                 gfx.ID
 	shellMenuRemark                                                        gfx.ID
 	shellMenuProfile                                                       gfx.ID
 	shellMenuNewGroup                                                      gfx.ID
@@ -383,6 +387,13 @@ type UI struct {
 	voiceAudio                    *voiceAudioRuntime
 	voiceFocusedFor               string
 	voiceWindow                   bool
+	voiceBoundID                  string
+	voiceInvitation               bool
+	voiceConcealed                bool
+	inlineVoiceID                 string
+	voiceFallbackPage             *ui.Page
+	voicePicker                   callDevicePicker
+	unlockForVoice                func()
 	theme                         ui.Theme
 	palette                       palette
 	tree                          gfx.Tree
@@ -423,6 +434,7 @@ type UI struct {
 	pendingPeer        string
 	pendingGroup       string
 	sidebarFilter      string
+	hiddenCollapsed    bool
 	collapsed          map[string]bool
 	sidebarSearch      ui.Field
 	connectOpen        bool
@@ -514,6 +526,7 @@ type UI struct {
 	conversationDrag conversationDragState
 	groupChats       []domain.Conversation
 	contacts         []contactGroupView
+	hiddenContacts   contactGroupView
 	invitations      []domain.Invitation
 	outgoingInvites  []domain.Invitation
 	ownershipInvites []domain.Invitation
@@ -651,6 +664,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 		theme:               ui.LightTheme(),
 		done:                make(chan struct{}),
 		section:             sectionContacts,
+		sidebarFilter:       "all",
 		collapsed:           make(map[string]bool),
 		chatEditor:          text.NewEditor(""),
 		drafts:              make(map[string]string),
@@ -781,6 +795,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.chatPage, u.drawerPage = page("chat"), page("drawer")
 	u.dialogPage, u.mentionPage, u.emojiPage = page("dialog"), page("mention"), page("emoji")
 	u.previewPage = page("conversation-preview")
+	u.voiceFallbackPage = page("incoming-call")
 	u.surface = u.newChatSurface(page("workspace"))
 	u.panels.Init(&u.tree)
 	u.panels.settingsExtra.openProfile = u.openProfile
@@ -843,7 +858,7 @@ func (u *UI) Close() {
 		u.voiceAudio.close()
 		for _, page := range []*ui.Page{
 			u.titlePage, u.railPage, u.sidebarPage, u.chatPage, u.drawerPage,
-			u.dialogPage, u.mentionPage, u.emojiPage, u.surface.workspace, u.panels.page,
+			u.dialogPage, u.mentionPage, u.emojiPage, u.surface.workspace, u.panels.page, u.voiceFallbackPage,
 		} {
 			page.Close()
 		}
@@ -886,7 +901,7 @@ func (u *UI) onWake() {
 		u.voiceAudio.sync(u.state.VoiceCall, u.state.Settings)
 	}
 	if notice := u.voiceAudio.takeNotice(); notice != "" {
-		u.showToast(i18n.T("语音通话已结束"), notice, components.ToastError)
+		u.showToast(i18n.T("语音通话"), notice, components.ToastError)
 	}
 	u.collectSystemUnlock()
 	u.updater.setAutomatic(!u.state.Settings.DisableAutoUpdateCheck)
@@ -1161,6 +1176,8 @@ func (u *UI) initIDs() {
 	u.ids.sidebarRefresh = u.tree.ID(u.ids.side, "refresh")
 	u.ids.filterAll = u.tree.ID(u.ids.side, "filter-all")
 	u.ids.filterOnline = u.tree.ID(u.ids.side, "filter-online")
+	u.ids.filterHidden = u.tree.ID(u.ids.side, "filter-hidden")
+	u.ids.hiddenGroupHead = u.tree.ID(u.ids.side, "hidden-contacts")
 	u.ids.emptyConnect = u.tree.ID(u.ids.side, "empty-connect")
 	u.ids.emptyCompose = u.tree.ID(u.ids.side, "empty-compose")
 	u.ids.sidebarSurface = u.tree.ID(u.ids.side, "surface")
@@ -1206,6 +1223,8 @@ func (u *UI) initIDs() {
 	u.ids.shellMenuDelete = u.tree.ID(u.ids.menu, "shell-delete")
 	u.ids.shellMenuTalk = u.tree.ID(u.ids.menu, "shell-talk")
 	u.ids.shellMenuOrganize = u.tree.ID(u.ids.menu, "shell-organize")
+	u.ids.shellMenuHideContact = u.tree.ID(u.ids.menu, "shell-hide-contact")
+	u.ids.shellMenuDeleteContact = u.tree.ID(u.ids.menu, "shell-delete-contact")
 	u.ids.shellMenuRemark = u.tree.ID(u.ids.menu, "shell-remark")
 	u.ids.shellMenuProfile = u.tree.ID(u.ids.menu, "shell-profile")
 	u.ids.shellMenuNewGroup = u.tree.ID(u.ids.menu, "shell-new-group")
@@ -1378,6 +1397,12 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	u.drawToasts(canvas, body)
 	u.drawOverlays(canvas, bounds)
 	u.drawChatImageViewer(canvas)
+	if u.inlineVoiceID != "" && u.inlineVoiceID == u.state.VoiceCall.ID && incomingVoiceInvitation(u.state.VoiceCall) {
+		width, height := u.voiceInvitationSize()
+		card := ui.Rect{Width: min(float32(width), body.Width), Height: min(float32(height), body.Height)}
+		card.X, card.Y = max(0, size.Width-card.Width-12), max(body.Y, size.Height-card.Height-12)
+		u.drawVoiceInvitation(canvas, card, u.inlineVoiceID)
+	}
 	u.markSelectedConversationRead()
 }
 
@@ -1654,14 +1679,9 @@ func (u *UI) drawContactFilters(f ui.C) {
 	if u.state.Self.ID != "" {
 		peerCount, allOnline = 1, 1
 	}
-	for _, peer := range u.state.Peers {
-		if peer.ID == u.state.Self.ID || !peer.ListedContact() || u.state.Settings.HideOfflineContacts && !peer.Online {
-			continue
-		}
-		peerCount++
-		if peer.Online {
-			allOnline++
-		}
+	for _, group := range u.contacts {
+		peerCount += group.Total
+		allOnline += group.Online
 	}
 	labels := []struct {
 		id    gfx.ID
@@ -1671,9 +1691,13 @@ func (u *UI) drawContactFilters(f ui.C) {
 	}{
 		{u.ids.filterAll, i18n.T("全部"), "all", peerCount},
 		{u.ids.filterOnline, i18n.T("在线"), "online", allOnline},
+		{u.ids.filterHidden, i18n.T("已隐藏"), "hidden", u.hiddenContacts.Total},
 	}
 	ui.Row(f).Height(32).Gap(8).Children(func() {
 		for _, item := range labels {
+			if item.value == "hidden" && item.count == 0 {
+				continue
+			}
 			active := u.sidebarFilter == item.value
 			background := u.palette.sidebar
 			foreground := u.palette.secondaryText
@@ -1690,28 +1714,25 @@ func (u *UI) drawContactFilters(f ui.C) {
 				})
 			if box.Clicked() {
 				u.sidebarFilter = item.value
+				u.reconcileContactSelection()
 			}
 		}
 	})
 }
 
 func (u *UI) drawContacts(f ui.C) {
+	query := strings.TrimSpace(u.sidebarSearch.Text())
+	if u.sidebarFilter == "hidden" {
+		u.drawHiddenContacts(f, query)
+		return
+	}
 	u.selfContactRow(f)
 	u.drawInvitations(f)
 	u.drawGroupChats(f)
-	query := strings.TrimSpace(u.sidebarSearch.Text())
 	otherPeers := 0
-	for _, peer := range u.state.Peers {
-		if peer.ID == u.state.Self.ID || !peer.ListedContact() {
-			continue
-		}
-		if u.state.Settings.HideOfflineContacts && !peer.Online {
-			continue
-		}
-		otherPeers++
-	}
 	visible := 0
 	for _, group := range u.contacts {
+		otherPeers += group.Total
 		peers := u.filteredPeers(group.Peers, query)
 		if len(peers) == 0 && (query != "" || group.Name == "未分组") {
 			continue
@@ -1898,23 +1919,33 @@ func (u *UI) invitationMemberLine(invitation domain.Invitation) string {
 
 func (u *UI) contactGroupHeader(f ui.C, group contactGroupView, collapsed bool) {
 	id := u.groupHeadIDs[group.Name]
+	label := displayContactGroup(group.Name)
+	hidden := u.sidebarFilter == "hidden"
+	if hidden {
+		id = u.ids.hiddenGroupHead
+		label = i18n.T("隐藏的联系人")
+	}
 	icon := u.iconChevronDown
 	if collapsed {
 		icon = u.iconChevronRight
 	}
 	header := ui.Row(f).Height(u.textExtent(32, 10)).Items(ui.Center).Gap(6).Radius(radiusControl).
 		Hover(ui.Look{}.Background(u.palette.hover)).
-		HitWith(id, group.Name, gfx.HitOptions{Role: gfx.RoleButton, Expanded: !collapsed}).
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Expanded: !collapsed}).
 		Children(func() {
 			ui.Icon(f, icon).Size(15, 15).Color(u.palette.secondaryText)
-			ui.Text(f, displayContactGroup(group.Name)).FontSize(13).Weight(gfx.WeightSemibold).Ellipsis()
+			ui.Text(f, label).FontSize(13).Weight(gfx.WeightSemibold).Ellipsis()
 			ui.Spacer(f)
 			ui.Text(f, intString(group.Online)+"/"+intString(group.Total)).FontSize(11).Muted()
 		})
 	if header.Clicked() {
-		u.collapsed[group.Name] = !collapsed
+		if hidden {
+			u.hiddenCollapsed = !collapsed
+		} else {
+			u.collapsed[group.Name] = !collapsed
+		}
 	}
-	if event, ok := f.Canvas().PointerOn(id); ok && group.Name != "未分组" &&
+	if event, ok := f.Canvas().PointerOn(id); ok && !hidden && group.Name != "未分组" &&
 		event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 		u.openShellMenu(shellMenuContactGroup, group.Name, event.X, event.Y)
 		f.Canvas().Consume()
@@ -2204,49 +2235,7 @@ func (u *UI) rebuildPresentation(oldError string) {
 		}
 	}
 
-	groups := make(map[string][]domain.Peer)
-	for _, name := range u.state.ContactGroups {
-		groups[name] = nil
-	}
-	for _, peer := range u.state.Peers {
-		if peer.ID == u.state.Self.ID || !peer.ListedContact() || u.state.Settings.HideOfflineContacts && !peer.Online {
-			continue
-		}
-		name := strings.TrimSpace(peer.ContactGroup)
-		if name == "" {
-			name = "未分组"
-		}
-		groups[name] = append(groups[name], peer)
-	}
-	names := make([]string, 0, len(groups))
-	for name := range groups {
-		names = append(names, name)
-	}
-	sort.SliceStable(names, func(i, j int) bool {
-		if (names[i] == "未分组") != (names[j] == "未分组") {
-			return names[j] == "未分组"
-		}
-		return names[i] < names[j]
-	})
-	u.contacts = u.contacts[:0]
-	for _, name := range names {
-		peers := groups[name]
-		sort.SliceStable(peers, func(i, j int) bool {
-			if peers[i].Online != peers[j].Online {
-				return peers[i].Online
-			}
-			return peers[i].Name < peers[j].Name
-		})
-		online := 0
-		for _, peer := range peers {
-			if peer.Online {
-				online++
-			}
-		}
-		u.contacts = append(u.contacts, contactGroupView{
-			Name: name, Total: len(peers), Online: online, Peers: peers,
-		})
-	}
+	u.rebuildContactGroups()
 
 	u.invitations = append(u.invitations[:0], u.state.Invitations...)
 	sort.SliceStable(u.invitations, func(i, j int) bool {
@@ -2734,9 +2723,12 @@ func (u *UI) requestCloseComposeThen(after func()) {
 }
 
 func (u *UI) filteredPeers(peers []domain.Peer, query string) []domain.Peer {
+	if query == "" && u.sidebarFilter != "online" {
+		return peers
+	}
 	out := make([]domain.Peer, 0, len(peers))
 	for _, peer := range peers {
-		if u.sidebarFilter == "online" && !peer.Online {
+		if u.sidebarFilter == "online" && !peer.VisibleOnline() {
 			continue
 		}
 		if query != "" && !containsFold(peer.Name, query) && !containsFold(peer.Remark, query) && !containsFold(peer.ContactGroup, query) {

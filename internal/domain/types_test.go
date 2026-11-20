@@ -1,6 +1,31 @@
 package domain
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestContactVisibilityIsLocalToThisDevice(t *testing.T) {
+	peer := Peer{ID: "peer", Name: "Alice", ContactHidden: true}
+	if !peer.ListedContact() {
+		t.Fatal("a hidden contact must remain available to its hidden group")
+	}
+	peer.ContactDeleted = true
+	if peer.ListedContact() || peer.SupportsGroups() {
+		t.Fatal("a deleted contact must be omitted from lists and member selection")
+	}
+	b, err := json.Marshal(peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var received Peer
+	if err := json.Unmarshal(b, &received); err != nil {
+		t.Fatal(err)
+	}
+	if received.ID != peer.ID || received.ContactDeleted || received.ContactHidden {
+		t.Fatalf("peer exchanged with another device = %+v", received)
+	}
+}
 
 func TestEnsureDefaultShortcutsAddsOnlyMissingActions(t *testing.T) {
 	settings := Settings{DownloadDir: "downloads", Shortcuts: []Shortcut{

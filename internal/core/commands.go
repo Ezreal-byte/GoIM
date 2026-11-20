@@ -191,6 +191,8 @@ func (n *Node) execute(c domain.Command) error {
 		return n.updateContactGroups(c)
 	case domain.SetContactRemark:
 		return n.setContactRemark(c.PeerID, c.Name)
+	case domain.SetContactHidden, domain.DeleteContact:
+		return n.setContactVisibility(c)
 	case domain.TogglePin, domain.ToggleMute, domain.MarkRead, domain.SaveDraft:
 		n.change(func(s *domain.State) {
 			if i := convIndex(s, c.ConversationID); i >= 0 {
@@ -312,6 +314,8 @@ func (n *Node) execute(c domain.Command) error {
 		return n.setVoiceMuted(c.CallID, c.Bool)
 	case domain.SetVoiceSpeakerMuted:
 		return n.setVoiceSpeakerMuted(c.CallID, c.Bool)
+	case domain.SetCallMicrophone, domain.SetCallSpeaker, domain.SetCallMicrophoneVolume, domain.SetCallSpeakerVolume:
+		return n.setCallAudio(c)
 	default:
 		return fmt.Errorf("未知操作 %s", c.Kind)
 	}

@@ -234,6 +234,80 @@ func TestVoiceAudioRuntimeCarriesCapturePlaybackAndMutes(t *testing.T) {
 	}
 }
 
+func TestVoiceAudioSwitchKeepsCallAndRejectsObsoleteDevice(t *testing.T) {
+	backend := newFakeVoiceAudioBackend()
+	commands := make(chan domain.Command, 4)
+	runtime := newVoiceAudioRuntime(backend, func(c domain.Command) { commands <- c }, nil)
+	t.Cleanup(runtime.close)
+	mic, nextMic, obsolete := newFakeVoiceCapture(), newFakeVoiceCapture(), newFakeVoiceCapture()
+	speaker, nextSpeaker := newFakeVoicePlayback(), newFakeVoicePlayback()
+	opening, release := make(chan struct{}), make(chan struct{})
+	runtime.devices = voiceDevices{
+		openCapture: func(id string) (voiceaudio.Capture, error) {
+			switch id {
+			case "slow":
+				close(opening)
+				<-release
+				return obsolete, nil
+			case "usb":
+				return nextMic, nil
+			default:
+				return mic, nil
+			}
+		},
+		openPlayback: func(id string) (voiceaudio.Playback, error) {
+			switch id {
+			case "missing":
+				return nil, errors.New("unplugged")
+			case "headphones":
+				return nextSpeaker, nil
+			default:
+				return speaker, nil
+			}
+		},
+	}
+	settings := domain.DefaultSettings("")
+	call := domain.VoiceCall{ID: "live", Status: domain.VoiceCallActive}
+	runtime.sync(call, settings)
+	session := waitVoiceSession(t, runtime)
+	call.Audio = domain.CallAudioOptions{HasMicrophone: true, Microphone: "slow", HasSpeaker: true, Speaker: "missing"}
+	runtime.sync(call, settings)
+	select {
+	case <-opening:
+	case <-time.After(2 * time.Second):
+		t.Fatal("slow microphone did not start opening")
+	}
+	select {
+	case cmd := <-commands:
+		if cmd.Kind != domain.SetCallSpeaker || cmd.CallID != call.ID || cmd.ExpectedDevice == nil || *cmd.ExpectedDevice != "missing" || cmd.Text != "" {
+			t.Fatalf("wrong device failure recovery: %+v", cmd)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("device failure was not reported")
+	}
+	backend.audio <- []byte{40}
+	receiveVoiceBytes(t, speaker.writes, "retained speaker")
+	mic.frames <- make([]byte, domain.VoiceFrameBytes)
+	receiveVoiceBytes(t, backend.sent, "retained microphone")
+	call.Audio.Microphone, call.Audio.Speaker = "usb", "headphones"
+	runtime.sync(call, settings)
+	close(release)
+	for _, ch := range []chan struct{}{obsolete.closed, mic.closed, speaker.closed} {
+		select {
+		case <-ch:
+		case <-time.After(2 * time.Second):
+			t.Fatal("obsolete device remained open")
+		}
+	}
+	nextMic.frames <- make([]byte, domain.VoiceFrameBytes)
+	receiveVoiceBytes(t, backend.sent, "switched microphone")
+	backend.audio <- []byte{40}
+	receiveVoiceBytes(t, nextSpeaker.writes, "switched speaker")
+	if session != waitVoiceSession(t, runtime) || session.stopped() {
+		t.Fatal("switch replaced the call")
+	}
+}
+
 type plainVoiceBackend struct {
 	mu       sync.Mutex
 	commands []domain.Command
@@ -397,7 +471,7 @@ func TestVoiceAudioIgnoresObsoleteOpeningFailure(t *testing.T) {
 	runtime.desiredID, runtime.generation, runtime.starting = call.ID, 1, true
 	runtime.mu.Unlock()
 	go func() {
-		runtime.open(call.ID, "", "", oldDevices, 1)
+		runtime.open(call.ID, oldDevices, 1)
 		close(finished)
 	}()
 	<-opening

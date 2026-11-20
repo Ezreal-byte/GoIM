@@ -193,8 +193,13 @@ try {
     foreach($taskPeer in @($taskAlice,$taskBob)) {
         Send-Command $taskPeer 'settle 150'
         $taskVoiceWindows=Send-Command $taskPeer 'windows'
-        $taskVoice=[regex]::Match($taskVoiceWindows,'id=(\d+).*title="语音通话 · GoIM"')
-        if(!$taskVoice.Success){throw "Independent voice window did not open: $taskVoiceWindows"}
+        if($taskPeer -eq $taskBob) {
+            $taskVoice=[regex]::Match($taskVoiceWindows,'id=(\d+) active=false .*title="语音来电 · GoIM"')
+            if($taskVoiceWindows -match 'title="语音通话 · GoIM"'){throw "Call window opened before answering: $taskVoiceWindows"}
+        } else {
+            $taskVoice=[regex]::Match($taskVoiceWindows,'id=(\d+).*title="语音通话 · GoIM"')
+        }
+        if(!$taskVoice.Success){throw "Expected voice surface did not open: $taskVoiceWindows"}
         Send-Command $taskPeer 'window 1'
         Send-Command $taskPeer 'click "消息输入框"'
         Send-Command $taskPeer 'type 通话期间输入不受阻塞'
@@ -202,7 +207,10 @@ try {
         Send-Command $taskPeer ('window '+$taskVoice.Groups[1].Value)
         Send-Command $taskPeer 'expect layout clean'
         Save-Screenshot $taskPeer ('voice-window-'+$taskPeer.Id+'.png')
-        if($taskPeer -eq $taskBob){Send-Command $taskPeer 'click "拒绝"'}
+        if($taskPeer -eq $taskBob){
+            Send-Command $taskPeer 'expect exists "button:接听"'
+            Send-Command $taskPeer 'click "拒绝"'
+        }
     }
     foreach($taskPeer in @($taskAlice,$taskBob)) {
         Send-Command $taskPeer 'window 1'

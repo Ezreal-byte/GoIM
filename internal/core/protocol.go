@@ -245,10 +245,11 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 		nativeID := nativeIDForGoIM(peer.ID)
 		if i := peerIndex(s, keyIDFromNative(nativeID)); i >= 0 && s.Peers[i].Transport == transportNWT {
 			s.Peers[i].CompatibilityAliasOf = peer.ID
-			migrateContactRemark(data, s.Peers[i].ID, peer.ID)
+			migrateContactPreferences(data, s.Peers[i].ID, peer.ID)
 			s.Peers[i].Online = false
 			delete(n.compatPeers, compatibilityEndpoint{transportNWT, s.Peers[i].ID})
 		}
+		data.restoreDeletedContact(peer.ID)
 		return nil
 	})
 	defer func() {

@@ -7,9 +7,9 @@ import (
 	"unicode/utf8"
 )
 
-// A confirmed identity link keeps the user's local name with the visible
-// contact. An explicitly named canonical contact takes precedence.
-func migrateContactRemark(data *persisted, alias, canonical string) {
+// An authenticated alias carries its local preferences to the canonical
+// contact. Preserve any choices already made on the canonical identity.
+func migrateContactPreferences(data *persisted, alias, canonical string) {
 	if alias == canonical || canonical == "" {
 		return
 	}
@@ -17,6 +17,10 @@ func migrateContactRemark(data *persisted, alias, canonical string) {
 		data.PeerRemarks[canonical] = remark
 	}
 	delete(data.PeerRemarks, alias)
+	if visibility := data.ContactVisibility[alias]; visibility != "" && data.ContactVisibility[canonical] == "" {
+		data.ContactVisibility[canonical] = visibility
+	}
+	delete(data.ContactVisibility, alias)
 }
 
 func (n *Node) setContactRemark(id, value string) error {

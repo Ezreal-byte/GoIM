@@ -14,7 +14,8 @@ import (
 )
 
 func (u *UI) voiceVisible() bool {
-	return u.voiceWindow && u.state.VoiceCall.ID != ""
+	call := u.state.VoiceCall
+	return u.voiceWindow && !u.voiceInvitation && call.Live() && !incomingVoiceInvitation(call) && (u.voiceBoundID == "" || u.voiceBoundID == call.ID)
 }
 
 func (u *UI) startVoiceCall(peerID string) {
@@ -38,23 +39,16 @@ func (u *UI) startVoiceCall(peerID string) {
 
 func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 	call := u.state.VoiceCall
-	if !u.voiceVisible() || u.lockVisible() {
+	if !u.voiceVisible() || u.voiceConcealed || u.lockVisible() {
 		u.voiceFocusedFor = ""
 		return
 	}
-	if !u.voiceWindow {
-		canvas.Fill(viewport, ui.RGBA(6, 8, 12, 0.68))
+	if u.voicePicker.kind != "" {
+		u.drawCallDevicePicker(canvas, viewport)
+		return
 	}
-	width := min(max(viewport.Width-64, min(viewport.Width-24, 320)), 430)
-	height := min(max(viewport.Height-72, min(viewport.Height-24, 460)), 600)
-	card := ui.Rect{
-		X:     viewport.X + (viewport.Width-width)/2,
-		Y:     viewport.Y + (viewport.Height-height)/2,
-		Width: width, Height: height,
-	}
-	if u.voiceWindow {
-		card, width, height = viewport, viewport.Width, viewport.Height
-	}
+	card, width, height := viewport, viewport.Width, viewport.Height
+	name, path := voicePeerPresentation(u.state)
 	accent := u.theme.Primary
 	if call.Status == domain.VoiceCallActive {
 		accent = u.palette.success
@@ -73,11 +67,8 @@ func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 		subtle = u.palette.hover
 	}
 	status := u.voiceCallStatus(call)
-	avatarSize := float32(128)
-	if u.voiceWindow {
-		avatarSize = min(128, max(64, height-220-100*u.theme.Metrics.EffectiveTextScale()))
-	}
-	var muteButton, speakerButton, acceptButton, rejectButton, hangupButton ui.Box
+	avatarSize := min(128, max(64, height-220-100*u.theme.Metrics.EffectiveTextScale()))
+	var muteButton, speakerButton, hangupButton ui.Box
 
 	u.dialogPage.Draw(canvas, viewport, func(f ui.C) {
 		f.Canvas().Block(viewport)
@@ -85,21 +76,14 @@ func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 			ui.Column(f).Width(width).Height(height).PadSides(30, 32, 26, 32).Gap(0).Radius(radiusCard).
 				Background(surface).Border(1, u.palette.border).Shadow(gfx.ShadowLG).
 				Children(func() {
-					if !u.voiceWindow {
-						ui.Row(f).FillWidth().Justify(ui.Center).Gap(7).Items(ui.Center).Children(func() {
-							ui.Stack(f).Size(7, 7).Radius(4).Background(accent)
-							ui.Text(f, i18n.T("语音通话")).FontSize(11.5).Weight(gfx.WeightMedium).Muted()
-						})
-						ui.Slot(f).Height(28)
-					}
 					ui.Row(f).FillWidth().Justify(ui.Center).Children(func() {
 						ui.Stack(f).Size(avatarSize, avatarSize).Pad(8).Radius(avatarSize / 2).Background(subtle).
 							Children(func() {
-								u.avatarWithPresence(f, call.PeerName, call.PeerAvatar, avatarSize-16, false, false, surface)
+								u.avatarWithPresence(f, name, path, avatarSize-16, false, false, surface)
 							})
 					})
 					ui.Slot(f).Height(20)
-					ui.Text(f, defaultIfEmpty(call.PeerName, i18n.T("未知联系人"))).FillWidth().
+					ui.Text(f, name).FillWidth().
 						FontSize(24).Weight(gfx.WeightSemibold).TextCenter().Ellipsis()
 					ui.Slot(f).Height(8)
 					ui.Text(f, status).FillWidth().FontSize(13.5).Muted().TextCenter()
@@ -109,19 +93,7 @@ func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 							Muted().TextCenter()
 					}
 					ui.Spacer(f)
-					if call.Status == domain.VoiceCallEnded {
-						ui.Text(f, u.voiceEndedDetail(call.Reason)).FillWidth().FontSize(12).
-							Muted().TextCenter()
-						return
-					}
 					ui.Row(f).FillWidth().Justify(ui.Center).Gap(20).Children(func() {
-						if call.Direction == domain.VoiceCallIncoming && call.Status == domain.VoiceCallRinging {
-							rejectButton = u.voiceControl(f, u.ids.voiceReject, u.iconPhoneOff,
-								i18n.T("拒绝"), ui.RGB(230, 63, 72), ui.RGB(255, 255, 255), false, true)
-							acceptButton = u.voiceControl(f, u.ids.voiceAccept, u.iconPhone,
-								i18n.T("接听"), ui.RGB(45, 178, 111), ui.RGB(255, 255, 255), false, true)
-							return
-						}
 						muteLabel := i18n.T("麦克风已开")
 						muteIcon := u.iconMic
 						if call.Muted {
@@ -147,14 +119,20 @@ func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 		})
 	})
 
-	focus := u.ids.voiceHangup
-	if call.Direction == domain.VoiceCallIncoming && call.Status == domain.VoiceCallRinging {
-		focus = u.ids.voiceAccept
+	for _, control := range []struct {
+		id   gfx.ID
+		kind string
+	}{{u.ids.voiceMute, "麦克风"}, {u.ids.voiceSpeaker, "扬声器"}} {
+		if event, ok := canvas.PointerOn(control.id); ok && event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
+			u.openCallDevicePicker(control.kind)
+			return
+		}
 	}
+	u.hover.Paint(canvas, u.theme, viewport, components.TooltipOptions{}, 0)
 	focusKey := call.ID + ":" + string(call.Direction)
 	if call.Status != domain.VoiceCallEnded && u.voiceFocusedFor != focusKey {
 		u.voiceFocusedFor = focusKey
-		canvas.RequestFocus(focus)
+		canvas.RequestFocus(u.ids.voiceHangup)
 	}
 	if call.Status == domain.VoiceCallActive {
 		// Only the live call clock asks for frames; the shell remains idle when
@@ -168,10 +146,6 @@ func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 	}
 
 	switch {
-	case voiceClicked(rejectButton):
-		u.submit(domain.Command{Kind: domain.RejectVoiceCall, CallID: call.ID})
-	case voiceClicked(acceptButton):
-		u.submit(domain.Command{Kind: domain.AcceptVoiceCall, CallID: call.ID})
 	case voiceClicked(hangupButton):
 		u.submit(domain.Command{Kind: domain.EndVoiceCall, CallID: call.ID})
 	case voiceClicked(muteButton):
@@ -190,8 +164,11 @@ func (u *UI) voiceControl(f ui.C, id gfx.ID, icon gfx.Icon, label string, backgr
 	if primary {
 		diameter = 68
 	}
-	button := ui.Column(f).Width(88).Gap(8).Items(ui.Center).
-		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected})
+	options := gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}
+	if id == u.ids.voiceMute || id == u.ids.voiceSpeaker {
+		options.Hint = i18n.T("右键或按 Shift+F10 调整设备和音量")
+	}
+	button := ui.Column(f).Width(88).Gap(8).Items(ui.Center).HitWith(id, label, options)
 	button.Children(func() {
 		circle := ui.Row(f).Size(diameter, diameter).Radius(diameter / 2).Background(background).
 			Shadow(gfx.ShadowMD).Items(ui.Center).Justify(ui.Center)
@@ -219,27 +196,6 @@ func (u *UI) voiceCallStatus(call domain.VoiceCall) string {
 		return i18n.T("等待对方接听…")
 	default:
 		return i18n.T("语音通话")
-	}
-}
-
-func (u *UI) voiceEndedDetail(reason string) string {
-	switch reason {
-	case "declined":
-		return i18n.T("对方已拒绝")
-	case "busy":
-		return i18n.T("对方正在通话中")
-	case "no_answer":
-		return i18n.T("无人接听")
-	case "cancelled":
-		return i18n.T("通话已取消")
-	case "disconnected":
-		return i18n.T("连接已断开")
-	case "unavailable":
-		return i18n.T("对方当前不可用")
-	case "incompatible":
-		return i18n.T("双方客户端不兼容")
-	default:
-		return i18n.T("通话已结束")
 	}
 }
 

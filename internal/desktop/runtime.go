@@ -54,10 +54,11 @@ type desktopRuntime struct {
 	viewerSaving        bool
 	windowRevision      uint64
 	detachedRevision    uint64
-	voiceCallID         string
 	voiceWindow         *app.Window
 	voiceView           *UI
 	voiceDismissedID    string
+	voicePopupFailed    string
+	systemInvitation    *systemCallInvitation
 }
 
 type detachedConversationWindow struct {
@@ -146,6 +147,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		config.OnMinimize = func(minimized bool) { shell.SetWindowVisible(!minimized && (r.window == nil || !r.window.Hidden())) }
 		closed := config.OnClosed
 		config.OnClosed = func() {
+			r.cancelSystemInvitation()
 			if r.voiceWindow != nil {
 				r.voiceWindow.Close()
 			}
@@ -193,12 +195,14 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		}
 		r.window = window
 		shell.attachNativeWindow(window)
+		shell.unlockForVoice = func() { window.Show(); shell.SetWindowVisible(true) }
 		// Background work can finish between constructing the UI and binding its
 		// invalidator to a native window. Wake once after binding to collect it.
 		shell.invalidator.Invalidate()
 		show := func() { r.stopAttention(); window.Show(); shell.SetWindowVisible(true) }
 		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: i18n.T("GoIM · 局域网即时通讯"), Icon: statusIcon, OnClick: func(app.StatusClick) { show() }, Menu: func() []app.MenuItem {
-			return []app.MenuItem{{Title: i18n.T("打开 GoIM"), OnSelect: show}, {Separator: true}, {Title: i18n.T("退出 GoIM"), OnSelect: func() {
+			items := r.voiceTrayItems()
+			return append(items, app.MenuItem{Title: i18n.T("打开 GoIM"), OnSelect: show}, app.MenuItem{Separator: true}, app.MenuItem{Title: i18n.T("退出 GoIM"), OnSelect: func() {
 				if hasActiveTransfers(shell.state.Transfers) && !shell.state.Locked {
 					show()
 					shell.confirm = confirmation{open: true, title: i18n.T("退出 GoIM？"), body: i18n.T("进行中的文件传输将中断，重新连接后可继续。"), action: application.Quit}
@@ -206,7 +210,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 				} else {
 					application.Quit()
 				}
-			}}}
+			}})
 		}})
 		if err == nil {
 			r.tray = tray
@@ -255,7 +259,6 @@ func (r *desktopRuntime) observe() {
 		}
 	}
 	r.applyGlobal(s)
-	r.observeVoiceCall(s)
 	r.syncVoiceWindow(s, locked)
 	attention := false
 	unread := 0
@@ -347,40 +350,6 @@ func (r *desktopRuntime) observe() {
 	}
 	if attention && unread > 0 {
 		r.startAttention(time.Now())
-	}
-}
-
-func (r *desktopRuntime) observeVoiceCall(s domain.State) {
-	call := s.VoiceCall
-	if call.ID == "" || call.Status != domain.VoiceCallRinging || call.Direction != domain.VoiceCallIncoming {
-		if call.ID == "" {
-			r.voiceCallID = ""
-		}
-		return
-	}
-	if r.voiceCallID == call.ID {
-		return
-	}
-	r.voiceCallID = call.ID
-	foreground := mainWindowForeground(r.window) && !r.window.Hidden() && !r.window.Minimized()
-	if !foreground {
-		r.stopAttention()
-		r.window.Show()
-		r.ui.SetWindowVisible(true)
-	}
-	if foreground {
-		return
-	}
-	name := defaultIfEmpty(call.PeerName, i18n.T("未知联系人"))
-	title, body := i18n.T("语音通话")+" · "+name, i18n.T("邀请你进行语音通话")
-	if s.Locked || s.Settings.HideNotificationText {
-		title, body = i18n.T("语音通话"), i18n.T("收到一个语音通话邀请")
-	}
-	if s.Settings.DesktopNotifications {
-		if err := app.SendNotification(app.Notification{Title: title, Body: body}); err != nil && !r.notificationError {
-			r.notificationError = true
-			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("系统通知暂不可用：") + err.Error()})
-		}
 	}
 }
 

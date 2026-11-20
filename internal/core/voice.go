@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 	"unicode"
 
@@ -134,12 +135,7 @@ func (n *Node) acceptVoiceCall(callID string) error {
 		n.mu.Unlock()
 		return errors.New("无法接听此语音邀请")
 	}
-	call.Status = domain.VoiceCallActive
-	call.ConnectedAt = time.Now()
-	if n.voice.ringTimer != nil {
-		n.voice.ringTimer.Stop()
-		n.voice.ringTimer = nil
-	}
+	n.voice.activate(n.data.State.Settings)
 	peer, signal := call.PeerID, domain.VoiceSignal{
 		CallID: callID, Action: "accept", Muted: call.Muted, SpeakerMuted: call.SpeakerMuted,
 	}
@@ -150,6 +146,19 @@ func (n *Node) acceptVoiceCall(callID string) error {
 		return err
 	}
 	return nil
+}
+
+func (session *voiceSession) activate(defaults domain.Settings) {
+	call := &session.call
+	settings := call.AudioSettings(defaults)
+	call.Audio.Microphone, call.Audio.HasMicrophone = settings.VoiceMicrophone, true
+	call.Audio.Speaker, call.Audio.HasSpeaker = settings.VoiceSpeaker, true
+	call.Status = domain.VoiceCallActive
+	call.ConnectedAt = time.Now()
+	if session.ringTimer != nil {
+		session.ringTimer.Stop()
+		session.ringTimer = nil
+	}
 }
 
 func (n *Node) rejectVoiceCall(callID string) error {
@@ -203,6 +212,40 @@ func (n *Node) setVoiceMuted(callID string, muted bool) error {
 	}
 	n.voice.call.Muted = muted
 	n.mu.Unlock()
+	n.signal()
+	return nil
+}
+
+func (n *Node) setCallAudio(c domain.Command) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.voice == nil || n.voice.call.ID != c.CallID || !n.voice.call.Live() {
+		return nil
+	}
+	options := &n.voice.call.Audio
+	if c.ExpectedDevice != nil {
+		current := n.voice.call.AudioSettings(n.data.State.Settings)
+		if c.Kind == domain.SetCallMicrophone && current.VoiceMicrophone != *c.ExpectedDevice ||
+			c.Kind == domain.SetCallSpeaker && current.VoiceSpeaker != *c.ExpectedDevice {
+			return nil
+		}
+	}
+	switch c.Kind {
+	case domain.SetCallMicrophone:
+		options.Microphone, options.HasMicrophone = c.Text, true
+	case domain.SetCallSpeaker:
+		options.Speaker, options.HasSpeaker = c.Text, true
+	case domain.SetCallMicrophoneVolume, domain.SetCallSpeakerVolume:
+		volume, err := strconv.Atoi(c.Text)
+		if err != nil || volume < 0 || volume > domain.VoiceVolumeMaximum {
+			return errors.New("音量必须在 0 到 100 之间")
+		}
+		if c.Kind == domain.SetCallMicrophoneVolume {
+			options.MicrophoneVolume, options.HasMicrophoneVolume = volume, true
+		} else {
+			options.SpeakerVolume, options.HasSpeakerVolume = volume, true
+		}
+	}
 	n.signal()
 	return nil
 }
@@ -274,12 +317,7 @@ func (n *Node) receiveVoiceSignal(peer string, signal domain.VoiceSignal) error 
 		switch signal.Action {
 		case "accept":
 			if call.Status == domain.VoiceCallRinging && call.Direction == domain.VoiceCallOutgoing {
-				call.Status = domain.VoiceCallActive
-				call.ConnectedAt = time.Now()
-				if current.ringTimer != nil {
-					current.ringTimer.Stop()
-					current.ringTimer = nil
-				}
+				current.activate(n.data.State.Settings)
 				changed = true
 			}
 		case "reject":

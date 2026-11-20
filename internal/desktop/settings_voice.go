@@ -84,7 +84,7 @@ func (p *Panels) drawSettingsVoice(f ui.C, theme ui.Theme, state domain.State, s
 		ui.Row(f).FillWidth().PadSides(10, 12, 10, 12).Gap(10).Items(ui.Center).
 			Background(panelTint(theme.Primary, 0.06, theme.Background)).
 			Border(1, panelTint(theme.Primary, 0.20, theme.Background)).Radius(8).Children(func() {
-			ui.Paragraph(f, i18n.T("当前通话继续使用接通时选择的设备。"), 2).
+			ui.Paragraph(f, i18n.T("在通话窗口右键点击麦克风或扬声器，可以临时调整本次通话。"), 2).
 				FontSize(theme.Metrics.FontSizeS + 1).Grow(1)
 		})
 	}

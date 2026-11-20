@@ -1452,7 +1452,7 @@ func (u *UI) drawComposeCandidates(f ui.C, create bool, group domain.Group) {
 	if create {
 		for id, selected := range u.compose.selected {
 			peer := u.state.Peer(id)
-			if selected && peer.Online && peer.SupportsGroups() {
+			if selected && peer.Online && !peer.ContactHidden && peer.SupportsGroups() {
 				transport, fixedTransport = peer.Transport, true
 				break
 			}
