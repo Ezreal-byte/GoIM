@@ -175,6 +175,10 @@ ip -n "$reference" addr add 10.78.0.2/30 brd + dev "$ref_link"
 ip -n "$client" addr add 10.78.0.1/30 brd + dev "$go_link"
 ip -n "$reference" link set "$ref_link" up
 ip -n "$client" link set "$go_link" up
+# The original announces absence and exit via limited broadcast. Both
+# namespaces have only the private veth pair and no default route.
+ip -n "$reference" route add 255.255.255.255/32 dev "$ref_link"
+ip -n "$client" route add 255.255.255.255/32 dev "$go_link"
 as_lab "$reference" xvfb-run -a -s '-screen 0 1024x768x24 -dpi 96 -nolisten tcp' \
     "$tools/run.sh" reference "$work" > "$work/startup.log" 2>&1 &
 launcher=$!
