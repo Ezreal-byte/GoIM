@@ -93,7 +93,7 @@ _goim._tcp.office.example.  60 IN SRV 0 0 47842 entry.office.example.
 entry.office.example.       60 IN A   10.10.1.20
 ```
 
-On the entry point and all participating clients, enable automatic discovery and set the internal DNS server and discovery domain under **Settings → Network → Cross-subnet discovery**. The default domain is `goim.internal`. The resolver accepts an IP or an IP and port (default 53). The setting applies only to GoIM. Once registered, clients discover other online participants and connect directly over TLS. Clients and the entry point need a version supporting this feature, a route to the resolver, and TCP access to each other's GoIM listening port. Invisible mode pauses registration. Clear the server and save to leave the directory.
+Cross-subnet discovery is off by default. To enable it, turn on automatic discovery and set the internal DNS server and discovery domain on the entry point and all participating clients under **Settings → Network → Advanced network settings → Cross-subnet discovery**. The default domain is `goim.internal`. The resolver accepts an IP or an IP and port (default 53). The setting applies only to GoIM. Once registered, clients discover other online participants and connect directly over TLS. Clients and the entry point need a version supporting this feature, a route to the resolver, and TCP access to each other's GoIM listening port. Invisible mode pauses registration. Clear the server and save to leave the directory.
 
 ## App lock and system verification
 

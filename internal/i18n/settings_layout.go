@@ -11,6 +11,7 @@ var settingsEnglish = [...]struct {
 	{"所选网卡缺少与目标匹配的 IP 地址", "The selected interface has no IP address matching the destination."},
 	{"自动", "Automatic"},
 	{"跨网段发现", "Cross-subnet discovery"},
+	{"高级网络设置", "Advanced network settings"},
 	{"DNS 服务器", "DNS server"},
 	{"发现域名", "Discovery domain"},
 	{"发现状态", "Discovery status"},

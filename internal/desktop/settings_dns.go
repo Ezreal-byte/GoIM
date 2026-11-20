@@ -9,6 +9,7 @@ import (
 )
 
 type dnsSettingsEditor struct {
+	advanced                   ui.CollapsibleState
 	server, zone               ui.Field
 	serverID, domainID, saveID gfx.ID
 	source                     domain.DNSDiscoveryConfig

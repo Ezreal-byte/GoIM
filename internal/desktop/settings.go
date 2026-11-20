@@ -438,8 +438,10 @@ func (p *Panels) drawSettingsNetwork(f ui.C, theme ui.Theme, state domain.State,
 		}
 		p.drawDiscoverySettings(f, theme, state, submit)
 	})
-	p.drawDNSDiscovery(f, theme, state, submit)
 	p.drawCompatibility(f, theme, state, submit)
+	ui.Collapsible(f, &p.settingsExtra.dns.advanced, i18n.T("高级网络设置"), func() {
+		p.drawDNSDiscovery(f, theme, state, submit)
+	})
 }
 
 func (p *Panels) drawNetworkChangeConfirmation(f ui.C, theme ui.Theme, submit func(domain.Command), state domain.State) {

@@ -33,17 +33,30 @@ func (n *Node) selectedIPFor(endpoint string) (net.IP, error) {
 		}
 		return nil, nil
 	}
-	target, _ := netip.ParseAddrPort(endpoint)
+	n.mu.Lock()
+	routed := n.dnsEnabledLocked()
+	n.mu.Unlock()
+	var target netip.AddrPort
+	if routed {
+		target, _ = netip.ParseAddrPort(endpoint)
+	}
 	ipv6 := target.Addr().Unmap().Is6()
 	addresses, _ := iface.Addrs()
 	for _, a := range addresses {
 		if v, ok := a.(*net.IPNet); ok && (v.IP.To4() == nil) == ipv6 {
-			if !ipv6 || v.IP.IsLinkLocalUnicast() == target.Addr().IsLinkLocalUnicast() {
+			if !ipv6 {
+				return v.IP.To4(), nil
+			}
+			if v.IP.IsLinkLocalUnicast() == target.Addr().IsLinkLocalUnicast() {
 				return v.IP, nil
 			}
 		}
 	}
-	return nil, errors.New("所选网卡缺少与目标匹配的 IP 地址")
+	if routed {
+		return nil, errors.New("所选网卡缺少与目标匹配的 IP 地址")
+	}
+	// Preserve the original LAN dialer's OS-selected source if the chosen interface has no IPv4.
+	return nil, nil
 }
 func (n *Node) allowedRemote(remote net.Addr) bool {
 	return n.allowedConnection(nil, remote)
@@ -55,7 +68,7 @@ func (n *Node) allowedConnection(local, remote net.Addr) bool {
 		return true
 	}
 	n.mu.Lock()
-	routed := local != nil && n.discovery && !n.data.State.Settings.DisableAutoDiscovery && n.data.State.Settings.DNSDiscovery.Server != ""
+	routed := local != nil && n.dnsEnabledLocked()
 	n.mu.Unlock()
 	address := remote
 	if routed {

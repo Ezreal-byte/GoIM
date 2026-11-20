@@ -37,9 +37,14 @@ type dnsDirectory struct {
 	status     string
 }
 
+func (n *Node) dnsEnabledLocked() bool {
+	settings := &n.data.State.Settings
+	return n.discovery && !settings.DisableAutoDiscovery && settings.DNSDiscovery.Server != ""
+}
+
 func (n *Node) dnsActiveLocked() bool {
 	s := &n.data.State
-	return !n.closing && n.dnsDirectory != nil && n.discovery && !s.Settings.DisableAutoDiscovery &&
+	return !n.closing && n.dnsDirectory != nil && n.dnsEnabledLocked() &&
 		s.Self.Presence != domain.PresenceInvisible && n.dnsDirectory.config == s.Settings.DNSDiscovery
 }
 
@@ -47,7 +52,7 @@ func (n *Node) tickDNSDiscovery(network string, force bool) {
 	n.mu.Lock()
 	s := &n.data.State
 	cfg := s.Settings.DNSDiscovery
-	enabled := !n.closing && n.discovery && !s.Settings.DisableAutoDiscovery && s.Self.Presence != domain.PresenceInvisible && cfg.Server != ""
+	enabled := !n.closing && n.dnsEnabledLocked() && s.Self.Presence != domain.PresenceInvisible
 	d := n.dnsDirectory
 	var leave []*peerConn
 	var previousZone string

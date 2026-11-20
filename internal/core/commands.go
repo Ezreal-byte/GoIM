@@ -652,7 +652,8 @@ func (n *Node) setting(c domain.Command) error {
 	}); err != nil {
 		return err
 	}
-	if c.Setting == "disable_auto_discovery" || c.Setting == "dns_discovery" || c.Setting == "network" {
+	if c.Setting == "dns_discovery" && settings.DNSDiscovery != s.Settings.DNSDiscovery ||
+		settings.DNSDiscovery.Server != "" && (c.Setting == "disable_auto_discovery" || c.Setting == "network") {
 		select {
 		case n.discoveryWake <- struct{}{}:
 		default:

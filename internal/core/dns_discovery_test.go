@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"net"
 	"testing"
 	"time"
@@ -63,6 +64,71 @@ func discoveryDNSFixture(t *testing.T, target net.TCPAddr) string {
 		}
 	}()
 	return socket.LocalAddr().String()
+}
+
+func TestDNSDiscoveryIsOptIn(t *testing.T) {
+	fresh := domain.DefaultSettings(t.TempDir())
+	var upgraded domain.Settings
+	if err := json.Unmarshal([]byte(`{"Network":"auto","DisableAutoDiscovery":false}`), &upgraded); err != nil {
+		t.Fatal(err)
+	}
+	for _, settings := range []domain.Settings{fresh, upgraded} {
+		n := &Node{ctx: t.Context(), discovery: true}
+		n.data.State.Settings = settings
+		if settings.DisableAutoDiscovery || n.dnsEnabledLocked() {
+			t.Fatal("expected ordinary LAN discovery with DNS discovery off")
+		}
+		for _, force := range []bool{false, true} {
+			n.tickDNSDiscovery("auto", force)
+			if n.dnsDirectory != nil {
+				t.Fatal("an unconfigured startup or refresh started DNS discovery")
+			}
+		}
+	}
+}
+
+func TestDNSDiscoveryPreservesFixedInterfacePolicyUntilEnabled(t *testing.T) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagLoopback == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range addrs {
+			local, ok := a.(*net.IPNet)
+			if !ok || local.IP.To4() == nil {
+				continue
+			}
+			n := &Node{discovery: true}
+			s := &n.data.State.Settings
+			s.Network = iface.Name
+			dst := &net.TCPAddr{IP: local.IP, Port: 47842}
+			remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 17), Port: 47842}
+			if n.allowedConnection(dst, remote) || !n.allowedConnection(dst, dst) {
+				t.Fatal("unconfigured DNS changed the selected interface's subnet policy")
+			}
+			source, err := n.selectedIPFor("[2001:db8::17]:47842")
+			if err != nil || !source.Equal(local.IP) {
+				t.Fatalf("default fixed-interface source = %v, %v; want its IPv4 address", source, err)
+			}
+			s.DNSDiscovery.Server = "192.0.2.53:53"
+			if !n.allowedConnection(dst, remote) {
+				t.Fatal("configured DNS did not enable routed peers on the selected interface")
+			}
+			s.DisableAutoDiscovery = true
+			if n.allowedConnection(dst, remote) {
+				t.Fatal("disabled discovery kept accepting routed peers")
+			}
+			return
+		}
+	}
+	t.Skip("no IPv4 loopback interface")
 }
 
 func TestDNSDiscoverySettingsAndResolver(t *testing.T) {
