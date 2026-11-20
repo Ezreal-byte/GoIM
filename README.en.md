@@ -10,11 +10,8 @@
     <a href="#quick-start">Quick start</a> ·
     <a href="#legacy-compatibility">Compatibility</a>
   </p>
-  <a href="website/assets/screenshots/chat-light.png">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="website/assets/screenshots/chat-dark.png" />
-      <img src="website/assets/screenshots/chat-light.png" alt="GoIM group chat with an inline image and the chat files panel" width="100%" />
-    </picture>
+  <a href="website/assets/screenshots/chat-dark.png">
+    <img src="website/assets/screenshots/chat-dark.png" alt="GoIM group chat in dark mode with an inline image and the chat files panel" width="100%" />
   </a>
   <p><sub>The native GoIM interface, rendered headlessly with demo data.</sub></p>
 </div>
@@ -32,7 +29,7 @@ GoIM is a desktop messenger built with Go and [Viva](https://github.com/vivaui/v
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/print-sharing.png"><img src="website/assets/screenshots/print-sharing.png" alt="Three shared printers with availability, paper sizes, color and duplex options, followed by recent jobs" /></a><strong>Printer sharing</strong></td>
-    <td width="50%"><a href="website/assets/screenshots/chat-dark.png"><img src="website/assets/screenshots/chat-dark.png" alt="Group chat and the file panel in dark mode" /></a><strong>Dark appearance</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/chat-light.png"><img src="website/assets/screenshots/chat-light.png" alt="Group chat and the file panel in light mode" /></a><strong>Light appearance</strong></td>
   </tr>
 </table>
 
@@ -171,6 +168,8 @@ Windows and macOS packaging builds the Shotlet capture SDK helper from pinned re
 See the [release guidelines](docs/releases/README.md) for the release notes format.
 
 ## Acknowledgements
+
+Thanks to the Viva team for its native Go desktop framework. GoIM uses Viva for its chat windows and controls, and its headless renderer for UI tests and screenshots. [Viva project](https://github.com/vivaui/viva)
 
 Thanks to [imjakey / Shotlet](https://github.com/imjakey/shotlet) for the open-source screenshot tool. GoIM integrates a Shotlet-based capture helper on Windows and macOS.
 

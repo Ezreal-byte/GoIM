@@ -10,11 +10,8 @@
     <a href="#快速开始">快速开始</a> ·
     <a href="#旧版客户端兼容">兼容进度</a>
   </p>
-  <a href="website/assets/screenshots/chat-light.png">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="website/assets/screenshots/chat-dark.png" />
-      <img src="website/assets/screenshots/chat-light.png" alt="GoIM 群聊、图片消息与聊天文件" width="100%" />
-    </picture>
+  <a href="website/assets/screenshots/chat-dark.png">
+    <img src="website/assets/screenshots/chat-dark.png" alt="暗色外观下的 GoIM 群聊、图片消息与聊天文件" width="100%" />
   </a>
   <p><sub>GoIM 原生界面，由无头脚本使用演示数据渲染。</sub></p>
 </div>
@@ -32,7 +29,7 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/print-sharing.png"><img src="website/assets/screenshots/print-sharing.png" alt="三台共享打印机的可用状态、纸张规格、彩色与双面能力，以及最近打印记录" /></a><strong>打印机共享</strong></td>
-    <td width="50%"><a href="website/assets/screenshots/chat-dark.png"><img src="website/assets/screenshots/chat-dark.png" alt="暗色外观下的群聊和聊天文件" /></a><strong>暗色外观</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/chat-light.png"><img src="website/assets/screenshots/chat-light.png" alt="浅色外观下的群聊和聊天文件" /></a><strong>浅色外观</strong></td>
   </tr>
 </table>
 
@@ -173,6 +170,8 @@ Windows 和 macOS 打包时，使用 CMake 3.20+ 从固定提交构建 Shotlet �
 版本说明按[发布规范](docs/releases/README.md)编写。
 
 ## 致谢
+
+感谢 Viva 团队提供原生 Go 桌面框架。GoIM 使用 Viva 构建聊天窗口和桌面控件，也用它的无头渲染器验证界面、生成截图。[Viva 项目](https://github.com/vivaui/viva)
 
 感谢 [imjakey / Shotlet](https://github.com/imjakey/shotlet) 提供开源截图工具。GoIM 在 Windows 和 macOS 上集成了基于 Shotlet 的截图助手。
 
