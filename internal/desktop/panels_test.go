@@ -399,7 +399,7 @@ func TestPanelSettingsLayoutAndCategorySwitch(t *testing.T) {
 		t.Fatal("license page did not open")
 	}
 	h.click(h.panels.ids.aboutCopyLicense)
-	if clipboard := h.driver.Clipboard(); !strings.Contains(clipboard, "GoIM 应用许可证") {
+	if clipboard := h.driver.Clipboard(); !strings.Contains(clipboard, "GoIM — Apache License 2.0") {
 		t.Fatalf("license copy = %q", clipboard)
 	}
 	if h.panels.TextInput(app.TextInputContext{}) != nil {

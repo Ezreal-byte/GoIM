@@ -1,6 +1,6 @@
 # Third party notices
 
-GoIM application source is MIT licensed. Releases include the full applicable license texts in `licenses/`.
+Copyright (c) 2026 Ezreal-byte. GoIM is licensed under the [Apache License, Version 2.0](LICENSE). Third-party components are distributed under their respective licenses, included in `licenses/`.
 
 | Material | Version / source | License text |
 | --- | --- | --- |

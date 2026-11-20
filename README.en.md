@@ -151,4 +151,4 @@ Thanks to [imjakey / Shotlet](https://github.com/imjakey/shotlet) for the open-s
 
 ## License
 
-[MIT](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+[Apache License 2.0](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)

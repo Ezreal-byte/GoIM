@@ -736,7 +736,7 @@ func panelWritableDirectory(path string) error {
 
 const panelLicenseText = `GoIM 应用许可证
 
-GoIM — MIT License，Copyright (c) 2026 Ezreal-byte。完整许可与第三方声明随应用压缩包提供。
+GoIM — Apache License 2.0，Copyright (c) 2026 Ezreal-byte。完整许可与第三方声明随应用压缩包提供。
 
 第三方组件
 

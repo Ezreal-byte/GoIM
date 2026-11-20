@@ -153,4 +153,4 @@ Windows 和 macOS 打包时，使用 CMake 3.20+ 从固定提交构建 Shotlet �
 
 ## 许可证
 
-[MIT](LICENSE) · [第三方许可](THIRD_PARTY_NOTICES.md)
+[Apache License 2.0](LICENSE) · [第三方许可](THIRD_PARTY_NOTICES.md)
