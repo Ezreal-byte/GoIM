@@ -37,12 +37,18 @@ declare -A packages=()
 declare -A copied=()
 record_package() {
     local path=$1 owner
-    owner=$(dpkg-query -S "$path" 2>/dev/null | head -1 | sed 's/: \/.*//') || true
+    # dpkg also prints diversion notices before the actual owner on merged-/usr
+    # systems. Only accept package identifiers, never the localized notices.
+    owner=$(package_owner "$path") || true
     if [[ -z $owner ]]; then
-        owner=$(dpkg-query -S "$(readlink -f "$path")" 2>/dev/null | head -1 | sed 's/: \/.*//') || true
+        owner=$(package_owner "$(readlink -f "$path")") || true
     fi
     [[ -n $owner ]] || { echo "Cannot identify runtime library owner: $path" >&2; exit 1; }
     packages["$owner"]=1
+}
+package_owner() {
+    LC_ALL=C dpkg-query -S "$1" 2>/dev/null |
+        awk -F ': /' '!found && $1 ~ /^[a-z0-9][a-z0-9+.-]*(:[a-z0-9-]+)?$/ { print $1; found=1 }'
 }
 copy_closure() {
     local binary=$1 path

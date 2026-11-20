@@ -2023,16 +2023,17 @@ func (u *UI) drawSidebarDivider(f ui.C) {
 
 func (u *UI) conversationCardBody(f ui.C, card conversationCardData) {
 	u.avatarStatus(f, card.avatarName, card.avatarPath, 38, card.online)
-	ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
-		ui.Row(f).Items(ui.Center).Gap(5).Children(func() {
-			u.peerNameLine(f, card.title, card.username, 14)
+	ui.Column(f).Grow(1).Basis(0).MinWidth(0).Gap(3).Justify(ui.Center).Children(func() {
+		ui.Row(f).FillWidth().Items(ui.Center).Gap(5).Children(func() {
+			ui.Column(f).Grow(1).Basis(0).MinWidth(0).Children(func() {
+				u.peerNameLine(f, card.title, card.username, 14)
+			})
 			if card.pinned {
 				ui.Icon(f, u.iconPin).Size(12, 12).Color(u.palette.secondaryText)
 			}
 			if card.muted {
 				ui.Icon(f, u.iconBellOff).Size(12, 12).Color(u.palette.secondaryText)
 			}
-			ui.Spacer(f)
 			if !card.updatedAt.IsZero() {
 				ui.Text(f, shortTime(card.updatedAt)).FontSize(10).Muted()
 			}
