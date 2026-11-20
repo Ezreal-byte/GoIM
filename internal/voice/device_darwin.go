@@ -358,6 +358,7 @@ func (c *darwinCapture) Close() error {
 }
 
 type darwinPlayback struct {
+	writeMu   sync.Mutex
 	api       *coreAudioAPI
 	queue     uintptr
 	contextID uintptr
@@ -406,6 +407,8 @@ func openPlayback(id string) (Playback, error) {
 }
 
 func (p *darwinPlayback) Write(pcm []byte) (int, error) {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
 	written := 0
 	for len(pcm) > 0 {
 		var index int
@@ -436,6 +439,8 @@ func (p *darwinPlayback) Close() error {
 	p.closeOnce.Do(func() {
 		p.closed.Store(true)
 		close(p.done)
+		p.writeMu.Lock()
+		defer p.writeMu.Unlock()
 		if p.queue != 0 {
 			p.api.queueStop(p.queue, 1)
 			p.api.queueDispose(p.queue, 1)

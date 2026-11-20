@@ -1,6 +1,16 @@
 package i18n
 
 var en = map[string]string{
+	"已隐藏":    "Hidden",
+	"隐藏的联系人": "Hidden contacts",
+	"隐藏联系人":  "Hide contact",
+	"移回原分组":  "Restore to original group",
+	"删除联系人":  "Delete contact",
+	"删除联系人？": "Delete contact?",
+	"将从联系人列表移除“%s”。对方再次上线时会自动出现，聊天记录会保留。": "Remove %s from your contacts? They will reappear when they come online. Your chat history will be kept.",
+	"只能删除离线联系人": "Only offline contacts can be deleted",
+	"联系人不存在":    "Contact not found",
+
 	"消息只在局域网内直连。联系人上线后会自动出现，也可以手动输入地址连接。": "Chat over your LAN. Online contacts appear automatically, or connect by IP.",
 
 	"设置备注…": "Set remark…",

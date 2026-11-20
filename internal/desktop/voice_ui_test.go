@@ -32,7 +32,12 @@ func openVoiceQA(t *testing.T, state domain.State, width, height int) (*UI, *viv
 	// Visual QA must never open a physical microphone or speaker.
 	shell.voiceAudio = nil
 	config := shell.voiceConfig()
-	config.Width, config.Height = width, height
+	shell.voiceBoundID = state.VoiceCall.ID
+	if incomingVoiceInvitation(state.VoiceCall) {
+		config = shell.invitationConfig()
+	} else {
+		config.Width, config.Height = width, height
+	}
 	session, err := vivaheadless.Open(config, nil, vivaheadless.Options{Scale: 1})
 	if err != nil {
 		shell.Close()
@@ -84,7 +89,7 @@ func TestVoiceCallOutgoingOverlayAndControls(t *testing.T) {
 	}
 }
 
-func TestVoiceCallIncomingOverlayAcceptsAndDeclines(t *testing.T) {
+func TestVoiceCallIncomingNotificationAcceptsAndDeclines(t *testing.T) {
 	base := domain.VoiceCall{
 		ID: "call-incoming", PeerID: "peer-a", PeerName: "Alice",
 		Direction: domain.VoiceCallIncoming, Status: domain.VoiceCallRinging,
@@ -118,6 +123,127 @@ func TestVoiceCallIncomingOverlayAcceptsAndDeclines(t *testing.T) {
 	}
 }
 
+func TestVoiceInvitationDoesNotAnswerStaleOrLockedCalls(t *testing.T) {
+	state := voiceUIState(t, domain.VoiceCall{ID: "one", PeerID: "missing", PeerName: "Private caller", Direction: domain.VoiceCallIncoming, Status: domain.VoiceCallRinging})
+	state.Settings.HideNotificationText = true
+	h := newVoiceWindowHarness(t, state)
+	if h.hasText("Private caller") || !h.hasText("收到一个语音通话邀请") {
+		t.Fatal("private invitation exposed the caller")
+	}
+	unlock := 0
+	h.ui.unlockForVoice = func() { unlock++ }
+	state.Locked = true
+	h.backend.setState(state)
+	h.clickID(h.ui.ids.voiceAccept)
+	if unlock != 1 || hasCommandKind(h.backend.commandLog(), domain.AcceptVoiceCall) {
+		t.Fatal("locked invitation opened the microphone")
+	}
+	state.Locked = false
+	state.VoiceCall.ID = "two"
+	h.backend.setState(state)
+	h.clickID(h.ui.ids.voiceReject)
+	if hasCommandKind(h.backend.commandLog(), domain.RejectVoiceCall) {
+		t.Fatal("stale invitation rejected a later call")
+	}
+}
+
+func TestVoiceInvitationFallbackAndTrayActions(t *testing.T) {
+	state := voiceUIState(t, domain.VoiceCall{ID: "call", PeerID: "missing", PeerName: "Guest", Direction: domain.VoiceCallIncoming, Status: domain.VoiceCallRinging})
+	state.Settings.DesktopNotifications = false
+	h := newShellTestHarness(t, state)
+	r := &desktopRuntime{ui: h.ui, backend: h.backend}
+	h.ui.inlineVoiceID = state.VoiceCall.ID
+	h.wake()
+	if !h.hasHit(h.ui.ids.voiceAccept) || !h.hasHit(h.ui.ids.voiceReject) {
+		t.Fatal("disabled notifications removed call actions")
+	}
+	h.clickID(h.ui.ids.voiceAccept)
+	if c := h.lastCommand(); c.Kind != domain.AcceptVoiceCall || c.CallID != "call" {
+		t.Fatalf("inline answer: %+v", c)
+	}
+	actions := r.voiceTrayItems()
+	if len(actions) < 2 || actions[1].OnSelect == nil {
+		t.Fatal("tray did not expose the incoming call")
+	}
+	actions[1].OnSelect()
+	if c := h.lastCommand(); c.Kind != domain.RejectVoiceCall || c.CallID != "call" {
+		t.Fatalf("tray decline: %+v", c)
+	}
+	state.VoiceCall.Status = domain.VoiceCallEnded
+	h.backend.setState(state)
+	h.backend.clearCommands()
+	actions[0].OnSelect()
+	if len(h.backend.commandLog()) != 0 || len(r.voiceTrayItems()) != 0 {
+		t.Fatal("expired call retained actionable tray items")
+	}
+}
+
+func TestVoiceWindowLoadsLatestContactAvatar(t *testing.T) {
+	for _, direction := range []domain.VoiceCallDirection{domain.VoiceCallIncoming, domain.VoiceCallOutgoing} {
+		t.Run(string(direction), func(t *testing.T) {
+			state := voiceUIState(t, domain.VoiceCall{ID: "call", PeerID: "peer", PeerName: "Old", Direction: direction, Status: domain.VoiceCallRinging})
+			path := writeExtraTestPNG(t, "peer.png")
+			state.Peers = []domain.Peer{{ID: "peer", Name: "Alice", Remark: "Real contact", Avatar: path}}
+			h := newVoiceWindowHarness(t, state)
+			h.waitFor(func() bool { return bitmapReady(h.ui.avatarBitmap(path)) })
+			if !h.hasText("Real contact") {
+				t.Fatal("call did not use current peer presentation")
+			}
+		})
+	}
+}
+
+func TestVoiceWindowRightClickAdjustsOnlyThisCall(t *testing.T) {
+	state := voiceUIState(t, domain.VoiceCall{ID: "call", PeerID: "peer", Direction: domain.VoiceCallOutgoing, Status: domain.VoiceCallActive, ConnectedAt: time.Now()})
+	for _, tc := range []struct {
+		kind           string
+		device, volume domain.CommandKind
+	}{
+		{"麦克风", domain.SetCallMicrophone, domain.SetCallMicrophoneVolume}, {"扬声器", domain.SetCallSpeaker, domain.SetCallSpeakerVolume},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			h := newVoiceWindowHarness(t, state)
+			h.ui.voicePicker.enumerate = func() voiceaudio.Devices {
+				devices := []voiceaudio.Device{{ID: "test", Name: "Test Device"}}
+				return voiceaudio.Devices{Microphones: devices, Speakers: devices}
+			}
+			id := h.ui.ids.voiceMute
+			if tc.kind == "扬声器" {
+				id = h.ui.ids.voiceSpeaker
+			}
+			h.rightClickID(id)
+			h.waitFor(func() bool { return h.ui.voicePicker.loading == nil })
+			if !h.hasText("仅用于本次通话") {
+				t.Fatal("secondary click did not open call controls")
+			}
+			selectHit, ok := h.findHitLabel(tc.kind)
+			if !ok {
+				t.Fatal("missing device select")
+			}
+			h.clickHit(selectHit)
+			option, ok := h.findHitLabel("Test Device")
+			if !ok {
+				t.Fatal("missing enumerated device")
+			}
+			h.clickHit(option)
+			if c := h.lastCommand(); c.Kind != tc.device || c.CallID != "call" || c.Text != "test" {
+				t.Fatalf("device command = %+v", c)
+			}
+			level, ok := h.findHitLabel(tc.kind + "音量")
+			if !ok {
+				t.Fatal("missing call volume slider")
+			}
+			h.clickHit(level)
+			if c := h.lastCommand(); c.Kind != tc.volume || c.CallID != "call" {
+				t.Fatalf("volume command = %+v", c)
+			}
+			if hasCommandKind(h.backend.commandLog(), domain.SetSetting) {
+				t.Fatal("call controls wrote preferences")
+			}
+		})
+	}
+}
+
 func TestVoiceCallActiveOverlayShowsDurationAndSpeakerControl(t *testing.T) {
 	state := voiceUIState(t, domain.VoiceCall{
 		ID: "call-active", PeerID: "peer-a", PeerName: "Alice",
@@ -143,10 +269,25 @@ func TestVoiceCallActiveOverlayShowsDurationAndSpeakerControl(t *testing.T) {
 func newVoiceWindowHarness(t *testing.T, state domain.State) *shellTestHarness {
 	t.Helper()
 	backend := newShellTestBackend(state)
-	shell := newUIShell(backend, false)
-	driver, err := app.NewDriver(shell.voiceConfig(), nil)
+	shell := newUIShell(nil, false)
+	shell.backend = backend
+	shell.voiceBoundID = state.VoiceCall.ID
+	shell.voiceInvitation = incomingVoiceInvitation(state.VoiceCall)
+	shell.refreshVoice()
+	config := shell.voiceConfig()
+	if incomingVoiceInvitation(state.VoiceCall) {
+		config = shell.invitationConfig()
+		if config.WindowMode != app.WindowNotification {
+			t.Fatal("incoming call did not use a notification window")
+		}
+	}
+	driver, err := app.NewDriver(config, nil)
 	if err != nil {
 		shell.Close()
+		t.Fatal(err)
+	}
+	shell.invalidator.Invalidate()
+	if err := driver.Pump(); err != nil {
 		t.Fatal(err)
 	}
 	harness := &shellTestHarness{t: t, ui: shell, backend: backend, driver: driver}

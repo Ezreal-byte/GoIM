@@ -101,6 +101,52 @@ func TestVoiceCallNegotiatesLocalControlsAndTwoWayAudio(t *testing.T) {
 	})
 }
 
+func TestCallAudioOverridesAreLocalAndExpireWithCall(t *testing.T) {
+	a, b := testNode(t, "caller"), testNode(t, "callee")
+	connectNodes(t, a, b)
+	peerID := b.Snapshot().Self.ID
+	if err := a.startVoiceCall(peerID); err != nil {
+		t.Fatal(err)
+	}
+	callID := a.Snapshot().VoiceCall.ID
+	for _, c := range []domain.Command{
+		{Kind: domain.SetCallMicrophone, CallID: callID, Text: "usb"},
+		{Kind: domain.SetCallSpeaker, CallID: callID, Text: ""},
+		{Kind: domain.SetCallMicrophoneVolume, CallID: callID, Text: "0"},
+		{Kind: domain.SetCallSpeakerVolume, CallID: callID, Text: "42"},
+		{Kind: domain.SetCallSpeakerVolume, CallID: "previous", Text: "55"},
+	} {
+		if err := a.execute(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := "missing"
+	if err := a.execute(domain.Command{Kind: domain.SetCallMicrophone, CallID: callID, Text: "rollback", ExpectedDevice: &old}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.execute(domain.Command{Kind: domain.SetCallMicrophoneVolume, CallID: callID, Text: "101"}); err == nil {
+		t.Fatal("accepted an invalid volume")
+	}
+	state := a.Snapshot()
+	actual := state.VoiceCall.AudioSettings(state.Settings)
+	if actual.VoiceMicrophone != "usb" || !state.VoiceCall.Audio.HasSpeaker || actual.VoiceMicrophoneVolume != 0 || actual.VoiceSpeakerVolume != 42 || state.Settings.VoiceMicrophone == "usb" || state.Settings.VoiceSpeakerVolume != 100 {
+		t.Fatalf("incorrect overrides %+v, defaults %+v", state.VoiceCall.Audio, state.Settings)
+	}
+	if remote := b.Snapshot().VoiceCall.Audio; remote != (domain.CallAudioOptions{}) {
+		t.Fatalf("remote received local audio options: %+v", remote)
+	}
+	if err := a.endVoiceCall(callID); err != nil {
+		t.Fatal(err)
+	}
+	waitVoiceCall(t, b, func(c domain.VoiceCall) bool { return c.Status == domain.VoiceCallEnded })
+	if err := a.startVoiceCall(peerID); err != nil {
+		t.Fatal(err)
+	}
+	if a.Snapshot().VoiceCall.Audio != (domain.CallAudioOptions{}) {
+		t.Fatal("new call inherited temporary audio options")
+	}
+}
+
 func TestVoiceCallRejectTimeoutAndCapability(t *testing.T) {
 	a, b := testNode(t, "呼叫方"), testNode(t, "接收方")
 	connectNodes(t, a, b)

@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"fmt"
 	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"strings"
@@ -106,8 +107,9 @@ func (u *UI) drawShellMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 
 func (u *UI) beginShellMenu(canvas *gfx.Canvas, viewport ui.Rect, items int, separators int) components.ContextMenu {
 	height := float32(12 + items*32 + separators*9)
+	width := min(viewport.Width, 220*max(1, u.theme.Metrics.EffectiveTextScale()))
 	return components.BeginContextMenu(canvas, u.theme,
-		ui.Rect{X: u.shellMenu.x, Y: u.shellMenu.y, Width: 220, Height: height},
+		ui.Rect{X: u.shellMenu.x, Y: u.shellMenu.y, Width: width, Height: height},
 		components.ContextMenuOptions{
 			Layer: 67, Scope: u.ids.shellMenuScope, DismissID: u.ids.shellMenuDismiss,
 			Viewport: viewport,
@@ -169,22 +171,22 @@ func (u *UI) drawConversationContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 }
 
 func (u *UI) drawContactContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
-	peer := u.state.Peer(u.shellMenu.target)
-	if peer.ID == "" {
+	peer, ok := u.state.LookupPeer(u.shellMenu.target)
+	if !ok || peer.ID == u.state.Self.ID || !peer.ListedContact() || peer.ContactHidden != (u.sidebarFilter == "hidden") {
 		u.closeShellMenu()
 		return
 	}
-	count := 5
+	count := 7
 	if peer.Transport == "ipmsg" {
 		count--
 	}
-	menu := u.beginShellMenu(canvas, viewport, count, 0)
+	menu := u.beginShellMenu(canvas, viewport, count, 1)
 	menu.AddItem(components.ContextMenuItem{ID: u.ids.shellMenuRemark, Label: i18n.T("设置备注…"), Icon: u.iconPencil})
 	menu.AddItem(components.ContextMenuItem{
 		ID: u.ids.shellMenuTalk, Label: i18n.T("发消息"), Icon: u.iconMessage,
 	})
 	menu.AddItem(components.ContextMenuItem{
-		ID: u.ids.shellMenuOrganize, Label: i18n.T("移动到分组…"), Icon: u.iconFolder,
+		ID: u.ids.shellMenuOrganize, Label: i18n.T("移动到分组…"), Icon: u.iconFolder, Disabled: peer.ContactHidden,
 	})
 	menu.AddItem(components.ContextMenuItem{ID: u.ids.shellMenuProfile, Label: i18n.T("查看资料"), Icon: u.iconUsers})
 	if peer.Transport != "ipmsg" {
@@ -192,6 +194,16 @@ func (u *UI) drawContactContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 			ID: u.ids.shellMenuNewGroup, Label: i18n.T("新建群聊"), Icon: u.iconPlus,
 		})
 	}
+	menu.AddSeparator()
+	hideLabel := i18n.T("隐藏联系人")
+	if peer.ContactHidden {
+		hideLabel = i18n.T("移回原分组")
+	}
+	menu.AddItem(components.ContextMenuItem{ID: u.ids.shellMenuHideContact, Label: hideLabel, Icon: u.iconEye})
+	menu.AddItem(components.ContextMenuItem{
+		ID: u.ids.shellMenuDeleteContact, Label: i18n.T("删除联系人"), Icon: u.iconTrash,
+		Variant: components.ContextMenuItemDestructive, Disabled: peer.Online,
+	})
 	menu.End()
 
 	switch {
@@ -200,7 +212,7 @@ func (u *UI) drawContactContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 	case canvas.Clicked(u.ids.shellMenuTalk):
 		u.closeShellMenu()
 		u.startDirectFromMembers(peer.ID)
-	case canvas.Clicked(u.ids.shellMenuOrganize):
+	case canvas.Clicked(u.ids.shellMenuOrganize) && !peer.ContactHidden:
 		u.openOrganize(peer.ID)
 	case canvas.Clicked(u.ids.shellMenuProfile):
 		u.closeShellMenu()
@@ -212,6 +224,16 @@ func (u *UI) drawContactContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 	case canvas.Clicked(u.ids.shellMenuNewGroup):
 		u.closeShellMenu()
 		u.openCompose("create", "")
+	case canvas.Clicked(u.ids.shellMenuHideContact):
+		u.closeShellMenu()
+		u.submit(domain.Command{Kind: domain.SetContactHidden, PeerID: peer.ID, Bool: !peer.ContactHidden})
+	case canvas.Clicked(u.ids.shellMenuDeleteContact) && !peer.Online:
+		u.closeShellMenu()
+		u.confirm = confirmation{
+			open: true, title: i18n.T("删除联系人？"),
+			body:   fmt.Sprintf(i18n.T("将从联系人列表移除“%s”。对方再次上线时会自动出现，聊天记录会保留。"), peer.DisplayName()),
+			action: func() { u.submit(domain.Command{Kind: domain.DeleteContact, PeerID: peer.ID}) },
+		}
 	case canvas.Clicked(u.ids.shellMenuDismiss):
 		u.closeShellMenu()
 	}
@@ -269,11 +291,19 @@ func (u *UI) drawSidebarContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.openContactGroupEditor(domain.CreateContactGroup, "")
 	case canvas.Clicked(u.ids.shellMenuExpand):
 		u.closeShellMenu()
+		if u.sidebarFilter == "hidden" {
+			u.hiddenCollapsed = false
+			return
+		}
 		for name := range u.collapsed {
 			delete(u.collapsed, name)
 		}
 	case canvas.Clicked(u.ids.shellMenuCollapse):
 		u.closeShellMenu()
+		if u.sidebarFilter == "hidden" {
+			u.hiddenCollapsed = true
+			return
+		}
 		for _, group := range u.contacts {
 			u.collapsed[group.Name] = true
 		}

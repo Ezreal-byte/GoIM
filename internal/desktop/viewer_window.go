@@ -53,6 +53,7 @@ func (r *desktopRuntime) syncViewer() {
 		return
 	}
 	r.viewerWindow = window
+	window.Show()
 }
 
 func (r *desktopRuntime) closeViewer() {

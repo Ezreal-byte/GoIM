@@ -27,23 +27,24 @@ var systemVoiceDevices = voiceDevices{
 // call. It is driven by detached snapshots on OnWake; it never polls the backend
 // and never persists media.
 type voiceAudioRuntime struct {
-	ringtone         incomingRingtone
-	mu               sync.Mutex
-	backend          domain.VoiceAudioBackend
-	devices          voiceDevices
-	submit           func(domain.Command)
-	invalidate       func()
-	desiredID        string
-	failedID         string
-	generation       uint64
-	starting         bool
-	session          *voiceAudioSession
-	muted            bool
-	speakerMuted     bool
-	microphoneVolume int
-	speakerVolume    int
-	pendingNotice    string
-	closed           bool
+	ringtone                incomingRingtone
+	mu                      sync.Mutex
+	backend                 domain.VoiceAudioBackend
+	devices                 voiceDevices
+	submit                  func(domain.Command)
+	invalidate              func()
+	desiredID               string
+	microphoneID, speakerID string
+	failedID                string
+	generation              uint64
+	starting                bool
+	session                 *voiceAudioSession
+	muted                   bool
+	speakerMuted            bool
+	microphoneVolume        int
+	speakerVolume           int
+	pendingNotice           string
+	closed                  bool
 }
 
 func newVoiceAudioRuntime(backend domain.Backend, submit func(domain.Command), invalidate func()) *voiceAudioRuntime {
@@ -63,6 +64,7 @@ func (runtime *voiceAudioRuntime) sync(call domain.VoiceCall, settings domain.Se
 	if runtime == nil {
 		return
 	}
+	settings = call.AudioSettings(settings)
 	ringtoneStopped := runtime.ringtone.sync(call, settings, runtime.devices)
 	var (
 		stop       *voiceAudioSession
@@ -103,6 +105,7 @@ func (runtime *voiceAudioRuntime) sync(call domain.VoiceCall, settings domain.Se
 		runtime.mu.Unlock()
 		return
 	}
+	runtime.microphoneID, runtime.speakerID = settings.VoiceMicrophone, settings.VoiceSpeaker
 	if runtime.desiredID != call.ID {
 		runtime.desiredID = call.ID
 		runtime.generation++
@@ -111,6 +114,7 @@ func (runtime *voiceAudioRuntime) sync(call domain.VoiceCall, settings domain.Se
 	}
 	if runtime.session != nil && runtime.desiredID == call.ID {
 		runtime.session.setControls(runtime.muted, runtime.speakerMuted, runtime.microphoneVolume, runtime.speakerVolume)
+		runtime.syncDevicesLocked(runtime.session)
 		runtime.mu.Unlock()
 		if stop != nil {
 			stop.stop()
@@ -136,38 +140,43 @@ func (runtime *voiceAudioRuntime) sync(call domain.VoiceCall, settings domain.Se
 			current := !runtime.closed && runtime.generation == generation && runtime.desiredID == call.ID
 			runtime.mu.Unlock()
 			if current {
-				runtime.open(call.ID, settings.VoiceMicrophone, settings.VoiceSpeaker, devices, generation)
+				runtime.open(call.ID, devices, generation)
 			}
 		}()
 	}
 }
 
-func (runtime *voiceAudioRuntime) open(callID, microphone, speaker string, devices voiceDevices, generation uint64) {
+func (runtime *voiceAudioRuntime) syncDevicesLocked(session *voiceAudioSession) {
+	switchCallDevice(runtime, session, &session.capture, runtime.microphoneID, runtime.devices.openCapture, domain.SetCallMicrophone)
+	switchCallDevice(runtime, session, &session.playback, runtime.speakerID, runtime.devices.openPlayback, domain.SetCallSpeaker)
+}
+
+func (runtime *voiceAudioRuntime) open(callID string, devices voiceDevices, generation uint64) {
 	if runtime.backend == nil {
 		runtime.fail(callID, generation, nil, i18n.T("当前版本无法建立语音音频通道"))
 		return
 	}
-	capture, err := devices.openCapture(microphone)
-	if err != nil {
-		runtime.fail(callID, generation, nil, i18n.T("无法打开麦克风：")+err.Error())
+	capture := openInitialDevice(runtime, callID, generation, &runtime.microphoneID, devices.openCapture, "无法打开麦克风：")
+	if capture == nil {
 		return
 	}
-	playback, err := devices.openPlayback(speaker)
-	if err != nil {
-		_ = capture.Close()
-		runtime.fail(callID, generation, nil, i18n.T("无法打开扬声器：")+err.Error())
+	playback := openInitialDevice(runtime, callID, generation, &runtime.speakerID, devices.openPlayback, "无法打开扬声器：")
+	if playback == nil {
+		_ = capture.stream.Close()
 		return
 	}
 	audio := runtime.backend.VoiceAudio(callID)
 	if audio == nil {
-		_ = capture.Close()
-		_ = playback.Close()
+		_ = capture.stream.Close()
+		_ = playback.stream.Close()
 		runtime.fail(callID, generation, nil, i18n.T("语音音频通道不可用"))
 		return
 	}
 	session := &voiceAudioSession{
-		callID: callID, capture: capture, playback: playback, audio: audio, done: make(chan struct{}),
+		callID: callID, audio: audio, done: make(chan struct{}),
 	}
+	session.capture.install(capture)
+	session.playback.install(playback)
 	runtime.mu.Lock()
 	if runtime.closed || runtime.generation != generation || runtime.desiredID != callID {
 		runtime.mu.Unlock()
@@ -179,12 +188,18 @@ func (runtime *voiceAudioRuntime) open(callID, microphone, speaker string, devic
 	session.setControls(runtime.muted, runtime.speakerMuted, runtime.microphoneVolume, runtime.speakerVolume)
 	runtime.session = session
 	runtime.starting = false
+	runtime.syncDevicesLocked(session)
 	runtime.mu.Unlock()
-	go session.run(runtime.backend, func(err error) { runtime.fail(callID, generation, session, err.Error()) })
+	session.run(runtime.backend, func(err error) { runtime.fail(callID, generation, session, err.Error()) })
 }
 
 func (runtime *voiceAudioRuntime) fail(callID string, generation uint64, session *voiceAudioSession, message string) {
 	runtime.mu.Lock()
+	runtime.failLocked(callID, generation, session, message)
+}
+
+// Consumes runtime.mu and releases it before dispatching the UI and backend callbacks.
+func (runtime *voiceAudioRuntime) failLocked(callID string, generation uint64, session *voiceAudioSession, message string) {
 	if runtime.closed || runtime.generation != generation || runtime.desiredID != callID || session != nil && runtime.session != session {
 		runtime.mu.Unlock()
 		return
@@ -247,8 +262,8 @@ func (runtime *voiceAudioRuntime) close() {
 
 type voiceAudioSession struct {
 	callID           string
-	capture          voiceaudio.Capture
-	playback         voiceaudio.Playback
+	capture          callDevice[voiceaudio.Capture]
+	playback         callDevice[voiceaudio.Playback]
 	audio            <-chan []byte
 	done             chan struct{}
 	stopOnce         sync.Once
@@ -275,7 +290,15 @@ func (session *voiceAudioSession) captureLoop(backend domain.VoiceAudioBackend, 
 	pcm := make([]byte, domain.VoiceFrameBytes)
 	encoded := make([]byte, domain.VoiceEncodedBytes)
 	for {
-		if _, err := io.ReadFull(session.capture, pcm); err != nil {
+		device := session.capture.active.Load()
+		_, err := io.ReadFull(device.stream, pcm)
+		if device != session.capture.active.Load() {
+			continue
+		}
+		if err != nil {
+			if session.capture.waitForReplacement(device, session.done) {
+				continue
+			}
 			if !session.stopped() {
 				session.fail(failed, fmt.Errorf("%s%w", i18n.T("麦克风读取失败："), err))
 			}
@@ -314,7 +337,11 @@ func (session *voiceAudioSession) playbackLoop(failed func(error)) {
 				continue
 			}
 			voiceaudio.ScalePCM16LE(decoded, int(session.speakerVolume.Load()))
-			if _, err := session.playback.Write(decoded); err != nil {
+			device := session.playback.active.Load()
+			if _, err := device.stream.Write(decoded); err != nil {
+				if session.playback.waitForReplacement(device, session.done) {
+					continue
+				}
 				if !session.stopped() {
 					session.fail(failed, fmt.Errorf("%s%w", i18n.T("扬声器播放失败："), err))
 				}
@@ -337,7 +364,6 @@ func (session *voiceAudioSession) stopped() bool {
 
 func (session *voiceAudioSession) fail(failed func(error), err error) {
 	session.failOnce.Do(func() {
-		session.stop()
 		failed(err)
 	})
 }
@@ -346,8 +372,8 @@ func (session *voiceAudioSession) stop() {
 	session.stopOnce.Do(func() {
 		close(session.done)
 		go func() {
-			_ = session.capture.Close()
-			_ = session.playback.Close()
+			_ = session.capture.active.Load().stream.Close()
+			_ = session.playback.active.Load().stream.Close()
 		}()
 	})
 }

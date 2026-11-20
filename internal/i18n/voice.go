@@ -2,7 +2,12 @@ package i18n
 
 func init() {
 	for label, english := range map[string]string{
-		"通话": "Calls",
+		"右键或按 Shift+F10 调整设备和音量": "Right-click or press Shift+F10 to change the device and volume",
+		"语音来电":    "Incoming voice call",
+		"解锁后接听":   "Unlock to answer",
+		"仅用于本次通话": "For this call only",
+		"返回通话":    "Back to call",
+		"通话":      "Calls",
 		"选择语音通话使用的麦克风和扬声器": "Choose the microphone and speaker for voice calls",
 		"通话设备": "Call devices",
 		"设备在通话接通后打开；设备修改从下一次通话生效，音量会立即生效。": "Devices open after a call connects. Device changes apply to the next call; volume changes take effect immediately.",
@@ -18,8 +23,10 @@ func init() {
 		"设备列表":  "Device list",
 		"刷新设备":  "Refresh devices",
 		"正在刷新…": "Refreshing…",
-		"当前通话继续使用接通时选择的设备。":   "The current call keeps the devices selected when it connected.",
-		"已保存的%s（当前未检测到） · %s": "%s saved previously (not detected) · %s",
+		"在通话窗口右键点击麦克风或扬声器，可以临时调整本次通话。": "Right-click the microphone or speaker in the call window to change it for this call.",
+		"设备切换失败，继续使用原设备。":              "Could not switch devices. The previous device is still in use.",
+		"音量必须在 0 到 100 之间":             "Volume must be between 0 and 100.",
+		"已保存的%s（当前未检测到） · %s":          "%s saved previously (not detected) · %s",
 		"未命名设备":                    "Unnamed device",
 		"正在读取音频设备…":                "Loading audio devices…",
 		"未检测到可用的%s；系统默认仍可能可用":      "No %s detected. System default may still work.",
