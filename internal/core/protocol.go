@@ -26,6 +26,8 @@ const maxFrame = 4 << 20
 const maxPendingPeerConnections = 64
 
 type envelope struct {
+	DNSDirectory    bool         `json:",omitempty"`
+	DNSMembers      []dnsMember  `json:",omitempty"`
 	RelaySupported  bool         `json:",omitempty"`
 	Relay           *relayPacket `json:",omitempty"`
 	RecallSupported bool         `json:",omitempty"`
@@ -61,11 +63,17 @@ type envelope struct {
 	Audio           []byte
 }
 type peerConn struct {
-	conn     *tls.Conn
-	peer     domain.Peer
-	write    sync.Mutex
-	outbound bool
-	lastRead atomic.Int64
+	dnsRequestDirectory *dnsDirectory
+	dnsCapable          bool
+	dnsJoined           time.Time // Protected by Node.mu, valid only in dnsMembership.
+	dnsMembership       *dnsDirectory
+	dnsRequested        time.Time
+	dnsReply            time.Time
+	conn                *tls.Conn
+	peer                domain.Peer
+	write               sync.Mutex
+	outbound            bool
+	lastRead            atomic.Int64
 }
 
 func writeFrame(w io.Writer, e envelope) error {
@@ -116,6 +124,7 @@ func (p *peerConn) send(e envelope) error {
 func (n *Node) hello() envelope {
 	e := n.profileEnvelope()
 	e.Type = "hello"
+	e.DNSDirectory = true
 	e.RecallSupported = true
 	e.PrintSupported = true
 	e.RelaySupported = true
@@ -139,7 +148,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 		}
 	}
 	defer func() { notify(false) }()
-	if !n.allowedRemote(conn.RemoteAddr()) {
+	if !n.allowedConnection(conn.LocalAddr(), conn.RemoteAddr()) {
 		conn.Close()
 		return
 	}
@@ -206,9 +215,15 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 		conn.Close()
 		return
 	}
-	pc := &peerConn{conn: conn, peer: hello.Peer, outbound: outbound}
+	pc := &peerConn{conn: conn, peer: hello.Peer, outbound: outbound, dnsCapable: hello.DNSDirectory}
 	pc.lastRead.Store(time.Now().UnixNano())
 	n.mu.Lock()
+	if outbound && n.dnsActiveLocked() {
+		address := conn.RemoteAddr().String()
+		if _, ok := n.dnsDirectory.seeds[address]; ok {
+			n.dnsDirectory.seeds[address] = pc.peer.ID
+		}
+	}
 	preferred := n.data.State.Self.ID < pc.peer.ID
 	if old := n.connections[pc.peer.ID]; old != nil {
 		if old.peer.Address == pc.peer.Address && (old.outbound == preferred || outbound != preferred) {
@@ -299,6 +314,10 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 			return
 		}
 		pc.lastRead.Store(time.Now().UnixNano())
+		if e.Type == "dns_join" || e.Type == "dns_members" || e.Type == "dns_leave" {
+			n.handleDNSDirectory(pc, e)
+			continue
+		}
 		if err = n.receive(pc.peer.ID, e); err != nil {
 			n.report(err)
 		}

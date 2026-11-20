@@ -84,6 +84,17 @@ Windows and Linux installers check for running GoIM instances before replacing f
 
 Native chat uses TCP 47842 and IPv4 multicast at `239.192.77.77:47841` for discovery. Browser sharing uses LAN HTTP on trusted networks.
 
+### Discover GoIM across routed subnets
+
+Publish a DNS SRV record for an always-on GoIM entry point and an A or AAAA record for its host. For example:
+
+```dns
+_goim._tcp.office.example.  60 IN SRV 0 0 47842 entry.office.example.
+entry.office.example.       60 IN A   10.10.1.20
+```
+
+On the entry point and all participating clients, enable automatic discovery and set the internal DNS server and discovery domain under **Settings → Network → Cross-subnet discovery**. The default domain is `goim.internal`. The resolver accepts an IP or an IP and port (default 53). The setting applies only to GoIM. Once registered, clients discover other online participants and connect directly over TLS. Clients and the entry point need a version supporting this feature, a route to the resolver, and TCP access to each other's GoIM listening port. Invisible mode pauses registration. Clear the server and save to leave the directory.
+
 ## App lock and system verification
 
 Set a GoIM lock password under **Settings → Security → App lock**, then enable **Use system verification to unlock**. Enabling it requires your current GoIM password. On the lock screen, choose **Use system verification**, or continue using the GoIM password. Canceling or failing verification leaves GoIM locked.

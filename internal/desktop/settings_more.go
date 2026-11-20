@@ -25,6 +25,7 @@ type panelSettingsExtra struct {
 	connectRoute                                                                                        connectionRoute
 	compat                                                                                              [2]compatibilityEditor
 	address, old, password, repeat                                                                      ui.Field
+	dns                                                                                                 dnsSettingsEditor
 	passwordError                                                                                       string
 	passwordOpen, passwordPending, passwordRefocus, passwordSystem                                      bool
 	passwordRequest                                                                                     uint64
@@ -162,6 +163,9 @@ func (s *panelSettingsExtra) init(tree *gfx.Tree, scope gfx.Scope) {
 	s.notificationPrivacy = tree.ID(scope, "notification-private")
 	s.offline = tree.ID(scope, "offline-contacts")
 	s.discovery = tree.ID(scope, "auto-discovery")
+	s.dns.serverID = tree.ID(scope, "discovery-dns-server")
+	s.dns.domainID = tree.ID(scope, "discovery-dns-domain")
+	s.dns.saveID = tree.ID(scope, "discovery-dns-save")
 	s.acceptImages = tree.ID(scope, "auto-accept-images")
 	s.profile = tree.ID(scope, "open-profile")
 	s.connect = tree.ID(scope, "manual-connect")

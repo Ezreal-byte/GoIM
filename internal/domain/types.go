@@ -413,6 +413,7 @@ type Settings struct {
 	HideNotificationText         bool
 	HideOfflineContacts          bool
 	DisableAutoDiscovery         bool
+	DNSDiscovery                 DNSDiscoveryConfig `json:",omitzero"`
 	AutoAcceptImages             bool
 	// DisableAutoUpdateCheck preserves the zero value as the desired default:
 	// existing profiles keep checking for updates unless the user opts out.
@@ -587,6 +588,7 @@ type State struct {
 	DeviceShare        DeviceShare        `json:"-"`
 	ShareFeedback      ShareFeedback      `json:"-"`
 	ConnectionFeedback ConnectionFeedback `json:"-"`
+	DNSDiscoveryStatus string             `json:"-"`
 	DataResetPending   bool               `json:"-"`
 	ListenAddress      string
 	LocalIP            string `json:"-"`
@@ -758,6 +760,7 @@ type Command struct {
 	OnResult       func(error) `json:"-"`
 	Transport      string
 	Compatibility  CompatibilityConfig
+	DNSDiscovery   DNSDiscoveryConfig
 	MessageID      string
 	Kind           CommandKind
 	PeerID         string

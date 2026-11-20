@@ -63,6 +63,7 @@ type Node struct {
 	transfers             map[string]context.CancelFunc
 	discovery             bool
 	discoveryWake         chan struct{}
+	dnsDirectory          *dnsDirectory
 	relayRoutes           map[string]map[string]bool
 	webServer             *http.Server
 	webAddress            string
@@ -290,6 +291,9 @@ func (n *Node) snapshot(urls bool) domain.State {
 	}
 	s.LockResult = n.lockResult
 	s.ConnectionFeedback = n.connectionFeedback
+	if n.dnsActiveLocked() {
+		s.DNSDiscoveryStatus = n.dnsDirectory.status
+	}
 	s.DataResetPending = n.dataResetPending
 	s.LocalIP = n.localIP
 	s.LocalPrinters = append([]domain.LocalPrinter(nil), n.localPrinters...)
@@ -480,12 +484,16 @@ func (n *Node) Connect(address string) {
 }
 
 func (n *Node) dialTo(address, expected string, quiet bool) {
+	n.dialToContext(n.ctx, address, expected, quiet)
+}
+
+func (n *Node) dialToContext(ctx context.Context, address, expected string, quiet bool) {
 	address = strings.TrimSpace(address)
 	if _, _, e := net.SplitHostPort(address); e != nil {
 		address = net.JoinHostPort(address, "47842")
 	}
 	n.mu.Lock()
-	if n.dialing[address] || n.closing {
+	if n.dialing[address] || n.closing || ctx.Err() != nil {
 		n.mu.Unlock()
 		return
 	}
@@ -493,17 +501,25 @@ func (n *Node) dialTo(address, expected string, quiet bool) {
 	n.mu.Unlock()
 	n.async(func() {
 		defer func() { n.mu.Lock(); delete(n.dialing, address); n.mu.Unlock() }()
-		if err := n.connectGoIM(address, expected); err != nil && !quiet {
+		if err := n.connectGoIMContext(ctx, address, expected); err != nil && !quiet {
 			n.report(fmt.Errorf("连接 %s 失败: %w", address, err))
 		}
 	})
 }
 
 func (n *Node) connectGoIM(address, expected string) error {
-	ctx, cancel := context.WithTimeout(n.ctx, 4*time.Second)
+	return n.connectGoIMContext(n.ctx, address, expected)
+}
+
+func (n *Node) connectGoIMContext(parent context.Context, address, expected string) error {
+	ctx, cancel := context.WithTimeout(parent, 4*time.Second)
 	defer cancel()
 	d := net.Dialer{}
-	if ip := n.selectedIP(); ip != nil {
+	ip, err := n.selectedIPFor(address)
+	if err != nil {
+		return err
+	}
+	if ip != nil {
 		d.LocalAddr = &net.TCPAddr{IP: ip}
 	}
 	raw, err := d.DialContext(ctx, "tcp", address)

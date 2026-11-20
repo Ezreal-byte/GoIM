@@ -3,7 +3,9 @@ package core
 import (
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"net"
+	"net/netip"
 	"sort"
 	"strings"
 	"time"
@@ -23,26 +25,41 @@ func (n *Node) selectedInterface() *net.Interface {
 	iface, _ := net.InterfaceByName(name)
 	return iface
 }
-func (n *Node) selectedIP() net.IP {
+func (n *Node) selectedIPFor(endpoint string) (net.IP, error) {
 	iface := n.selectedInterface()
 	if iface == nil {
 		if bound, ok := n.listener.Addr().(*net.TCPAddr); ok && !bound.IP.IsUnspecified() {
-			return bound.IP
+			return bound.IP, nil
 		}
-		return nil
+		return nil, nil
 	}
+	target, _ := netip.ParseAddrPort(endpoint)
+	ipv6 := target.Addr().Unmap().Is6()
 	addresses, _ := iface.Addrs()
 	for _, a := range addresses {
-		if v, ok := a.(*net.IPNet); ok && v.IP.To4() != nil {
-			return v.IP.To4()
+		if v, ok := a.(*net.IPNet); ok && (v.IP.To4() == nil) == ipv6 {
+			if !ipv6 || v.IP.IsLinkLocalUnicast() == target.Addr().IsLinkLocalUnicast() {
+				return v.IP, nil
+			}
 		}
 	}
-	return nil
+	return nil, errors.New("所选网卡缺少与目标匹配的 IP 地址")
 }
-func (n *Node) allowedRemote(address net.Addr) bool {
+func (n *Node) allowedRemote(remote net.Addr) bool {
+	return n.allowedConnection(nil, remote)
+}
+
+func (n *Node) allowedConnection(local, remote net.Addr) bool {
 	iface := n.selectedInterface()
 	if iface == nil {
 		return true
+	}
+	n.mu.Lock()
+	routed := local != nil && n.discovery && !n.data.State.Settings.DisableAutoDiscovery && n.data.State.Settings.DNSDiscovery.Server != ""
+	n.mu.Unlock()
+	address := remote
+	if routed {
+		address = local
 	}
 	host, _, err := net.SplitHostPort(address.String())
 	if err != nil {
@@ -51,7 +68,7 @@ func (n *Node) allowedRemote(address net.Addr) bool {
 	ip := net.ParseIP(host)
 	addresses, _ := iface.Addrs()
 	for _, a := range addresses {
-		if network, ok := a.(*net.IPNet); ok && network.Contains(ip) {
+		if network, ok := a.(*net.IPNet); ok && (routed && network.IP.Equal(ip) || !routed && network.Contains(ip)) {
 			return true
 		}
 	}
@@ -141,7 +158,7 @@ func (n *Node) discoveryLoop() {
 			networkName = "__initial__"
 		}
 	}
-	announce := func() {
+	announce := func(force bool) {
 		s := n.snapshot(false)
 		enabled := n.discovery && !s.Settings.DisableAutoDiscovery && s.Self.Presence != domain.PresenceInvisible
 		network := s.Settings.Network + "|" + networkFingerprint(n.discoveryInterfaces())
@@ -150,6 +167,7 @@ func (n *Node) discoveryLoop() {
 		}
 		previousNetwork = network
 		refresh(enabled, network)
+		n.tickDNSDiscovery(network, force)
 		if enabled {
 			p := s.Self
 			p.Avatar = ""
@@ -207,14 +225,14 @@ func (n *Node) discoveryLoop() {
 	}
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	announce()
+	announce(false)
 	for {
 		select {
 		case <-ticker.C:
-			announce()
+			announce(false)
 		case <-n.discoveryWake:
 			networkName = "__initial__"
-			announce()
+			announce(true)
 		case <-n.ctx.Done():
 			return
 		}

@@ -499,6 +499,12 @@ func (n *Node) setting(c domain.Command) error {
 		settings.HideOfflineContacts = c.Bool
 	case "disable_auto_discovery":
 		settings.DisableAutoDiscovery = c.Bool
+	case "dns_discovery":
+		cfg, err := c.DNSDiscovery.Normalized()
+		if err != nil {
+			return err
+		}
+		settings.DNSDiscovery = cfg
 	case "auto_accept_images":
 		settings.AutoAcceptImages = c.Bool
 	case "disable_auto_update_check":
@@ -645,6 +651,12 @@ func (n *Node) setting(c domain.Command) error {
 		s.Error = ""
 	}); err != nil {
 		return err
+	}
+	if c.Setting == "disable_auto_discovery" || c.Setting == "dns_discovery" || c.Setting == "network" {
+		select {
+		case n.discoveryWake <- struct{}{}:
+		default:
+		}
 	}
 	if c.Setting == "disable_auto_discovery" {
 		n.mu.Lock()

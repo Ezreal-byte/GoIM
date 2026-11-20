@@ -247,6 +247,12 @@ func (n *Node) updateProfile(name, path string, preview []byte, size int, signat
 		return err
 	}
 	n.broadcastProfile()
+	if presence != s.Self.Presence && s.Settings.DNSDiscovery.Server != "" {
+		select {
+		case n.discoveryWake <- struct{}{}:
+		default:
+		}
+	}
 	n.mu.Lock()
 	legacy := n.legacy
 	native := n.neiwangtong
@@ -314,6 +320,9 @@ func (n *Node) receiveProfile(peer string, e envelope) error {
 	}
 	return n.change(func(s *domain.State) {
 		if i := peerIndex(s, peer); i >= 0 {
+			if pc := n.connections[peer]; pc != nil && e.Peer.Presence == domain.PresenceOffline {
+				pc.dnsMembership = nil
+			}
 			s.Peers[i].Name = e.Peer.Name
 			s.Peers[i].Signature, s.Peers[i].Presence = e.Peer.Signature, e.Peer.Presence
 			s.Peers[i].Details, s.Peers[i].Version = e.Peer.Details, e.Peer.Version
