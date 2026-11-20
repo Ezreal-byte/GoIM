@@ -177,20 +177,7 @@ func (s *Service) UpdateProfile(name string, hidden, away bool) {
 		return
 	}
 	if !old.hidden && old.away != away {
-		if s.broadcast.Load() {
-			s.announce(commandAbsence)
-		} else {
-			// Manually connected contacts still need our new presence.
-			profile := s.profile.Load()
-			data := s.presencePacket(profile, s.statusCommand(commandAbsence, profile))
-			s.mu.Lock()
-			for _, state := range s.peers {
-				if state.peer.Online {
-					_ = s.sendPacket(state, data)
-				}
-			}
-			s.mu.Unlock()
-		}
+		s.announce(commandAbsence)
 		return
 	}
 	s.announce(commandEntry)
@@ -545,7 +532,7 @@ func (s *Service) answer(state *peerState) {
 }
 
 func (s *Service) announce(command uint32) {
-	if s == nil || s.udp == nil || !s.broadcast.Load() {
+	if s == nil || s.udp == nil {
 		return
 	}
 	profile := s.profile.Load()
@@ -557,6 +544,23 @@ func (s *Service) announce(command uint32) {
 		command = s.statusCommand(command, profile)
 	}
 	packet := s.presencePacket(profile, command)
+	if command&0xff == commandAbsence || command == commandExit {
+		// A known peer can be on another subnet or a non-default port.
+		s.mu.Lock()
+		var targets []netip.AddrPort
+		for _, state := range s.peers {
+			if state.peer.Online {
+				targets = append(targets, state.addr.AddrPort())
+			}
+		}
+		s.mu.Unlock()
+		for _, target := range targets {
+			_, _ = s.udp.WriteToUDPAddrPort(packet, target)
+		}
+	}
+	if !s.broadcast.Load() {
+		return
+	}
 	var withFiles []byte
 	if command == commandEntry && s.FilesAvailable() {
 		withFiles = s.presencePacket(profile, s.statusCommand(command, profile))

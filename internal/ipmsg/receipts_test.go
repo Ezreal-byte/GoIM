@@ -234,6 +234,9 @@ func TestLoginSwitchRetiresThePreviousRoute(t *testing.T) {
 func TestManualContactReceivesAwayAndAvailableUpdates(t *testing.T) {
 	service, remote, _ := receiptFixture(t)
 	for _, away := range []bool{true, false} {
+		// The manual endpoint uses its own port. It must still receive a
+		// directed update when the local user also enables LAN discovery.
+		service.SetBroadcastEnabled(!away)
 		service.UpdateProfile("fixture", false, away)
 		_ = remote.SetReadDeadline(time.Now().Add(2 * time.Second))
 		var data [4096]byte
