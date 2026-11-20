@@ -535,14 +535,26 @@ func (n *Node) verifiedNeiwangtongSource(file domain.File) (os.FileInfo, error) 
 	if !info.Mode().IsRegular() || info.Size() != file.Size {
 		return nil, errors.New("源文件已变化，请重新发送")
 	}
-	digest, err := fileHashContext(n.ctx, file.SourcePath)
+	source, err := os.Open(file.SourcePath)
+	if err != nil {
+		return nil, err
+	}
+	defer source.Close()
+	opened, err := source.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !os.SameFile(info, opened) || opened.Size() != file.Size {
+		return nil, errors.New("源文件已变化，请重新发送")
+	}
+	digest, err := fileReaderHashContext(n.ctx, source)
 	if err != nil {
 		return nil, err
 	}
 	if digest != file.Hash {
 		return nil, errors.New("源文件已变化，请重新发送")
 	}
-	return info, nil
+	return opened, nil
 }
 
 func (n *Node) neiwangtongFileAccess(service *neiwangtong.Service, peer, id string, source os.FileInfo) neiwangtong.FileAccess {
