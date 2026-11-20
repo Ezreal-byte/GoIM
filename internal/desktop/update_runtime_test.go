@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +20,8 @@ type updateTestClient struct {
 	checkStarted chan struct{}
 	checkError   error
 	checkRelease <-chan struct{}
+	notesStarted chan struct{}
+	notesRelease <-chan struct{}
 }
 
 func (c *updateTestClient) counts() (checks, notes int) {
@@ -47,10 +50,20 @@ func (c *updateTestClient) Check(ctx context.Context) (selfupdate.Offer, error) 
 	return c.offer, c.checkError
 }
 
-func (c *updateTestClient) ReleaseNotes(context.Context, selfupdate.Offer) (string, error) {
+func (c *updateTestClient) ReleaseNotes(ctx context.Context, _ selfupdate.Offer) (string, error) {
 	c.mu.Lock()
 	c.notesCount++
 	c.mu.Unlock()
+	if c.notesStarted != nil {
+		close(c.notesStarted)
+	}
+	if c.notesRelease != nil {
+		select {
+		case <-c.notesRelease:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
 	return c.notes, nil
 }
 
@@ -181,5 +194,34 @@ func TestAutomaticUpdatePeriodNeverOverlapsOrDiscardsReadyInstaller(t *testing.T
 	time.Sleep(50 * time.Millisecond)
 	if next, _ := client.counts(); next != checks {
 		t.Fatal("automatic check replaced a ready installer")
+	}
+}
+
+func TestUpdateNotesFinishAfterDownloadHasStarted(t *testing.T) {
+	for _, phase := range []updatePhase{updateDownloading, updateReady, updateDownloadFailed} {
+		t.Run(fmt.Sprint(phase), func(t *testing.T) {
+			release := make(chan struct{})
+			client := &updateTestClient{
+				offer: selfupdate.Offer{Version: "0.1.15", Automatic: true}, notes: "Release details",
+				notesStarted: make(chan struct{}), notesRelease: release,
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			controller := &updateController{ctx: ctx, client: client, wake: func() {}}
+			done := make(chan struct{})
+			go func() { controller.check(); close(done) }()
+			select {
+			case <-client.notesStarted:
+			case <-time.After(time.Second):
+				t.Fatal("release notes request did not start")
+			}
+			controller.change(func(view *updateView) { view.phase = phase })
+			close(release)
+			<-done
+			view := controller.snapshot()
+			if view.notesLoading || view.notes != client.notes || view.phase != phase {
+				t.Fatalf("download transition stranded release notes: %+v", view)
+			}
+		})
 	}
 }

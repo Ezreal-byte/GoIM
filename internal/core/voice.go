@@ -246,7 +246,7 @@ func (n *Node) receiveVoiceSignal(peer string, signal domain.VoiceSignal) error 
 		} else if current != nil && current.call.Live() {
 			cur := current.call
 			switch {
-			case cur.ID == signal.CallID:
+			case cur.ID == signal.CallID && cur.PeerID == peer:
 				replies = append(replies, domain.VoiceSignal{CallID: signal.CallID, Action: "ringing"})
 			case cur.PeerID == peer && cur.Direction == domain.VoiceCallOutgoing &&
 				cur.Status == domain.VoiceCallRinging && n.data.State.Self.ID > peer:
@@ -269,7 +269,7 @@ func (n *Node) receiveVoiceSignal(peer string, signal domain.VoiceSignal) error 
 				replies = append(replies, domain.VoiceSignal{CallID: signal.CallID, Action: "ringing"})
 			}
 		}
-	} else if current != nil && current.call.ID == signal.CallID {
+	} else if current != nil && current.call.ID == signal.CallID && current.call.PeerID == peer {
 		call := &current.call
 		switch signal.Action {
 		case "accept":

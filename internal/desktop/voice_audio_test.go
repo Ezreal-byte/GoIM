@@ -336,3 +336,84 @@ func TestVoiceAudioRuntimeReportsDeviceFailure(t *testing.T) {
 		t.Fatalf("device failure command = %+v", command)
 	}
 }
+
+func waitVoiceSession(t *testing.T, runtime *voiceAudioRuntime) *voiceAudioSession {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		runtime.mu.Lock()
+		session := runtime.session
+		runtime.mu.Unlock()
+		if session != nil {
+			return session
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("audio devices did not finish opening")
+	return nil
+}
+
+func TestVoiceAudioOpeningUsesLatestControls(t *testing.T) {
+	backend := newFakeVoiceAudioBackend()
+	runtime := newVoiceAudioRuntime(backend, backend.Submit, nil)
+	t.Cleanup(runtime.close)
+	opening, release := make(chan struct{}), make(chan struct{})
+	runtime.devices = voiceDevices{
+		openCapture: func(string) (voiceaudio.Capture, error) {
+			close(opening)
+			<-release
+			return newFakeVoiceCapture(), nil
+		},
+		openPlayback: func(string) (voiceaudio.Playback, error) { return newFakeVoicePlayback(), nil },
+	}
+	call := domain.VoiceCall{ID: "opening", Status: domain.VoiceCallActive}
+	settings := domain.Settings{VoiceMicrophoneVolume: 100, VoiceSpeakerVolume: 100}
+	runtime.sync(call, settings)
+	<-opening
+	call.Muted, call.SpeakerMuted = true, true
+	settings.VoiceMicrophoneVolume, settings.VoiceSpeakerVolume = 25, 50
+	runtime.sync(call, settings)
+	close(release)
+	session := waitVoiceSession(t, runtime)
+	if !session.muted.Load() || !session.speakerMuted.Load() || session.microphoneVolume.Load() != 25 || session.speakerVolume.Load() != 50 {
+		t.Fatal("device opening discarded the latest mute or volume settings")
+	}
+}
+
+func TestVoiceAudioIgnoresObsoleteOpeningFailure(t *testing.T) {
+	backend := newFakeVoiceAudioBackend()
+	runtime := newVoiceAudioRuntime(backend, backend.Submit, nil)
+	t.Cleanup(runtime.close)
+	opening, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	oldDevices := voiceDevices{
+		openCapture: func(string) (voiceaudio.Capture, error) {
+			close(opening)
+			<-release
+			return nil, errors.New("obsolete microphone failure")
+		},
+	}
+	call := domain.VoiceCall{ID: "same-call", Status: domain.VoiceCallActive}
+	runtime.mu.Lock()
+	runtime.desiredID, runtime.generation, runtime.starting = call.ID, 1, true
+	runtime.mu.Unlock()
+	go func() {
+		runtime.open(call.ID, "", "", oldDevices, 1)
+		close(finished)
+	}()
+	<-opening
+	runtime.sync(domain.VoiceCall{}, domain.Settings{})
+	runtime.devices = voiceDevices{
+		openCapture:  func(string) (voiceaudio.Capture, error) { return newFakeVoiceCapture(), nil },
+		openPlayback: func(string) (voiceaudio.Playback, error) { return newFakeVoicePlayback(), nil },
+	}
+	runtime.sync(call, domain.Settings{})
+	session := waitVoiceSession(t, runtime)
+	close(release)
+	<-finished
+	backend.mu.Lock()
+	count := len(backend.commands)
+	backend.mu.Unlock()
+	if count != 0 || runtime.takeNotice() != "" || session.stopped() {
+		t.Fatal("obsolete device opening failure ended the current session")
+	}
+}

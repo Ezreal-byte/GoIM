@@ -2054,14 +2054,14 @@ func (u *UI) emptySidebar(f ui.C, title, description string, actions bool) {
 			Children(func() {
 				ui.Icon(f, u.iconUsers).Size(22, 22).Color(u.palette.secondaryText)
 			})
-		ui.Text(f, title).FontSize(15).Weight(gfx.WeightSemibold).TextCenter()
-		ui.Paragraph(f, description, 3).FontSize(12).Muted().TextCenter().LineHeight(18)
+		ui.Paragraph(f, title, 3).FillWidth().FontSize(13).Weight(gfx.WeightSemibold).TextCenter()
+		ui.Paragraph(f, description, 5).FillWidth().FontSize(12).Muted().TextCenter().LineHeight(18)
 		if actions {
-			ui.Row(f).Gap(8).Justify(ui.Center).Children(func() {
-				if namedButton(f, u.ids.emptyConnect, i18n.T("手动连接")).Small().Outline().Clicked() {
+			ui.Column(f).FillWidth().Gap(8).Children(func() {
+				if namedButton(f, u.ids.emptyConnect, i18n.T("手动连接")).FillWidth().Small().FontSize(12).PadX(8).Outline().Clicked() {
 					u.openConnect()
 				}
-				if namedButton(f, u.ids.emptyCompose, i18n.T("创建群聊")).Small().Clicked() {
+				if namedButton(f, u.ids.emptyCompose, i18n.T("创建群聊")).FillWidth().Small().FontSize(12).PadX(8).Clicked() {
 					u.openCompose("create", "")
 				}
 			})

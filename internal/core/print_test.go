@@ -242,7 +242,7 @@ func TestPrintSubmissionFailureAndUnshareRemoveRemotePrinter(t *testing.T) {
 }
 
 func TestStalePrintOfferIsRejectedAndFailsSenderJob(t *testing.T) {
-	for _, reason := range []string{"unshared", "password-changed"} {
+	for _, reason := range []string{"unshared", "password-changed", "cache-full", "receive-directory"} {
 		t.Run(reason, func(t *testing.T) {
 			backend := &printTestBackend{
 				printers: []printing.Printer{{
@@ -265,7 +265,19 @@ func TestStalePrintOfferIsRejectedAndFailsSenderJob(t *testing.T) {
 			share := sender.Snapshot().Printers[0]
 			if reason == "unshared" {
 				owner.execute(domain.Command{Kind: domain.UnsharePrinter, PrinterID: owner.Snapshot().Printers[0].ID})
-			} else if err := owner.sharePrinter(domain.Command{PrinterID: "stale-queue", Setting: "password", Password: "new-print-password"}); err != nil {
+			} else if reason == "password-changed" {
+				if err := owner.sharePrinter(domain.Command{PrinterID: "stale-queue", Setting: "password", Password: "new-print-password"}); err != nil {
+					t.Fatal(err)
+				}
+			} else if reason == "receive-directory" {
+				if err := os.WriteFile(filepath.Join(owner.dir, "print-jobs"), []byte("not a directory"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := owner.change(func(s *domain.State) {
+				s.Transfers = append(s.Transfers, domain.Transfer{
+					ID: newID(), PrintJobID: newID(), Direction: "receive", Status: "waiting", Size: maxPendingPrintBytes,
+				})
+			}); err != nil {
 				t.Fatal(err)
 			}
 
@@ -315,7 +327,11 @@ func TestStalePrintOfferIsRejectedAndFailsSenderJob(t *testing.T) {
 				return s.PrintJob(jobID).Status == domain.PrintStatusFailed &&
 					s.Transfers[0].Status == "rejected"
 			})
-			if len(owner.Snapshot().Transfers) != 0 || len(backend.submissions()) != 0 {
+			existing := 0
+			if reason == "cache-full" {
+				existing = 1
+			}
+			if len(owner.Snapshot().Transfers) != existing || len(owner.Snapshot().Files) != 0 || len(backend.submissions()) != 0 {
 				t.Fatal("rejected offer received or printed a file")
 			}
 		})

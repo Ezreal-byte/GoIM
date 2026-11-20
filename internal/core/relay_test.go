@@ -220,6 +220,11 @@ func TestDiscoveryReconnectsMovedIdentityWithoutDuplicatingContact(t *testing.T)
 func TestDiscoveryKeepsHealthyMultiInterfaceConnection(t *testing.T) {
 	first, second := testNode(t, "Windows"), testNode(t, "双网卡设备")
 	connectNodes(t, first, second)
+	eventually(t, "initial connection dial finished", func() bool {
+		first.mu.Lock()
+		defer first.mu.Unlock()
+		return len(first.dialing) == 0
+	})
 	identity := second.Snapshot().Self.ID
 	first.mu.Lock()
 	connection := first.connections[identity]

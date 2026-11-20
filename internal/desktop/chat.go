@@ -124,7 +124,7 @@ func (u *UI) drawChatEmpty(f ui.C) {
 			ui.Icon(f, u.iconMessage).Size(28, 28).Color(u.palette.secondaryText)
 		})
 		ui.Text(f, i18n.T("选择一段会话开始聊天")).FontSize(16).Weight(gfx.WeightMedium)
-		ui.Paragraph(f, "消息只在局域网内直连。联系人上线后会自动出现，也可以手动输入地址连接。", 3).
+		ui.Paragraph(f, i18n.T("消息只在局域网内直连。联系人上线后会自动出现，也可以手动输入地址连接。"), 3).
 			MaxWidth(430).FontSize(13).Muted().TextCenter().LineHeight(20)
 		ui.Row(f).Gap(10).Justify(ui.Center).Children(func() {
 			connect := namedButton(f, u.ids.chatEmptyConnect, i18n.T("手动连接")).Outline()

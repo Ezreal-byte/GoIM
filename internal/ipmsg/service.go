@@ -100,6 +100,8 @@ type Service struct {
 	probes   map[netip.AddrPort][]chan Peer
 	receipts map[messageReceiptKey]messageReceipt
 	wg       sync.WaitGroup
+	active   sync.Map // accepted file connections, closed during shutdown
+	slots    chan struct{}
 }
 
 func Start(cfg Config) (*Service, error) {
@@ -133,6 +135,7 @@ func Start(cfg Config) (*Service, error) {
 		peers: make(map[string]*peerState), files: make(map[fileKey]servingFile),
 		probes:   make(map[netip.AddrPort][]chan Peer),
 		receipts: make(map[messageReceiptKey]messageReceipt),
+		slots:    make(chan struct{}, 16),
 	}
 	service.packet.Store(uint64(time.Now().Unix()))
 	service.fileID.Store(1)
@@ -190,6 +193,7 @@ func (s *Service) Close() {
 	if s.tcp != nil {
 		_ = s.tcp.Close()
 	}
+	s.active.Range(func(key, _ any) bool { _ = key.(net.Conn).Close(); return true })
 	s.wg.Wait()
 }
 
@@ -674,12 +678,21 @@ func (s *Service) acceptFiles() {
 		if err != nil {
 			return
 		}
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			defer conn.Close()
-			s.serveFile(conn)
-		}()
+		select {
+		case s.slots <- struct{}{}:
+			s.active.Store(conn, struct{}{})
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				defer func() { s.active.Delete(conn); <-s.slots }()
+				defer conn.Close()
+				if s.ctx.Err() == nil {
+					s.serveFile(conn)
+				}
+			}()
+		default:
+			_ = conn.Close()
+		}
 	}
 }
 

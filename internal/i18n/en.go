@@ -1,6 +1,8 @@
 package i18n
 
 var en = map[string]string{
+	"消息只在局域网内直连。联系人上线后会自动出现，也可以手动输入地址连接。": "Chat over your LAN. Online contacts appear automatically, or connect by IP.",
+
 	"设置备注…": "Set remark…",
 	"设置备注":  "Set remark",
 	"备注":    "Remark",
@@ -254,7 +256,7 @@ var en = map[string]string{
 	"换一个昵称或分组名称试试。": "Try another nickname or group name.",
 	"我":          "Me",
 	"我的群聊":       "My group chats",
-	"还没有会话":      "No conversations yet",
+	"还没有会话":      "No chats yet",
 	"没有匹配的会话":    "No matching conversations",
 	"还没有消息":      "No messages yet",
 	"最小化":        "Minimize",

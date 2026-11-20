@@ -741,7 +741,7 @@ func (n *Node) finishPrintJob(id, status, problem string) {
 	if job.ID == "" || job.Terminal() {
 		return
 	}
-	_ = n.durable(func(p *persisted) []pending {
+	err := n.durable(func(p *persisted) []pending {
 		i := printJobIndex(&p.State, id)
 		if i < 0 || p.State.PrintJobs[i].Terminal() {
 			return nil
@@ -752,7 +752,9 @@ func (n *Node) finishPrintJob(id, status, problem string) {
 			Type: "print_status", PrintJobID: job.ID, PrintStatus: status, Error: problem,
 		}}}
 	})
-	n.removePrintFile(id)
+	if err == nil {
+		n.removePrintFile(id)
+	}
 }
 
 func (n *Node) removePrintFile(id string) {
@@ -765,6 +767,9 @@ func (n *Node) removePrintFile(id string) {
 		path := s.Transfers[i].Path
 		_ = os.Remove(path)
 		_ = os.Remove(filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".part"))
+	}
+	if validPrintID(job.TransferID) {
+		_ = os.Remove(filepath.Join(n.dir, "partials", job.TransferID+".part"))
 	}
 }
 

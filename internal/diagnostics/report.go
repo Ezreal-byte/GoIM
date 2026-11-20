@@ -451,6 +451,26 @@ func sensitiveValues(state domain.State) []string {
 		add(transfer.Name)
 		add(transfer.Path)
 	}
+	for _, printer := range state.LocalPrinters {
+		add(printer.ID)
+		add(printer.Name)
+		add(printer.Status)
+	}
+	for _, printer := range state.Printers {
+		add(printer.ID)
+		add(printer.OwnerID)
+		add(printer.OwnerName)
+		add(printer.Name)
+		add(printer.DeviceName)
+		add(printer.AuthRevision)
+	}
+	for _, job := range state.PrintJobs {
+		for _, value := range []string{job.ID, job.MessageID, job.TransferID, job.FileID, job.ConversationID,
+			job.PrinterID, job.PrinterName, job.PrinterDevice, job.PrinterOwnerID, job.PrinterOwnerName,
+			job.SenderID, job.SenderName, job.FileName, job.Error, job.LocalJobID, job.SubmitKey} {
+			add(value)
+		}
+	}
 	sort.Slice(values, func(i, j int) bool {
 		return len(values[i]) > len(values[j])
 	})

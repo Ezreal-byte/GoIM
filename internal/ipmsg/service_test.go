@@ -137,6 +137,48 @@ func TestServiceReceivesLegacyText(t *testing.T) {
 	}
 }
 
+func TestFileConnectionsAreBoundedAndCloseWithService(t *testing.T) {
+	service, err := Start(Config{Host: "host", Name: "sender", Port: freeIPMSGPort(t),
+		BindIP: netip.MustParseAddr("127.0.0.1"), DisableBroadcast: true, RequireFiles: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(service.Close)
+	for range cap(service.slots) {
+		conn, err := net.DialTimeout("tcp4", service.tcp.Addr().String(), time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = conn.Close() })
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(service.slots) != cap(service.slots) {
+		if time.Now().After(deadline) {
+			t.Fatal("file connections were not accepted")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	overflow, err := net.DialTimeout("tcp4", service.tcp.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer overflow.Close()
+	_ = overflow.SetReadDeadline(time.Now().Add(time.Second))
+	var data [1]byte
+	if _, err := overflow.Read(data[:]); err == nil {
+		t.Fatal("excess file connection stayed open")
+	} else if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+		t.Fatal("excess file connection was not rejected")
+	}
+	closed := make(chan struct{})
+	go func() { service.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("service shutdown waited for idle file connections")
+	}
+}
+
 func TestServiceOffersAndServesResumableFile(t *testing.T) {
 	port := freeIPMSGPort(t)
 	remote, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
