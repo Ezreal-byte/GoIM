@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -14,6 +15,59 @@ import (
 
 	"goim/internal/domain"
 )
+
+func TestMemberShareServedOnConnectedInterface(t *testing.T) {
+	owner, err := New(Options{DataDir: t.TempDir(), Listen: "0.0.0.0:0", Name: "multi-interface publisher", DisableDiscovery: true, DisableCompatibility: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Close() })
+	member := testNode(t, "member")
+	root := t.TempDir()
+	if err := owner.shareFile(root, ""); err != nil {
+		t.Fatal(err)
+	}
+	// The native TLS listener accepts connections on every local interface.
+	// Use a second loopback address so this also exercises a single-NIC CI host.
+	_, port, _ := net.SplitHostPort(owner.Address())
+	target := "127.0.0.2"
+	member.Connect(net.JoinHostPort(target, port))
+	var project domain.File
+	eventually(t, "project on alternate interface", func() bool {
+		for _, f := range member.Snapshot().Files {
+			if f.ShareFolder && f.MemberURL != "" {
+				project = f
+				return true
+			}
+		}
+		return false
+	})
+	link, err := url.Parse(project.MemberURL)
+	if err != nil || link.Hostname() != target || link.Host == owner.webAddress {
+		t.Fatalf("wrong interface for member URL %q: %v", project.MemberURL, err)
+	}
+	client := http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(project.MemberURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil || resp.StatusCode != 200 || !strings.Contains(string(body), filepath.Base(root)) {
+		t.Fatalf("member directory unavailable on TLS interface (%d, %v)", resp.StatusCode, err)
+	}
+	if err := member.Close(); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "alternate interface closes access on disconnect", func() bool {
+		resp, err := client.Get(project.MemberURL)
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode == 404
+	})
+}
 
 func TestMemberCatalogDownloadBrowseUnlockAndRevoke(t *testing.T) {
 	a, b := testNode(t, "publisher"), testNode(t, "member")

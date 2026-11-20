@@ -66,6 +66,7 @@ type Node struct {
 	dnsDirectory          *dnsDirectory
 	relayRoutes           map[string]map[string]bool
 	webServer             *http.Server
+	memberWebServers      map[string]*http.Server // additional local interfaces used by direct peers
 	webAddress            string
 	webKey                [32]byte
 	webSlots              chan struct{}
@@ -387,6 +388,7 @@ func (n *Node) Close() error {
 	n.cancel()
 	n.listener.Close()
 	web := n.webServer
+	memberServers := n.memberWebServers
 	for _, c := range n.connections {
 		c.conn.Close()
 	}
@@ -414,6 +416,9 @@ func (n *Node) Close() error {
 	}
 	if web != nil {
 		_ = web.Close()
+	}
+	for _, server := range memberServers {
+		_ = server.Close()
 	}
 	n.wg.Wait()
 	n.workers.Wait()

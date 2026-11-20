@@ -798,9 +798,19 @@ func (n *Node) serveFile(conn *tls.Conn, e envelope, peer string) {
 }
 func (n *Node) sendCatalog(peer string) {
 	n.mu.Lock()
+	connection := n.connections[peer]
+	if n.closing || connection == nil {
+		n.mu.Unlock()
+		return
+	}
 	catalog := n.shareCatalog()
+	if catalog.MemberCatalog != nil {
+		catalog.MemberCatalog.Port = n.memberSharePort(connection.conn.LocalAddr().(*net.TCPAddr))
+	}
 	n.mu.Unlock()
-	_ = n.send(peer, catalog)
+	if err := connection.send(catalog); err != nil {
+		_ = connection.conn.Close()
+	}
 }
 func (n *Node) broadcastCatalog() {
 	s := n.snapshot(false)

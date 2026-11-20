@@ -280,18 +280,25 @@ func (n *Node) startShareServer() error {
 	rand.Read(n.webKey[:])
 	n.webSlots = make(chan struct{}, 8)
 	n.webUploads = make(chan struct{}, 2)
-	server := &http.Server{
-		Handler:           n.shareHandler(ip),
-		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 12 * time.Second,
-		IdleTimeout: 20 * time.Second, MaxHeaderBytes: 12 << 10,
-	}
-	n.webServer = server
-	n.wg.Add(1)
-	go func() { defer n.wg.Done(); _ = server.Serve(listener) }()
+	n.webServer = n.serveShareListener(listener, ip, false)
 	return nil
 }
 
-func (n *Node) shareHandler(local net.IP) http.Handler {
+// Caller holds n.mu and checks n.closing before starting a listener.
+func (n *Node) serveShareListener(listener net.Listener, ip net.IP, membersOnly bool) *http.Server {
+	address := listener.Addr().String()
+	server := &http.Server{
+		Addr:              address,
+		Handler:           n.shareHandler(ip, address, membersOnly),
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 12 * time.Second,
+		IdleTimeout: 20 * time.Second, MaxHeaderBytes: 12 << 10,
+	}
+	n.wg.Add(1)
+	go func() { defer n.wg.Done(); _ = server.Serve(listener) }()
+	return server
+}
+
+func (n *Node) shareHandler(local net.IP, address string, membersOnly bool) http.Handler {
 	var networks []*net.IPNet
 	if addresses, err := net.InterfaceAddrs(); err == nil {
 		for _, a := range addresses {
@@ -302,7 +309,7 @@ func (n *Node) shareHandler(local net.IP) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
+		if err != nil || r.Host != address {
 			http.NotFound(w, r)
 			return
 		}
@@ -312,6 +319,10 @@ func (n *Node) shareHandler(local net.IP) http.Handler {
 			allowed = allowed || subnet.Contains(ip)
 		}
 		if !allowed {
+			http.NotFound(w, r)
+			return
+		}
+		if membersOnly && (!(strings.HasPrefix(r.URL.Path, "/m/") || strings.HasPrefix(r.URL.Path, "/s/")) || !n.hasMemberOnInterface(local, host)) {
 			http.NotFound(w, r)
 			return
 		}
@@ -418,10 +429,6 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "same-origin")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if r.Host != n.webAddress {
-		http.NotFound(w, r)
-		return
-	}
 	switch {
 	case strings.HasPrefix(r.URL.Path, "/m/"):
 		n.openMemberProject(w, r)

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -100,9 +101,10 @@ func (n *Node) attachMemberProjects(s *domain.State) {
 		}
 		// Only construct browser URLs from the authenticated direct connection.
 		var base string
-		if pc := n.connections[peer.ID]; pc != nil && peer.Online {
+		if pc := n.connections[peer.ID]; pc != nil && pc.memberCatalogReady && peer.Online {
 			if host, _, err := net.SplitHostPort(pc.peer.Address); err == nil {
-				base = "http://" + net.JoinHostPort(host, strconv.Itoa(int(catalog.Port))) + "/m/"
+				endpoint := url.URL{Scheme: "http", Host: net.JoinHostPort(host, strconv.Itoa(int(catalog.Port))), Path: "/m/"}
+				base = endpoint.String()
 			}
 		}
 		for _, project := range catalog.Projects {
@@ -120,6 +122,45 @@ func (n *Node) attachMemberProjects(s *domain.State) {
 			s.Files = append(s.Files, f)
 		}
 	}
+}
+
+// The browser follows the same network interface as the authenticated member
+// connection. A machine's default browser-share interface may be unreachable
+// on a different LAN.
+func (n *Node) memberSharePort(local *net.TCPAddr) uint16 {
+	ip := net.TCPAddr{IP: local.IP, Zone: local.Zone}
+	address, _, _ := net.SplitHostPort(ip.String())
+	host, port, _ := net.SplitHostPort(n.webAddress)
+	if host != address {
+		server := n.memberWebServers[address]
+		if server == nil {
+			listener, err := net.ListenTCP("tcp", &ip)
+			if err != nil {
+				return 0
+			}
+			server = n.serveShareListener(listener, local.IP, true)
+			if n.memberWebServers == nil {
+				n.memberWebServers = make(map[string]*http.Server)
+			}
+			n.memberWebServers[address] = server
+		}
+		_, port, _ = net.SplitHostPort(server.Addr)
+	}
+	number, _ := strconv.ParseUint(port, 10, 16)
+	return uint16(number)
+}
+
+func (n *Node) hasMemberOnInterface(local net.IP, remote string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for _, pc := range n.connections {
+		here := pc.conn.LocalAddr().(*net.TCPAddr)
+		host, _, _ := net.SplitHostPort(pc.conn.RemoteAddr().String())
+		if here.IP.Equal(local) && host == remote {
+			return true
+		}
+	}
+	return false
 }
 
 func (n *Node) openMemberProject(w http.ResponseWriter, r *http.Request) {

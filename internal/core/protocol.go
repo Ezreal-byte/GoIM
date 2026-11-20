@@ -75,6 +75,7 @@ type peerConn struct {
 	write               sync.Mutex
 	outbound            bool
 	lastRead            atomic.Int64
+	memberCatalogReady  bool // Guarded by Node.mu. Cleared for every new TLS connection.
 }
 
 func writeFrame(w io.Writer, e envelope) error {
@@ -320,7 +321,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 			n.handleDNSDirectory(pc, e)
 			continue
 		}
-		if err = n.receive(pc.peer.ID, e); err != nil {
+		if err = n.receiveFrom(pc.peer.ID, e, pc); err != nil {
 			n.report(err)
 		}
 	}
@@ -571,6 +572,10 @@ func (n *Node) failCompatibilityDelivery(p pending, failure error) {
 	})
 }
 func (n *Node) receive(peer string, e envelope) error {
+	return n.receiveFrom(peer, e, nil)
+}
+
+func (n *Node) receiveFrom(peer string, e envelope, source *peerConn) error {
 	if e.Type == "peer_routes" {
 		return n.receivePeerRoutes(peer, e.Peers)
 	}
@@ -629,10 +634,12 @@ func (n *Node) receive(peer string, e envelope) error {
 	case "file_status":
 		err = n.receiveFileStatus(peer, e)
 	case "catalog":
+		accepted := false
 		err = n.durable(func(data *persisted) []pending {
-			if e.CatalogRevision < data.CatalogRevisions[peer] {
+			if source != nil && n.connections[peer] != source || e.CatalogRevision < data.CatalogRevisions[peer] {
 				return nil
 			}
+			accepted = true
 			data.CatalogRevisions[peer] = e.CatalogRevision
 			data.updateMemberProjects(peer, e.MemberCatalog)
 			s := &data.State
@@ -655,6 +662,17 @@ func (n *Node) receive(peer string, e envelope) error {
 			}
 			return nil
 		})
+		// Catalog data must commit before the first URL becomes actionable. The
+		// UI caches rows by revision, so publish the new readiness with a revision too.
+		if err == nil && accepted && source != nil && e.MemberCatalog != nil {
+			n.mu.Lock()
+			if n.connections[peer] == source && !source.memberCatalogReady {
+				source.memberCatalogReady = true
+				n.data.State.Revision++
+				n.signal()
+			}
+			n.mu.Unlock()
+		}
 	case "catalog_request":
 		n.sendCatalog(peer)
 		if n.snapshot(false).Peer(peer).PrintSupported {
