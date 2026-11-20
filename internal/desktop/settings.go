@@ -404,8 +404,12 @@ func (p *Panels) drawSettingsTransfers(f ui.C, theme ui.Theme, state domain.Stat
 				}
 			})
 		})
-		p.settingsRow(f, theme, i18n.T("接收方式"), i18n.T("聊天图片自动显示；其他文件在你确认后才下载"), func() {
-			ui.Text(f, i18n.T("文件需确认")).FontSize(12).Muted()
+		p.settingsRow(f, theme, i18n.T("自动接收聊天视频"), i18n.T("小于 500 MiB 的视频自动保存，较大的视频需手动接收"), func() {
+			enabled := ui.State[bool](f, "auto-receive-videos")
+			*enabled = !settings.ManualVideoReceive
+			if ui.Switch(f.Part("auto-receive-videos"), enabled, i18n.T("自动接收聊天视频")).Changed() {
+				p.submitBool(submit, state, "auto_receive_videos", *enabled)
+			}
 		})
 	})
 }

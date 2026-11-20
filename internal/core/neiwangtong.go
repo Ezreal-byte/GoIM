@@ -251,7 +251,8 @@ func (n *Node) receiveNeiwangtongFile(peerID string, offer neiwangtong.XMLSendFi
 	if offer.Size < 0 || strings.TrimSpace(offer.Name) == "" {
 		return
 	}
-	_ = n.change(func(s *domain.State) {
+	var download string
+	err := n.change(func(s *domain.State) {
 		peer := n.compatibilitySenderLocked(transportNWT, peerID)
 		if peer.ID == "" {
 			return
@@ -279,6 +280,11 @@ func (n *Node) receiveNeiwangtongFile(peerID string, offer neiwangtong.XMLSendFi
 		if !validFile(file) {
 			return
 		}
+		status := "offered"
+		if file.AutoReceiveVideo(s.Settings) {
+			download = transferID
+			status = "waiting"
+		}
 		s.Files = append(s.Files, file)
 		s.Transfers = append(s.Transfers, domain.Transfer{
 			ID:              transferID,
@@ -286,7 +292,7 @@ func (n *Node) receiveNeiwangtongFile(peerID string, offer neiwangtong.XMLSendFi
 			ConversationID:  conversationID,
 			PeerID:          peer.ID,
 			Direction:       "receive",
-			Status:          "offered",
+			Status:          status,
 			Name:            file.Name,
 			Size:            file.Size,
 			UpdatedAt:       receivedAt,
@@ -306,6 +312,9 @@ func (n *Node) receiveNeiwangtongFile(peerID string, offer neiwangtong.XMLSendFi
 			Status:         "delivered",
 		})
 	})
+	if err == nil && download != "" {
+		n.startReceive(download, "")
+	}
 }
 
 func (n *Node) receiveNeiwangtongCancel(peerID string, taskID uint64) {
@@ -717,21 +726,11 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 		destination = t.Path
 	}
 	if destination == "" {
-		destination = filepath.Join(s.Settings.DownloadDir, f.Name)
-		if _, err := os.Stat(destination); err == nil {
-			if s.Settings.DuplicatePolicy == "ask" {
-				return errors.New("同名文件存在，请选择另存为")
-			}
-			ext := filepath.Ext(f.Name)
-			base := strings.TrimSuffix(f.Name, ext)
-			for index := 1; ; index++ {
-				candidate := filepath.Join(s.Settings.DownloadDir, fmt.Sprintf("%s (%d)%s", base, index, ext))
-				if _, statErr := os.Lstat(candidate); os.IsNotExist(statErr) {
-					destination = candidate
-					break
-				}
-			}
+		path, err := receiveDestination(s.Settings.DownloadDir, f.Name, s.Settings.DuplicatePolicy)
+		if err != nil {
+			return err
 		}
+		destination = path
 	}
 
 	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {

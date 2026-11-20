@@ -59,6 +59,28 @@ func TestDetachedViewerTitlebarSeparatesWindowDragFromControls(t *testing.T) {
 	}
 }
 
+func TestDetachedImageSecondaryClickOpensMenuAtPointer(t *testing.T) {
+	u, d, _ := viewerTitlebarDriver(t)
+	stage, ok := findSessionHit(d.Snapshot().Hits, u.surface.ids.viewerStage)
+	if !ok {
+		t.Fatal("missing image surface")
+	}
+	x, y := stage.Bounds.X+48, stage.Bounds.Y+50
+	if err := d.Press(x, y, gfx.PointerButtonSecondary); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Release(x, y, gfx.PointerButtonSecondary); err != nil {
+		t.Fatal(err)
+	}
+	menu := u.surface.viewer
+	if !menu.menuOpen || !menu.menuAtPointer || menu.menuAt.X != x || menu.menuAt.Y != y {
+		t.Fatal("secondary click failed to anchor the menu")
+	}
+	if _, ok := findSessionHit(d.Snapshot().Hits, u.surface.ids.viewerMenu.actual); !ok {
+		t.Fatal("missing actual size action")
+	}
+}
+
 func BenchmarkDetachedViewerPaint(b *testing.B) {
 	_, d, invalidator := viewerTitlebarDriver(b)
 	b.ReportAllocs()

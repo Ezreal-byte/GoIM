@@ -52,6 +52,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'GoIM companion build failed' }
         go run ./cmd/package --stage-shotlet $OutputDir
         if ($LASTEXITCODE -ne 0) { throw 'Shotlet capture helper build failed' }
+        go run ./cmd/package --stage-media $OutputDir
+        if ($LASTEXITCODE -ne 0) { throw 'Video decoder staging failed' }
     }
 } finally {
     Pop-Location

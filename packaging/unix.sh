@@ -28,7 +28,7 @@ case "$platform" in
         doc="$root/usr/share/doc/goim"
         install -d "$root/DEBIAN" "$root/usr/bin" "$root/usr/share" "$doc"
         install -m 755 "$script_dir/linux/preinst" "$root/DEBIAN/preinst"
-        install -m 755 "$payload/GoIM" "$payload/goim-snip" "$root/usr/bin/"
+        install -m 755 "$payload/GoIM" "$payload/goim-snip" "$payload/goim-media" "$root/usr/bin/"
         test -x "$payload/lib/goim/file-dialog/bin/zenity"
         [[ $(cat "$payload/lib/goim/file-dialog/architecture") == "$arch" ]]
         cp -R "$payload/lib" "$root/usr/"
@@ -62,6 +62,7 @@ EOF
         [[ $(dpkg-deb --field "$output/$asset" Depends) != *zenity* ]]
         dpkg-deb --extract "$output/$asset" "$work/check"
         cmp "$payload/GoIM" "$work/check/usr/bin/GoIM"
+        cmp "$payload/goim-media" "$work/check/usr/bin/goim-media"
         cmp "$payload/goim-snip" "$work/check/usr/bin/goim-snip"
         diff -r "$payload/lib/goim/file-dialog" "$work/check/usr/lib/goim/file-dialog"
         test -x "$work/check/usr/lib/goim/file-dialog/bin/zenity"

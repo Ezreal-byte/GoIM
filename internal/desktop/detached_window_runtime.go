@@ -18,8 +18,9 @@ func (r *desktopRuntime) openDetachedConversation(conversationID string) bool {
 	}
 
 	detached := newDetachedConversationView(r.backend, conversationID)
+	detached.forwardViewer = func(fileID string) { r.ui.openConversationMedia(fileID, conversationID) }
 	detached.presentHistory = r.requestHistoryWindow
-	detached.presentMembers = r.openMembersWindow
+	detached.presentMemberChat = r.showPeerTarget
 	detached.presentArchiveTarget = r.showPeerTarget
 	config := detached.DetachedConfig()
 	config.Icon = windowIcon()

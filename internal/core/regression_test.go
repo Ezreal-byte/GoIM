@@ -88,6 +88,47 @@ func TestImageOfferAutoTransfersAndIgnoresRemotePath(t *testing.T) {
 		t.Fatal("untrusted remote local path retained")
 	}
 }
+func TestSmallVideoAutoReceivedThroughNativeChat(t *testing.T) {
+	a, b := testNode(t, "A"), testNode(t, "B")
+	connectNodes(t, a, b)
+	path, err := filepath.Abs("../media/testdata/clip.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.sendFile(direct(t, a, b), path, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "automatic video receipt", func() bool {
+		ts := b.Snapshot().Transfers
+		return len(ts) == 1 && ts[0].Status == "completed"
+	})
+	got, err := os.ReadFile(b.Snapshot().Transfers[0].Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatal("received video did not match its source", err)
+	}
+}
+
+func TestReceiveDestinationHandlesExistingAndInaccessiblePaths(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "original.txt")
+	if err := os.WriteFile(path, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := receiveDestination(dir, "original.txt", "rename"); err != nil || got != filepath.Join(dir, "original (1).txt") {
+		t.Fatalf("%q %v", got, err)
+	}
+	if _, err := receiveDestination(dir, "original.txt", "ask"); err == nil {
+		t.Fatal("did not ask about existing file")
+	}
+	if _, err := receiveDestination(path, "child.txt", "rename"); err == nil {
+		t.Fatal("ignored invalid download directory")
+	}
+}
+
 func TestRemoteCompletionCannotCompleteReceiveTask(t *testing.T) {
 	n := testNode(t, "我")
 	n.change(func(s *domain.State) {

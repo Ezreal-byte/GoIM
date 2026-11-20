@@ -2,13 +2,14 @@ package desktop
 
 import (
 	"errors"
-	"github.com/vivaui/viva/gfx"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
+
 	"goim/internal/domain"
 	"goim/internal/i18n"
 )
@@ -110,19 +111,23 @@ func (r *desktopRuntime) saveViewerOriginal() {
 	if file.Name != "" && r.ui.fileLocalPath[file.ID] == path {
 		filename = filepath.Base(file.Name)
 	}
+	title, problem := "保存原图", "无法保存图片"
+	if file.Video() {
+		title, problem = "视频另存为", "无法保存视频"
+	}
 	dest, err := app.SaveFile(app.SaveFileOptions{
-		Title: i18n.T("保存原图"), SuggestedName: filename, DefaultExtension: strings.TrimPrefix(filepath.Ext(filename), "."),
+		Title: i18n.T(title), SuggestedName: filename, DefaultExtension: strings.TrimPrefix(filepath.Ext(filename), "."),
 	})
 	if errors.Is(err, app.ErrCanceled) || (err == nil && dest == "") {
 		return
 	}
 	if err != nil {
-		r.reportViewerError(i18n.T("无法保存图片"), errors.New(filePickerProblem(err)))
+		r.reportViewerError(i18n.T(problem), errors.New(filePickerProblem(err)))
 		return
 	}
 	go func() {
 		if err := copyViewerImage(path, dest); err != nil {
-			r.reportViewerError(i18n.T("无法保存图片"), err)
+			r.reportViewerError(i18n.T(problem), err)
 		}
 	}()
 }

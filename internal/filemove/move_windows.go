@@ -1,4 +1,4 @@
-package core
+package filemove
 
 import (
 	"strings"
@@ -6,7 +6,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func publishExclusive(source, destination string) error {
+// Exclusive publishes a complete file or directory without replacing an existing path.
+func Exclusive(source, destination string) error {
 	from, err := windows.UTF16PtrFromString(publishWindowsPath(source))
 	if err != nil {
 		return err

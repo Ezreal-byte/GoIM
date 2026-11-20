@@ -71,6 +71,20 @@ func TestContactDropAcrossGroups(t *testing.T) {
 			if !h.ui.contactDrag.Dragging() {
 				t.Fatal("contact drag did not start")
 			}
+			if target == "escape" {
+				canvas := &gfx.Canvas{}
+				canvas.BeginFrame()
+				h.ui.drawContactDragGhost(canvas, h.ui.lastBody)
+				canvas.EndFrame()
+				var title, group bool
+				for _, line := range canvas.Texts() {
+					title = title || line.Value == "Alice"
+					group = group || line.Value == "产品与设计"
+				}
+				if !title || !group {
+					t.Fatal("drag preview did not paint contact and group")
+				}
+			}
 			dst := h.ui.groupHeadIDs[target]
 			if target == "escape" {
 				dst = h.ui.groupHeadIDs["工程团队"]

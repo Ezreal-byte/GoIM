@@ -23,3 +23,11 @@ The Viva notice also preserves upstream notices for its Unicode and font-related
 Browser share QR codes are generated with [go-qrcode](https://github.com/skip2/go-qrcode), covered by [its bundled license](licenses/go-qrcode-LICENSE.txt).
 
 Windows and macOS packages include the Shotlet capture SDK helper under Apache-2.0, with SDL (zlib), Dear ImGui (MIT), and nlohmann/json (MIT). The packages include the full license texts and upstream third-party notices under `licenses/shotlet/`. The source revisions are pinned in `packaging/shotlet.cmake`. [Shotlet source](https://github.com/Ezreal-byte/shotlet)
+
+## Ocean sound theme
+
+The message notification and incoming-call recordings are from [KDE Ocean](https://github.com/KDE/ocean-sound-theme/tree/66ee3d17a8ff1ba0fd5c76303a7b860a19542c79/ocean/stereo). Copyright 2023 Guilherme Marçal Silva. The original recordings and these adaptations are licensed under [CC BY-SA 4.0](licenses/Ocean-CC-BY-SA-4.0.txt). GoIM converts them to 16 kHz mono PCM, trims the leading silence and pads the tail to a playback frame.
+
+## FFmpeg video decoder
+
+GoIM runs an independent, offline build of [FFmpeg 8.1.3](https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz) for video playback. FFmpeg is copyright its contributors and this build uses LGPL-2.1-or-later components. The unchanged FFmpeg source archive, license text and build script are distributed in `licenses/ffmpeg` (inside the application resources on macOS). You may rebuild and replace the separate `goim-media` executable.

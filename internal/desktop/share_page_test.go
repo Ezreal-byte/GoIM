@@ -163,7 +163,7 @@ func TestShareProjectMenuAndTransientFeedback(t *testing.T) {
 func TestMemberShareVisitRequiresOnlinePeerAndExplicitClick(t *testing.T) {
 	for _, protected := range []bool{false, true} {
 		state := panelTestDefaultState(t)
-		const address = "http://192.0.2.21:8080/s/test"
+		const address = "http://127.0.0.1:1/m/11111111111111111111111111111111"
 		state.Peers = []domain.Peer{{ID: "sender", Name: "Alice", Online: true}}
 		state.Files = []domain.File{{ID: "project", SenderID: "sender", Name: "Folder", Shared: true, ShareFolder: !protected, ShareProtected: protected, MemberURL: address}}
 		h := panelTestNewHarness(t, panelModuleShares, state)
@@ -185,8 +185,8 @@ func TestMemberShareVisitRequiresOnlinePeerAndExplicitClick(t *testing.T) {
 			t.Fatal("web project offers copying another member's URL")
 		}
 		h.click(h.panels.ids.shareMenuVisit)
-		if got, ok := h.driver.LastOpenedURL(); !ok || got != address {
-			t.Fatalf("opened %q", got)
+		if _, opened := h.driver.LastOpenedURL(); opened || h.panels.memberProject == nil || h.panels.memberProject.address != address {
+			t.Fatal("member project did not open in the client")
 		}
 		state.Revision++
 		state.Peers[0].Online = false

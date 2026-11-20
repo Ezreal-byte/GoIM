@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"goim/internal/domain"
+	"goim/internal/shareclient"
 )
 
 func TestMemberShareServedOnConnectedInterface(t *testing.T) {
@@ -166,6 +167,33 @@ func TestMemberCatalogDownloadBrowseUnlockAndRevoke(t *testing.T) {
 	}
 	if body := get(locked.MemberURL, 200); strings.Contains(body, "confidential.txt") || !strings.Contains(body, "分享密码") {
 		t.Fatal("password gate did not protect file metadata")
+	}
+	nativeClient, err := shareclient.New(locked.MemberURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nativeClient.Close()
+	gate, err := nativeClient.List(t.Context(), "", "")
+	if err != nil || !gate.Locked || len(gate.Items) != 0 {
+		t.Fatalf("unexpected native gate: %+v %v", gate, err)
+	}
+	if _, err := nativeClient.List(t.Context(), gate.Path, "wrong"); err == nil {
+		t.Fatal("wrong password accepted")
+	}
+	privatePage, err := nativeClient.List(t.Context(), gate.Path, "member-secret")
+	if err != nil || len(privatePage.Items) != 1 {
+		t.Fatalf("native unlock: %+v %v", privatePage, err)
+	}
+	dest := t.TempDir()
+	for _, name := range []string{"confidential.txt", "confidential (1).txt"} {
+		path, err := nativeClient.Download(t.Context(), privatePage.Items[0], dest)
+		if err != nil || filepath.Base(path) != name {
+			t.Fatalf("native download: %q %v", path, err)
+		}
+		body, err := os.ReadFile(path)
+		if err != nil || string(body) != "shared bytes" {
+			t.Fatalf("download contents: %v", err)
+		}
 	}
 	login := resolved
 	get(login+"/download", http.StatusUnauthorized)

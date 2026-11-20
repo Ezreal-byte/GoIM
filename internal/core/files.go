@@ -333,8 +333,11 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 			s.Files[i].ConversationID = f.ConversationID
 		}
 		if transferIndex(s, e.TransferID) < 0 {
+			if !isPrint && f.AutoReceiveVideo(s.Settings) {
+				autoReceive = true
+			}
 			status := "offered"
-			if f.InlineImage || isPrint {
+			if f.InlineImage || isPrint || autoReceive {
 				status = "waiting"
 			}
 			transfer := domain.Transfer{ID: e.TransferID, FileID: f.ID, ConversationID: f.ConversationID, PeerID: peer,
@@ -569,21 +572,11 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 		return nil
 	}
 	if destination == "" {
-		destination = filepath.Join(s.Settings.DownloadDir, f.Name)
-		if _, e := os.Stat(destination); e == nil {
-			if s.Settings.DuplicatePolicy == "ask" {
-				return errors.New("同名文件存在，请选择另存为")
-			}
-			ext := filepath.Ext(f.Name)
-			base := strings.TrimSuffix(f.Name, ext)
-			for j := 1; ; j++ {
-				candidate := filepath.Join(s.Settings.DownloadDir, fmt.Sprintf("%s (%d)%s", base, j, ext))
-				if _, e := os.Lstat(candidate); os.IsNotExist(e) {
-					destination = candidate
-					break
-				}
-			}
+		path, err := receiveDestination(s.Settings.DownloadDir, f.Name, s.Settings.DuplicatePolicy)
+		if err != nil {
+			return err
 		}
+		destination = path
 	}
 	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
 		return err
@@ -835,4 +828,32 @@ func (n *Node) offerShared(peer, id string) error {
 		return errors.New("此分享已不可用")
 	}
 	return err
+}
+
+// receiveDestination chooses the first available name. Publication still checks
+// the final path, because another transfer can finish while this one is running.
+func receiveDestination(dir, name, policy string) (string, error) {
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	for index := 0; index < 10000; index++ {
+		candidate := name
+		if index > 0 {
+			candidate = fmt.Sprintf("%s (%d)%s", base, index, ext)
+		}
+		path := filepath.Join(dir, candidate)
+		_, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return path, nil
+		}
+		if err != nil {
+			return "", err
+		}
+		if policy == "ask" {
+			return "", errors.New("同名文件存在，请选择另存为")
+		}
+	}
+	return "", errors.New("接收目录中的同名文件过多")
 }

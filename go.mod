@@ -10,6 +10,7 @@ require (
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/vivaui/viva v0.6.6-0.20261118022843-059256b5ba10
 	go.etcd.io/bbolt v1.5.0
+	golang.org/x/net v0.63.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/text v0.44.0
 )

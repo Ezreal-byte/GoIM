@@ -3,7 +3,6 @@ package core
 import (
 	"goim/internal/domain"
 	"testing"
-	"time"
 )
 
 func TestArchivedAliasRejectsSendWithoutDiscardingSavedDraft(t *testing.T) {
@@ -18,16 +17,11 @@ func TestArchivedAliasRejectsSendWithoutDiscardingSavedDraft(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	n.Submit(domain.Command{Kind: domain.SaveDraft, ConversationID: conversation, Text: text})
-	result := make(chan error, 1)
-	n.Submit(domain.Command{Kind: domain.SendText, ConversationID: conversation, Text: text, OnResult: func(err error) { result <- err }})
-	select {
-	case err := <-result:
-		if err == nil {
-			t.Fatal("archived route accepted send")
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("send produced no local result")
+	if err := n.execute(domain.Command{Kind: domain.SaveDraft, ConversationID: conversation, Text: text}); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.execute(domain.Command{Kind: domain.SendText, ConversationID: conversation, Text: text}); err == nil {
+		t.Fatal("archived route accepted send")
 	}
 	state := n.Snapshot()
 	if state.Conversation(conversation).Draft != text || len(state.ChatMessages(conversation)) != 0 {

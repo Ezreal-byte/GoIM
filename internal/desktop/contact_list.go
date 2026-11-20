@@ -75,6 +75,29 @@ func makeContactGroup(name string, peers []domain.Peer) contactGroupView {
 	return group
 }
 
+// Render in the shell so the preview follows the pointer beyond the list
+// without intercepting hits on the group underneath it.
+func (u *UI) drawContactDragGhost(canvas *gfx.Canvas, bounds ui.Rect) {
+	if u.section != sectionContacts || !u.contactDrag.Dragging() || u.lockVisible() {
+		return
+	}
+	for _, group := range u.contacts {
+		for _, peer := range group.Peers {
+			if u.peerRowIDs[peer.ID] != u.contactDrag.Source() {
+				continue
+			}
+			at := u.contactDrag.At()
+			card := ui.Rect{Width: min(conversationPreviewWidth-8, bounds.Width), Height: conversationPreviewHeight - 9}
+			card.X = max(bounds.X, min(at.X+14, bounds.Right()-card.Width))
+			card.Y = max(bounds.Y, min(at.Y+12, bounds.Bottom()-card.Height))
+			canvas.PushLayer(65)
+			u.paintConversationDragCard(canvas, card, conversationCardData{title: peer.DisplayName(), username: remarkUsername(peer), avatarName: peer.Name, avatarPath: peer.Avatar, online: peer.VisibleOnline(), preview: displayContactGroup(group.Name)}, false)
+			canvas.PopLayer()
+			return
+		}
+	}
+}
+
 func (u *UI) contactDropTarget(box ui.Box, id gfx.ID) {
 	box.DropTarget(&u.contactDrag, u.acceptContactDrop, u.moveDroppedContact)
 	if u.contactDrag.Target() == id {

@@ -422,6 +422,7 @@ type Settings struct {
 	DisableAutoDiscovery         bool
 	DNSDiscovery                 DNSDiscoveryConfig `json:",omitzero"`
 	AutoAcceptImages             bool
+	ManualVideoReceive           bool
 	// DisableAutoUpdateCheck preserves the zero value as the desired default:
 	// existing profiles keep checking for updates unless the user opts out.
 	DisableAutoUpdateCheck    bool

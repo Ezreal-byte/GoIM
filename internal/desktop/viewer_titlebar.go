@@ -1,11 +1,11 @@
 package desktop
 
 import (
-	"github.com/vivaui/viva/gfx"
 	"math"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/i18n"
@@ -14,7 +14,7 @@ import (
 const viewerTitlebarHeight = 40
 
 type viewerMenuIDs struct {
-	trigger, scope, dismiss, fit, actual, rotateLeft gfx.ID
+	trigger, scope, dismiss, fit, actual, rotateLeft, save gfx.ID
 }
 
 func newViewerMenuIDs(tree *gfx.Tree, dialog gfx.Scope) viewerMenuIDs {
@@ -24,6 +24,7 @@ func newViewerMenuIDs(tree *gfx.Tree, dialog gfx.Scope) viewerMenuIDs {
 		dismiss:    tree.ID(dialog, "image-viewer-menu-dismiss"),
 		fit:        tree.ID(dialog, "image-viewer-menu-fit"),
 		actual:     tree.ID(dialog, "image-viewer-menu-actual"),
+		save:       tree.ID(dialog, "viewer-menu-save"),
 		rotateLeft: tree.ID(dialog, "image-viewer-menu-rotate-left"),
 	}
 }
@@ -32,7 +33,7 @@ func (u *UI) imageViewerConfig() app.Config {
 	theme := themeForSettings(u.state.Settings)
 	colors := paletteFor(theme)
 	return app.Config{
-		Tree: &u.tree, Title: i18n.T("GoIM · 图片查看"), Class: "GoIM.Desktop", Icon: windowIcon(),
+		Tree: &u.tree, Title: i18n.T("GoIM · 媒体查看"), Class: "GoIM.Desktop", Icon: windowIcon(),
 		Width: 920, Height: 680, MinWidth: 640, MinHeight: 310,
 		WindowMode: app.WindowCustomTitlebar, TitlebarHeight: viewerTitlebarHeight,
 		ClearColor: colorToApp(colors.chat),
@@ -92,42 +93,49 @@ func (u *UI) drawViewerTitlebar(c *gfx.Canvas, bar, viewport ui.Rect, theme ui.T
 		u.navigateImageViewer(1)
 	}
 	group()
-	if button(ids.viewerZoomIn, i18n.T("放大图片"), viewerZoomInIcon, gfx.IconTransform{}, false, false) {
-		u.zoomImageViewer(1.25)
-	}
-	if button(ids.viewerZoomOut, i18n.T("缩小图片"), viewerZoomOutIcon, gfx.IconTransform{}, false, false) {
-		u.zoomImageViewer(0.8)
-	}
-	actual := !state.fit && state.zoom == 1
-	sizeAction := i18n.T("实际大小 1:1")
-	if actual {
-		sizeAction = i18n.T("适应窗口")
-	}
-	if button(ids.viewerActual, sizeAction, viewerActualIcon, gfx.IconTransform{}, false, actual) {
-		if actual {
-			u.fitImageViewer()
-		} else {
-			u.showImageViewerActualSize()
+	if !u.state.File(state.fileID).Video() {
+		if button(ids.viewerZoomIn, i18n.T("放大图片"), viewerZoomInIcon, gfx.IconTransform{}, false, false) {
+			u.zoomImageViewer(1.25)
 		}
+		if button(ids.viewerZoomOut, i18n.T("缩小图片"), viewerZoomOutIcon, gfx.IconTransform{}, false, false) {
+			u.zoomImageViewer(0.8)
+		}
+		actual := !state.fit && state.zoom == 1
+		sizeAction := i18n.T("实际大小 1:1")
+		if actual {
+			sizeAction = i18n.T("适应窗口")
+		}
+		if button(ids.viewerActual, sizeAction, viewerActualIcon, gfx.IconTransform{}, false, actual) {
+			if actual {
+				u.fitImageViewer()
+			} else {
+				u.showImageViewerActualSize()
+			}
+		}
+		group()
+		if button(ids.viewerRotate, i18n.T("顺时针旋转图片"), viewerRotateIcon, gfx.IconTransform{}, false, false) {
+			u.rotateImageViewer(1)
+		}
+		group()
 	}
-	group()
-	if button(ids.viewerRotate, i18n.T("顺时针旋转图片"), viewerRotateIcon, gfx.IconTransform{}, false, false) {
-		u.rotateImageViewer(1)
-	}
-	group()
 	if button(ids.viewerFullscreen, i18n.T("切换全屏"), viewerFullscreenIcon, gfx.IconTransform{}, false, state.fullscreen) && u.fullscreenViewer != nil {
 		if u.fullscreenViewer(!state.fullscreen) {
 			state.fullscreen = !state.fullscreen
 		}
 	}
-	if button(ids.viewerSave, i18n.T("保存原图"), viewerSaveIcon, gfx.IconTransform{}, path == "", false) && u.saveViewer != nil {
+	saveLabel := "保存原图"
+	if u.state.File(state.fileID).Video() {
+		saveLabel = "视频另存为"
+	}
+	if button(ids.viewerSave, i18n.T(saveLabel), viewerSaveIcon, gfx.IconTransform{}, path == "", false) && u.saveViewer != nil {
 		u.saveViewer(path)
 	}
 
 	if !state.menuOpen && !state.fullscreen && more.X > x {
 		c.MoveRegion(ui.Rect{X: x, Y: bar.Y, Width: more.X - x, Height: bar.Height})
 	}
-	if viewerTitleButton(c, theme, colors, more, ids.viewerMenu.trigger, i18n.T("图片查看选项"), MoreHorizontal, gfx.IconTransform{}, false, state.menuOpen) {
+	if viewerTitleButton(c, theme, colors, more, ids.viewerMenu.trigger, i18n.T("媒体查看选项"), MoreHorizontal, gfx.IconTransform{}, false, state.menuOpen) {
+		state.menuAtPointer = false
 		state.menuOpen = !state.menuOpen
 	}
 	if state.menuOpen {
@@ -166,16 +174,36 @@ func viewerTitleButton(c *gfx.Canvas, theme ui.Theme, colors palette, bounds ui.
 }
 
 func (u *UI) drawViewerOptions(c *gfx.Canvas, viewport, anchor ui.Rect, theme ui.Theme, ids viewerMenuIDs, state *imageViewerState) {
-	bounds, side := components.PlaceOverlay(anchor, ui.Size{Width: 218, Height: 108}, viewport,
-		components.OverlayPlacement{Align: components.OverlayAlignEnd, SideOffset: 6, Margin: 6})
+	video := u.state.File(state.fileID).Video()
+	height := float32(140)
+	if video {
+		height = 44
+	}
+	align := components.OverlayAlignEnd
+	if state.menuAtPointer {
+		anchor = state.menuAt
+		align = components.OverlayAlignStart
+	}
+	bounds, side := components.PlaceOverlay(anchor, ui.Size{Width: 218, Height: height}, viewport, components.OverlayPlacement{Align: align, SideOffset: 4, Margin: 6})
 	menu := components.BeginContextMenu(c, theme, bounds, components.ContextMenuOptions{
 		Layer: 83, Scope: ids.scope, DismissID: ids.dismiss, Side: side, Viewport: viewport,
 	})
-	menu.AddItem(components.ContextMenuItem{ID: ids.fit, Label: i18n.T("适应窗口")})
-	menu.AddItem(components.ContextMenuItem{ID: ids.actual, Label: i18n.T("实际大小 1:1")})
-	menu.AddItem(components.ContextMenuItem{ID: ids.rotateLeft, Label: i18n.T("逆时针旋转图片")})
+	if !video {
+		menu.AddItem(components.ContextMenuItem{ID: ids.fit, Label: i18n.T("适应窗口")})
+		menu.AddItem(components.ContextMenuItem{ID: ids.actual, Label: i18n.T("实际大小 1:1")})
+		menu.AddItem(components.ContextMenuItem{ID: ids.rotateLeft, Label: i18n.T("逆时针旋转图片")})
+	}
+	label := "保存原图"
+	if video {
+		label = "视频另存为"
+	}
+	menu.AddItem(components.ContextMenuItem{ID: ids.save, Label: i18n.T(label), Disabled: u.fileLocalPath[state.fileID] == "" || u.saveViewer == nil})
 	menu.End()
 	switch {
+	case c.Clicked(ids.save):
+		if u.saveViewer != nil {
+			u.saveViewer(u.fileLocalPath[state.fileID])
+		}
 	case c.Clicked(ids.fit):
 		u.fitImageViewer()
 	case c.Clicked(ids.actual):

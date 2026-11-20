@@ -39,6 +39,7 @@ type shareQRDialogState struct {
 }
 
 func (p *Panels) closeShareInteractions() {
+	p.closeMemberProject()
 	p.shareMenu = shareMenuState{}
 	p.shareDialog = shareSendDialogState{}
 	p.sharePassword = sharePasswordDialogState{}

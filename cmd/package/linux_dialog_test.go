@@ -27,7 +27,7 @@ func TestLinuxDEBBundlesFileDialogFallback(t *testing.T) {
 			output := t.TempDir()
 			name := "GoIM_0.1.14-dialog-test_linux_" + architecture
 			for _, entry := range []string{
-				"GoIM", "goim-snip", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md", "build-info.json",
+				"GoIM", "goim-snip", "goim-media", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md", "build-info.json",
 				"licenses/fixture.txt", "share/applications/dev.goim.desktop.desktop", "share/polkit-1/actions/dev.goim.desktop.policy",
 				"lib/goim/file-dialog/bin/zenity", "lib/goim/file-dialog/lib/libgtk-3.so.0",
 			} {

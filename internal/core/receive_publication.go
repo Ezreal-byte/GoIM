@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"goim/internal/filemove"
 	"io"
 	"io/fs"
 	"os"
@@ -253,7 +254,7 @@ func (n *Node) finishReceivePublication(ctx context.Context, id string, publicat
 			problem = ctx.Err()
 			return nil // preserve the intent across application shutdown
 		} else if problem == nil && !installed {
-			problem = publishExclusive(publication.Stage, publication.Destination)
+			problem = filemove.Exclusive(publication.Stage, publication.Destination)
 		}
 		delete(p.ReceivePublications, id)
 		if problem != nil {

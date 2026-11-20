@@ -20,6 +20,7 @@ import (
 )
 
 type desktopRuntime struct {
+	messageSound        *ringtoneSession
 	geometry            windowLayoutStore
 	ui                  *UI
 	backend             domain.Backend
@@ -28,7 +29,6 @@ type desktopRuntime struct {
 	conversationWindows map[string]*detachedConversationWindow
 	printWindows        map[string]*printWindowEntry
 	historyWindows      map[string]*historyWindowEntry
-	memberWindows       map[string]*membersWindow
 	historyPending      string
 	tray                *app.StatusItem
 	seen                map[string]bool
@@ -133,13 +133,13 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		shell.panels.settingsExtra.interfaceFont.supportKnown = true
 		shell.panels.settingsExtra.interfaceFont.supported = supported
 		shell.requestScreenshot = r.launchScreenshot
+		shell.wakeViewer = r.viewerWake.Invalidate
 		shell.presentViewer = func() {
 			r.viewerPending = true
 			shell.invalidator.Invalidate()
 		}
 		shell.presentDetached = r.openDetachedConversation
 		shell.presentHistory = r.requestHistoryWindow
-		shell.presentMembers = r.openMembersWindow
 		shell.panels.presentPrint = r.openPrintWindow
 		shell.dismissViewer = r.closeViewer
 		shell.pinViewer = r.pinViewer
@@ -152,6 +152,9 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		closed := config.OnClosed
 		config.OnClosed = func() {
 			r.cancelSystemInvitation()
+			if r.messageSound != nil {
+				r.messageSound.stop()
+			}
 			if r.voiceWindow != nil {
 				r.voiceWindow.Close()
 			}
@@ -159,9 +162,6 @@ func Run(backend domain.Backend, restartArguments []string) error {
 			r.closeDetachedConversations()
 			r.closePrintWindows()
 			r.closeHistoryWindows()
-			for _, entry := range r.memberWindows {
-				entry.window.Close()
-			}
 			if closed != nil {
 				closed()
 			}
@@ -242,9 +242,6 @@ func (r *desktopRuntime) observe() {
 	}
 	for _, entry := range r.historyWindows {
 		entry.conceal(locked)
-	}
-	for _, entry := range r.memberWindows {
-		entry.sync(s, locked, s.Revision != r.windowRevision)
 	}
 	if locked && r.ui.conversationDrag.preview != nil {
 		r.ui.conversationDrag.preview.Close()
@@ -354,9 +351,9 @@ func (r *desktopRuntime) observe() {
 				r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("系统通知暂不可用：") + err.Error()})
 			}
 		}
-		if s.Settings.Sound {
-			_ = app.PlaySystemSound(app.SoundInformation)
-		}
+	}
+	if attention && s.Settings.Sound && !s.VoiceCall.Live() {
+		r.playMessageChime(s.Settings)
 	}
 	if attention && unread > 0 {
 		r.startAttention(time.Now())

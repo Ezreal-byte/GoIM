@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"goim/internal/filemove"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,7 @@ func TestReceivePublicationRecoversBothSidesOfTheMove(t *testing.T) {
 			n := testNodeAt(t, "receiver", dir)
 			id, publication := fixtureReceivePublication(t, n, scenario.directory)
 			if scenario.moved {
-				if err := publishExclusive(publication.Stage, publication.Destination); err != nil {
+				if err := filemove.Exclusive(publication.Stage, publication.Destination); err != nil {
 					t.Fatal(err)
 				}
 				if err := n.execute(domain.Command{Kind: domain.CancelTransfer, TransferID: id}); err != nil {

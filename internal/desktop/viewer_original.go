@@ -12,7 +12,7 @@ func (u *UI) queueViewerOriginal() {
 		return
 	}
 	state := &u.surface.viewer
-	if !state.open {
+	if !state.open || u.state.File(state.fileID).Video() {
 		return
 	}
 	path := u.fileLocalPath[state.fileID]

@@ -61,7 +61,7 @@ var byExtension = func() map[string]string {
 		"ruby":        "rb",
 		"rust":        "rs",
 		"sass":        "sass scss",
-		"settings":    "cfg conf env ini properties",
+		"settings":    "cfg conf dll dylib env ini properties so",
 		"swift":       "swift",
 		"table":       "csv et numbers ods tsv xls xlsm xlsx",
 		"toml":        "toml",

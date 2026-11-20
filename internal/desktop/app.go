@@ -312,8 +312,6 @@ type appIDs struct {
 	organizeSave    gfx.ID
 	organizeCancel  gfx.ID
 
-	memberScope          gfx.ID
-	memberDismiss        gfx.ID
 	memberClose          gfx.ID
 	memberAvatar         gfx.ID
 	memberSearch         gfx.ID
@@ -453,6 +451,8 @@ type UI struct {
 	chatEditor           *text.Editor
 	chatEditorField      ui.Field
 	requestScreenshot    func()
+	wakeViewer           func()
+	forwardViewer        func(string)
 	presentViewer        func()
 	pinViewer            func(bool) bool
 	saveViewer           func(string)
@@ -460,9 +460,7 @@ type UI struct {
 	dismissViewer        func()
 	presentDetached      func(string) bool
 	presentHistory       func(string) bool
-	presentMembers       func(string)
 	presentMemberChat    func(string)
-	memberWindow         bool
 	presentArchiveTarget func(string)
 	locateMessageID      string
 	locateMessageBox     ui.Box
@@ -858,6 +856,8 @@ func (u *UI) Config() app.Config {
 // intentionally safe to call both directly and from Config.OnClosed.
 func (u *UI) Close() {
 	u.closeOnce.Do(func() {
+		u.panels.closeMemberProject()
+		u.surface.viewer.video.Stop()
 		u.voiceAudio.close()
 		for _, page := range []*ui.Page{
 			u.titlePage, u.railPage, u.sidebarPage, u.chatPage, u.drawerPage,
@@ -1291,8 +1291,6 @@ func (u *UI) initIDs() {
 	u.ids.organizeSave = u.tree.ID(u.ids.dialog, "organize-save")
 	u.ids.organizeCancel = u.tree.ID(u.ids.dialog, "organize-cancel")
 
-	u.ids.memberScope = u.tree.ID(u.ids.dialog, "member-scope")
-	u.ids.memberDismiss = u.tree.ID(u.ids.dialog, "member-dismiss")
 	u.ids.memberClose = u.tree.ID(u.ids.dialog, "member-close")
 	u.ids.memberAvatar = u.tree.ID(u.ids.dialog, "member-avatar")
 	u.ids.memberSearch = u.tree.ID(u.ids.dialog, "member-search")
@@ -1387,6 +1385,7 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	u.panels.dialogViewport = bounds
 	u.drawMainBody(canvas, body)
 	u.drawConversationDragGhost(canvas, body)
+	u.drawContactDragGhost(canvas, body)
 
 	if u.chatFind.focus && u.chatFind.open {
 		canvas.RequestFocus(u.ids.chatSearchField)
@@ -2303,11 +2302,6 @@ func (u *UI) rebuildPresentation(oldError string) {
 		return u.ownershipInvites[i].CreatedAt.After(u.ownershipInvites[j].CreatedAt)
 	})
 
-	if u.memberWindow {
-		u.reconcileCompose(oldError)
-		u.refreshImages()
-		return
-	}
 	u.transfersFor = make(map[string][]domain.Transfer)
 	for _, transfer := range u.state.Transfers {
 		if transfer.FileID != "" {
@@ -2508,7 +2502,7 @@ func (u *UI) loadDraft(conversationID string) {
 }
 
 func (u *UI) saveCurrentDraft() {
-	if u.memberWindow || u.selected == "" || u.chatEditor == nil {
+	if u.selected == "" || u.chatEditor == nil {
 		return
 	}
 	u.persistDraft(u.selected, u.chatEditor.String())
@@ -2599,6 +2593,7 @@ func (u *UI) setSection(section string) {
 	if !u.isPanelSection() {
 		u.saveCurrentDraft()
 	}
+	u.panels.closeMemberProject()
 	u.section = section
 	u.textSelection.clear()
 	u.state.Settings.LastSection = section
@@ -2788,9 +2783,6 @@ func (u *UI) drawOverlays(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.drawMentionPicker(canvas, viewport)
 		u.drawEmojiPicker(canvas, viewport)
 	}
-	if u.drawer != "" && !u.isPanelSection() {
-		u.drawSideDrawer(canvas)
-	}
 	u.drawShellMenu(canvas, viewport)
 	if u.memberProfile != "" && !u.isPanelSection() {
 		u.drawMemberProfile(canvas, viewport)
@@ -2835,7 +2827,7 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 	if u.isPanelSection() {
 		return u.panels.TextInput(context)
 	}
-	if u.drawer != "" || u.memberWindow {
+	if u.drawer != "" {
 		if input := u.drawerPage.TextInput(context); input != nil {
 			return input
 		}
@@ -2883,7 +2875,7 @@ func (u *UI) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 		result.Handled = true
 		return result
 	}
-	if (u.drawer != "" || u.memberWindow) && pointInside(event.X, event.Y, u.lastChat) {
+	if (u.drawer != "") && pointInside(event.X, event.Y, u.lastChat) {
 		return u.drawerPage.Wheel(event)
 	}
 	if u.isPanelSection() {
@@ -2966,13 +2958,13 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 			}
 		}
 	}
-	if event.Key == gfx.KeyEscape {
+	if event.Key == gfx.KeyEscape && !event.Release {
 		switch {
 		case u.updateOpen:
 			return gfx.EventResult{}
 		case u.confirm.open:
 			u.confirm.open = false
-			return gfx.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.shellMenu.open:
 			u.closeShellMenu()
 			return gfx.EventResult{Handled: true, Repaint: true}
@@ -2996,26 +2988,26 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.compose.open:
 			u.requestCloseCompose()
-			return gfx.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.connectOpen:
 			// The dialog and the connection selector register their own Escape
 			// targets. Viva sends Escape to the innermost one first.
 			return gfx.EventResult{}
 		case u.memberProfile != "":
 			u.memberProfile = ""
-			return gfx.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.memberMenu != "":
 			u.memberMenu = ""
-			return gfx.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.activeFileID != "" && u.fileReturn == "list":
 			u.activeFileID = ""
-			return gfx.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.drawer != "":
 			u.requestCloseDrawer()
-			return gfx.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.moreOpen:
 			u.moreOpen = false
-			return gfx.EventResult{Handled: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		case u.chatFind.open:
 			u.closeChatSearch()
 			return gfx.EventResult{Handled: true, Repaint: true}
@@ -3037,7 +3029,7 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if u.isPanelSection() {
 		return u.panels.Key(event)
 	}
-	if u.drawer != "" || u.memberWindow {
+	if u.drawer != "" {
 		if result := u.drawerPage.Key(event); result.Handled {
 			return result
 		}

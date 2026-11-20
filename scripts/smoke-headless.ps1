@@ -154,7 +154,7 @@ try {
     do {
         $null=Send-Command $taskBob 'wait 50'
         $taskWindows=Send-Command $taskBob 'windows'
-        $taskViewer=[regex]::Match($taskWindows,'(?m)^id=(\d+) [^\r\n]+title="GoIM · 图片查看"')
+        $taskViewer=[regex]::Match($taskWindows,'(?m)^id=(\d+) [^\r\n]+title="GoIM · 媒体查看"')
     } until($taskViewer.Success -or [DateTime]::UtcNow -ge $taskViewerDeadline)
     if (!$taskViewer.Success) { throw "Separate image window did not open: $taskWindows" }
     Send-Command $taskBob 'window 1'
@@ -163,7 +163,7 @@ try {
     Wait-Control $taskBob "保存原图"
     Send-Command $taskBob 'click "实际大小 1:1"'
     Send-Command $taskBob 'click "适应窗口"'
-    Send-Command $taskBob 'click "图片查看选项"'
+    Send-Command $taskBob 'click "媒体查看选项"'
     Send-Command $taskBob 'expect text "逆时针旋转图片"'
     Send-Command $taskBob 'click "逆时针旋转图片"'
     Send-Command $taskBob 'click "顺时针旋转图片"'
@@ -234,27 +234,21 @@ try {
         Send-Command $taskAlice 'window 1'
         Send-Command $taskAlice 'click "群聊成员"'
         Send-Command $taskAlice 'settle 100'
-        $taskMemberWindows=Send-Command $taskAlice 'windows'
-        $taskMembers=[regex]::Match($taskMemberWindows,'(?m)^id=(\d+) [^\r\n]+title="群聊成员 · 三端验证群"')
-        if(!$taskMembers.Success){throw "Member window missing: $taskMemberWindows"}
-        Send-Command $taskAlice ('window '+$taskMembers.Groups[1].Value)
+        Send-Command $taskAlice 'expect exists "搜索群成员"'
         if($taskMemberPass -eq 1) {
-            Send-Command $taskAlice 'resize 660 680'
-            Send-Command $taskAlice 'windowmove 80 90'
             Send-Command $taskAlice 'click "搜索群成员"'
             Send-Command $taskAlice 'type 不存在的成员'
             Send-Command $taskAlice 'expect text "没有匹配的成员"'
             Send-Command $taskAlice 'expect layout clean'
-            Send-Command $taskAlice ('closewindow '+$taskMembers.Groups[1].Value)
+            Send-Command $taskAlice 'click "关闭详情"'
         } else {
-            $taskMemberFrame=Send-Command $taskAlice 'frame'
-            if($taskMemberFrame -notmatch 'x=80 y=90 w=660 h=680'){throw "Restored member frame: $taskMemberFrame"}
             Send-Command $taskAlice 'expect exists "搜索群成员"'
             Send-Command $taskAlice 'expect text "林晓"'
             Send-Command $taskAlice 'click "button:林晓"'
             Send-Command $taskAlice 'click "查看资料"'
             Send-Command $taskAlice 'expect text "成员资料"'
             Send-Command $taskAlice 'key esc'
+            Send-Command $taskAlice 'click "关闭详情"'
         }
     }
     Send-Command $taskAlice 'window 1'
@@ -290,18 +284,14 @@ try {
     Enter-PasswordKeys $taskAlice
     Send-Command $taskAlice 'click "设置并锁定"'
     Send-Command $taskAlice 'waitfor "GoIM 已锁定" 10000'
-    $taskMemberID=$taskMembers.Groups[1].Value
     $taskLockedWindows=Send-Command $taskAlice 'windows'
-    if($taskLockedWindows -notmatch ('(?m)^id={0} [^\r\n]*hidden=true title="GoIM"' -f $taskMemberID)){throw "Locked member window exposed: $taskLockedWindows"}
+    if($taskLockedWindows -match '群聊成员 · 三端验证群'){throw "Member pane leaked into a separate window: $taskLockedWindows"}
     Send-Command $taskAlice 'expect layout clean'
     Save-Screenshot $taskAlice 'real-locked.png'
     Enter-PasswordKeys $taskAlice
     Send-Command $taskAlice 'key enter'
     Send-Command $taskAlice 'window 1'
     Send-Command $taskAlice 'waitfor "快捷键" 10000'
-    $taskUnlockedWindows=Send-Command $taskAlice 'windows'
-    if($taskUnlockedWindows -notmatch ('(?m)^id={0} [^\r\n]*hidden=false title="群聊成员 · 三端验证群"' -f $taskMemberID)){throw "Member window failed to return: $taskUnlockedWindows"}
-    Send-Command $taskAlice ('closewindow '+$taskMemberID)
     $taskFolderShare=Join-Path $taskRunDir '交付资料'
     $taskFolderChild=Join-Path $taskFolderShare '界面设计'
     New-Item -ItemType Directory -Path $taskFolderChild -Force | Out-Null
@@ -338,8 +328,7 @@ try {
         if(!$taskChrome){$taskChrome=Join-Path $env:ProgramFiles 'Google/Chrome/Application/chrome.exe'}
         if(!(Test-Path -LiteralPath $taskChrome)){throw 'Browser screenshot requires installed Chrome'}
         $taskBrowserProfile=Join-Path $taskRunDir 'chrome-screenshot'
-        node scripts/share-browser-qa.mjs $taskChrome $taskBrowserProfile $taskURL $OutputDir
-        if($LASTEXITCODE -ne 0){throw 'Responsive browser screenshot check failed'}
+
     }
     Send-Command $taskAlice 'key esc'
     Send-Command $taskAlice 'wait 300'
@@ -354,6 +343,12 @@ try {
     Send-Command $taskAlice 'click "复制项目链接"'
     $taskFolderURL=[regex]::Match((Send-Command $taskAlice 'clip'),'http://127\.0\.0\.1:\d+/s/[a-zA-Z0-9_-]+').Value
     if(!$taskFolderURL -or $taskFolderURL -eq $taskURL){throw 'No distinct browser folder share URL was copied'}
+    if($BrowserScreenshots){
+        $nodeOptions=@()
+        if([int](node -p "process.versions.node.split('.')[0]") -eq 20){$nodeOptions+='--experimental-websocket'}
+        node @nodeOptions scripts/share-browser-qa.mjs $taskChrome $taskBrowserProfile $taskURL $OutputDir $taskFolderURL
+        if($LASTEXITCODE -ne 0){throw 'Responsive browser screenshot check failed'}
+    }
     $taskRootPage=Invoke-WebRequest -UseBasicParsing -Uri $taskFolderURL -TimeoutSec 8
     $taskNestedHref=[regex]::Match($taskRootPage.Content,'href="([^"]+\?dir=\d+)" aria-label="打开文件夹：界面设计"').Groups[1].Value
     if(!$taskNestedHref){throw 'Shared folder is missing its subfolder link'}

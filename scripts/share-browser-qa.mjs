@@ -4,7 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-const [chrome, profile, url, output] = process.argv.slice(2);
+const [chrome, profile, url, output, folderURL] = process.argv.slice(2);
 if (!chrome || !profile || !output || !/^http:\/\/127\.0\.0\.1:\d+\/s\/[\w-]+$/.test(url ?? "")) {
   throw new Error("Expected Chrome path, isolated profile, loopback share URL, and output directory");
 }
@@ -57,6 +57,19 @@ try {
   await evaluate("document.querySelector('input').value='goim-share-smoke'; document.querySelector('form').requestSubmit(); true");
   await eventually(() => evaluate("Array.from(document.links).some(a => a.pathname.endsWith('/download'))"));
   await capture("browser-share-download.png");
+  await call("Emulation.setDeviceMetricsOverride", {width:1440,height:900,deviceScaleFactor:1,mobile:false});
+  await call("Page.navigate", {url:folderURL});
+  await eventually(() => evaluate("!!document.querySelector('a.entry .file-type')"));
+  const metrics = await evaluate(`(() => {
+    const row=document.querySelector('a.entry'), bounds=row.getBoundingClientRect();
+    const icon=getComputedStyle(row.querySelector('.file-type'));
+    return {width:bounds.width, height:bounds.height, gutter:bounds.left, icon:icon.backgroundImage+icon.maskImage};
+  })()`);
+  if (metrics.width>1040 || metrics.height>44 || metrics.gutter<32 || !metrics.icon.includes('svg')) {
+    throw new Error("Directory geometry or file icon regression: "+JSON.stringify(metrics));
+  }
+  const {data}=await call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+  await writeFile(join(output,"browser-share-directory.png"),Buffer.from(data,"base64"));
 } finally {
   socket?.close();
   browser.kill();

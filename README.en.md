@@ -84,8 +84,9 @@ Windows and Linux installers check for running GoIM instances before replacing f
 1. Run GoIM on two devices on the same reachable LAN.
 2. Use the search field at the top of **Contacts** to find the other device. If discovery is unavailable, choose **Connect by IP** at the bottom of the sidebar and enter its IP or `IP:47842`.
 3. Send a message or image. Receive other attachments in the conversation or on the **Transfers** page.
-4. Add a file or folder in **File sharing**, then copy its link or show its QR code. To share several items from one page, choose **Device sharing → Enable device page** and copy the homepage link. Anyone on the same LAN with the link can browse the directory and download files. To send you a file, use the upload button at the top right or drag the file into the directory.
-5. To use a colleague’s printer, open **Print sharing**, choose an available printer with the paper, color and duplex options you need, then click **Print** to select a file. Check its status under **Recent prints**.
+4. In **File sharing → Member shares**, open a shared folder, unlock it if prompted, and choose the files to download. Chat videos under 500 MiB are received automatically. Click a received video to play it in the media viewer.
+5. Add a file or folder in **File sharing**, then copy its link or show its QR code. To share several items from one page, choose **Device sharing → Enable device page** and copy the homepage link. Anyone on the same LAN with the link can browse the directory and download files. To send you a file, use the upload button at the top right or drag the file into the directory.
+6. To use a colleague’s printer, open **Print sharing**, choose an available printer with the paper, color and duplex options you need, then click **Print** to select a file. Check its status under **Recent prints**.
 
 Native chat uses TCP 47842 and IPv4 multicast at `239.192.77.77:47841` for discovery. Browser sharing uses LAN HTTP on trusted networks.
 

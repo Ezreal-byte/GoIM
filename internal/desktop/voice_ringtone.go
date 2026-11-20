@@ -1,8 +1,7 @@
 package desktop
 
 import (
-	"encoding/binary"
-	"math"
+	_ "embed"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -48,7 +47,7 @@ func (r *incomingRingtone) sync(call domain.VoiceCall, settings domain.Settings,
 		session := &ringtoneSession{id: call.ID, speaker: settings.VoiceSpeaker, done: make(chan struct{}), finished: make(chan struct{})}
 		session.volume.Store(int32(domain.ClampVoiceVolume(settings.VoiceSpeakerVolume)))
 		r.session = session
-		go session.run(devices.openPlayback, finished)
+		go session.run(devices.openPlayback, finished, callMelody, true)
 	}
 	return finished
 }
@@ -76,7 +75,7 @@ func (s *ringtoneSession) closePlayback() {
 	}
 }
 
-func (s *ringtoneSession) run(open func(string) (voiceaudio.Playback, error), previous <-chan struct{}) {
+func (s *ringtoneSession) run(open func(string) (voiceaudio.Playback, error), previous <-chan struct{}, cycle []byte, repeat bool) {
 	defer close(s.finished)
 	if previous != nil {
 		// Keep the close barrier even if this queued ringtone is canceled.
@@ -103,7 +102,6 @@ func (s *ringtoneSession) run(open func(string) (voiceaudio.Playback, error), pr
 	s.playback = playback
 	s.mu.Unlock()
 	defer s.closePlayback()
-	cycle := ringtonePCM()
 	var frame [voiceaudio.PCMFrameBytes]byte
 	timer := time.NewTimer(0)
 	defer timer.Stop()
@@ -124,27 +122,37 @@ func (s *ringtoneSession) run(open func(string) (voiceaudio.Playback, error), pr
 			}
 			data = data[n:]
 		}
-		position = (position + len(frame)) % len(cycle)
+		position += len(frame)
+		if position == len(cycle) {
+			if !repeat {
+				return
+			}
+			position = 0
+		}
 		timer.Reset(voiceaudio.FrameMillis * time.Millisecond)
 	}
 }
 
-// Two short, softly ramped tones followed by a pause. PCM is generated locally,
-// so the ringtone has no platform sound-theme or external asset dependency.
-func ringtonePCM() []byte {
-	pcm := make([]byte, 2*voiceaudio.SampleRate*2)
-	for sample := range 2 * voiceaudio.SampleRate {
-		seconds := float64(sample) / voiceaudio.SampleRate
-		pulse := seconds
-		if seconds >= .55 {
-			pulse = seconds - .55
+// Pre-rendered mono 16 kHz signed PCM, padded to complete playback frames.
+// Source and attribution are recorded in THIRD_PARTY_NOTICES.md.
+//
+//go:embed sounds/phone-incoming-call.pcm
+var callMelody []byte
+
+//go:embed sounds/message-new-instant.pcm
+var messageChime []byte
+
+// A burst of messages shares one chime. This is called on the desktop thread.
+func (r *desktopRuntime) playMessageChime(settings domain.Settings) {
+	if last := r.messageSound; last != nil {
+		select {
+		case <-last.finished:
+		default:
+			return
 		}
-		if pulse < 0 || pulse >= .35 || seconds >= .90 {
-			continue
-		}
-		ramp := min(1., pulse/.015, (.35-pulse)/.015)
-		value := int16(6000 * ramp * (math.Sin(2*math.Pi*440*seconds) + math.Sin(2*math.Pi*480*seconds)))
-		binary.LittleEndian.PutUint16(pcm[sample*2:], uint16(value))
 	}
-	return pcm
+	session := &ringtoneSession{speaker: settings.VoiceSpeaker, done: make(chan struct{}), finished: make(chan struct{})}
+	session.volume.Store(int32(domain.ClampVoiceVolume(settings.VoiceSpeakerVolume)))
+	r.messageSound = session
+	go session.run(systemVoiceDevices.openPlayback, nil, messageChime, false)
 }

@@ -135,7 +135,7 @@ func (n *Node) renderFolderShare(w http.ResponseWriter, r *http.Request, file do
 		id, ok = shareEntryID(value, len(record.Entries))
 		if !ok || !record.Entries[id-1].Folder {
 			page.Error = "这个文件夹不在分享范围内。"
-			renderShare(w, http.StatusNotFound, page)
+			renderShare(w, r, http.StatusNotFound, page)
 			return
 		}
 		entry := record.Entries[id-1]
@@ -161,7 +161,7 @@ func (n *Node) renderFolderShare(w http.ResponseWriter, r *http.Request, file do
 	}
 	if err != nil {
 		page.Error = "分享的文件夹已移走，或暂时无法访问。"
-		renderShare(w, http.StatusGone, page)
+		renderShare(w, r, http.StatusGone, page)
 		return
 	}
 	var folders, files int
@@ -197,13 +197,13 @@ func (n *Node) renderFolderShare(w http.ResponseWriter, r *http.Request, file do
 		page.Count = fmt.Sprintf("%d 个文件夹 · %d 个文件", folders, files)
 	}
 	page.Ready = true
-	renderShare(w, http.StatusOK, page)
+	renderShare(w, r, http.StatusOK, page)
 }
 
 func (n *Node) downloadFolderFile(w http.ResponseWriter, r *http.Request, file domain.File, record browserShare, base string) {
 	id, ok := shareEntryID(r.URL.Query().Get("file"), len(record.Entries))
 	if !ok || record.Entries[id-1].Folder {
-		renderShare(w, http.StatusNotFound, sharePageData{Path: base, Error: "这个文件不在分享范围内。"})
+		renderShare(w, r, http.StatusNotFound, sharePageData{Path: base, Error: "这个文件不在分享范围内。"})
 		return
 	}
 	entry := record.Entries[id-1]
@@ -226,7 +226,7 @@ func (n *Node) downloadFolderFile(w http.ResponseWriter, r *http.Request, file d
 			return
 		}
 	}
-	renderShare(w, http.StatusGone, sharePageData{Path: base, Error: "文件已移动或修改，请让分享人重新分享。"})
+	renderShare(w, r, http.StatusGone, sharePageData{Path: base, Error: "文件已移动或修改，请让分享人重新分享。"})
 }
 
 func openSharedFolderEntry(root *os.Root, entry shareFolderEntry) (*os.File, error) {

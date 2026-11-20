@@ -110,8 +110,13 @@ func applyNativeChat(p *persisted, target nativeChatTarget, message neiwangtong.
 				continue
 			}
 			s.Files = append(s.Files, file)
+			status := "offered"
+			if file.AutoReceiveVideo(s.Settings) {
+				status = "waiting"
+				downloads = append(downloads, id)
+			}
 			s.Transfers = append(s.Transfers, domain.Transfer{ID: id, FileID: id, ConversationID: target.conversation,
-				PeerID: target.sender, Direction: "receive", Status: "offered", Name: name, Size: file.Size, UpdatedAt: now,
+				PeerID: target.sender, Direction: "receive", Status: status, Name: name, Size: file.Size, UpdatedAt: now,
 				LegacyTransport: transportNWT, RemotePeerID: target.wirePeer, RemoteShareID: part.File.ID})
 			entry.Kind, entry.Text, entry.FileID = "file", name, id
 			addMessageState(s, entry)

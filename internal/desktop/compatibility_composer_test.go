@@ -73,7 +73,7 @@ func TestNeiwangtongFolderPickerAndGroupAvatarCapabilities(t *testing.T) {
 	}
 	h.ui.closeDrawer()
 	h.ui.selectConversation("conv-alice")
-	h.settle()
+	h.wake()
 	if h.hasHit(h.ui.ids.chatFolder) {
 		t.Fatal("IPMSG offers unsupported folder send")
 	}

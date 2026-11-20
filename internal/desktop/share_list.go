@@ -65,6 +65,13 @@ func measureShareColumns(width float32) shareColumns {
 }
 
 func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.State, submit func(domain.Command)) {
+	if p.memberProject != nil {
+		if entry, ok := p.shareEntry(p.memberProject.id); ok && entry.online && entry.file.MemberURL == p.memberProject.address {
+			p.drawMemberProject(f, theme, bounds, state.Settings.DownloadDir)
+			return
+		}
+		p.closeMemberProject()
+	}
 	pad := panelPageInset(bounds.Width)
 	columns := measureShareColumns(bounds.Width - 2*pad)
 	ui.Column(f).Fill().PadSides(panelPageTop, pad, 18, pad).Children(func() {
@@ -228,7 +235,7 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 			icon, color := Users, theme.MutedForeground
 			if entry.file.ShareProtected {
 				icon, color = Lock, theme.Foreground
-			} else if entry.file.ShareURL != "" || entry.file.MemberURL != "" {
+			} else if entry.file.ShareURL != "" {
 				icon, color = Link, theme.Success
 			}
 			ui.Icon(f, icon).Size(16, 16).Color(color)
@@ -240,8 +247,8 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 		ui.Row(f).Width(columns.actions).Gap(5).Items(ui.Center).Justify(ui.End).Children(func() {
 			if entry.memberWebProject() {
 				disabled := !entry.online || entry.file.MemberURL == ""
-				if panelActionIcon(f, theme, entry.copyID, ExternalLink, i18n.T("打开共享"), false, disabled).Clicked() && !disabled {
-					p.openMemberShare(canvas, entry.file.MemberURL)
+				if panelActionIcon(f, theme, entry.copyID, FolderOpen, i18n.T("打开共享"), false, disabled).Clicked() && !disabled {
+					p.openMemberProject(entry.file)
 				}
 			} else if entry.own && entry.file.ShareURL != "" {
 				if panelActionIcon(f, theme, entry.copyID, Copy, i18n.T("复制链接"), false, false).Clicked() {
@@ -264,6 +271,9 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 	})
 	if row.Clicked() {
 		p.shareSelected = entry.file.ID
+		if entry.memberWebProject() && entry.online && entry.file.MemberURL != "" {
+			p.openMemberProject(entry.file)
+		}
 	}
 	if e, ok := canvas.PointerOn(entry.rowID); ok && e.Kind == gfx.PointerDown && e.Button == gfx.PointerButtonSecondary {
 		p.shareSelected = entry.file.ID
@@ -343,7 +353,7 @@ func (p *Panels) drawShareMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rect, 
 				add(p.ids.shareMenuClearPass, "清除访问密码", Lock, func() { submit(domain.Command{Kind: domain.SetSharePassword, FileID: file.ID}) })
 			}
 		} else if entry.memberWebProject() {
-			add(p.ids.shareMenuVisit, "打开共享", ExternalLink, func() { p.openMemberShare(c, file.MemberURL) })
+			add(p.ids.shareMenuVisit, "打开共享", FolderOpen, func() { p.openMemberProject(file) })
 			items[len(items)-1].item.Disabled = !entry.online || file.MemberURL == ""
 		} else {
 			add(p.ids.shareMenuGet, "获取文件", Download, func() { submit(domain.Command{Kind: domain.GetShared, FileID: file.ID}) })
@@ -454,15 +464,6 @@ func (p *Panels) pickShare(c *gfx.Canvas, folder bool) {
 
 func (entry panelShareEntry) memberWebProject() bool {
 	return !entry.own && (entry.file.ShareFolder || entry.file.ShareProtected)
-}
-
-func (p *Panels) openMemberShare(c *gfx.Canvas, url string) {
-	c.AfterPaint(func() {
-		if err := app.OpenURL(url); err != nil {
-			p.setShareToast("无法打开共享页面", err.Error(), components.ToastError)
-			c.RequestFrame()
-		}
-	})
 }
 
 func (p *Panels) copyShareLink(c *gfx.Canvas, link string) {

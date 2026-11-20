@@ -21,10 +21,10 @@ import (
 func (u *UI) drawChat(canvas *gfx.Canvas, bounds ui.Rect) {
 	conversation := u.state.Conversation(u.selected)
 	u.surface.filesPane = ui.Rect{}
-	if u.drawer == "files" && conversation.ID == "" {
+	if u.drawer != "" && conversation.ID == "" {
 		u.closeDrawer()
 	}
-	if u.drawer == "files" {
+	if u.drawer != "" {
 		panel := bounds
 		// On compact windows the inspector occupies the workspace, with a clear
 		// close action. Keep hidden chat controls out of the hit tree entirely.
@@ -34,7 +34,11 @@ func (u *UI) drawChat(canvas *gfx.Canvas, bounds ui.Rect) {
 			bounds.Width -= panel.Width
 			u.drawChatSurface(canvas, bounds, conversation)
 		}
-		u.drawChatFilesPane(canvas, panel)
+		if u.drawer == "members" {
+			u.drawMemberPane(canvas, panel)
+		} else {
+			u.drawChatFilesPane(canvas, panel)
+		}
 	} else {
 		u.drawChatSurface(canvas, bounds, conversation)
 	}
@@ -247,12 +251,12 @@ func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 	}
 	if memberShown && memberButton.Clicked() {
 		u.closeChatPickers()
-		if u.presentMembers != nil {
-			id := conversation.ID
-			f.After(func() { u.presentMembers(id) })
-		} else {
-			u.drawer = "members"
+		if u.drawer == "members" {
+			u.requestCloseDrawer()
+			return
 		}
+		u.drawer = "members"
+		u.memberSearch.SetText("")
 		u.activeFileID = ""
 		u.memberMenu = ""
 		u.moreOpen = false
@@ -548,6 +552,10 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 			if !own && conversation.Kind == "group" {
 				ui.Text(f, u.messageSenderName(conversation, message)).FontSize(11.5).Muted().Ellipsis()
 			}
+			action := "查看详情"
+			if file.Video() && u.fileLocalPath[file.ID] != "" {
+				action = "播放视频"
+			}
 			cardWidth := min(float32(380), maxWidth)
 			card := ui.Column(f).Width(cardWidth).Pad(14).Radius(radiusControl).
 				Background(u.palette.fileCard).Border(1, u.palette.fileBorder).Gap(10).
@@ -577,7 +585,7 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 						ui.Row(f).Items(ui.Center).Children(func() {
 							ui.Text(f, u.transferProgressLabel(transfer)).FontSize(12).Muted().Ellipsis()
 							ui.Spacer(f)
-							ui.Text(f, i18n.T("查看详情")).FontSize(11).Weight(gfx.WeightMedium).
+							ui.Text(f, i18n.T(action)).FontSize(11).Weight(gfx.WeightMedium).
 								Color(u.palette.selectedText)
 						})
 					}
@@ -585,7 +593,7 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 						ui.Row(f).Items(ui.Center).Children(func() {
 							ui.Text(f, fileAvailability(u, file)).FontSize(12).Muted().Ellipsis()
 							ui.Spacer(f)
-							ui.Text(f, i18n.T("查看详情")).FontSize(11).Weight(gfx.WeightMedium).
+							ui.Text(f, i18n.T(action)).FontSize(11).Weight(gfx.WeightMedium).
 								Color(u.palette.selectedText)
 						})
 					}
@@ -605,7 +613,11 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 				})
 			u.messageContextPointer(f.Canvas(), u.fileButtonIDs[file.ID], message)
 			if card.Clicked() {
-				u.openFileDetail(file.ID, "chat")
+				if file.Video() && u.fileLocalPath[file.ID] != "" {
+					u.openImageViewer(file.ID)
+				} else {
+					u.openFileDetail(file.ID, "chat")
+				}
 			}
 			ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
 				u.messageTime(f, message, own)
@@ -1334,6 +1346,10 @@ func relativeTime(at time.Time) string {
 }
 
 func (u *UI) toggleFilesPane() {
+	if !u.guardGroupRenameNavigation(u.toggleFilesPane) {
+		return
+	}
+	u.resetGroupRename()
 	if u.drawer == "files" {
 		u.closeDrawer()
 		return
@@ -1348,6 +1364,10 @@ func (u *UI) toggleFilesPane() {
 }
 
 func (u *UI) openFileDetail(fileID, from string) {
+	if !u.guardGroupRenameNavigation(func() { u.openFileDetail(fileID, from) }) {
+		return
+	}
+	u.resetGroupRename()
 	u.activeVoiceRecord = domain.Message{}
 	u.activePrintID = ""
 	if fileID == "" {

@@ -16,38 +16,22 @@ import (
 	"goim/internal/domain"
 )
 
-func (u *UI) drawSideDrawer(canvas *gfx.Canvas) {
-	switch u.drawer {
-	case "members":
-		u.drawMemberDrawer(canvas, u.lastChat)
-	}
-}
-
-func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
+func (u *UI) drawMemberPane(canvas *gfx.Canvas, panel ui.Rect) {
 	conversation := u.state.Conversation(u.selected)
 	group := u.state.Group(conversation.GroupID)
 	if conversation.Kind != "group" || group.ID == "" || group.Left || group.Dissolved {
-		u.drawer = ""
-		u.activeFileID = ""
-		u.fileReturn = ""
+		u.closeDrawer()
 		return
 	}
-	owner := u.state.Self.ID != "" && group.OwnerID == u.state.Self.ID
-	extent := min(float32(430), max(viewport.Width-24, 300))
-	drawer := components.BeginDrawer(canvas, u.theme, viewport, components.DrawerOptions{
-		Layer: 60, Scope: u.ids.memberScope, DismissID: u.ids.memberDismiss,
-		CloseID: u.ids.memberClose, Side: components.DrawerRight, ContentExtent: extent,
-		InitialFocusID: u.ids.memberSearch, ButtonSize: components.ButtonSizeSmall,
-	})
-	layout := drawer.Begin(i18n.T("群聊信息"), group.Name)
-	anchor, avatarClicked := u.drawMemberContent(canvas, layout.Body, conversation, group, owner)
-	drawer.Actions(layout, u.membershipAction(owner))
-	drawer.End()
-	if canvas.Clicked(u.ids.memberDismiss) || canvas.Clicked(u.ids.memberClose) {
-		u.requestCloseDrawer()
-		return
-	}
-	u.handleMemberActions(canvas, viewport, group, owner, anchor, avatarClicked)
+	u.surface.filesPane = panel
+	canvas.Fill(panel, u.palette.sidebar)
+	canvas.Fill(ui.Rect{X: panel.X, Y: panel.Y, Width: 1, Height: panel.Height}, u.palette.border)
+	owner := group.OwnerID != "" && group.OwnerID == u.state.Self.ID
+	body := ui.Rect{X: panel.X + 16, Y: panel.Y + 10, Width: max(0, panel.Width-32), Height: max(0, panel.Height-70)}
+	anchor, avatar := u.drawMemberContent(canvas, body, conversation, group, owner)
+	footer := ui.Rect{X: body.X, Y: panel.Bottom() - 56, Width: body.Width, Height: 48}
+	paintDialogActions(canvas, u.theme, footer, u.membershipAction(owner))
+	u.handleMemberActions(canvas, panel, group, owner, anchor, avatar)
 }
 
 func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation domain.Conversation, group domain.Group, owner bool) (ui.Rect, bool) {
@@ -63,6 +47,13 @@ func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation do
 	var avatarClicked bool
 	u.drawerPage.Draw(canvas, body, func(f ui.C) {
 		ui.Column(f).Fill().Gap(11).Children(func() {
+			ui.Row(f).FillWidth().Height(38).Items(ui.Center).Children(func() {
+				ui.Text(f, i18n.T("群聊信息")).FontSize(16).Weight(gfx.WeightSemibold).Grow(1)
+				if u.iconButton(f, u.ids.memberClose, u.iconX, i18n.T("关闭详情"), 32).Clicked() {
+					u.requestCloseDrawer()
+				}
+			})
+			ui.Divider(f)
 			ui.Row(f).Items(ui.Center).Gap(12).Children(func() {
 				avatar := ui.Row(f).Size(46, 46).Radius(23).Items(ui.Center).Justify(ui.Center)
 				if owner {

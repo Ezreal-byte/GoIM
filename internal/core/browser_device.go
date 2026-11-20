@@ -131,7 +131,7 @@ func (n *Node) handleDeviceShare(w http.ResponseWriter, r *http.Request) {
 	}
 	page, downloadDir, ok := n.deviceSharePage(token)
 	if !ok {
-		renderShare(w, http.StatusNotFound, sharePageData{Error: "设备主页已关闭或链接无效。"})
+		renderShare(w, r, http.StatusNotFound, sharePageData{Error: "设备主页已关闭或链接无效。"})
 		return
 	}
 	if tail == "" {
@@ -143,7 +143,7 @@ func (n *Node) handleDeviceShare(w http.ResponseWriter, r *http.Request) {
 		page.OpenUpload = r.URL.Query().Get("upload") == "1"
 		page.Uploaded = r.URL.Query().Get("sent") == "1"
 		http.SetCookie(w, &http.Cookie{Name: deviceHomeCookie, Value: token, Path: "/s/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
-		renderShare(w, http.StatusOK, page)
+		renderShare(w, r, http.StatusOK, page)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -158,7 +158,7 @@ func (n *Node) handleDeviceShare(w http.ResponseWriter, r *http.Request) {
 	page.OpenUpload = true
 	fail := func(status int, message string) {
 		page.UploadError = message
-		renderShare(w, status, page)
+		renderShare(w, r, status, page)
 	}
 	select {
 	case n.webUploads <- struct{}{}:

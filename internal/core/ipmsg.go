@@ -184,6 +184,7 @@ func (n *Node) receiveLegacyMessage(peerID string, packetNumber uint64, message 
 			return errors.New("无效的飞鸽／飞秋附件")
 		}
 	}
+	var downloads []string
 	admitted := false
 	err := n.durableFromReader(func(p *persisted) []pending {
 		s := &p.State
@@ -220,6 +221,10 @@ func (n *Node) receiveLegacyMessage(peerID string, packetNumber uint64, message 
 			// IPMSG attachments are unverified files; a filename alone cannot
 			// opt them into the native chat-image download path.
 			status, kind := "offered", "file"
+			if file.AutoReceiveVideo(s.Settings) {
+				status = "waiting"
+				downloads = append(downloads, transferID)
+			}
 			s.Files = append(s.Files, file)
 			s.Transfers = append(s.Transfers, domain.Transfer{
 				ID: transferID, FileID: fileID, ConversationID: conversationID,
@@ -242,6 +247,11 @@ func (n *Node) receiveLegacyMessage(peerID string, packetNumber uint64, message 
 	})
 	if err == nil && !admitted {
 		return errors.New("飞鸽／飞秋联系人尚未登记")
+	}
+	if err == nil {
+		for _, id := range downloads {
+			n.startReceive(id, "")
+		}
 	}
 	return err
 }
@@ -373,21 +383,11 @@ func (n *Node) downloadLegacy(ctx context.Context, transfer domain.Transfer, fil
 		destination = filepath.Join(n.dir, "chat-images", file.ID+imageSuffix(file.MIME))
 	}
 	if destination == "" {
-		destination = filepath.Join(s.Settings.DownloadDir, file.Name)
-		if _, err := os.Stat(destination); err == nil {
-			if s.Settings.DuplicatePolicy == "ask" {
-				return errors.New("同名文件存在，请选择另存为")
-			}
-			ext := filepath.Ext(file.Name)
-			base := strings.TrimSuffix(file.Name, ext)
-			for index := 1; ; index++ {
-				candidate := filepath.Join(s.Settings.DownloadDir, fmt.Sprintf("%s (%d)%s", base, index, ext))
-				if _, statErr := os.Lstat(candidate); os.IsNotExist(statErr) {
-					destination = candidate
-					break
-				}
-			}
+		path, err := receiveDestination(s.Settings.DownloadDir, file.Name, s.Settings.DuplicatePolicy)
+		if err != nil {
+			return err
 		}
+		destination = path
 	}
 	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
 		return err

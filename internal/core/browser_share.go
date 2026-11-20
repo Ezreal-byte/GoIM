@@ -7,6 +7,7 @@ import (
 	"embed"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -24,6 +25,7 @@ import (
 	"goim/internal/brand"
 	"goim/internal/domain"
 	"goim/internal/fileicon"
+	"goim/internal/shareclient"
 )
 
 type browserShare struct {
@@ -416,7 +418,20 @@ func shareFileSize(size int64) string {
 	return fmt.Sprintf("%d 字节", size)
 }
 
-func renderShare(w http.ResponseWriter, status int, data sharePageData) {
+func renderShare(w http.ResponseWriter, r *http.Request, status int, data sharePageData) {
+	if strings.HasPrefix(r.URL.Path, "/s/") && r.Header.Get("Accept") == shareclient.MediaType {
+		p := shareclient.Page{Locked: data.Locked}
+		if data.Ready {
+			p.Title, p.Current, p.ParentURL = data.Title, data.Current, data.ParentURL
+			for _, e := range data.Items {
+				p.Items = append(p.Items, shareclient.Entry{Name: e.Name, URL: e.URL, Folder: e.Folder, Size: e.Size})
+			}
+		}
+		w.Header().Set("Content-Type", shareclient.MediaType)
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(p)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_ = sharePage.Execute(w, data)
@@ -450,7 +465,7 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 	}
 	f, record, ok := n.lookupShare(token)
 	if !ok {
-		renderShare(w, http.StatusNotFound, sharePageData{Error: "此分享已撤回或链接无效。"})
+		renderShare(w, r, http.StatusNotFound, sharePageData{Error: "此分享已撤回或链接无效。"})
 		return
 	}
 	page := sharePageData{Path: "/s/" + token, Locked: record.Password.set()}
@@ -475,7 +490,7 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 2048)
 		if r.ParseForm() != nil || !record.Password.matches(r.PostForm.Get("password")) {
 			page.Error = "密码不正确，请重试。"
-			renderShare(w, http.StatusUnauthorized, page)
+			renderShare(w, r, http.StatusUnauthorized, page)
 			return
 		}
 		exp := time.Now().Add(30 * time.Minute)
@@ -495,7 +510,7 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		if tail == "download" {
 			status = http.StatusUnauthorized
 		}
-		renderShare(w, status, page)
+		renderShare(w, r, status, page)
 		return
 	}
 	page.Locked, page.Title, page.Folder = false, f.Name, f.ShareFolder
@@ -512,7 +527,7 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		} else {
 			page.Ready, page.Current, page.Count = true, "分享内容", "1 个文件"
 			page.Items = []sharePageItem{webFileItem(f.Name, f.MIME, f.Size, f.CreatedAt, page.Path+"/download")}
-			renderShare(w, http.StatusOK, page)
+			renderShare(w, r, http.StatusOK, page)
 		}
 		return
 	}
@@ -529,13 +544,13 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 	}
 	source, err := os.Open(f.SourcePath)
 	if err != nil {
-		renderShare(w, http.StatusGone, sharePageData{Error: "分享的源文件已移走。"})
+		renderShare(w, r, http.StatusGone, sharePageData{Error: "分享的源文件已移走。"})
 		return
 	}
 	defer source.Close()
 	stat, err := source.Stat()
 	if err != nil || !stat.Mode().IsRegular() || stat.Size() != f.Size || !verifyWebFile(r, source, f) {
-		renderShare(w, http.StatusGone, sharePageData{Error: "源文件已变化，请让发送方重新分享。"})
+		renderShare(w, r, http.StatusGone, sharePageData{Error: "源文件已变化，请让发送方重新分享。"})
 		return
 	}
 	_, current, ok := n.lookupShare(token)

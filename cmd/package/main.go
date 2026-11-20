@@ -62,7 +62,11 @@ func build() error {
 	windowsSetup := flag.Bool("windows-setup", false, "also build the Viva Windows Setup installer (requires NSIS)")
 	stamp := flag.String("stamp-windows", "", "apply the Windows icon and metadata to an existing GoIM executable")
 	stageCapture := flag.String("stage-shotlet", "", "build and stage the Shotlet helper beside a Windows development build")
+	mediaDir := flag.String("stage-media", "", "stage the offline media decoder for a development build")
 	flag.Parse()
+	if *mediaDir != "" {
+		return stageMedia(*mediaDir, *mediaDir)
+	}
 	platformVersion, _, _ := strings.Cut(*version, "-")
 	if *stamp != "" {
 		return stampWindowsExecutable(*stamp, platformVersion)
@@ -156,6 +160,11 @@ func build() error {
 	if err := verifyPortableLinuxBinary(companion); err != nil {
 		return err
 	}
+	if runtime.GOOS != "darwin" {
+		if err := stageMedia(staging, staging); err != nil {
+			return err
+		}
+	}
 	switch runtime.GOOS {
 	case "windows":
 		if err := stampWindowsExecutable(executable, platformVersion); err != nil {
@@ -183,6 +192,9 @@ func build() error {
 			return err
 		}
 		if err := stageShotlet(staging, filepath.Join(bundle, "Contents", "MacOS", "GoIM")); err != nil {
+			return err
+		}
+		if err = stageMedia(filepath.Join(bundle, "Contents", "Resources"), filepath.Join(bundle, "Contents", "MacOS")); err != nil {
 			return err
 		}
 		if err = run("codesign", "--force", "--sign", "-", bundle); err != nil {

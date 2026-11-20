@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"goim/internal/domain"
+	"goim/internal/filemove"
 	"os"
 	"path/filepath"
 	"testing"
@@ -103,7 +104,7 @@ func TestAtomicFileInstallRefusesExistingDestination(t *testing.T) {
 	src, dest := filepath.Join(dir, "part"), filepath.Join(dir, "destination")
 	_ = os.WriteFile(src, []byte("incoming"), 0600)
 	_ = os.WriteFile(dest, []byte("keep existing"), 0600)
-	if err := publishExclusive(src, dest); err == nil {
+	if err := filemove.Exclusive(src, dest); err == nil {
 		t.Fatal("overwrote existing file")
 	}
 	b, _ := os.ReadFile(dest)

@@ -263,6 +263,7 @@ type panelPendingSetting struct {
 // Panels owns the settings, transfers, and file-sharing surfaces. Init must be
 // called with the application's tree before Draw.
 type Panels struct {
+	memberProject  *memberProjectView
 	dialogViewport ui.Rect
 	tree           *gfx.Tree
 	page           *ui.Page
@@ -667,6 +668,10 @@ func (p *Panels) TextInput(context app.TextInputContext) *app.TextInput {
 // Config.OnKey and Config.OnShortcut (Shortcut is an alias for convenience).
 // It consumes only shortcut recording and Escape on its own detail pages.
 func (p *Panels) Key(event gfx.KeyEvent) gfx.EventResult {
+	if !event.Release && event.Key == gfx.KeyEscape && p.memberProject != nil {
+		p.closeMemberProject()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	}
 	if event.Release {
 		return gfx.EventResult{}
 	}
@@ -1049,7 +1054,7 @@ func (p *Panels) rebuildShares(state domain.State) {
 		switch {
 		case file.ShareProtected:
 			entry.access = i18n.T("密码访问")
-		case file.ShareURL != "" || file.MemberURL != "":
+		case file.ShareURL != "":
 			entry.access = i18n.T("公开访问")
 		default:
 			entry.access = i18n.T("成员访问")
@@ -1366,6 +1371,8 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 			return settings.HideOfflineContacts == pending.boolean
 		case "disable_auto_discovery":
 			return settings.DisableAutoDiscovery == pending.boolean
+		case "auto_receive_videos":
+			return !settings.ManualVideoReceive == pending.boolean
 		case "auto_accept_images":
 			return settings.AutoAcceptImages == pending.boolean
 		case "lock_on_startup":

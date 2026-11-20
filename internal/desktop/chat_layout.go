@@ -29,6 +29,7 @@ const (
 type chatSurfaceIDs struct {
 	viewerScope                             gfx.ID
 	viewerStage                             gfx.ID
+	videoPlay, videoBack, videoForward      gfx.ID
 	viewerClose                             gfx.ID
 	viewerPrevious                          gfx.ID
 	viewerNext                              gfx.ID
@@ -68,7 +69,8 @@ func (u *UI) newChatSurface(workspace *ui.Page) *chatSurface {
 		workspace: workspace,
 		sidebar:   ui.SplitterState{Pos: sidebarWidth},
 		ids: chatSurfaceIDs{
-			viewerScope:      u.tree.ID(u.ids.dialog, "image-viewer-scope"),
+			viewerScope: u.tree.ID(u.ids.dialog, "image-viewer-scope"),
+			videoPlay:   u.tree.ID(u.ids.dialog, "video-play"), videoBack: u.tree.ID(u.ids.dialog, "video-back"), videoForward: u.tree.ID(u.ids.dialog, "video-forward"),
 			viewerStage:      u.tree.ID(u.ids.dialog, "image-viewer-stage"),
 			viewerClose:      u.tree.ID(u.ids.dialog, "image-viewer-close"),
 			viewerPrevious:   u.tree.ID(u.ids.dialog, "image-viewer-previous"),
@@ -233,7 +235,7 @@ func (u *UI) chatOverlayWheel(event gfx.ScrollEvent) (gfx.EventResult, bool) {
 	if u.modalOpen() || u.isPanelSection() {
 		return gfx.EventResult{}, false
 	}
-	if u.drawer == "files" {
+	if u.drawer != "" {
 		surface := u.surface
 		if pointInside(event.X, event.Y, surface.filesPane) {
 			return u.drawerPage.Wheel(event), true

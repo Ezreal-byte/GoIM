@@ -2,9 +2,11 @@ package desktop
 
 import (
 	"github.com/vivaui/viva/gfx"
+	"goim/internal/media"
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/ui"
@@ -18,20 +20,28 @@ type imageViewerState struct {
 	fileID         string
 	conversationID string
 
-	pinned     bool
-	menuOpen   bool
-	hover      components.HoverTooltip
-	fullscreen bool
-	fit        bool
-	zoom       float32
-	rotation   int
-	panX       float32
-	panY       float32
-	fitScale   float32
-	imageRect  ui.Rect
-	drag       bool
-	dragX      float32
-	dragY      float32
+	pinned        bool
+	menuOpen      bool
+	menuAtPointer bool
+	menuAt        ui.Rect
+	video         *media.Player
+	videoPosition time.Duration
+	videoFrame    gfx.Bitmap
+	videoError    string
+	videoEnded    bool
+	videoID       uint64
+	hover         components.HoverTooltip
+	fullscreen    bool
+	fit           bool
+	zoom          float32
+	rotation      int
+	panX          float32
+	panY          float32
+	fitScale      float32
+	imageRect     ui.Rect
+	drag          bool
+	dragX         float32
+	dragY         float32
 
 	original     gfx.Bitmap
 	originalPath string
@@ -55,6 +65,17 @@ func (u *UI) openImageViewer(fileID string) {
 	if fileID == "" || u.selected == "" || u.isPanelSection() {
 		return
 	}
+	if u.forwardViewer != nil {
+		u.forwardViewer(fileID)
+		return
+	}
+	u.openConversationMedia(fileID, u.selected)
+}
+func (u *UI) openConversationMedia(fileID, conversation string) {
+	if u.lockVisible() {
+		return
+	}
+	u.surface.viewer.video.Stop()
 	u.closeChatPickers()
 	u.moreOpen = false
 	u.memberMenu = ""
@@ -62,12 +83,14 @@ func (u *UI) openImageViewer(fileID string) {
 	surface.viewer = imageViewerState{
 		open:           true,
 		fileID:         fileID,
-		conversationID: u.selected,
+		conversationID: conversation,
 		fit:            true,
 		zoom:           1,
 		fitScale:       1,
 	}
-	if path := u.fileLocalPath[fileID]; path != "" {
+	if u.state.File(fileID).Video() {
+		u.startViewerVideo(0)
+	} else if path := u.fileLocalPath[fileID]; path != "" {
 		u.ensureImage(path)
 	}
 	u.queueViewerOriginal()
@@ -78,6 +101,9 @@ func (u *UI) openImageViewer(fileID string) {
 
 func (u *UI) closeImageViewer() {
 	surface := u.surface
+	surface.viewer.video.Stop()
+	surface.viewer.video = nil
+	surface.viewer.videoFrame = gfx.Bitmap{}
 	surface.viewer.open = false
 	surface.viewer.drag = false
 	surface.viewer.cached = gfx.Bitmap{}
@@ -99,7 +125,7 @@ func (u *UI) viewerImageFiles(state *imageViewerState) []domain.File {
 	}
 	state.images = state.images[:0]
 	for _, file := range u.state.Files {
-		if file.ConversationID == state.conversationID && fileIsImage(file) {
+		if file.ConversationID == state.conversationID && (fileIsImage(file) || file.Video()) {
 			state.images = append(state.images, file)
 		}
 	}
@@ -144,6 +170,12 @@ func (u *UI) navigateImageViewer(offset int) {
 
 func (u *UI) selectImageViewerFile(fileID string) {
 	state := &u.surface.viewer
+	state.video.Stop()
+	state.video = nil
+	state.videoFrame = gfx.Bitmap{}
+	state.videoError = ""
+	state.videoEnded = false
+	state.videoPosition = 0
 	state.fileID = fileID
 	state.fit = true
 	state.zoom = 1
@@ -152,6 +184,10 @@ func (u *UI) selectImageViewerFile(fileID string) {
 	state.panY = 0
 	state.drag = false
 	state.cached = gfx.Bitmap{}
+	if u.state.File(fileID).Video() {
+		u.startViewerVideo(0)
+		return
+	}
 	u.queueViewerOriginal()
 	if path := u.fileLocalPath[fileID]; path != "" {
 		u.ensureImage(path)
@@ -219,6 +255,12 @@ func (u *UI) imageViewerKey(event gfx.KeyEvent) gfx.EventResult {
 		}
 		return gfx.EventResult{}
 	}
+	if event.Key == gfx.KeySpace && u.state.File(state.fileID).Video() {
+		if !event.Repeat {
+			u.toggleViewerVideo()
+		}
+		return gfx.EventResult{Handled: true, Repaint: true}
+	}
 	switch event.Key {
 	case gfx.KeyTab:
 		return gfx.EventResult{}
@@ -261,6 +303,9 @@ func (u *UI) imageViewerKey(event gfx.KeyEvent) gfx.EventResult {
 	if event.Modifiers&(gfx.ModifierControl|gfx.ModifierMeta|gfx.ModifierAlt) != 0 {
 		return gfx.EventResult{Handled: true}
 	}
+	if u.state.File(state.fileID).Video() {
+		return gfx.EventResult{}
+	}
 	switch strings.ToLower(event.Text) {
 	case "0", "f":
 		u.fitImageViewer()
@@ -283,7 +328,7 @@ func (u *UI) imageViewerKey(event gfx.KeyEvent) gfx.EventResult {
 }
 
 func (u *UI) imageViewerWheel(event gfx.ScrollEvent) gfx.EventResult {
-	if !u.surface.viewer.open || event.DeltaY == 0 {
+	if !u.surface.viewer.open || u.state.File(u.surface.viewer.fileID).Video() || event.DeltaY == 0 {
 		return gfx.EventResult{Handled: true}
 	}
 	factor := float32(math.Exp(-float64(event.DeltaY) / 240))
@@ -370,7 +415,9 @@ func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool
 	if detached {
 		canvas.LabelCenter(file.Name, ui.Rect{X: 12, Y: stage.Bottom(), Width: max(viewport.Width-24, 1), Height: bottomHeight}, gfx.TextStyle{Size: 12 * u.theme.Metrics.EffectiveTextScale(), Color: muted})
 	}
-	if bitmapReady(bitmap) {
+	if file.Video() {
+		u.drawViewerVideo(canvas, stage, theme, muted)
+	} else if bitmapReady(bitmap) {
 		imageRect := u.viewerImageRect(state, stage, bitmap)
 		state.imageRect = imageRect
 		canvas.Clip(stage)
@@ -395,9 +442,20 @@ func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool
 		Role: gfx.RoleGroup, SkipFocus: true, Cursor: cursor,
 	})
 	if event, ok := canvas.PointerOn(ids.viewerStage); ok {
-		u.handleImageViewerPointer(canvas, state, event, stage, detached)
+		if detached && event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
+			state.menuOpen, state.menuAtPointer = true, true
+			state.menuAt = ui.Rect{X: event.X, Y: event.Y}
+			state.drag = false
+			canvas.Consume()
+			canvas.RequestFrame()
+		} else if !file.Video() {
+			u.handleImageViewerPointer(canvas, state, event, stage, detached)
+		}
 	}
 
+	if file.Video() {
+		u.drawVideoControls(canvas, stage, theme)
+	}
 	if detached {
 		u.drawViewerTitlebar(canvas, top, viewport, theme, ids, state, index, len(files), path)
 		if !state.menuOpen {
