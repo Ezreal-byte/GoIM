@@ -28,7 +28,7 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/shares-light.png"><img src="website/assets/screenshots/shares-light.png" alt="桌面端的文件分享列表及密码保护状态" /></a><strong>桌面端文件共享</strong></td>
-    <td width="50%"><a href="website/assets/screenshots/web-file-sharing.png"><img src="website/assets/screenshots/web-file-sharing.png" alt="浏览器中的设备分享主页，左侧列出可下载的项目，右侧可拖入文件上传" /></a><strong>局域网 Web 文件分享</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/web-file-sharing.png"><img src="website/assets/screenshots/web-file-sharing.png" alt="局域网分享目录按名称、类型和大小列出文件与文件夹，右上角提供上传按钮" /></a><strong>局域网 Web 文件分享</strong></td>
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/print-sharing.png"><img src="website/assets/screenshots/print-sharing.png" alt="三台共享打印机的可用状态、纸张规格、彩色与双面能力，以及最近打印记录" /></a><strong>打印机共享</strong></td>
@@ -84,7 +84,7 @@ Linux `.deb` 由系统包管理器更新。GoIM 提示新版本后，可下载�
 1. 两台设备连入同一个可互通的局域网并运行 GoIM。
 2. 在「联系人」顶部搜索框筛选设备。自动发现受限时，点击侧栏底部的「手动连接」，输入对方 IP 或 `IP:47842`。
 3. 发送文字、图片或文件。普通文件可在聊天或「传输」中接收。
-4. 在「文件共享」添加文件或文件夹后，可以复制项目链接或出示二维码。要让对方一次浏览多个分享，选择「设备分享主页 → 启用设备主页」，再复制主页链接。对方在同一局域网用浏览器打开，即可下载文件，也可把文件拖到页面上传给你。
+4. 在「文件共享」添加文件或文件夹后，可以复制项目链接或出示二维码。要让对方一次浏览多个分享，选择「设备分享主页 → 启用设备主页」，再复制主页链接。对方在同一局域网用浏览器打开目录，即可查看和下载文件。点击右上角「上传文件」，或将文件拖入目录，即可上传给你。
 5. 要使用同事共享的打印机，打开「打印共享」，按纸张、彩色和双面能力选一台可用设备，点击「打印」选择文件。「最近打印」会显示任务状态。
 
 原生通信默认使用 TCP 47842，自动发现使用 IPv4 多播 `239.192.77.77:47841`。网页分享通过局域网 HTTP 提供，适用于可信网络。

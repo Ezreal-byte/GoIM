@@ -28,7 +28,7 @@ GoIM is a desktop messenger built with Go and [Viva](https://github.com/vivaui/v
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/shares-light.png"><img src="website/assets/screenshots/shares-light.png" alt="File shares and password protection in the desktop app" /></a><strong>Desktop file sharing</strong></td>
-    <td width="50%"><a href="website/assets/screenshots/web-file-sharing.png"><img src="website/assets/screenshots/web-file-sharing.png" alt="Device homepage in a browser with a download list on the left and a file upload area on the right" /></a><strong>LAN file sharing in a browser</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/web-file-sharing.png"><img src="website/assets/screenshots/web-file-sharing.png" alt="LAN share directory showing file names, types and sizes, with an upload button at the top right" /></a><strong>LAN file sharing in a browser</strong></td>
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/print-sharing.png"><img src="website/assets/screenshots/print-sharing.png" alt="Three shared printers with availability, paper sizes, color and duplex options, followed by recent jobs" /></a><strong>Printer sharing</strong></td>
@@ -84,7 +84,7 @@ Windows and Linux installers check for running GoIM instances before replacing f
 1. Run GoIM on two devices on the same reachable LAN.
 2. Use the search field at the top of **Contacts** to find the other device. If discovery is unavailable, choose **Connect by IP** at the bottom of the sidebar and enter its IP or `IP:47842`.
 3. Send a message or image. Receive other attachments in the conversation or on the **Transfers** page.
-4. Add a file or folder in **File sharing**, then copy its link or show its QR code. To share several items from one page, choose **Device sharing → Enable device page** and copy the homepage link. Anyone on the same LAN with the link can browse the shares, download files, or drag a file onto the page to send it to you.
+4. Add a file or folder in **File sharing**, then copy its link or show its QR code. To share several items from one page, choose **Device sharing → Enable device page** and copy the homepage link. Anyone on the same LAN with the link can browse the directory and download files. To send you a file, use the upload button at the top right or drag the file into the directory.
 5. To use a colleague’s printer, open **Print sharing**, choose an available printer with the paper, color and duplex options you need, then click **Print** to select a file. Check its status under **Recent prints**.
 
 Native chat uses TCP 47842 and IPv4 multicast at `239.192.77.77:47841` for discovery. Browser sharing uses LAN HTTP on trusted networks.

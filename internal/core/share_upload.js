@@ -12,6 +12,7 @@
   const close = document.querySelector('[data-close-upload]');
   const status = document.querySelector('#upload-status');
   const maxBytes = Number(form.dataset.limit);
+  form.classList.add('enhanced');
 
   function updateSelection() {
     const file = input.files[0];
@@ -45,6 +46,7 @@
     drop.addEventListener(eventName, event => {
       if (!event.dataTransfer?.types.includes('Files')) return;
       event.preventDefault();
+      if (eventName === 'dragleave' && drop.contains(event.relatedTarget)) return;
       drop.classList.toggle('dragging', eventName === 'dragenter' || eventName === 'dragover');
       if (eventName !== 'drop') return;
       show();
