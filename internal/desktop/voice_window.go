@@ -65,12 +65,22 @@ func (view *UI) voiceConfig() app.Config {
 	return app.Config{
 		Title: i18n.T("语音通话") + " · GoIM", Class: "GoIM.Voice", Icon: windowIcon(),
 		Width: 430, Height: 540, MinWidth: 400, MinHeight: 500,
-		Tree: &view.tree, Invalidator: &view.invalidator,
+		WindowMode: app.WindowCustomTitlebar, TitlebarHeight: titlebarHeight,
+		WindowControls: view.windowControls,
+		Tree:           &view.tree, Invalidator: &view.invalidator,
 		ClearColor: colorToApp(view.theme.Background),
 		OnWake:     view.refresh,
 		Paint: func(canvas *gfx.Canvas, size gfx.Size) {
 			canvas.Fill(ui.Rect{Width: size.Width, Height: size.Height}, view.theme.Background)
-			view.drawVoiceCall(canvas, ui.Rect{Width: size.Width, Height: size.Height})
+			title := ui.Rect{Width: size.Width, Height: titlebarHeight}
+			view.titlePage.Draw(canvas, title, func(f ui.C) {
+				leading, trailing := app.TitlebarInsets()
+				ui.Row(f).Fill().MovesWindow().PadSides(8, trailing+12, 8, leading+12).Items(ui.Center).Gap(8).Children(func() {
+					ui.Icon(f, Phone).Size(18, 18).Color(view.palette.icon)
+					ui.Text(f, i18n.T("语音通话")+" · GoIM").FontSize(13).Ellipsis()
+				})
+			})
+			view.drawVoiceCall(canvas, ui.Rect{Y: title.Height, Width: size.Width, Height: max(size.Height-title.Height, 0)})
 		},
 		OnClosed: view.Close,
 	}

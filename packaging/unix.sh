@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
 version=$1
 platform=$2
 arch=$3
@@ -25,6 +27,7 @@ case "$platform" in
         root="$work/deb"
         doc="$root/usr/share/doc/goim"
         install -d "$root/DEBIAN" "$root/usr/bin" "$root/usr/share" "$doc"
+        install -m 755 "$script_dir/linux/preinst" "$root/DEBIAN/preinst"
         install -m 755 "$payload/GoIM" "$payload/goim-snip" "$root/usr/bin/"
         cp -R "$payload/share/." "$root/usr/share/"
         cp -R "$payload/licenses" "$doc/"
@@ -43,7 +46,7 @@ Priority: optional
 Architecture: $arch
 Maintainer: GoIM maintainers <71426102+Ezreal-byte@users.noreply.github.com>
 Installed-Size: $(du -sk "$root/usr" | cut -f1)
-Depends: libc6, libx11-6, libx11-xcb1, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libvulkan1, libasound2
+Depends: libc6, libx11-6, libx11-xcb1, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libvulkan1, libasound2, zenity | kdialog
 Recommends: mesa-vulkan-drivers, fonts-noto-cjk, xclip
 Homepage: https://ezreal-byte.github.io/GoIM/
 Description: Native LAN messenger and file sharing
@@ -53,6 +56,7 @@ EOF
         dpkg-deb --root-owner-group --build "$root" "$output/$asset"
         [[ $(dpkg-deb --field "$output/$asset" Architecture) == "$arch" ]]
         [[ $(dpkg-deb --field "$output/$asset" Version) == "$deb_version" ]]
+        [[ $(dpkg-deb --field "$output/$asset" Depends) == *"zenity | kdialog"* ]]
         dpkg-deb --extract "$output/$asset" "$work/check"
         cmp "$payload/GoIM" "$work/check/usr/bin/GoIM"
         cmp "$payload/goim-snip" "$work/check/usr/bin/goim-snip"

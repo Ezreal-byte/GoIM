@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,8 @@ type updateTestClient struct {
 	offer        selfupdate.Offer
 	notes        string
 	checkStarted chan struct{}
+	checkError   error
+	checkRelease <-chan struct{}
 }
 
 func (c *updateTestClient) counts() (checks, notes int) {
@@ -24,7 +27,7 @@ func (c *updateTestClient) counts() (checks, notes int) {
 	return c.checkCount, c.notesCount
 }
 
-func (c *updateTestClient) Check(context.Context) (selfupdate.Offer, error) {
+func (c *updateTestClient) Check(ctx context.Context) (selfupdate.Offer, error) {
 	c.mu.Lock()
 	c.checkCount++
 	c.mu.Unlock()
@@ -34,7 +37,14 @@ func (c *updateTestClient) Check(context.Context) (selfupdate.Offer, error) {
 		default:
 		}
 	}
-	return c.offer, nil
+	if c.checkRelease != nil {
+		select {
+		case <-c.checkRelease:
+		case <-ctx.Done():
+			return selfupdate.Offer{}, ctx.Err()
+		}
+	}
+	return c.offer, c.checkError
 }
 
 func (c *updateTestClient) ReleaseNotes(context.Context, selfupdate.Offer) (string, error) {
@@ -52,7 +62,7 @@ func (*updateTestClient) Install(selfupdate.Offer, string, []string, func()) err
 	return nil
 }
 
-func TestAutomaticUpdateCheckToggleTriggersOneIdleCheck(t *testing.T) {
+func TestAutomaticUpdateCheckReenableChecksFromOfferedState(t *testing.T) {
 	client := &updateTestClient{
 		offer:        selfupdate.Offer{Version: "0.1.6"},
 		notes:        "- Fixed detached chat windows\n- Added update controls",
@@ -89,7 +99,87 @@ func TestAutomaticUpdateCheckToggleTriggersOneIdleCheck(t *testing.T) {
 	}
 	controller.setAutomatic(false)
 	controller.setAutomatic(true)
-	if checks, notes := client.counts(); checks != 1 || notes != 1 {
-		t.Fatalf("automatic toggle reran a completed check: checks=%d notes=%d", checks, notes)
+	select {
+	case <-client.checkStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reenabling did not check again")
+	}
+}
+
+func TestAutomaticUpdatePeriodicRetryDisableAndStop(t *testing.T) {
+	client := &updateTestClient{checkStarted: make(chan struct{}, 8), checkError: errors.New("offline")}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	controller := &updateController{ctx: ctx, stop: cancel, client: client, automatic: true,
+		view: updateView{phase: updateCurrent}, wake: func() {}, scheduleWake: make(chan struct{}, 1),
+		checkInterval: time.Hour, retryInterval: 15 * time.Millisecond}
+	done := make(chan struct{})
+	go func() { controller.runAutomatic(); close(done) }()
+	for count := 0; count < 2; count++ {
+		select {
+		case <-client.checkStarted:
+		case <-time.After(2 * time.Second):
+			t.Fatal("periodic retry did not run")
+		}
+	}
+	controller.setAutomatic(false)
+	time.Sleep(40 * time.Millisecond)
+	checks, _ := client.counts()
+	time.Sleep(40 * time.Millisecond)
+	if next, _ := client.counts(); next != checks {
+		t.Fatal("disabled updater still checked")
+	}
+	controller.setAutomatic(true)
+	select {
+	case <-client.checkStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("enable did not retry failure")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("scheduler did not stop")
+	}
+}
+
+func TestAutomaticUpdatePeriodNeverOverlapsOrDiscardsReadyInstaller(t *testing.T) {
+	blocked := make(chan struct{})
+	client := &updateTestClient{checkStarted: make(chan struct{}, 8), checkRelease: blocked}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	controller := &updateController{ctx: ctx, stop: cancel, client: client, automatic: true,
+		wake: func() {}, scheduleWake: make(chan struct{}, 1), checkInterval: 15 * time.Millisecond}
+	go controller.runAutomatic()
+	select {
+	case <-client.checkStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first check missing")
+	}
+	for count := 0; count < 10; count++ {
+		controller.checkNow()
+		controller.reschedule()
+	}
+	time.Sleep(40 * time.Millisecond)
+	if checks, _ := client.counts(); checks != 1 {
+		t.Fatalf("overlapping checks: %d", checks)
+	}
+	close(blocked)
+	select {
+	case <-client.checkStarted:
+	case <-time.After(time.Second):
+		t.Fatal("successful checks did not repeat")
+	}
+	controller.setAutomatic(false)
+	deadline := time.Now().Add(time.Second)
+	for controller.snapshot().phase == updateChecking && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	controller.change(func(view *updateView) { view.phase = updateReady })
+	checks, _ := client.counts()
+	controller.setAutomatic(true)
+	time.Sleep(50 * time.Millisecond)
+	if next, _ := client.counts(); next != checks {
+		t.Fatal("automatic check replaced a ready installer")
 	}
 }

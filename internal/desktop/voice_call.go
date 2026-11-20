@@ -26,11 +26,11 @@ func (u *UI) startVoiceCall(peerID string) {
 		return
 	case peer.ID == "" || peer.ID == u.state.Self.ID:
 		return
-	case !peer.VoiceSupported:
-		u.showToast(i18n.T("无法发起语音通话"), i18n.T("对方客户端版本不支持语音通话"), components.ToastWarning)
-		return
-	case peer.Transport != domain.TransportGoIM || !peer.VisibleOnline():
+	case !peer.VisibleOnline():
 		u.showToast(i18n.T("对方当前不在线"), i18n.T("联系人上线后即可发起语音通话。"), components.ToastWarning)
+		return
+	case peer.Transport != domain.TransportGoIM || !peer.VoiceSupported:
+		u.showToast(i18n.T("无法发起语音通话"), i18n.T("对方客户端版本不支持语音通话"), components.ToastWarning)
 		return
 	}
 	u.submit(domain.Command{Kind: domain.StartVoiceCall, PeerID: peerID})
@@ -73,6 +73,10 @@ func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 		subtle = u.palette.hover
 	}
 	status := u.voiceCallStatus(call)
+	avatarSize := float32(128)
+	if u.voiceWindow {
+		avatarSize = min(128, max(64, height-220-100*u.theme.Metrics.EffectiveTextScale()))
+	}
 	var muteButton, speakerButton, acceptButton, rejectButton, hangupButton ui.Box
 
 	u.dialogPage.Draw(canvas, viewport, func(f ui.C) {
@@ -81,15 +85,17 @@ func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 			ui.Column(f).Width(width).Height(height).PadSides(30, 32, 26, 32).Gap(0).Radius(radiusCard).
 				Background(surface).Border(1, u.palette.border).Shadow(gfx.ShadowLG).
 				Children(func() {
-					ui.Row(f).FillWidth().Justify(ui.Center).Gap(7).Items(ui.Center).Children(func() {
-						ui.Stack(f).Size(7, 7).Radius(4).Background(accent)
-						ui.Text(f, i18n.T("语音通话")).FontSize(11.5).Weight(gfx.WeightMedium).Muted()
-					})
-					ui.Slot(f).Height(28)
+					if !u.voiceWindow {
+						ui.Row(f).FillWidth().Justify(ui.Center).Gap(7).Items(ui.Center).Children(func() {
+							ui.Stack(f).Size(7, 7).Radius(4).Background(accent)
+							ui.Text(f, i18n.T("语音通话")).FontSize(11.5).Weight(gfx.WeightMedium).Muted()
+						})
+						ui.Slot(f).Height(28)
+					}
 					ui.Row(f).FillWidth().Justify(ui.Center).Children(func() {
-						ui.Stack(f).Size(128, 128).Pad(8).Radius(64).Background(subtle).
+						ui.Stack(f).Size(avatarSize, avatarSize).Pad(8).Radius(avatarSize / 2).Background(subtle).
 							Children(func() {
-								u.avatarWithPresence(f, call.PeerName, call.PeerAvatar, 112, false, false, surface)
+								u.avatarWithPresence(f, call.PeerName, call.PeerAvatar, avatarSize-16, false, false, surface)
 							})
 					})
 					ui.Slot(f).Height(20)

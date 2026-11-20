@@ -6,7 +6,7 @@ on:
     inputs:
       version:
         description: Package version
-        default: 0.1.13
+        default: 0.1.14
         required: true
         type: string
 permissions:
@@ -51,7 +51,7 @@ jobs:
           fi
           apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
           sudo apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update
-          sudo apt-get "${apt_options[@]}" install -y libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk xvfb xdotool
+          sudo apt-get "${apt_options[@]}" install -y libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk xvfb xdotool libdigest-sha-perl
       - name: Verify native architecture and dependencies
         run: |
           test "$(go env GOARCH)" = '${{ matrix.arch }}'
@@ -80,7 +80,7 @@ jobs:
           GOIM_SHARE_LIST_QA: ${{ github.workspace }}/GoIM/artifacts/screenshots/shares
           GOIM_TRANSFER_QA: ${{ github.workspace }}/GoIM/artifacts/screenshots/transfers
         run: |
-          go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestShareListDesignScreenshots|TestTransferDesignScreenshots|TestChatLayoutScreenshotQA|TestChatPolishQA|TestProfileAvatarEditorScreenshotQA|TestSettingsInterfaceFontScreenshotQA|TestDesktopFeatureRepairScreenshotQA|TestRelease013ScreenshotQA|TestVoiceCallScreenshotQA' -count=1 -timeout=180s
+          go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestShareListDesignScreenshots|TestTransferDesignScreenshots|TestChatLayoutScreenshotQA|TestChatPolishQA|TestProfileAvatarEditorScreenshotQA|TestSettingsInterfaceFontScreenshotQA|TestDesktopFeatureRepairScreenshotQA|TestRelease013ScreenshotQA|TestVoiceCallScreenshotQA|TestFilePickerSupportScreenshotQA|TestRelease014ScreenshotQA' -count=1 -timeout=180s
           go test -tags vivahead ./cmd/goim-snip -run '^TestEditorScreenshots$' -count=1 -timeout=60s
       - name: Native content resize
         env:
@@ -120,6 +120,11 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           if (Test-Path -LiteralPath (Join-Path $nsis 'makensis.exe')) { "NSIS_HOME=$nsis" >> $env:GITHUB_ENV }
+      - name: Verify Windows installer exit guard compiles
+        if: runner.os == 'Windows'
+        env:
+          GOIM_SETUP_COMPILER_QA: '1'
+        run: go test ./cmd/package -run '^TestWindowsSetup' -count=1 -timeout=90s
       - name: Verify signed update, installation and relaunch
         if: matrix.os != 'linux'
         env:

@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -88,8 +89,20 @@ func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, s
 	p.settingsRow(f, theme, i18n.T("诊断与反馈"),
 		i18n.T("遇到问题时导出脱敏报告，仅保留版本、协议状态、适配器和数据计数，不含聊天内容、联系人、完整地址、文件路径或凭据。"),
 		func() {
-			if namedButton(f, p.ids.aboutDiagnostics, i18n.T("导出脱敏报告")).Small().Outline().Clicked() {
-				p.exportDiagnostics(f.Canvas(), state)
+			ui.Column(f).Shrink(0).Gap(6).Items(ui.End).Children(func() {
+				if namedButton(f, p.ids.aboutDiagnostics, i18n.T("导出脱敏报告")).Small().Outline().Clicked() {
+					p.exportDiagnostics(f.Canvas(), state)
+				}
+				if namedButton(f, p.ids.aboutCopyDiagnostics, i18n.T("复制脱敏报告")).Small().Outline().Clicked() {
+					p.copyDiagnostics(f.Canvas(), state)
+				}
+			})
+		})
+	panelSectionGap(f)
+	p.settingsRow(f, theme, i18n.T("清除所有用户数据"),
+		i18n.T("清除本机身份、联系人、聊天记录、密码、设置及应用缓存，不删除已下载或分享的原始文件。清除后需重新启动 GoIM。"), func() {
+			if namedButton(f, p.ids.aboutResetData, i18n.T("清除用户数据…")).Small().Outline().Disabled(state.DataResetPending).Clicked() {
+				p.resetDataOpen = true
 			}
 		})
 	panelSectionGap(f)
@@ -129,50 +142,112 @@ func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, s
 		})
 	})
 
-	ui.Paragraph(f, i18n.T("复制的内容只包含版本与构建信息，不包含聊天内容、联系人、文件路径或本机地址。"), 3).
+	ui.Paragraph(f, i18n.T("版本信息与诊断报告均不包含聊天内容、联系人、文件路径或本机地址。"), 3).
 		Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
 }
 
+func (p *Panels) drawResetDataDialog(f ui.C, state domain.State, submit func(domain.Command)) {
+	if !p.resetDataOpen {
+		return
+	}
+	dialog := ui.Dialog(f, ui.DialogSpec{
+		Title:       i18n.T("确定清除所有用户数据？"),
+		Description: i18n.T("此操作不可撤销。GoIM 将退出并清除本机账号、联系人、聊天记录、密码和设置；已下载或分享的原始文件会保留。请重新启动软件，系统将创建新的身份。"),
+		Width:       520, Layer: 75, Scope: p.ids.aboutResetScope,
+		DismissID: p.ids.aboutResetDismiss, CloseID: p.ids.aboutResetClose, InitialFocusID: p.ids.aboutResetCancel,
+	})
+	dialog.Footer(func() {
+		if dialogActionButton(f, p.ids.aboutResetCancel, i18n.T("取消")).Outline().Clicked() {
+			p.resetDataOpen = false
+		}
+		if dialogActionButton(f, p.ids.aboutResetConfirm, i18n.T("清除并退出")).Destructive().Disabled(state.DataResetPending).Clicked() {
+			p.resetDataOpen = false
+			submit(domain.Command{Kind: domain.ResetUserData})
+		}
+	})
+	if dialog.Dismissed() {
+		p.resetDataOpen = false
+	}
+}
+
 func (p *Panels) exportDiagnostics(canvas *gfx.Canvas, state domain.State) {
+	if p.diagnosticPickerOpen {
+		return
+	}
+	p.diagnosticPickerOpen = true
 	canvas.AfterPaint(func() {
+		defer func() { p.diagnosticPickerOpen = false; p.invalidateDiagnostics() }()
 		now := time.Now()
+		name := "goim-diagnostics-" + now.In(aboutTZ).Format("20060102-1504")
 		path, err := app.SaveFile(app.SaveFileOptions{
 			Title:            i18n.T("导出脱敏诊断报告"),
-			SuggestedName:    "goim-diagnostics-" + now.In(aboutTZ).Format("20060102-1504") + ".txt",
+			SuggestedName:    name + ".txt",
 			DefaultExtension: "txt",
 			Filters:          []app.FileFilter{{Name: i18n.T("文本文件"), Pattern: "*.txt"}},
 		})
 		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) {
 			return
 		}
-		if err != nil {
-			p.localError = i18n.T("无法创建诊断报告：") + err.Error()
+		fallback := errors.Is(err, app.ErrUnsupported)
+		if err != nil && !fallback {
+			p.localError = i18n.T("无法创建诊断报告：") + filePickerProblem(err)
 			p.invalidateDiagnostics()
 			return
 		}
-		dataDir := ""
-		if p.diagnosticDataDir != nil {
-			dataDir = p.diagnosticDataDir()
+		report := p.diagnosticReport(state, now)
+		if fallback {
+			directory := state.Settings.DownloadDir
+			if directory == "" && p.diagnosticDataDir != nil {
+				if dataDir := p.diagnosticDataDir(); dataDir != "" {
+					directory = filepath.Join(dataDir, "diagnostics")
+				}
+			}
+			path, err = diagnostics.WritePrivateTemp(directory, name, report)
+		} else {
+			err = diagnostics.WritePrivateFile(path, report)
 		}
-		report := diagnostics.Build(diagnostics.Input{
-			Now:                    now,
-			Build:                  diagnosticsBuildInfo(p.build),
-			State:                  state,
-			Autostart:              p.autostartDiagnosticState(),
-			InterfaceFontSupported: p.settingsExtra.interfaceFont.supported,
-			DataDir:                dataDir,
-		})
-		if err := diagnostics.WritePrivateFile(path, report); err != nil {
+		if err != nil {
 			p.localError = i18n.T("无法保存诊断报告：") + err.Error()
 			p.invalidateDiagnostics()
 			return
 		}
 		p.localError = ""
 		if p.toast != nil {
-			p.toast(i18n.T("诊断报告已保存"), i18n.T("可发送给开发者协助排查问题。"), components.ToastSuccess)
+			detail := i18n.T("可发送给开发者协助排查问题。")
+			if fallback {
+				detail = i18n.T("系统选择器不可用，报告已自动保存到：") + path
+			}
+			p.toast(i18n.T("诊断报告已保存"), detail, components.ToastSuccess)
 		} else {
 			p.invalidateDiagnostics()
 		}
+	})
+}
+
+func (p *Panels) diagnosticReport(state domain.State, now time.Time) string {
+	dataDir := ""
+	if p.diagnosticDataDir != nil {
+		dataDir = p.diagnosticDataDir()
+	}
+	return diagnostics.Build(diagnostics.Input{
+		Now: now, Build: diagnosticsBuildInfo(p.build), State: state,
+		Autostart: p.autostartDiagnosticState(), InterfaceFontSupported: p.settingsExtra.interfaceFont.supported,
+		DataDir: dataDir,
+	})
+}
+
+func (p *Panels) copyDiagnostics(canvas *gfx.Canvas, state domain.State) {
+	canvas.AfterPaint(func() {
+		if err := app.SetClipboardText(p.diagnosticReport(state, time.Now())); err != nil {
+			p.localError = i18n.T("复制失败：") + err.Error()
+			p.invalidateDiagnostics()
+			return
+		}
+		p.localError = ""
+		if p.toast != nil {
+			p.toast(i18n.T("脱敏报告已复制"), i18n.T("可粘贴到反馈中协助排查问题。"), components.ToastSuccess)
+		}
+		p.invalidateDiagnostics()
 	})
 }
 

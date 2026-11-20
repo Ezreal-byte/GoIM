@@ -743,8 +743,8 @@ func TestManualConnectDialogSubmitsAddress(t *testing.T) {
 	if command.Kind != domain.Connect || command.Address != "192.168.1.44:7331" {
 		t.Fatalf("connect command = %+v", command)
 	}
-	if harness.ui.connectOpen {
-		t.Fatal("manual-connect dialog stayed open after submission")
+	if !harness.ui.connectOpen || !harness.ui.connectPending {
+		t.Fatal("manual-connect dialog closed before the connection result")
 	}
 }
 

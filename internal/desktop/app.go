@@ -415,18 +415,20 @@ type UI struct {
 
 	ids appIDs
 
-	section       string
-	selected      string
-	pendingPeer   string
-	pendingGroup  string
-	sidebarFilter string
-	collapsed     map[string]bool
-	sidebarSearch ui.Field
-	connectOpen   bool
-	connectField  ui.Field
-	connectRoute  connectionRoute
-	contactPeer   string
-	contactGroup  string
+	section            string
+	selected           string
+	pendingPeer        string
+	pendingGroup       string
+	sidebarFilter      string
+	collapsed          map[string]bool
+	sidebarSearch      ui.Field
+	connectOpen        bool
+	connectPending     bool
+	connectionSequence uint64
+	connectField       ui.Field
+	connectRoute       connectionRoute
+	contactPeer        string
+	contactGroup       string
 
 	chatEditor        *text.Editor
 	chatEditorField   ui.Field
@@ -900,6 +902,7 @@ func (u *UI) refresh() {
 	u.state = u.backend.Snapshot()
 	u.lanEndpoint = displayLANEndpoint(u.state)
 	i18n.SetLanguage(u.state.Settings.Language)
+	u.presentConnectionFeedback()
 	u.presentStateNotice()
 	u.panels.OnWake(u.state)
 	u.rebuildPresentation(oldError)
@@ -934,7 +937,7 @@ func (u *UI) requestBackgroundPicker(canvas *gfx.Canvas) {
 		case err == nil && len(paths) > 0:
 			u.submit(domain.Command{Kind: domain.SetSetting, Setting: "background", Value: paths[0]})
 		case err != nil && !errors.Is(err, app.ErrCanceled) && !errors.Is(err, app.ErrNoDriverResponse):
-			u.showToast(i18n.T("无法选择背景"), err.Error(), components.ToastError)
+			u.showToast(i18n.T("无法选择背景"), filePickerProblem(err), components.ToastError)
 		}
 	})
 }
@@ -1092,7 +1095,7 @@ func (u *UI) markSelectedConversationRead() {
 func (u *UI) modalOpen() bool {
 	return u.confirm.open || u.compose.open || u.connectOpen || u.updateOpen ||
 		u.profile.open || u.groupAvatar.open || u.memberProfile != "" || u.organize.open ||
-		u.shellMenu.open || u.lockVisible() || u.voiceVisible()
+		u.shellMenu.open || u.panels.resetDataOpen || u.lockVisible() || u.voiceVisible()
 }
 
 func (u *UI) unreadTotal() int {
@@ -2084,7 +2087,7 @@ func (u *UI) initialsAvatar(f ui.C, name string, size float32) {
 
 func (u *UI) avatarInitial(f ui.C, name string, size float32) {
 	ui.Text(f, initialOf(name)).
-		FontSize(max(11, size*0.36)).
+		FontSize(fontToken(u.theme, min(max(11, size*0.36)*u.theme.Metrics.EffectiveTextScale(), size*0.42))).
 		Weight(gfx.WeightSemibold).
 		Color(u.palette.avatarText).
 		TextCenter()
@@ -2589,6 +2592,7 @@ func (u *UI) toggleTheme() {
 func (u *UI) openConnect() {
 	u.closeShellMenu()
 	u.connectOpen = true
+	u.connectPending = false
 	u.connectRoute = routeAuto
 	u.connectField.SetText("")
 }

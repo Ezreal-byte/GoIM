@@ -113,7 +113,7 @@ func connectionFields(f ui.C, state domain.State, form panelConnectionFields) (s
 		ui.Column(f).FillWidth().Gap(4).Children(func() {
 			ui.Text(f, i18n.T("对方 IP 地址")).FontSize(12).Weight(gfx.WeightMedium)
 			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-				available := connectionAvailable(state, *form.route)
+				available := connectionAvailable(state, *form.route) && !state.ConnectionFeedback.Pending
 				field := ui.TextFieldID(f, form.addressID, form.address, i18n.T("对方 IP 地址"), connectionHint(state, *form.route)).Grow(1)
 				submitted = available && field.Submitted()
 				if !form.connectID.IsZero() && namedButton(f, form.connectID, i18n.T("连接")).Small().Outline().Disabled(!available).Clicked() {

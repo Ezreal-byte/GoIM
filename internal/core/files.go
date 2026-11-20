@@ -244,6 +244,7 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 		return errors.New("无效聊天图片")
 	}
 	requested, suppressed, autoReceive := false, false, false
+	authRejected := false
 	var denied error
 	err := n.durable(func(p *persisted) []pending {
 		s := &p.State
@@ -264,6 +265,7 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 			var printErr error
 			printJob, autoReceive, printErr = n.receivePrintOffer(peer, p, f, e)
 			if printErr != nil {
+				authRejected = errors.Is(printErr, errPrinterAuthorization)
 				if printOfferRejected(printErr) {
 					p.TransferTombstones[peer+":"+e.TransferID] = "rejected"
 					return []pending{{PeerID: peer, Envelope: envelope{
@@ -362,6 +364,9 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 	if err != nil || denied != nil {
 		return errors.Join(err, denied)
 	}
+	if authRejected {
+		n.sendPrinterCatalog(peer)
+	}
 	if !suppressed && (f.InlineImage || requested || autoReceive) {
 		n.startReceive(e.TransferID, "")
 	}
@@ -370,7 +375,7 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 
 func printOfferRejected(err error) bool {
 	message := err.Error()
-	return strings.Contains(message, "打印机已停止共享") ||
+	return errors.Is(err, errPrinterAuthorization) || strings.Contains(message, "打印机已停止共享") ||
 		strings.Contains(message, "共享打印机当前不可用") ||
 		strings.Contains(message, "打印机不支持") ||
 		strings.Contains(message, "打印接收缓存已达上限")

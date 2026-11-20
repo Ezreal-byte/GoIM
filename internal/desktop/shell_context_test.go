@@ -748,6 +748,7 @@ func TestSecuritySettingsConfirmsSystemUnlockWithPassword(t *testing.T) {
 	state := shellMinimalState(t)
 	state.Settings.HasLockPassword = true
 	h := newShellTestHarness(t, state)
+	h.ui.panels.settingsExtra.systemUnlockAvailable = true
 	h.clickID(h.ui.ids.navSettings)
 	h.clickID(h.ui.panels.ids.settingsCategories.At(int(panelSettingsSecurity)))
 	fields := &h.ui.panels.settingsExtra
@@ -781,6 +782,7 @@ func TestSecuritySettingsDisablesSystemUnlockImmediately(t *testing.T) {
 	state.Settings.HasLockPassword = true
 	state.Settings.SystemUnlock = true
 	h := newShellTestHarness(t, state)
+	h.ui.panels.settingsExtra.systemUnlockAvailable = true
 	h.clickID(h.ui.ids.navSettings)
 	h.clickID(h.ui.panels.ids.settingsCategories.At(int(panelSettingsSecurity)))
 	fields := &h.ui.panels.settingsExtra

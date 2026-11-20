@@ -82,6 +82,20 @@ try {
     # NSIS requires /D= last, with the path left unquoted even if it has spaces.
     Invoke-Installer $setup "/S /D=$nsisRoot"
     Confirm-Installation $nsisRoot $userLink 'GoIM.ico'
+    $executable = Join-Path $nsisRoot 'GoIM.exe'
+    $originalHash = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash
+    $locked = [IO.File]::Open($executable, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    try {
+        $blocked = Start-Process -FilePath $setup -ArgumentList "/S /D=$nsisRoot" -Wait -PassThru -WindowStyle Hidden
+        if ($blocked.ExitCode -ne 1618) { throw "Setup replaced an in-use application (exit $($blocked.ExitCode))." }
+        if ((Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash -ne $originalHash) {
+            throw 'Setup changed the executable while it was in use.'
+        }
+    } finally {
+        $locked.Dispose()
+    }
+    Invoke-Installer $setup "/S /D=$nsisRoot"
+    Confirm-Installation $nsisRoot $userLink 'GoIM.ico'
 } finally {
     if (Test-Path -LiteralPath $uninstaller) { Invoke-Installer $uninstaller '/S' }
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -39,6 +40,7 @@ type printWindowIDs struct {
 	rangeField  gfx.ID
 	cancel      gfx.ID
 	send        gfx.ID
+	password    gfx.ID
 }
 
 type printWindowView struct {
@@ -59,18 +61,21 @@ type printWindowView struct {
 	submit   func(domain.Command)
 	close    func()
 
-	path        string
-	fileName    string
-	fileSize    int64
-	fileErr     string
-	paper       string
-	copies      ui.Field
-	orientation string
-	pageMode    string
-	pageRange   ui.Field
-	color       string
-	duplex      string
-	err         string
+	path         string
+	fileName     string
+	fileSize     int64
+	fileErr      string
+	paper        string
+	copies       ui.Field
+	orientation  string
+	pageMode     string
+	pageRange    ui.Field
+	color        string
+	duplex       string
+	err          string
+	password     ui.Field
+	authRequest  uint64
+	pendingPrint bool
 }
 
 func newPrintWindowView(backend domain.Backend, shareID string) *printWindowView {
@@ -82,6 +87,7 @@ func newPrintWindowView(backend domain.Backend, shareID string) *printWindowView
 	v.theme = ui.LightTheme()
 	v.palette = paletteFor(v.theme)
 	v.copies.SetText("1")
+	v.password.Secure = true
 	v.initIDs()
 	v.titlePage = ui.NewPage(ui.PageConfig{Root: "print-window-title", Tree: &v.tree, Theme: &v.theme})
 	v.page = ui.NewPage(ui.PageConfig{Root: "print-window", Tree: &v.tree, Theme: &v.theme})
@@ -99,6 +105,7 @@ func (v *printWindowView) initIDs() {
 	v.ids.rangeField = v.tree.ID(page, "page-range")
 	v.ids.cancel = v.tree.ID(page, "cancel")
 	v.ids.send = v.tree.ID(page, "send")
+	v.ids.password = v.tree.ID(page, "password")
 }
 
 func (v *printWindowView) refresh() {
@@ -110,6 +117,22 @@ func (v *printWindowView) refresh() {
 	v.theme = themeForSettings(v.state.Settings)
 	v.palette = paletteFor(v.theme)
 	v.normalizeOptions()
+	if v.pendingPrint {
+		result := v.state.PrinterAuth[v.shareID]
+		if result.Request == v.authRequest && !result.Pending {
+			v.pendingPrint = false
+			v.password.SetText("")
+			if result.Error != "" {
+				v.err = i18n.T(result.Error)
+			} else if !v.needsPassword(v.printer()) {
+				v.sendJob(v.printer())
+			}
+		}
+	}
+}
+
+func (v *printWindowView) needsPassword(share domain.PrinterShare) bool {
+	return share.PasswordRequired && (share.AuthRevision == "" || v.state.PrinterAuthorized[share.ID] != share.AuthRevision)
 }
 
 func (v *printWindowView) printer() domain.PrinterShare {
@@ -176,6 +199,8 @@ func (v *printWindowView) Config() app.Config {
 }
 
 func (v *printWindowView) Close() {
+	v.pendingPrint = false
+	v.password.SetText("")
 	if v.titlePage != nil {
 		v.titlePage.Close()
 	}
@@ -242,16 +267,37 @@ func (v *printWindowView) drawBody(canvas *gfx.Canvas, bounds ui.Rect) {
 			ui.Scroll(f.KeyInt(0)).FillWidth().Grow(1).Children(func() {
 				ui.Column(f).FillWidth().PadY(20).Gap(20).Children(func() {
 					v.drawPrinterHeader(f, share)
+					v.drawAuthorization(f, share)
 					v.drawFileSection(f)
 					v.drawOptions(f, share)
 					if v.err != "" {
-						ui.Text(f, v.err).FontSize(12).Color(v.palette.danger)
+						ui.Paragraph(f, v.err, 4).FillWidth().FontSize(12).Color(v.palette.danger)
 					}
 				})
 			})
 			ui.Divider(f).FillWidth()
 			v.drawFooter(f, share)
 		})
+	})
+}
+
+func (v *printWindowView) drawAuthorization(f ui.C, share domain.PrinterShare) {
+	if !share.PasswordRequired {
+		return
+	}
+	ui.Column(f).FillWidth().Pad(14).Gap(8).Radius(radiusCard).Background(v.theme.Muted).Children(func() {
+		ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+			ui.Icon(f, Lock).Size(16, 16).Color(v.palette.icon)
+			label := i18n.T("已验证打印密码")
+			if v.needsPassword(share) {
+				label = i18n.T("此打印机需要验证密码")
+			}
+			ui.Text(f, label).Grow(1).FontSize(13).Weight(gfx.WeightMedium)
+		})
+		if v.needsPassword(share) {
+			ui.TextFieldID(f, v.ids.password, &v.password, i18n.T("打印密码"), i18n.T("输入共享人设置的密码")).FillWidth().MinHeight(printControlHeight(v.theme)).Disabled(v.pendingPrint)
+		}
+		ui.Paragraph(f, i18n.T("仅首次使用或共享人修改密码后需要验证，不保存明文密码。"), 3).FillWidth().Muted().FontSize(11.5)
 	})
 }
 
@@ -270,20 +316,20 @@ func (v *printWindowView) drawPrinterHeader(f ui.C, share domain.PrinterShare) {
 		if v.avatar != nil {
 			v.avatar(f, share.OwnerID, ownerName, owner.Avatar, 54, owner.Online)
 		} else {
-			ui.Row(f).Size(54, 54).Radius(27).Background(v.palette.mutedAvatar).
+			ui.Row(f).Size(54, 54).Shrink(0).Radius(27).Background(v.palette.mutedAvatar).
 				Items(ui.Center).Justify(ui.Center).Children(func() {
-				ui.Text(f, initialOf(ownerName)).FontSize(18).Weight(gfx.WeightSemibold)
+				ui.Text(f, initialOf(ownerName)).FontSize(fontToken(v.theme, min(18*v.theme.Metrics.EffectiveTextScale(), 54*.42))).Weight(gfx.WeightSemibold)
 			})
 		}
-		ui.Column(f).Grow(1).Gap(4).Children(func() {
+		ui.Column(f).Grow(1).MinWidth(0).Gap(4).Children(func() {
 			name := share.Name
 			if name == "" {
 				name = i18n.T("共享打印机已不可用")
 			}
-			ui.Text(f, name).FontSize(18).Weight(gfx.WeightSemibold).Ellipsis()
-			ui.Text(f, i18n.T("共享人 ")+ownerName).Muted().FontSize(13).Ellipsis()
+			ui.Text(f, name).FillWidth().FontSize(18).Weight(gfx.WeightSemibold).Ellipsis()
+			ui.Text(f, i18n.T("共享人 ")+ownerName).FillWidth().Muted().FontSize(13).Ellipsis()
 		})
-		ui.Row(f).Gap(7).Items(ui.Center).Children(func() {
+		ui.Row(f).Shrink(0).Gap(7).Items(ui.Center).Children(func() {
 			tone := v.palette.success
 			label := i18n.T("可用")
 			if !available {
@@ -309,11 +355,11 @@ func (v *printWindowView) drawFileSection(f ui.C) {
 					Items(ui.Center).Justify(ui.Center).Children(func() {
 					ui.Icon(f, Upload).Size(20, 20).Color(v.palette.selectedText)
 				})
-				ui.Column(f).Grow(1).Gap(3).Children(func() {
-					ui.Text(f, i18n.T("选择要打印的文件")).FontSize(14).Weight(gfx.WeightMedium)
-					ui.Text(f, i18n.T("支持 PDF、图片和文本文件")).Muted().FontSize(11.5)
+				ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
+					ui.Text(f, i18n.T("选择要打印的文件")).FillWidth().FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
+					ui.Text(f, i18n.T("支持 PDF、图片和文本文件")).FillWidth().Muted().FontSize(11.5).Ellipsis()
 				})
-				ui.Text(f, i18n.T("选择文件")).FontSize(13).Color(v.palette.selectedText)
+				ui.Text(f, i18n.T("选择文件")).Shrink(0).FontSize(13).Color(v.palette.selectedText)
 			})
 			if box.Clicked() {
 				v.chooseFile(f.Canvas())
@@ -345,10 +391,10 @@ func (v *printWindowView) drawOptions(f ui.C, share domain.PrinterShare) {
 	capabilities := printWindowCapabilities(share.Capabilities)
 	ui.Column(f).FillWidth().Gap(10).Children(func() {
 		ui.Text(f, i18n.T("打印参数")).FontSize(21).Weight(gfx.WeightSemibold)
-		ui.Grid(f, 250).FillWidth().Gap(13).Children(func() {
+		ui.Grid(f, 250*v.theme.Metrics.EffectiveTextScale()).FillWidth().Gap(13).Children(func() {
 			v.drawOption(f, i18n.T("纸张"), func() {
 				ui.Select(f.Part("print-paper"), &v.paper, capabilities.Papers,
-					func(value string) string { return printPaperLabel(value) }).FillWidth()
+					func(value string) string { return printPaperLabel(value) }).FillWidth().MinHeight(printControlHeight(v.theme))
 			})
 			v.drawOption(f, i18n.T("份数"), func() {
 				ui.Row(f).FillWidth().Gap(6).Children(func() {
@@ -357,7 +403,7 @@ func (v *printWindowView) drawOptions(f ui.C, share domain.PrinterShare) {
 						v.changeCopies(-1)
 					}
 					ui.TextFieldID(f, v.ids.copiesField, &v.copies, i18n.T("份数"),
-						i18n.T("1-999")).Grow(1)
+						i18n.T("1-999")).Grow(1).MinHeight(printControlHeight(v.theme))
 					if panelActionIcon(f, v.theme, v.ids.copiesUp, Plus,
 						i18n.T("增加份数"), false, false).Clicked() {
 						v.changeCopies(1)
@@ -366,7 +412,7 @@ func (v *printWindowView) drawOptions(f ui.C, share domain.PrinterShare) {
 			})
 			v.drawOption(f, i18n.T("方向"), func() {
 				ui.Select(f.Part("print-orientation"), &v.orientation, capabilities.Orientations,
-					printOrientationLabel).FillWidth()
+					printOrientationLabel).FillWidth().MinHeight(printControlHeight(v.theme))
 			})
 			v.drawOption(f, i18n.T("页面范围"), func() {
 				modes := []string{"all", "custom"}
@@ -376,19 +422,19 @@ func (v *printWindowView) drawOptions(f ui.C, share domain.PrinterShare) {
 							return i18n.T("自定义")
 						}
 						return i18n.T("全部")
-					}).FillWidth().Disabled(!capabilities.SupportsPageRange)
+					}).FillWidth().MinHeight(printControlHeight(v.theme)).Disabled(!capabilities.SupportsPageRange)
 				if v.pageMode == "custom" && capabilities.SupportsPageRange {
 					ui.TextFieldID(f, v.ids.rangeField, &v.pageRange,
-						i18n.T("页码范围"), i18n.T("例如：1-3,5")).FillWidth()
+						i18n.T("页码范围"), i18n.T("例如：1-3,5")).FillWidth().MinHeight(printControlHeight(v.theme))
 				}
 			})
 			v.drawOption(f, i18n.T("色彩"), func() {
 				ui.Select(f.Part("print-color"), &v.color, capabilities.ColorModes,
-					printColorLabel).FillWidth()
+					printColorLabel).FillWidth().MinHeight(printControlHeight(v.theme))
 			})
 			v.drawOption(f, i18n.T("双面"), func() {
 				ui.Select(f.Part("print-duplex"), &v.duplex, capabilities.DuplexModes,
-					printDuplexLabel).FillWidth()
+					printDuplexLabel).FillWidth().MinHeight(printControlHeight(v.theme))
 			})
 		})
 	})
@@ -412,13 +458,20 @@ func (v *printWindowView) drawFooter(f ui.C, share domain.PrinterShare) {
 	ui.Row(f).FillWidth().PadY(14).Gap(12).Items(ui.Center).Children(func() {
 		ui.Text(f, fmt.Sprintf(i18n.T("%s 的 GoIM 将自动提交到打印队列。"), ownerName)).
 			Muted().FontSize(11.5).Grow(1).Ellipsis()
-		if namedButton(f, v.ids.cancel, i18n.T("取消")).Outline().Clicked() {
+		if namedButton(f, v.ids.cancel, i18n.T("取消")).Shrink(0).MinHeight(printControlHeight(v.theme)).Outline().Clicked() {
 			if v.close != nil {
 				v.close()
 			}
 		}
-		disabled := v.shareID == "" || v.path == "" || !share.Available
-		if namedButton(f, v.ids.send, i18n.T("发送打印")).Disabled(disabled).Clicked() {
+		disabled := v.shareID == "" || v.path == "" || !share.Available || !v.state.Peer(share.OwnerID).Online || v.pendingPrint
+		label := i18n.T("发送打印")
+		if v.needsPassword(share) {
+			label = i18n.T("验证并打印")
+		}
+		if v.pendingPrint {
+			label = i18n.T("正在验证…")
+		}
+		if namedButton(f, v.ids.send, label).Shrink(0).MinHeight(printControlHeight(v.theme)).Disabled(disabled).Clicked() {
 			v.sendJob(share)
 		}
 	})
@@ -436,12 +489,11 @@ func (v *printWindowView) chooseFile(canvas *gfx.Canvas) {
 				{Name: i18n.T("所有文件"), Pattern: "*.*"},
 			},
 		})
-		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) ||
-			errors.Is(err, app.ErrUnsupported) {
+		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) {
 			return
 		}
 		if err != nil {
-			v.err = i18n.T("无法选择文件：") + err.Error()
+			v.err = i18n.T("无法选择文件：") + filePickerProblem(err)
 			v.wake.Invalidate()
 			return
 		}
@@ -484,7 +536,7 @@ func (v *printWindowView) changeCopies(delta int) {
 }
 
 func (v *printWindowView) sendJob(share domain.PrinterShare) {
-	if v.submit == nil || v.path == "" || share.ID == "" {
+	if v.submit == nil || v.path == "" || share.ID == "" || v.pendingPrint {
 		return
 	}
 	copies, err := strconv.Atoi(strings.TrimSpace(v.copies.Text()))
@@ -505,6 +557,19 @@ func (v *printWindowView) sendJob(share domain.PrinterShare) {
 	options := domain.PrintOptions{
 		Paper: v.paper, Copies: copies, Orientation: v.orientation,
 		PageRange: pageRange, Color: v.color, Duplex: v.duplex,
+	}
+	if v.needsPassword(share) {
+		password := v.password.Text()
+		if password == "" {
+			v.err = i18n.T("请输入打印密码")
+			v.wake.Invalidate()
+			return
+		}
+		v.authRequest = uint64(time.Now().UnixNano())
+		v.pendingPrint, v.err = true, ""
+		v.submit(domain.Command{Kind: domain.AuthenticatePrinter, PrinterID: share.ID, Password: password, Request: v.authRequest})
+		v.wake.Invalidate()
+		return
 	}
 	v.submit(domain.Command{Kind: domain.PrintFile, PrinterID: share.ID,
 		Paths: []string{v.path}, PrintOptions: options})

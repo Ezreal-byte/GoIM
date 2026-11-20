@@ -48,7 +48,6 @@ func (n *Node) connectNeiwangtong(address string) error {
 	if peer.GoIM || knownGoIM {
 		return errNeedsGoIMConnection
 	}
-	n.notice("已连接内网通设备")
 	return nil
 }
 

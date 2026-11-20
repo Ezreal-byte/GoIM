@@ -435,7 +435,7 @@ func (p *Panels) saveTransferAs(canvas *gfx.Canvas, submit func(domain.Command),
 		case errors.Is(err, app.ErrCanceled):
 			return
 		case err != nil:
-			p.localError = i18n.T("无法选择保存位置：") + err.Error()
+			p.localError = i18n.T("无法选择保存位置：") + filePickerProblem(err)
 			return
 		case strings.TrimSpace(path) == "":
 			return

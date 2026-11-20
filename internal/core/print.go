@@ -197,6 +197,15 @@ func (n *Node) sharePrinter(c domain.Command) error {
 		return fmt.Errorf("共享名称需为 1 至 %d 个字符且不能换行", maxPrinterName)
 	}
 	capabilities := printing.NormalizeCapabilities(local.Capabilities)
+	updatePassword := c.Setting == "password" || c.Password != ""
+	var next credential
+	if c.Password != "" {
+		var err error
+		next, err = newCredential(c.Password)
+		if err != nil {
+			return err
+		}
+	}
 	now := time.Now()
 	err := n.durable(func(p *persisted) []pending {
 		state := &p.State
@@ -208,6 +217,9 @@ func (n *Node) sharePrinter(c domain.Command) error {
 				share.OwnerName = state.Self.Name
 				share.Available = local.Available
 				share.Capabilities = capabilities
+				if updatePassword {
+					setPrinterCredential(p, share, next)
+				}
 				return nil
 			}
 		}
@@ -216,6 +228,7 @@ func (n *Node) sharePrinter(c domain.Command) error {
 			Name: name, DeviceName: queue, Available: local.Available,
 			Capabilities: capabilities, CreatedAt: now,
 		})
+		setPrinterCredential(p, &state.Printers[len(state.Printers)-1], next)
 		return nil
 	})
 	if err != nil {
@@ -234,6 +247,8 @@ func (n *Node) unsharePrinter(c domain.Command) error {
 		if i < 0 || s.Printers[i].OwnerID != s.Self.ID {
 			return nil
 		}
+		setPrinterCredential(p, &s.Printers[i], credential{})
+		delete(p.PrintCredentials, id)
 		s.Printers = append(s.Printers[:i], s.Printers[i+1:]...)
 		s.Notice, s.Error = "已停止共享打印机", ""
 		removed = true
@@ -279,6 +294,12 @@ func (n *Node) printFile(c domain.Command) error {
 	if !owner.Online {
 		return errors.New("共享打印机的主人当前不在线")
 	}
+	n.mu.Lock()
+	access := n.data.PrintAccess[share.ID]
+	n.mu.Unlock()
+	if share.PasswordRequired && (access.OwnerID != share.OwnerID || access.Revision != share.AuthRevision || access.Token == "") {
+		return errors.New("请先验证打印密码；密码变更后需要重新验证")
+	}
 	options, err := printing.NormalizeOptions(c.PrintOptions, printing.NormalizeCapabilities(share.Capabilities))
 	if err != nil {
 		return err
@@ -313,6 +334,10 @@ func (n *Node) printFile(c domain.Command) error {
 			denied = errors.New("共享打印机已不可用")
 			return nil
 		}
+		if target.PasswordRequired && (access.OwnerID != target.OwnerID || access.Revision != target.AuthRevision) {
+			denied = errors.New("打印密码已变更，请重新验证")
+			return nil
+		}
 		conversation := ensureDirect(state, peer)
 		f.ConversationID, job.ConversationID = conversation, conversation
 		if fileIndex(state, f.ID) >= 0 || printJobIndex(state, job.ID) >= 0 {
@@ -332,6 +357,9 @@ func (n *Node) printFile(c domain.Command) error {
 		}
 		state.PrintJobs = append(state.PrintJobs, job)
 		offer.Envelope.PrintJob = publicPrintJob(job)
+		if target.PasswordRequired {
+			offer.Envelope.PrintToken = access.Token
+		}
 		return []pending{offer}
 	})
 	if err != nil {
@@ -357,6 +385,12 @@ func (n *Node) receivePrinterCatalog(peer string, e envelope) error {
 		if !validPrintID(share.ID) || seen[share.ID] || !validPrintText(share.Name, maxPrinterName) {
 			continue
 		}
+		if share.PasswordRequired && (len(share.AuthSalt) != 16 || !validPrintID(share.AuthRevision)) {
+			continue
+		}
+		if !share.PasswordRequired {
+			share.AuthSalt = nil
+		}
 		seen[share.ID] = true
 		share.OwnerID = peer
 		share.OwnerName = remote.Name
@@ -375,6 +409,11 @@ func (n *Node) receivePrinterCatalog(peer string, e envelope) error {
 		for _, share := range shares {
 			if printerShareIndex(s, share.ID) < 0 {
 				s.Printers = append(s.Printers, share)
+			}
+		}
+		for id, access := range p.PrintAccess {
+			if access.OwnerID == peer && (s.Printer(id).OwnerID != peer || s.Printer(id).AuthRevision != access.Revision) {
+				delete(p.PrintAccess, id)
 			}
 		}
 		sort.SliceStable(s.Printers, func(i, j int) bool {
@@ -428,6 +467,9 @@ func (n *Node) receivePrintOffer(peer string, p *persisted, f domain.File, e env
 		return domain.PrintJob{}, false, errors.New("打印机已停止共享")
 	}
 	share := p.State.Printers[i]
+	if !validPrinterAccess(p, share, peer, e.PrintToken) {
+		return domain.PrintJob{}, false, errPrinterAuthorization
+	}
 	if !share.Available {
 		return domain.PrintJob{}, false, errors.New("共享打印机当前不可用")
 	}

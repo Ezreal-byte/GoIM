@@ -43,6 +43,8 @@ GoIM is a desktop messenger built with Go and [Viva](https://github.com/vivaui/v
 
 Direct chats support two-way voice calls with incoming-call acceptance, hang-up, microphone mute, and speaker controls. Choose the default microphone and speaker and adjust input or playback volume in **Settings → Calls**.
 
+**Print Sharing** lets members share local printers and choose a file and print options in a separate window. Pin frequently used printers from their cards. Owners can set, change, or remove an optional password under **My shares → Edit share**. Protected printers require verification on first use and after a password change; a printer-specific authorization is saved locally instead of the plaintext password. Both sides retain print history. Files are not accepted or submitted to the system print queue before authorization succeeds.
+
 Use `Alt+A` or the scissors in the composer to capture your screen. Windows and macOS 13.3 or later use the bundled Shotlet helper for annotation, scrolling capture, OCR, and pinning. Confirm a screenshot to paste it into a chat. Shotlet supports recording on Windows and macOS 15 or later. Linux and macOS 13.0–13.2 use GoIM's built-in tool. On macOS, grant screen recording permission for Shotlet on first use.
 
 ## Install
@@ -57,9 +59,21 @@ Choose your platform and architecture from [GitHub Releases](https://github.com/
 
 Linux packages use Viva's pure-Go build path and do not require GLIBC 2.32 or 2.34. Release validation permits only the baseline libc, libpthread, and libdl dependencies and rejects symbol requirements newer than GLIBC 2.31. The system must still provide the libc, X11, XKB, Vulkan, and ALSA (`libasound2`) runtime libraries listed by the DEB dependencies. Kylin and UOS use the same compatibility build.
 
+Linux file dialogs prefer the desktop's XDG Portal. The `.deb` also requires `zenity | kdialog`, so the system software center resolves a fallback during installation or upgrade without terminal commands. Portable `.tar.gz` packages do not install system components and require a working Portal or one of these dialog helpers. Under **Settings → About**, you can copy a redacted diagnostic report. If the system save dialog is unavailable, exporting saves the report to the default download folder and shows its path (or the app data folder's `diagnostics` subfolder if no download folder is configured).
+
 Windows uses Viva's `Setup.exe`, which installs for the current user. Uninstall standalone MSI builds before switching to Setup. GoIM stores profiles and chat history in a separate user data folder.
 
 For archives, extract the full package so GoIM can find its screenshot tool. Windows packages have no commercial code signature. macOS uses ad-hoc signing and requires the usual local approval for unnotarized apps. Verify downloads with the release's `SHA256SUMS`.
+
+### Software updates
+
+Automatic update checks are enabled by default and run at startup and every 6 hours. Failed checks retry after 30 minutes. Disable automatic checks or check manually under **Settings → About**; enabling the switch starts a check immediately. Downloading and installing updates still require user action.
+
+Windows and Linux installers check for running GoIM instances before replacing files. Exit every instance, including its tray icon, then retry installation. In-app updates exit the current instance before the update helper installs and restarts it. Linux DEB updates continue to use the system package manager.
+
+### Clear local data
+
+**Settings → About → Clear all user data** requires a second confirmation. **Clear and exit** stops networking and background tasks, closes the database, then clears this device's identity key, contacts, chats, passwords, settings and app-data caches. Start GoIM again to create a new identity, which other devices will recognize as a new user. Downloaded files, shared originals and screenshot files are kept; other devices are unaffected. If shutdown is interrupted, the next launch finishes the confirmed reset.
 
 ## Quick start
 
@@ -79,9 +93,9 @@ Set a GoIM lock password under **Settings → Security → App lock**, then enab
 | Windows 11 | Windows Hello with a configured PIN, fingerprint, or face |
 | Windows 10 | Desktop Hello verification requires Windows 11; use the GoIM password when system verification is unavailable |
 | macOS | Touch ID, or the current macOS login password when Touch ID is unavailable |
-| Linux | The polkit authentication agent; password or fingerprint support depends on the distribution's PAM and agent configuration |
+| Linux | System verification is unavailable in this version. The switch is disabled with an explanation; use the GoIM lock password |
 
-GoIM receives only the verification result and never reads, stores, or transmits system passwords or biometric data. The Linux `.deb` installs the `dev.goim.desktop.unlock` polkit policy. The `.tar.gz` includes it under `share/polkit-1/actions/`, and it must be copied into `/usr/share/polkit-1/actions/`. Source runs need `internal/brand/assets/dev.goim.desktop.policy` installed there as well. Windows Hello must be enabled in Windows first; the Windows account password is not passed to GoIM as a Hello credential.
+GoIM receives only the verification result and never reads, stores, or transmits system passwords or biometric data. Existing Linux system-verification settings are turned off automatically while GoIM lock passwords are kept. The bundled polkit policy does not enable this unavailable feature. Windows Hello must be enabled in Windows first; the Windows account password is not passed to GoIM as a Hello credential.
 
 ## Legacy compatibility
 

@@ -1,9 +1,16 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="GoIM" Manufacturer="Ezreal-byte" Version="$(ProductVersion)"
-           Scope="perMachine" InstallerVersion="500"
+           Scope="perMachine" InstallerVersion="500" Codepage="936"
            UpgradeCode="73FB8334-EF13-4453-9D8C-67F7E5898388">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of GoIM is already installed." />
+    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer version of GoIM is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <util:CloseApplication Id="GoIMRunning" Target="GoIM.exe" Property="GOIM_RUNNING"
+                           CloseMessage="no" EndSessionMessage="no" RebootPrompt="no" />
+    <CustomAction Id="GoIMRequireClosed" Error="GoIM 正在运行。请先从系统托盘退出所有 GoIM 实例，再重新运行安装程序。Please exit GoIM before upgrading." />
+    <InstallExecuteSequence>
+      <Custom Action="override Wix4CloseApplications_$(sys.BUILDARCHSHORT)" Before="GoIMRequireClosed" Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="GoIMRequireClosed" Before="InstallInitialize" Condition="GOIM_RUNNING AND NOT REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
     <Icon Id="GoIM.ico" SourceFile="$(Payload)\GoIM.ico" />
     <Property Id="ARPPRODUCTICON" Value="GoIM.ico" />
     <Property Id="ARPURLINFOABOUT" Value="https://ezreal-byte.github.io/GoIM/" />

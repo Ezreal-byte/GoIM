@@ -168,7 +168,7 @@ func (u *UI) saveMessageAttachment(canvas *gfx.Canvas, file domain.File, source 
 			return
 		}
 		if err != nil {
-			u.submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("无法保存文件：") + err.Error()})
+			u.submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("无法保存文件：") + filePickerProblem(err)})
 			return
 		}
 		go func() {

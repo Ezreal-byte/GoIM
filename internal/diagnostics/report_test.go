@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,56 @@ import (
 	"goim/internal/buildinfo"
 	"goim/internal/domain"
 )
+
+func TestReportFallbackFilesAreUniqueAndPrivate(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "reports")
+	first, err := WritePrivateTemp(directory, "goim-diagnostics", "first report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := WritePrivateTemp(directory, "goim-diagnostics", "second report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("fallback export overwrote an existing report")
+	}
+	for path, want := range map[string]string{first: "first report", second: "second report"} {
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != want {
+			t.Fatalf("report %q: data=%q err=%v", path, data, err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+			t.Fatalf("report permissions are not private: %v", info.Mode())
+		}
+	}
+}
+
+func TestReportFallbackRejectsInvalidDestinations(t *testing.T) {
+	for _, directory := range []string{"", "relative"} {
+		if _, err := WritePrivateTemp(directory, "goim-diagnostics", "report"); err == nil {
+			t.Fatalf("accepted invalid directory %q", directory)
+		}
+	}
+	if _, err := WritePrivateTemp(t.TempDir(), "../other", "report"); err == nil {
+		t.Fatal("accepted a filename outside the destination")
+	}
+	file := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(file, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WritePrivateTemp(file, "goim-diagnostics", "report"); err == nil {
+		t.Fatal("export to a regular file succeeded")
+	}
+	data, err := os.ReadFile(file)
+	if err != nil || string(data) != "keep" {
+		t.Fatal("failed export modified the existing destination")
+	}
+}
 
 func TestReportExcludesPrivateApplicationData(t *testing.T) {
 	private := []string{

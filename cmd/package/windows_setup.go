@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/vivaui/viva/tools/manifest"
 	"github.com/vivaui/viva/tools/winpkg"
@@ -53,17 +55,71 @@ func buildWindowsSetup(staging, setup, version, arch string) error {
 	}
 	defer os.RemoveAll(scratch)
 	output := filepath.Join(scratch, filepath.Base(setup))
-	result, err := winpkg.Build(winpkg.Script{
+	script := winpkg.Script{
 		Name: config.App.Name, Version: version, Publisher: config.Windows.Publisher,
 		URL: config.Windows.URL, ID: config.App.ID, Scope: config.Windows.InstallScope(),
 		Executable: exe, Program: filepath.Join(staging, exe), Icon: filepath.Join(staging, ico),
 		Arch: arch, Files: files, Output: output,
-	})
+	}
+	source, err := script.Generate()
 	if err != nil {
 		return err
 	}
-	for _, warning := range result.Warnings {
-		fmt.Fprintf(os.Stderr, "makensis: %s\n", warning)
+	source, err = requireClosedGoIM(source)
+	if err != nil {
+		return err
+	}
+	compiler, err := winpkg.Find()
+	if err != nil {
+		return err
+	}
+	filename := filepath.Join(scratch, "installer.nsi")
+	if err := os.WriteFile(filename, source, 0o600); err != nil {
+		return err
+	}
+	command := exec.Command(compiler, "-INPUTCHARSET", "UTF8", "-NOCD", "-V2", filename)
+	command.Dir = scratch
+	command.Env = append(os.Environ(), "SOURCE_DATE_EPOCH=315532800")
+	log, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("build GoIM Setup: %w\n%s", err, log)
+	}
+	if len(log) != 0 {
+		fmt.Fprint(os.Stderr, string(log))
 	}
 	return os.Rename(output, setup)
+}
+
+func requireClosedGoIM(source []byte) ([]byte, error) {
+	text := string(source)
+	const start = "Function ${un}EnsureClosed\n"
+	begin := strings.Index(text, start)
+	if begin < 0 || strings.Count(text, start) != 1 {
+		return nil, fmt.Errorf("GoIM Setup: expected one close-check function")
+	}
+	end := strings.Index(text[begin:], "FunctionEnd\n")
+	if end < 0 {
+		return nil, fmt.Errorf("GoIM Setup: close-check function is incomplete")
+	}
+	const guard = `Function ${un}EnsureClosed
+  retry:
+  FindWindow $R0 "VivaNativeWindow" "GoIM"
+  StrCmp $R0 0 check_file
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "GoIM 正在运行，请先从系统托盘退出 GoIM，再点击重试。$\r$\nPlease exit GoIM, including its tray icon, before continuing." /SD IDCANCEL IDRETRY retry
+  SetErrorLevel 1618
+  Abort
+  check_file:
+  ${IfNot} ${FileExists} "$INSTDIR\${APP_EXE}"
+    Return
+  ${EndIf}
+  ClearErrors
+  Delete "$INSTDIR\${APP_EXE}"
+  ${If} ${Errors}
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "GoIM 文件仍被占用。请退出所有 GoIM 实例后重试。$\r$\nGoIM files are in use. Exit all GoIM instances and retry." /SD IDCANCEL IDRETRY retry
+    SetErrorLevel 1618
+    Abort
+  ${EndIf}
+FunctionEnd
+`
+	return []byte(text[:begin] + guard + text[begin+end+len("FunctionEnd\n"):]), nil
 }

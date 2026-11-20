@@ -65,11 +65,10 @@ func (u *UI) chooseProfileAvatar() {
 		},
 	})
 	if err != nil {
-		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) ||
-			errors.Is(err, app.ErrUnsupported) {
+		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) {
 			return
 		}
-		u.profile.err = i18n.T("无法打开图片选择器")
+		u.profile.err = i18n.T("无法打开图片选择器") + "：" + filePickerProblem(err)
 		return
 	}
 	if len(paths) == 0 || strings.TrimSpace(paths[0]) == "" {
@@ -617,7 +616,7 @@ func (u *UI) avatarWithPresence(f ui.C, name, path string, size float32, online,
 	if name == "" {
 		name = "?"
 	}
-	ui.Stack(f).Size(size, size).Children(func() {
+	ui.Stack(f).Size(size, size).Shrink(0).Children(func() {
 		avatar := ui.Stack(f).Size(size, size).Radius(size / 2).Clip().
 			Background(u.palette.mutedAvatar)
 		avatar.Children(func() {

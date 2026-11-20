@@ -161,7 +161,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 			if wake != nil {
 				wake()
 			}
-			if shell.update.quit {
+			if shell.update.quit || shell.state.DataResetPending {
 				application.Quit()
 				return
 			}

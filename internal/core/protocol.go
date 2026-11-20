@@ -44,6 +44,8 @@ type envelope struct {
 	PrintJob        domain.PrintJob
 	PrintJobID      string
 	PrintStatus     string
+	PrintAuth       printerAuthMessage `json:",omitempty"`
+	PrintToken      string             `json:",omitempty"`
 	TransferID      string
 	Offset          int64
 	Status          string
@@ -568,6 +570,10 @@ func (n *Node) receive(peer string, e envelope) error {
 		err = n.receivePrinterCatalog(peer, e)
 	case "print_status":
 		err = n.receivePrintStatus(peer, e)
+	case "printer_auth":
+		err = n.receivePrinterAuth(peer, e)
+	case "printer_auth_result":
+		n.receivePrinterAuthResult(peer, e)
 	case "get_shared":
 		err = n.offerShared(peer, e.File.ID)
 	case "voice_signal":

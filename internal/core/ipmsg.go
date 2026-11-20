@@ -45,7 +45,6 @@ func (n *Node) connectLegacy(address string) error {
 	if peer.Neiwangtong {
 		return errors.New("已发现内网通设备，但尚未建立内网通连接")
 	}
-	n.notice("已连接旧版设备")
 	return nil
 }
 

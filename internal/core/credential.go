@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"goim/internal/domain"
+	"goim/internal/systemauth"
 )
 
 type credential struct {
@@ -70,6 +71,9 @@ func (n *Node) updateLock(c domain.Command) error {
 		}
 		return err
 	case domain.SetSystemUnlock:
+		if c.Bool && !systemauth.Supported() {
+			return errors.New("当前平台暂不支持系统验证解锁，请使用 GoIM 锁定密码。")
+		}
 		if remaining > 0 && old.set() {
 			return errors.New("请稍等片刻后再试")
 		}

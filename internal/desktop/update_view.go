@@ -105,13 +105,13 @@ func (v updateView) status() string {
 			return i18n.T("检测到新版本，签名更新清单暂不可用。可前往发布页下载。")
 		}
 		if !v.offer.Automatic {
-			return i18n.T("请下载与当前安装方式对应的软件包。")
+			return i18n.T("请下载与当前安装方式对应的软件包，安装前须退出 GoIM（包括系统托盘）。")
 		}
 		return i18n.T("下载完成后可安装并重启 GoIM。")
 	case updateDownloading:
 		return i18n.T("正在下载更新…")
 	case updateReady:
-		return i18n.T("更新已下载，可安装并重启。")
+		return i18n.T("更新已下载。安装时将退出当前 GoIM，完成后自动重新启动；其他运行中的实例也须退出。")
 	case updateInstalling:
 		return i18n.T("正在准备安装…")
 	default:
@@ -121,7 +121,7 @@ func (v updateView) status() string {
 
 func (p *Panels) drawUpdateSettings(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	panelSection(f, i18n.T("软件更新"), "", func() {
-		p.settingsRow(f, theme, i18n.T("自动检查更新"), i18n.T("启动 GoIM 时在后台检查新版本"), func() {
+		p.settingsRow(f, theme, i18n.T("自动检查更新"), i18n.T("默认开启；启动及每 6 小时检查，失败后 30 分钟重试"), func() {
 			p.settingsControl(f, 80, func() {
 				enabled := ui.State[bool](f, "auto-update-check")
 				*enabled = !state.Settings.DisableAutoUpdateCheck

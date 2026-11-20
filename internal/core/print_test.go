@@ -242,73 +242,84 @@ func TestPrintSubmissionFailureAndUnshareRemoveRemotePrinter(t *testing.T) {
 }
 
 func TestStalePrintOfferIsRejectedAndFailsSenderJob(t *testing.T) {
-	backend := &printTestBackend{
-		printers: []printing.Printer{{
-			ID: "stale-queue", Name: "Stale Queue", Available: true, Default: true,
-			Capabilities: printing.DefaultCapabilities(),
-		}},
-	}
-	sender := testPrintNode(t, "Sender", t.TempDir(), &printTestBackend{})
-	owner := testPrintNode(t, "Owner", t.TempDir(), backend)
-	observer := testPrintNode(t, "Observer", t.TempDir(), &printTestBackend{})
-	connectNodes(t, sender, owner)
-	connectNodes(t, sender, observer)
+	for _, reason := range []string{"unshared", "password-changed"} {
+		t.Run(reason, func(t *testing.T) {
+			backend := &printTestBackend{
+				printers: []printing.Printer{{
+					ID: "stale-queue", Name: "Stale Queue", Available: true, Default: true,
+					Capabilities: printing.DefaultCapabilities(),
+				}},
+			}
+			sender := testPrintNode(t, "Sender", t.TempDir(), &printTestBackend{})
+			owner := testPrintNode(t, "Owner", t.TempDir(), backend)
+			observer := testPrintNode(t, "Observer", t.TempDir(), &printTestBackend{})
+			connectNodes(t, sender, owner)
+			connectNodes(t, sender, observer)
 
-	owner.execute(domain.Command{Kind: domain.RefreshPrinters})
-	eventually(t, "local inventory", func() bool { return len(owner.Snapshot().LocalPrinters) == 1 })
-	if err := owner.execute(domain.Command{Kind: domain.SharePrinter, PrinterID: "stale-queue", Name: "Owner-Stale"}); err != nil {
-		t.Fatal(err)
-	}
-	eventually(t, "sender catalog", func() bool { return len(sender.Snapshot().Printers) == 1 })
-	share := sender.Snapshot().Printers[0]
-	owner.execute(domain.Command{Kind: domain.UnsharePrinter, PrinterID: owner.Snapshot().Printers[0].ID})
+			owner.execute(domain.Command{Kind: domain.RefreshPrinters})
+			eventually(t, "local inventory", func() bool { return len(owner.Snapshot().LocalPrinters) == 1 })
+			if err := owner.execute(domain.Command{Kind: domain.SharePrinter, PrinterID: "stale-queue", Name: "Owner-Stale"}); err != nil {
+				t.Fatal(err)
+			}
+			eventually(t, "sender catalog", func() bool { return len(sender.Snapshot().Printers) == 1 })
+			share := sender.Snapshot().Printers[0]
+			if reason == "unshared" {
+				owner.execute(domain.Command{Kind: domain.UnsharePrinter, PrinterID: owner.Snapshot().Printers[0].ID})
+			} else if err := owner.sharePrinter(domain.Command{PrinterID: "stale-queue", Setting: "password", Password: "new-print-password"}); err != nil {
+				t.Fatal(err)
+			}
 
-	fileID, transferID, jobID, messageID := newID(), newID(), newID(), newID()
-	now := time.Now()
-	senderID := sender.Snapshot().Self.ID
-	file := domain.File{
-		ID: fileID, Name: "stale.pdf", Size: 16, Hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		MIME: "application/pdf", SenderID: senderID,
-		ConversationID: directID(senderID, owner.Snapshot().Self.ID), CreatedAt: now,
-	}
-	job := domain.PrintJob{
-		ID: jobID, MessageID: messageID, TransferID: transferID, FileID: fileID,
-		ConversationID: file.ConversationID, PrinterID: share.ID, PrinterName: share.Name,
-		PrinterOwnerID: owner.Snapshot().Self.ID, PrinterOwnerName: owner.Snapshot().Self.Name,
-		SenderID: senderID, SenderName: sender.Snapshot().Self.Name,
-		FileName: file.Name, FileSize: file.Size, MIME: file.MIME,
-		Options: domain.PrintOptions{Paper: "A4", Copies: 1, Orientation: domain.PrintOrientationPortrait,
-			Color: domain.PrintColorMonochrome, Duplex: domain.PrintDuplexSimplex},
-		Status: domain.PrintStatusSending, CreatedAt: now, UpdatedAt: now,
-	}
-	transfer := domain.Transfer{
-		ID: transferID, FileID: fileID, ConversationID: file.ConversationID,
-		PeerID: owner.Snapshot().Self.ID, Direction: "send", Status: "offered",
-		Name: file.Name, Size: file.Size, UpdatedAt: now, PrintJobID: jobID,
-	}
-	if err := sender.durable(func(p *persisted) []pending {
-		p.State.Files = append(p.State.Files, file)
-		p.State.PrintJobs = append(p.State.PrintJobs, job)
-		p.State.Transfers = append(p.State.Transfers, transfer)
-		addMessageState(&p.State, domain.Message{
-			ID: messageID, ConversationID: file.ConversationID, SenderID: senderID,
-			Kind: "print", Text: "打印 " + file.Name, FileID: fileID, PrintJobID: jobID, CreatedAt: now,
+			fileID, transferID, jobID, messageID := newID(), newID(), newID(), newID()
+			now := time.Now()
+			senderID := sender.Snapshot().Self.ID
+			file := domain.File{
+				ID: fileID, Name: "stale.pdf", Size: 16, Hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				MIME: "application/pdf", SenderID: senderID,
+				ConversationID: directID(senderID, owner.Snapshot().Self.ID), CreatedAt: now,
+			}
+			job := domain.PrintJob{
+				ID: jobID, MessageID: messageID, TransferID: transferID, FileID: fileID,
+				ConversationID: file.ConversationID, PrinterID: share.ID, PrinterName: share.Name,
+				PrinterOwnerID: owner.Snapshot().Self.ID, PrinterOwnerName: owner.Snapshot().Self.Name,
+				SenderID: senderID, SenderName: sender.Snapshot().Self.Name,
+				FileName: file.Name, FileSize: file.Size, MIME: file.MIME,
+				Options: domain.PrintOptions{Paper: "A4", Copies: 1, Orientation: domain.PrintOrientationPortrait,
+					Color: domain.PrintColorMonochrome, Duplex: domain.PrintDuplexSimplex},
+				Status: domain.PrintStatusSending, CreatedAt: now, UpdatedAt: now,
+			}
+			transfer := domain.Transfer{
+				ID: transferID, FileID: fileID, ConversationID: file.ConversationID,
+				PeerID: owner.Snapshot().Self.ID, Direction: "send", Status: "offered",
+				Name: file.Name, Size: file.Size, UpdatedAt: now, PrintJobID: jobID,
+			}
+			if err := sender.durable(func(p *persisted) []pending {
+				p.State.Files = append(p.State.Files, file)
+				p.State.PrintJobs = append(p.State.PrintJobs, job)
+				p.State.Transfers = append(p.State.Transfers, transfer)
+				addMessageState(&p.State, domain.Message{
+					ID: messageID, ConversationID: file.ConversationID, SenderID: senderID,
+					Kind: "print", Text: "打印 " + file.Name, FileID: fileID, PrintJobID: jobID, CreatedAt: now,
+				})
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := owner.receiveOffer(sender.Snapshot().Self.ID, envelope{
+				Type: "file_offer", File: publicFile(file), TransferID: transferID, PrintJob: publicPrintJob(job),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			eventually(t, "sender learns the print offer was rejected", func() bool {
+				s := sender.Snapshot()
+				return s.PrintJob(jobID).Status == domain.PrintStatusFailed &&
+					s.Transfers[0].Status == "rejected"
+			})
+			if len(owner.Snapshot().Transfers) != 0 || len(backend.submissions()) != 0 {
+				t.Fatal("rejected offer received or printed a file")
+			}
 		})
-		return nil
-	}); err != nil {
-		t.Fatal(err)
 	}
-
-	if err := owner.receiveOffer(sender.Snapshot().Self.ID, envelope{
-		Type: "file_offer", File: publicFile(file), TransferID: transferID, PrintJob: publicPrintJob(job),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	eventually(t, "sender learns the print offer was rejected", func() bool {
-		s := sender.Snapshot()
-		return s.PrintJob(jobID).Status == domain.PrintStatusFailed &&
-			s.Transfers[0].Status == "rejected"
-	})
 }
 
 func TestPrinterCatalogRejectsCrossOwnerIDCollision(t *testing.T) {

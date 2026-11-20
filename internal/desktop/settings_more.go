@@ -16,6 +16,7 @@ import (
 )
 
 type panelSettingsExtra struct {
+	systemUnlockAvailable                                                                               bool
 	background, clearBackground, notificationPrivacy, offline, discovery, acceptImages                  gfx.ID
 	profile, connect, connectAddress, lockStartup, lockSystem, passwordOld, passwordNew, passwordRepeat gfx.ID
 	passwordSave                                                                                        gfx.ID
@@ -155,6 +156,7 @@ var panelSettingsBellIcon = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound
 }}
 
 func (s *panelSettingsExtra) init(tree *gfx.Tree, scope gfx.Scope) {
+	s.systemUnlockAvailable = systemauth.Supported()
 	s.background = tree.ID(scope, "background-choose")
 	s.clearBackground = tree.ID(scope, "background-clear")
 	s.notificationPrivacy = tree.ID(scope, "notification-private")
@@ -270,7 +272,8 @@ func (p *Panels) drawDiscoverySettings(f ui.C, theme ui.Theme, state domain.Stat
 				route:   &s.connectRoute,
 				address: &s.address, addressID: s.connectAddress, connectID: s.connect,
 			})
-			if !submitted {
+			connectionFeedbackText(f, theme, state)
+			if !submitted || state.ConnectionFeedback.Pending {
 				return
 			}
 			address := strings.TrimSpace(s.address.Text())
@@ -300,11 +303,15 @@ func (p *Panels) drawSettingsSecurity(f ui.C, theme ui.Theme, state domain.State
 				}
 			})
 		})
-		p.settingsRow(f, theme, i18n.T("使用系统验证解锁"), i18n.T(systemauth.Description()), func() {
+		description := systemauth.Description()
+		if !s.systemUnlockAvailable {
+			description = "当前平台暂不支持系统验证解锁，请使用 GoIM 锁定密码。"
+		}
+		p.settingsRow(f, theme, i18n.T("使用系统验证解锁"), i18n.T(description), func() {
 			p.settingsControl(f, 80, func() {
 				enabled := ui.State[bool](f, "system-unlock")
-				*enabled = settings.SystemUnlock
-				if ui.Switch(f, enabled, "").Hit(s.lockSystem, i18n.T("使用系统验证解锁")).Disabled(!settings.HasLockPassword).Changed() {
+				*enabled = settings.SystemUnlock && s.systemUnlockAvailable
+				if ui.Switch(f, enabled, "").Hit(s.lockSystem, i18n.T("使用系统验证解锁")).Disabled(!settings.HasLockPassword || !s.systemUnlockAvailable).Changed() {
 					if *enabled {
 						s.resetSecrets()
 						s.passwordOpen, s.passwordSystem = true, true

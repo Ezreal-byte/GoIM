@@ -461,7 +461,7 @@ func (p *Panels) pickShare(c *gfx.Canvas, folder bool) {
 			return
 		}
 		if err != nil {
-			p.setShareToast("无法打开系统选择器", err.Error(), components.ToastError)
+			p.setShareToast("无法打开系统选择器", filePickerProblem(err), components.ToastError)
 			return
 		}
 		p.openShareDialogFor(paths, folder)

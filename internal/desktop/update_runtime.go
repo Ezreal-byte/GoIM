@@ -59,17 +59,26 @@ type updateController struct {
 	ctx                context.Context
 	stop, stopDownload context.CancelFunc
 	wake               func()
+	scheduleWake       chan struct{}
+	nextCheck          time.Time
+	checkInterval      time.Duration
+	retryInterval      time.Duration
 }
+
+const automaticUpdateInterval = 6 * time.Hour
+const automaticUpdateRetry = 30 * time.Minute
 
 func newUpdateController(version, key string, automatic bool, wake func()) *updateController {
 	ctx, stop := context.WithCancel(context.Background())
-	u := &updateController{ctx: ctx, stop: stop, wake: wake, automatic: automatic}
+	u := &updateController{ctx: ctx, stop: stop, wake: wake, automatic: automatic,
+		scheduleWake: make(chan struct{}, 1), checkInterval: automaticUpdateInterval, retryInterval: automaticUpdateRetry}
 	if key == "" {
 		return u
 	}
 	if automatic {
 		u.view.phase = updateChecking
 	}
+	go u.runAutomatic()
 	go func() {
 		client, err := selfupdate.Open(version, key)
 		if err != nil || client == nil {
@@ -90,10 +99,14 @@ func newUpdateController(version, key string, automatic bool, wake func()) *upda
 		}
 		u.mu.Unlock()
 		if automatic {
+			u.mu.Lock()
+			u.nextCheck = time.Now().Add(u.checkInterval)
+			u.mu.Unlock()
 			u.check()
 		} else {
 			u.wake()
 		}
+		u.reschedule()
 	}()
 	return u
 }
@@ -105,16 +118,50 @@ func (u *updateController) setAutomatic(enabled bool) {
 	u.mu.Lock()
 	previous := u.automatic
 	u.automatic = enabled
-	check := enabled && !previous && u.client != nil && u.view.phase == updateIdle
-	if check {
-		u.view.phase, u.view.problem = updateChecking, ""
-	}
 	u.mu.Unlock()
-	if !check {
+	if enabled == previous {
 		return
 	}
-	u.wake()
-	go u.check()
+	if enabled && !previous {
+		u.beginCheck(true)
+	}
+	u.reschedule()
+}
+
+func (u *updateController) reschedule() {
+	select {
+	case u.scheduleWake <- struct{}{}:
+	default:
+	}
+}
+
+func (u *updateController) runAutomatic() {
+	timer := time.NewTimer(time.Hour)
+	defer timer.Stop()
+	for {
+		u.mu.Lock()
+		enabled := u.automatic && u.client != nil && !u.view.busy() && u.view.phase != updateReady
+		next := u.nextCheck
+		u.mu.Unlock()
+		var due <-chan time.Time
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		if enabled {
+			timer.Reset(max(time.Until(next), 0))
+			due = timer.C
+		}
+		select {
+		case <-u.ctx.Done():
+			return
+		case <-u.scheduleWake:
+		case <-due:
+			u.beginCheck(true)
+		}
+	}
 }
 
 func (u *updateController) snapshot() updateView {
@@ -131,22 +178,45 @@ func (u *updateController) change(apply func(*updateView)) {
 	apply(&u.view)
 	u.mu.Unlock()
 	u.wake()
+	u.reschedule()
 }
 
 func (u *updateController) checkNow() {
+	u.beginCheck(false)
+}
+
+func (u *updateController) beginCheck(automatic bool) {
 	u.mu.Lock()
-	if u.client == nil || u.view.busy() {
+	if u.client == nil || u.view.busy() || automatic && (!u.automatic || u.view.phase == updateReady) || u.ctx.Err() != nil {
 		u.mu.Unlock()
 		return
 	}
 	u.view.phase, u.view.problem = updateChecking, ""
+	interval := u.checkInterval
+	if interval <= 0 {
+		interval = automaticUpdateInterval
+	}
+	u.nextCheck = time.Now().Add(interval)
 	u.mu.Unlock()
 	u.wake()
 	go u.check()
 }
 
 func (u *updateController) check() {
+	defer u.reschedule()
 	offer, err := u.client.Check(u.ctx)
+	if u.ctx.Err() != nil {
+		return
+	}
+	if err != nil {
+		u.mu.Lock()
+		interval := u.retryInterval
+		if interval <= 0 {
+			interval = automaticUpdateRetry
+		}
+		u.nextCheck = time.Now().Add(interval)
+		u.mu.Unlock()
+	}
 	u.change(func(v *updateView) {
 		v.progress = 0
 		v.notes, v.notesProblem, v.notesLoading = "", "", false

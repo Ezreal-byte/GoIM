@@ -108,7 +108,6 @@ func (n *Node) connectAuto(endpoint netip.AddrPort) error {
 	n.mu.Unlock()
 	tlsErr := n.connectGoIM(endpoint.String(), knownGoIM)
 	if tlsErr == nil {
-		n.notice("已连接 GoIM 设备")
 		return nil
 	}
 	if knownGoIM != "" || !endpoint.Addr().Is4() || (!nwt && !legacy) {

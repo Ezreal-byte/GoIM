@@ -30,6 +30,9 @@ type persisted struct {
 	MessageRecalls          map[string]bool
 	CatalogRevisions        map[string]uint64
 	PrinterCatalogRevisions map[string]uint64
+	PrintCredentials        map[string]credential    `json:",omitempty"`
+	PrintGrants             map[string]printerGrant  `json:",omitempty"`
+	PrintAccess             map[string]printerAccess `json:",omitempty"`
 	NextSequence            uint64
 	TransferTombstones      map[string]string
 	ReceivePublications     map[string]receivePublication `json:",omitempty"`

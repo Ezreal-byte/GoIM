@@ -679,7 +679,7 @@ func (u *UI) drawComposerToolbar(f ui.C) {
 		if conversation.Kind == "direct" {
 			peer := u.state.Peer(conversation.PeerID)
 			call := u.composerActionButton(f, u.ids.chatHeaderCall, u.iconPhone, i18n.T("语音通话"), "").
-				Disabled(!peer.VoiceSupported || !peer.VisibleOnline())
+				Disabled(peer.ID == "")
 			if call.Clicked() {
 				u.startVoiceCall(conversation.PeerID)
 			}
@@ -894,11 +894,10 @@ func (u *UI) chooseChatFiles(canvas *gfx.Canvas, imagesOnly bool) {
 	canvas.AfterPaint(func() {
 		paths, err := u.openFilePicker(options)
 		if err != nil {
-			if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) ||
-				errors.Is(err, app.ErrUnsupported) {
+			if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) {
 				return
 			}
-			u.showToast(i18n.T("无法选择文件"), err.Error(), components.ToastError)
+			u.showToast(i18n.T("无法选择文件"), filePickerProblem(err), components.ToastError)
 			return
 		}
 		if len(paths) == 0 {

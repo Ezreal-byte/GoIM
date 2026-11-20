@@ -115,7 +115,7 @@ func (r *desktopRuntime) saveViewerOriginal() {
 		return
 	}
 	if err != nil {
-		r.reportViewerError(i18n.T("无法保存图片"), err)
+		r.reportViewerError(i18n.T("无法保存图片"), errors.New(filePickerProblem(err)))
 		return
 	}
 	go func() {

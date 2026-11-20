@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"goim/internal/domain"
+	"goim/internal/systemauth"
 )
 
 func testOptimizationNode(t *testing.T, dir string) *Node {
@@ -206,6 +207,9 @@ func TestThemeSettingDoesNotPublishSavedNotice(t *testing.T) {
 }
 
 func TestSystemUnlockRequiresCurrentPasswordAndPersists(t *testing.T) {
+	if !systemauth.Supported() {
+		t.Skip("system unlock is disabled on this platform")
+	}
 	dir := t.TempDir()
 	n := testOptimizationNode(t, dir)
 	if err := n.execute(domain.Command{Kind: domain.SetSystemUnlock, Bool: true}); err == nil {

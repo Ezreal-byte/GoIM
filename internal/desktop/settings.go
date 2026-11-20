@@ -107,6 +107,7 @@ func (p *Panels) drawSettings(f ui.C, theme ui.Theme, state domain.State, submit
 		p.drawPasswordDialog(f, contentTheme, state, submit)
 	}
 	p.drawInterfaceFontPicker(f, contentTheme, state, submit)
+	p.drawResetDataDialog(f, state, submit)
 	return scroll
 }
 
@@ -697,7 +698,7 @@ func (p *Panels) chooseDownloadDirectory(canvas *gfx.Canvas, submit func(domain.
 			p.localError = ""
 			return
 		case err != nil:
-			p.localError = i18n.T("无法选择保存位置：") + err.Error()
+			p.localError = i18n.T("无法选择保存位置：") + filePickerProblem(err)
 			return
 		}
 		if err := panelWritableDirectory(path); err != nil {

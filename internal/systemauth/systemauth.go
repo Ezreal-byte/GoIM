@@ -2,7 +2,10 @@
 // user. It never reads, stores or passes system credentials to GoIM.
 package systemauth
 
-import "errors"
+import (
+	"errors"
+	"runtime"
+)
 
 var (
 	ErrCanceled         = errors.New("system verification was canceled")
@@ -17,7 +20,14 @@ var (
 // Verify presents the platform's own authentication UI for reason. A nil
 // result means the operating system confirmed the current user.
 func Verify(reason string) error {
+	if !Supported() {
+		return ErrUnavailable
+	}
 	return verify(reason)
+}
+
+func Supported() bool {
+	return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 }
 
 // Description names the verification methods the current platform offers.

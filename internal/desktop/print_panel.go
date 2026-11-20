@@ -2,9 +2,11 @@ package desktop
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
@@ -39,16 +41,18 @@ var panelPrintIcon = gfx.Icon{
 }
 
 type printPanelIDs struct {
-	feature          gfx.Scope
-	refresh          gfx.ID
-	openShare        gfx.ID
-	shareDialogScope gfx.ID
-	shareDismiss     gfx.ID
-	shareClose       gfx.ID
-	shareName        gfx.ID
-	shareCancel      gfx.ID
-	shareSubmit      gfx.ID
-	cards            gfx.Scope
+	feature              gfx.Scope
+	refresh              gfx.ID
+	openShare            gfx.ID
+	shareDialogScope     gfx.ID
+	shareDismiss         gfx.ID
+	shareClose           gfx.ID
+	shareName            gfx.ID
+	sharePassword        gfx.ID
+	shareRequirePassword gfx.ID
+	shareCancel          gfx.ID
+	shareSubmit          gfx.ID
+	cards                gfx.Scope
 }
 
 type printQueueOption struct {
@@ -68,6 +72,9 @@ type panelPrintCard struct {
 	capability    string
 	printActionID gfx.ID
 	unshareID     gfx.ID
+	editID        gfx.ID
+	pinID         gfx.ID
+	pinned        bool
 }
 
 type panelPrintRecord struct {
@@ -87,15 +94,20 @@ type printPanel struct {
 	tree *gfx.Tree
 	ids  printPanelIDs
 
-	tab        printTab
-	queues     []printQueueOption
-	lanCards   []panelPrintCard
-	mineCards  []panelPrintCard
-	allCards   []panelPrintCard
-	records    []panelPrintRecord
-	shareOpen  bool
-	shareQueue string
-	shareName  ui.Field
+	tab               printTab
+	queues            []printQueueOption
+	lanCards          []panelPrintCard
+	mineCards         []panelPrintCard
+	allCards          []panelPrintCard
+	records           []panelPrintRecord
+	shareOpen         bool
+	shareQueue        string
+	shareName         ui.Field
+	sharePassword     ui.Field
+	shareProtected    bool
+	shareWasProtected bool
+	shareEditing      bool
+	shareError        string
 
 	shareDefault    string
 	shareNameManual bool
@@ -113,6 +125,9 @@ func (t *printPanel) init(tree *gfx.Tree) {
 	t.ids.shareDismiss = tree.ID(t.ids.feature, "share-dialog-dismiss")
 	t.ids.shareClose = tree.ID(t.ids.feature, "share-dialog-close")
 	t.ids.shareName = tree.ID(t.ids.feature, "share-dialog-name")
+	t.ids.sharePassword = tree.ID(t.ids.feature, "share-dialog-password")
+	t.ids.shareRequirePassword = tree.ID(t.ids.feature, "share-dialog-require-password")
+	t.sharePassword.Secure = true
 	t.ids.shareCancel = tree.ID(t.ids.feature, "share-dialog-cancel")
 	t.ids.shareSubmit = tree.ID(t.ids.feature, "share-dialog-submit")
 	t.ids.cards = tree.Sub(t.ids.feature, tree.Name("cards"))
@@ -123,12 +138,35 @@ func (t *printPanel) resetInteractions() {
 }
 
 func (t *printPanel) openShareDialog(state domain.State) {
+	t.closeShareDialog()
 	t.shareOpen = true
 	t.shareNameManual = false
 	t.shareDefault = ""
 	t.shareQueue = ""
 	t.selectDefaultQueue()
 	t.applyShareDefault(state)
+	t.loadExistingShare(state)
+}
+
+func (t *printPanel) loadExistingShare(state domain.State) {
+	t.sharePassword.SetText("")
+	t.shareProtected, t.shareWasProtected = false, false
+	for _, share := range state.Printers {
+		if share.OwnerID == state.Self.ID && share.DeviceName == t.shareQueue {
+			t.shareName.SetText(share.Name)
+			t.shareNameManual = true
+			t.shareProtected, t.shareWasProtected = share.PasswordRequired, share.PasswordRequired
+			return
+		}
+	}
+}
+
+func (t *printPanel) editShareDialog(share domain.PrinterShare) {
+	t.closeShareDialog()
+	t.shareOpen, t.shareEditing, t.shareNameManual = true, true, true
+	t.shareQueue = share.DeviceName
+	t.shareName.SetText(share.Name)
+	t.shareProtected, t.shareWasProtected = share.PasswordRequired, share.PasswordRequired
 }
 
 func (t *printPanel) closeShareDialog() {
@@ -137,6 +175,9 @@ func (t *printPanel) closeShareDialog() {
 	t.shareDefault = ""
 	t.shareNameManual = false
 	t.shareName.SetText("")
+	t.sharePassword.SetText("")
+	t.shareProtected, t.shareWasProtected, t.shareEditing = false, false, false
+	t.shareError = ""
 }
 
 func (t *printPanel) selectDefaultQueue() {
@@ -216,7 +257,7 @@ func (t *printPanel) rebuild(state domain.State) {
 	})
 	if !t.shareOpen {
 		t.shareQueue = ""
-	} else {
+	} else if !t.shareEditing {
 		t.selectDefaultQueue()
 	}
 
@@ -260,6 +301,9 @@ func (t *printPanel) rebuild(state domain.State) {
 		scope := t.tree.Sub(t.ids.cards, t.tree.Name(share.ID))
 		card.printActionID = t.tree.ID(scope, "print")
 		card.unshareID = t.tree.ID(scope, "unshare")
+		card.editID = t.tree.ID(scope, "edit")
+		card.pinID = t.tree.ID(scope, "pin")
+		card.pinned = slices.Contains(state.Settings.PinnedPrinters, share.ID)
 		t.allCards = append(t.allCards, card)
 		if own {
 			t.mineCards = append(t.mineCards, card)
@@ -300,6 +344,9 @@ func (t *printPanel) rebuild(state domain.State) {
 
 func sortPrintCards(cards []panelPrintCard) {
 	sort.SliceStable(cards, func(i, j int) bool {
+		if cards[i].pinned != cards[j].pinned {
+			return cards[i].pinned
+		}
 		if cards[i].available != cards[j].available {
 			return cards[i].available
 		}
@@ -401,6 +448,10 @@ func printPanelMinCell(width float32) float32 {
 	}
 }
 
+func printControlHeight(theme ui.Theme) float32 {
+	return 36 + 20*max(theme.Metrics.EffectiveTextScale()-1, 0)
+}
+
 func (t *printPanel) tabLabel(tab printTab) string {
 	switch tab {
 	case printTabMine:
@@ -420,7 +471,7 @@ func (u *UI) paintPrintAvatar(f ui.C, peerID, name, path string, size float32, o
 func (p *Panels) drawPrint(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.State, submit func(domain.Command)) {
 	pad := panelPageInset(bounds.Width)
 	ui.Column(f).Fill().PadSides(panelPageTop, pad, 0, pad).Children(func() {
-		p.drawPrintToolbar(f, theme, bounds.Width, state, submit)
+		p.drawPrintToolbar(f, theme, bounds.Width-2*pad, state, submit)
 		ui.Row(f).FillWidth().PadSides(18, 0, 0, 0).Children(func() {
 			if ui.Tabs(f.Part("print-filter"), &p.print.tab, printTabs[:], p.print.tabLabel).
 				Line().FontSize(panelTabFontSize).Changed() {
@@ -430,7 +481,7 @@ func (p *Panels) drawPrint(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.
 		ui.Divider(f).FillWidth()
 		ui.Scroll(f.KeyInt(700 + int(p.print.tab))).FillWidth().Grow(1).Children(func() {
 			ui.Column(f).FillWidth().PadY(18).Gap(18).Children(func() {
-				p.drawPrintTab(f, theme, bounds.Width, state, submit)
+				p.drawPrintTab(f, theme, bounds.Width-2*pad, state, submit)
 			})
 		})
 		p.drawPrinterShareDialog(f, theme, state, submit)
@@ -438,28 +489,33 @@ func (p *Panels) drawPrint(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.
 }
 
 func (p *Panels) drawPrintToolbar(f ui.C, theme ui.Theme, width float32, state domain.State, submit func(domain.Command)) {
-	height, labelSize := float32(45), float32(15)
-	if width < 760 {
-		height, labelSize = 39, 13
+	compact := width < 620*theme.Metrics.EffectiveTextScale()
+	var container ui.Box
+	if compact {
+		container = ui.Column(f).FillWidth().Gap(14)
+	} else {
+		container = ui.Row(f).FillWidth().Gap(12).Items(ui.Center)
 	}
-	ui.Row(f).FillWidth().Gap(10).Items(ui.Center).Children(func() {
+	container.Children(func() {
 		drawPanelPageHeading(f, width, i18n.T("打印共享"), i18n.T("选择局域网打印机并发送文件。"))
-		refresh := panelActionIcon(f, theme, p.print.ids.refresh, RefreshCw, i18n.T("刷新打印机"), false, state.PrintersLoading)
-		if refresh.Clicked() {
-			submit(domain.Command{Kind: domain.RefreshPrinters})
-		}
-		button := ui.Row(f).Height(height).Gap(8).PadX(14).Items(ui.Center).Radius(8).
-			Background(theme.Primary).Hover(ui.Look{}.Background(theme.Primary.WithAlpha(.87))).
-			HitWith(p.print.ids.openShare, i18n.T("分享打印机"), gfx.HitOptions{Role: gfx.RoleButton})
-		button.Children(func() {
-			ui.Icon(f, Plus).Size(17, 17).Color(theme.PrimaryForeground)
-			ui.Text(f, i18n.T("分享打印机")).Color(theme.PrimaryForeground).
-				FontSize(labelSize).Weight(gfx.WeightSemibold)
+		ui.Row(f).Gap(10).Items(ui.Center).Children(func() {
+			refresh := panelActionIcon(f, theme, p.print.ids.refresh, RefreshCw, i18n.T("刷新打印机"), false, state.PrintersLoading)
+			if refresh.Clicked() {
+				submit(domain.Command{Kind: domain.RefreshPrinters})
+			}
+			button := ui.Row(f).MinHeight(40).Gap(8).Pad(12).Items(ui.Center).Radius(radiusControl).
+				Background(theme.Primary).Hover(ui.Look{}.Background(theme.Primary.WithAlpha(.87))).
+				HitWith(p.print.ids.openShare, i18n.T("分享打印机"), gfx.HitOptions{Role: gfx.RoleButton})
+			button.Children(func() {
+				ui.Icon(f, Plus).Size(17, 17).Color(theme.PrimaryForeground)
+				ui.Text(f, i18n.T("分享打印机")).Color(theme.PrimaryForeground).
+					FontSize(14).Weight(gfx.WeightSemibold)
+			})
+			if button.Clicked() {
+				p.print.openShareDialog(state)
+				submit(domain.Command{Kind: domain.RefreshPrinters})
+			}
 		})
-		if button.Clicked() {
-			p.print.openShareDialog(state)
-			submit(domain.Command{Kind: domain.RefreshPrinters})
-		}
 	})
 	ui.Row(f).Height(15)
 }
@@ -508,7 +564,8 @@ func (p *Panels) drawPrintTab(f ui.C, theme ui.Theme, width float32, state domai
 
 func (p *Panels) drawPrintCardGrid(f ui.C, theme ui.Theme, width float32, cards []panelPrintCard,
 	mine bool, submit func(domain.Command)) {
-	ui.Grid(f, printPanelMinCell(width)).FillWidth().Gap(14).Children(func() {
+	minCell := min(width, max(printPanelMinCell(width), 330+150*(theme.Metrics.EffectiveTextScale()-1)))
+	ui.Grid(f, minCell).FillWidth().Gap(14).Children(func() {
 		for _, card := range cards {
 			p.drawPrintCard(f, theme, card, mine, submit)
 		}
@@ -517,28 +574,46 @@ func (p *Panels) drawPrintCardGrid(f ui.C, theme ui.Theme, width float32, cards 
 
 func (p *Panels) drawPrintCard(f ui.C, theme ui.Theme, card panelPrintCard,
 	mine bool, submit func(domain.Command)) {
-	ui.Row(f).Fill().MinHeight(112).PadSides(18, 16, 18, 16).Gap(14).Radius(radiusControl).
+	ui.Column(f).FillWidth().Pad(16).Gap(14).Radius(radiusCard).
 		Background(theme.Background).Border(1, theme.Border).Children(func() {
-		p.drawPrintAvatar(f, card, theme, 54)
-		ui.Column(f).Grow(1).MinWidth(0).Gap(5).Justify(ui.Center).Children(func() {
-			ui.Text(f, card.printer.Name).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis()
-			ui.Text(f, i18n.T("共享人 ")+card.ownerName).Muted().FontSize(12.5).Ellipsis()
-			ui.Row(f).Items(ui.Center).Gap(8).Children(func() {
-				tone := theme.Success
-				label := i18n.T("可用")
-				if !card.available {
-					tone = theme.MutedForeground
-					label = i18n.T("离线")
-				}
+		ui.Row(f).FillWidth().Gap(12).Items(ui.Center).Children(func() {
+			p.drawPrintAvatar(f, card, theme, 54)
+			ui.Column(f).Grow(1).MinWidth(0).Gap(5).Justify(ui.Center).Children(func() {
+				ui.Text(f, card.printer.Name).FillWidth().FontSize(16).Weight(gfx.WeightSemibold).Ellipsis()
+				ui.Text(f, i18n.T("共享人 ")+card.ownerName).FillWidth().Muted().FontSize(12.5).Ellipsis()
+			})
+			label := i18n.T("置顶打印机")
+			if card.pinned {
+				label = i18n.T("取消置顶")
+			}
+			if panelActionIcon(f, theme, card.pinID, Pin, label, card.pinned, false).Clicked() {
+				submit(domain.Command{Kind: domain.SetPrinterPinned, PrinterID: card.printer.ID, Bool: !card.pinned})
+			}
+		})
+		ui.Row(f).FillWidth().Items(ui.Center).Gap(8).Children(func() {
+			tone := theme.Success
+			label := i18n.T("可用")
+			if !card.available {
+				tone = theme.MutedForeground
+				label = i18n.T("离线")
+			}
+			ui.Row(f).Shrink(0).Gap(7).Items(ui.Center).Children(func() {
 				ui.Row(f).Size(7, 7).Radius(4).Background(tone)
 				ui.Text(f, label).FontSize(12).Color(tone)
-				ui.Row(f).Width(1).Height(15).Background(theme.Border)
-				ui.Text(f, card.capability).Muted().FontSize(12).Ellipsis()
 			})
+			ui.Row(f).Width(1).Height(14).Shrink(0).Background(theme.Border)
+			ui.Text(f, card.capability).Grow(1).MinWidth(0).Muted().FontSize(12).Ellipsis()
+			if card.printer.PasswordRequired {
+				ui.Icon(f, Lock).Size(14, 14).Color(theme.MutedForeground)
+			}
 		})
-		ui.Column(f).Gap(8).Items(ui.End).Justify(ui.Center).Children(func() {
+		ui.Divider(f).FillWidth()
+		ui.Row(f).FillWidth().Gap(8).Justify(ui.End).Items(ui.Center).Children(func() {
 			if mine {
-				if namedButton(f, card.unshareID, i18n.T("停止共享")).Small().Outline().Clicked() {
+				if namedButton(f, card.editID, i18n.T("编辑共享")).Small().MinHeight(printControlHeight(theme)).Outline().Clicked() {
+					p.print.editShareDialog(card.printer)
+				}
+				if namedButton(f, card.unshareID, i18n.T("停止共享")).Small().MinHeight(printControlHeight(theme)).Outline().Clicked() {
 					submit(domain.Command{Kind: domain.UnsharePrinter, PrinterID: card.printer.ID})
 				}
 				return
@@ -550,7 +625,7 @@ func (p *Panels) drawPrintCard(f ui.C, theme ui.Theme, card panelPrintCard,
 			} else if !card.available {
 				hint = i18n.T("共享打印机当前不可用")
 			}
-			box := ui.Row(f).Height(34).PadSides(13, 11, 13, 11).Gap(7).Radius(radiusControl).
+			box := ui.Row(f).MinHeight(34).PadSides(9, 12, 9, 12).Gap(7).Radius(radiusControl).
 				Border(1, theme.Border).Hover(ui.Look{}.Background(theme.Hover)).
 				HitWith(card.printActionID, hint, gfx.HitOptions{
 					Role: gfx.RoleButton, Hint: hint, Disabled: disabled,
@@ -579,27 +654,29 @@ func (p *Panels) drawPrintAvatar(f ui.C, card panelPrintCard, theme ui.Theme, si
 		p.printAvatar(f, card.printer.OwnerID, card.ownerName, card.ownerAvatar, size, card.ownerOnline)
 		return
 	}
-	ui.Row(f).Size(size, size).Radius(size / 2).Background(theme.Muted).
+	ui.Row(f).Size(size, size).Shrink(0).Radius(size / 2).Background(theme.Muted).
 		Items(ui.Center).Justify(ui.Center).Children(func() {
-		ui.Text(f, initialOf(card.ownerName)).FontSize(18).Weight(gfx.WeightSemibold)
+		ui.Text(f, initialOf(card.ownerName)).FontSize(fontToken(theme, min(18*theme.Metrics.EffectiveTextScale(), size*.42))).Weight(gfx.WeightSemibold)
 	})
 }
 
 func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records []panelPrintRecord, direction bool) {
-	compact := width < 760
+	compact := width < 900*theme.Metrics.EffectiveTextScale()
 	directionWidth := float32(88)
 	sourceWidth := float32(190)
 	timeWidth := float32(92)
 	statusWidth := float32(128)
 	if compact {
-		directionWidth, sourceWidth, timeWidth, statusWidth = 0, 130, 0, 108
+		directionWidth, sourceWidth, timeWidth, statusWidth = 0, 0, 0, 100*theme.Metrics.EffectiveTextScale()
 	}
-	ui.Row(f).FillWidth().Height(40).PadX(14).Gap(12).Items(ui.Center).Children(func() {
+	ui.Row(f).FillWidth().MinHeight(40).Pad(10).Gap(12).Items(ui.Center).Children(func() {
 		ui.Text(f, i18n.T("文件名称")).Muted().FontSize(13).Grow(1)
-		if direction {
+		if direction && !compact {
 			ui.Text(f, i18n.T("类型")).Muted().FontSize(13).Width(directionWidth)
 		}
-		ui.Text(f, i18n.T("打印机 / 来源")).Muted().FontSize(13).Width(sourceWidth)
+		if !compact {
+			ui.Text(f, i18n.T("打印机 / 来源")).Muted().FontSize(13).Width(sourceWidth)
+		}
 		if !compact {
 			ui.Text(f, i18n.T("时间")).Muted().FontSize(13).Width(timeWidth)
 		}
@@ -607,7 +684,7 @@ func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records
 	})
 	ui.Divider(f).FillWidth()
 	for _, record := range records {
-		row := ui.Row(f).FillWidth().MinHeight(54).PadX(14).Gap(12).Items(ui.Center).
+		row := ui.Row(f).FillWidth().MinHeight(64).Pad(12).Gap(12).Items(ui.Center).
 			Hover(ui.Look{}.Background(theme.Hover))
 		row.Children(func() {
 			ui.Row(f).Grow(1).MinWidth(0).Gap(10).Items(ui.Center).Children(func() {
@@ -632,10 +709,12 @@ func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records
 					}
 				})
 			})
-			if direction {
+			if direction && !compact {
 				ui.Text(f, record.direction).FontSize(13).Width(directionWidth).Ellipsis()
 			}
-			ui.Text(f, record.source).FontSize(13).Width(sourceWidth).Ellipsis()
+			if !compact {
+				ui.Text(f, record.source).FontSize(13).Width(sourceWidth).Ellipsis()
+			}
 			if !compact {
 				ui.Text(f, record.date).Muted().FontSize(12).Width(timeWidth).Ellipsis()
 			}
@@ -682,13 +761,19 @@ func (p *Panels) drawPrinterShareDialog(f ui.C, theme ui.Theme, state domain.Sta
 		return
 	}
 	previousQueue := p.print.shareQueue
-	p.print.selectDefaultQueue()
+	if !p.print.shareEditing {
+		p.print.selectDefaultQueue()
+	}
 	if p.print.shareQueue != previousQueue {
 		p.print.shareNameManual = false
 		p.print.applyShareDefault(state)
 	}
+	title := i18n.T("分享打印机")
+	if p.print.shareEditing {
+		title = i18n.T("编辑共享打印机")
+	}
 	dialog := ui.Dialog(f, ui.DialogSpec{
-		Title: i18n.T("分享打印机"), Description: i18n.T("选择本机已安装的打印机，并为局域网成员设置共享名称。"),
+		Title: title, Description: i18n.T("设置局域网共享名称和可选的打印密码。"),
 		Width: 480, Scope: p.print.ids.shareDialogScope, DismissID: p.print.ids.shareDismiss,
 		CloseID: p.print.ids.shareClose, InitialFocusID: p.print.ids.shareName,
 	})
@@ -708,32 +793,50 @@ func (p *Panels) drawPrinterShareDialog(f ui.C, theme ui.Theme, state domain.Sta
 			} else {
 				previous := p.print.shareQueue
 				ui.Select(f.Part("print-printer"), &p.print.shareQueue, queueIDs, p.print.queueLabel).
-					Placeholder(i18n.T("选择本机打印机")).FillWidth().Disabled(len(queueIDs) == 0)
+					Placeholder(i18n.T("选择本机打印机")).FillWidth().MinHeight(printControlHeight(theme)).Disabled(len(queueIDs) == 0 || p.print.shareEditing)
 				if p.print.shareQueue != previous {
 					p.print.shareNameManual = false
 					p.print.applyShareDefault(state)
+					p.print.loadExistingShare(state)
 				}
 			}
 			ui.Text(f, i18n.T("共享名称")).FontSize(12.5).Weight(gfx.WeightMedium)
 			field := ui.TextFieldID(f, p.print.ids.shareName, &p.print.shareName,
-				i18n.T("共享名称"), i18n.T("例如：陈晨-前台 HP")).FillWidth()
+				i18n.T("共享名称"), i18n.T("例如：陈晨-前台 HP")).FillWidth().MinHeight(printControlHeight(theme))
 			if field.Changed() {
 				p.print.shareNameManual = true
 			}
 			submitted = field.Submitted()
-			ui.Text(f, i18n.T("同一账号可共享多台打印机，局域网成员无需密码即可选择并使用。")).
-				Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
+			ui.Row(f).FillWidth().Gap(12).Items(ui.Center).Children(func() {
+				ui.Text(f, i18n.T("启用打印密码")).Grow(1).FontSize(13)
+				ui.Switch(f, &p.print.shareProtected, "").Hit(p.print.ids.shareRequirePassword, i18n.T("启用打印密码"))
+			})
+			if p.print.shareProtected {
+				hint := i18n.T("至少 6 个字符")
+				if p.print.shareWasProtected {
+					hint = i18n.T("留空保留当前密码")
+				}
+				ui.TextFieldID(f, p.print.ids.sharePassword, &p.print.sharePassword, i18n.T("打印密码"), hint).FillWidth().MinHeight(printControlHeight(theme))
+			}
+			ui.Paragraph(f, i18n.T("首次使用时验证一次；修改密码后，成员需要重新验证。"), 3).FillWidth().Muted().FontSize(12)
+			if p.print.shareError != "" {
+				ui.Text(f, p.print.shareError).FontSize(12).Color(theme.Danger)
+			}
 			if state.PrintError != "" {
 				ui.Text(f, state.PrintError).FontSize(fontToken(theme, theme.Metrics.FontSizeS)).Color(theme.Danger)
 			}
 		})
 	})
 	dialog.Footer(func() {
-		if dialogActionButton(f, p.print.ids.shareCancel, i18n.T("取消")).Outline().Clicked() {
+		if dialogActionButton(f, p.print.ids.shareCancel, i18n.T("取消")).MinHeight(printControlHeight(theme)).Outline().Clicked() {
 			p.print.closeShareDialog()
 		}
 		disabled := p.print.shareQueue == ""
-		if dialogActionButton(f, p.print.ids.shareSubmit, i18n.T("分享")).Disabled(disabled).Clicked() {
+		label := i18n.T("分享")
+		if p.print.shareEditing {
+			label = i18n.T("保存")
+		}
+		if dialogActionButton(f, p.print.ids.shareSubmit, label).MinHeight(printControlHeight(theme)).Disabled(disabled).Clicked() {
 			submitted = true
 		}
 	})
@@ -749,6 +852,18 @@ func (p *Panels) drawPrinterShareDialog(f ui.C, theme ui.Theme, state domain.Sta
 	if name == "" {
 		name = p.print.defaultShareName(state)
 	}
+	password := p.print.sharePassword.Text()
+	setting := "password"
+	if p.print.shareProtected {
+		if password == "" && p.print.shareWasProtected {
+			setting = ""
+		} else if utf8.RuneCountInString(password) < 6 || len(password) > 256 {
+			p.print.shareError = i18n.T("密码至少 6 个字符，且不能超过 256 字节")
+			return
+		}
+	} else {
+		password = ""
+	}
 	p.print.closeShareDialog()
-	submit(domain.Command{Kind: domain.SharePrinter, PrinterID: queue, Name: name})
+	submit(domain.Command{Kind: domain.SharePrinter, PrinterID: queue, Name: name, Password: password, Setting: setting})
 }

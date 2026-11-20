@@ -107,13 +107,20 @@ type panelIDs struct {
 	shortcutDialogSave    gfx.Scope
 	shortcutDialogCancel  gfx.Scope
 
-	aboutCopyVersion gfx.ID
-	aboutLicense     gfx.ID
-	aboutBack        gfx.ID
-	aboutCopyLicense gfx.ID
-	aboutDiagnostics gfx.ID
-	aboutAutoUpdate  gfx.ID
-	aboutCards       gfx.Scope
+	aboutCopyVersion     gfx.ID
+	aboutLicense         gfx.ID
+	aboutBack            gfx.ID
+	aboutCopyLicense     gfx.ID
+	aboutDiagnostics     gfx.ID
+	aboutCopyDiagnostics gfx.ID
+	aboutResetData       gfx.ID
+	aboutResetConfirm    gfx.ID
+	aboutResetCancel     gfx.ID
+	aboutResetScope      gfx.ID
+	aboutResetClose      gfx.ID
+	aboutResetDismiss    gfx.ID
+	aboutAutoUpdate      gfx.ID
+	aboutCards           gfx.Scope
 
 	transferActions     gfx.Scope
 	transferDirectory   gfx.ID
@@ -298,13 +305,15 @@ type Panels struct {
 	listNetworks     func() ([]net.Interface, error)
 	networkChange    panelNetworkChange
 
-	localFiles        map[string]panelLocalFile
-	mediaSubmit       func(mediaJob)
-	toast             func(title, description string, tone components.ToastType)
-	invalidate        func()
-	fontFamilies      func() []string
-	setInterfaceFont  func(string) bool
-	diagnosticDataDir func() string
+	localFiles           map[string]panelLocalFile
+	mediaSubmit          func(mediaJob)
+	toast                func(title, description string, tone components.ToastType)
+	invalidate           func()
+	fontFamilies         func() []string
+	setInterfaceFont     func(string) bool
+	diagnosticDataDir    func() string
+	diagnosticPickerOpen bool
+	resetDataOpen        bool
 
 	localActions    map[uint64]panelLocalAction
 	nextLocalAction uint64
@@ -397,6 +406,13 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.aboutBack = tree.ID(settings, "about-back")
 	p.ids.aboutCopyLicense = tree.ID(settings, "copy-license")
 	p.ids.aboutDiagnostics = tree.ID(settings, "export-diagnostics")
+	p.ids.aboutCopyDiagnostics = tree.ID(settings, "copy-diagnostics")
+	p.ids.aboutResetData = tree.ID(settings, "reset-data")
+	p.ids.aboutResetConfirm = tree.ID(settings, "reset-data-confirm")
+	p.ids.aboutResetCancel = tree.ID(settings, "reset-data-cancel")
+	p.ids.aboutResetScope = tree.ID(settings, "reset-data-dialog")
+	p.ids.aboutResetClose = tree.ID(settings, "reset-data-close")
+	p.ids.aboutResetDismiss = tree.ID(settings, "reset-data-dismiss")
 	p.ids.aboutAutoUpdate = tree.ID(settings, "auto-check-updates")
 	p.ids.aboutCards = tree.Sub(settings, tree.Name("about-card"))
 
@@ -479,6 +495,7 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 		p.cancelShortcutEdit()
 		p.resetShortcuts = false
 		p.aboutLicense = false
+		p.resetDataOpen = false
 		p.networkChange = panelNetworkChange{}
 		p.localError = ""
 		p.transferMenu = ""

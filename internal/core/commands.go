@@ -30,10 +30,17 @@ func (n *Node) execute(c domain.Command) error {
 		}
 		return nil
 	case domain.Connect:
-		if strings.TrimSpace(c.Address) == "" {
-			return errors.New("请输入 IP 或 IP:端口")
+		return n.connectManual(c)
+	case domain.ResetUserData:
+		if err := requestDataReset(n.dir); err != nil {
+			return err
 		}
-		return n.connectVia(c.Transport, c.Address)
+		n.mu.Lock()
+		n.dataResetPending = true
+		n.data.State.Revision++
+		n.mu.Unlock()
+		n.signal()
+		return nil
 	case domain.SetCompatibility:
 		return n.setCompatibility(c.Transport, c.Compatibility)
 	case domain.RefreshPeerAvatar:
@@ -266,6 +273,10 @@ func (n *Node) execute(c domain.Command) error {
 		return n.sharePrinter(c)
 	case domain.UnsharePrinter:
 		return n.unsharePrinter(c)
+	case domain.AuthenticatePrinter:
+		n.authenticatePrinter(c)
+	case domain.SetPrinterPinned:
+		return n.setPrinterPinned(c)
 	case domain.PrintFile:
 		return n.printFile(c)
 	case domain.GetShared:

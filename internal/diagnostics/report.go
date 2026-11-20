@@ -468,6 +468,30 @@ func WritePrivateFile(path, report string) error {
 	if err != nil {
 		return err
 	}
+	return writePrivateReport(file, report)
+}
+
+func WritePrivateTemp(directory, prefix, report string) (string, error) {
+	if directory == "" || !filepath.IsAbs(directory) || prefix == "" || strings.ContainsAny(prefix, "/\\") {
+		return "", fmt.Errorf("diagnostics: invalid fallback destination")
+	}
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", err
+	}
+	file, err := os.CreateTemp(directory, prefix+"-*.txt")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	if err := writePrivateReport(file, report); err != nil {
+		os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
+func writePrivateReport(file *os.File, report string) error {
+	var err error
 	if err = file.Chmod(0o600); err == nil {
 		_, err = file.WriteString(report)
 	}

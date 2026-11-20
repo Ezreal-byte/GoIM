@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+    install|upgrade)
+        for process in /proc/[0-9]*/exe; do
+            executable=$(readlink "$process" 2>/dev/null) || continue
+            executable=${executable% (deleted)}
+            if [ "$executable" = /usr/bin/GoIM ]; then
+                printf '%s\n' 'GoIM 正在运行。请先从系统托盘退出所有 GoIM 窗口，再通过系统安装器重试升级。' >&2
+                printf '%s\n' 'GoIM is running. Exit GoIM, including its tray icon, then retry this installation.' >&2
+                exit 1
+            fi
+        done
+        ;;
+esac
+
+exit 0

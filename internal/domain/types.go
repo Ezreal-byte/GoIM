@@ -281,14 +281,23 @@ type LocalPrinter struct {
 // the owner can address its local queue after a restart; remote peers cannot
 // submit to anything except this record's authenticated OwnerID.
 type PrinterShare struct {
-	ID           string
-	OwnerID      string
-	OwnerName    string
-	Name         string
-	DeviceName   string
-	Available    bool
-	Capabilities PrintCapabilities
-	CreatedAt    time.Time
+	ID               string
+	OwnerID          string
+	OwnerName        string
+	Name             string
+	DeviceName       string
+	Available        bool
+	Capabilities     PrintCapabilities
+	CreatedAt        time.Time
+	PasswordRequired bool   `json:",omitempty"`
+	AuthRevision     string `json:",omitempty"`
+	AuthSalt         []byte `json:",omitempty"`
+}
+
+type PrinterAuthResult struct {
+	Request uint64
+	Pending bool
+	Error   string
 }
 
 // PrintJob is the durable record kept on both peers. LocalJobID is populated
@@ -331,6 +340,7 @@ type Shortcut struct {
 const ShortcutScreenshot = "截图标注"
 
 type Settings struct {
+	PinnedPrinters               []string `json:",omitempty"`
 	IPMSG                        CompatibilityConfig
 	Neiwangtong                  CompatibilityConfig
 	CompatibilityConfigured      bool
@@ -501,40 +511,51 @@ func (s *Settings) EnsureDefaultShortcuts() {
 }
 
 type State struct {
-	IPMSGStatus       CompatibilityStatus `json:"-"`
-	NeiwangtongStatus CompatibilityStatus `json:"-"`
-	Self              Peer
-	Peers             []Peer
-	ContactGroups     []string
-	Conversations     []Conversation
-	Messages          []Message
-	Groups            []Group
-	Invitations       []Invitation
-	Files             []File
-	Transfers         []Transfer
-	LocalPrinters     []LocalPrinter `json:"-"`
-	Printers          []PrinterShare
-	PrintJobs         []PrintJob
-	PrintersLoading   bool   `json:"-"`
-	PrintError        string `json:"-"`
-	Settings          Settings
-	VoiceCall         VoiceCall `json:"-"`
-	Error             string
-	Notice            string
-	Locked            bool
-	LockResult        LockResult    `json:"-"`
-	DeviceShare       DeviceShare   `json:"-"`
-	ShareFeedback     ShareFeedback `json:"-"`
-	ListenAddress     string
-	LocalIP           string `json:"-"`
-	Version           string
-	Revision          uint64
-	GroupNicknames    []GroupNickname
+	IPMSGStatus        CompatibilityStatus `json:"-"`
+	NeiwangtongStatus  CompatibilityStatus `json:"-"`
+	Self               Peer
+	Peers              []Peer
+	ContactGroups      []string
+	Conversations      []Conversation
+	Messages           []Message
+	Groups             []Group
+	Invitations        []Invitation
+	Files              []File
+	Transfers          []Transfer
+	LocalPrinters      []LocalPrinter `json:"-"`
+	Printers           []PrinterShare
+	PrintJobs          []PrintJob
+	PrintersLoading    bool                         `json:"-"`
+	PrintError         string                       `json:"-"`
+	PrinterAuthorized  map[string]string            `json:"-"`
+	PrinterAuth        map[string]PrinterAuthResult `json:"-"`
+	Settings           Settings
+	VoiceCall          VoiceCall `json:"-"`
+	Error              string
+	Notice             string
+	Locked             bool
+	LockResult         LockResult         `json:"-"`
+	DeviceShare        DeviceShare        `json:"-"`
+	ShareFeedback      ShareFeedback      `json:"-"`
+	ConnectionFeedback ConnectionFeedback `json:"-"`
+	DataResetPending   bool               `json:"-"`
+	ListenAddress      string
+	LocalIP            string `json:"-"`
+	Version            string
+	Revision           uint64
+	GroupNicknames     []GroupNickname
 }
 
 type LockResult struct {
 	Request uint64
 	Error   string
+}
+
+type ConnectionFeedback struct {
+	Sequence uint64
+	Address  string
+	Pending  bool
+	Problem  string
 }
 
 const WebReceiveFolder = "网页接收"
@@ -663,8 +684,11 @@ const (
 	RefreshPrinters      CommandKind = "refresh_printers"
 	SharePrinter         CommandKind = "share_printer"
 	UnsharePrinter       CommandKind = "unshare_printer"
+	AuthenticatePrinter  CommandKind = "authenticate_printer"
+	SetPrinterPinned     CommandKind = "set_printer_pinned"
 	PrintFile            CommandKind = "print_file"
 	ClearError           CommandKind = "clear_error"
+	ResetUserData        CommandKind = "reset_user_data"
 	StartVoiceCall       CommandKind = "start_voice_call"
 	AcceptVoiceCall      CommandKind = "accept_voice_call"
 	RejectVoiceCall      CommandKind = "reject_voice_call"

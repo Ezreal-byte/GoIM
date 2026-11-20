@@ -26,8 +26,9 @@ if (!(Test-Path -LiteralPath $wix)) {
 }
 Push-Location $toolPath
 try {
+    Invoke-Checked $wix @('extension', 'add', "WixToolset.Util.wixext/$wixVersion")
     $productVersion = ($Version -split '-', 2)[0]
-    Invoke-Checked $wix @('build', '-arch', $arch, '-d', "ProductVersion=$productVersion",
+    Invoke-Checked $wix @('build', '-ext', 'WixToolset.Util.wixext', '-arch', $arch, '-d', "ProductVersion=$productVersion",
         '-d', "Payload=$payload", '-bindpath', "payload=$payload", '-out', $msi,
         (Join-Path $PSScriptRoot 'product.wxs'))
 } finally {

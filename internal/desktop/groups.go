@@ -251,11 +251,10 @@ func (u *UI) openGroupAvatar(group domain.Group) {
 		},
 	})
 	if err != nil {
-		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) ||
-			errors.Is(err, app.ErrUnsupported) {
+		if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) {
 			return
 		}
-		u.showToast(i18n.T("无法选择群头像"), err.Error(), components.ToastError)
+		u.showToast(i18n.T("无法选择群头像"), filePickerProblem(err), components.ToastError)
 		return
 	}
 	if len(paths) == 0 || strings.TrimSpace(paths[0]) == "" {
@@ -1060,10 +1059,10 @@ func (u *UI) chooseTransferDestination(canvas *gfx.Canvas, transfer domain.Trans
 			Title: i18n.T("选择接收位置"), SuggestedName: suggested,
 		})
 		if err != nil {
-			if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) ||
-				errors.Is(err, app.ErrUnsupported) {
+			if errors.Is(err, app.ErrCanceled) || errors.Is(err, app.ErrNoDriverResponse) {
 				return
 			}
+			u.showToast(i18n.T("无法选择保存位置："), filePickerProblem(err), components.ToastError)
 			return
 		}
 		if path == "" {
@@ -1267,19 +1266,20 @@ func (u *UI) drawConnectDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			submitted = connectionFields(f, u.state, panelConnectionFields{
 				route: &u.connectRoute, address: &u.connectField, addressID: u.ids.connectField,
 			})
+			connectionFeedbackText(f, u.theme, u.state)
 		})
 		dialog.Footer(func() {
 			canceled = dialogActionButton(f, u.ids.connectCancel, i18n.T("取消")).Outline().Clicked()
-			enabled := connectionAvailable(u.state, u.connectRoute) && strings.TrimSpace(u.connectField.Text()) != ""
+			enabled := connectionAvailable(u.state, u.connectRoute) && strings.TrimSpace(u.connectField.Text()) != "" && !u.connectPending && !u.state.ConnectionFeedback.Pending
 			submitted = dialogActionButton(f, u.ids.connectSubmit, i18n.T("连接")).Disabled(!enabled).Clicked() || submitted
 		})
 		if dialog.Dismissed() || canceled {
 			u.connectOpen = false
 			return
 		}
-		if address := strings.TrimSpace(u.connectField.Text()); submitted && address != "" {
+		if address := strings.TrimSpace(u.connectField.Text()); submitted && address != "" && !u.connectPending && !u.state.ConnectionFeedback.Pending {
+			u.connectPending = true
 			u.submit(domain.Command{Kind: domain.Connect, Address: address, Transport: u.connectRoute.transport()})
-			u.connectOpen = false
 		}
 	})
 }

@@ -21,6 +21,7 @@ import (
 	ipmsgproto "goim/internal/ipmsg"
 	"goim/internal/neiwangtong"
 	"goim/internal/printing"
+	"goim/internal/systemauth"
 )
 
 type Options struct {
@@ -35,6 +36,9 @@ type Options struct {
 	PrintBackend         printing.Backend
 }
 type Node struct {
+	connectionFeedback    domain.ConnectionFeedback
+	dataResetPending      bool
+	dataLock              *os.File
 	mu                    sync.Mutex
 	groupMu               sync.Mutex
 	flushMu               sync.Mutex
@@ -89,6 +93,10 @@ type Node struct {
 	printError            string
 	printPolls            map[string]bool
 	printSubmitTokens     chan struct{}
+	printAuthWaiters      map[string]printerAuthWaiter
+	printAuthActive       map[string]bool
+	printAuthResults      map[string]domain.PrinterAuthResult
+	printAuthAfter        map[string]time.Time
 	voice                 *voiceSession
 }
 
@@ -102,6 +110,19 @@ func New(opts Options) (*Node, error) {
 	}
 	if opts.Listen == "" {
 		opts.Listen = "0.0.0.0:47842"
+	}
+	dataLock, err := lockDataDirectory(opts.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	retainedLock := false
+	defer func() {
+		if !retainedLock {
+			_ = dataLock.Close()
+		}
+	}()
+	if err := completePendingDataReset(opts.DataDir); err != nil {
+		return nil, err
 	}
 	db, data, err := openStore(opts.DataDir)
 	if err != nil {
@@ -128,7 +149,8 @@ func New(opts Options) (*Node, error) {
 		printBackend = printing.System{}
 	}
 	n := &Node{
-		data: data, db: db, key: key, tls: tlsConfig, dir: opts.DataDir, ctx: ctx, cancel: cancel,
+		dataLock: dataLock,
+		data:     data, db: db, key: key, tls: tlsConfig, dir: opts.DataDir, ctx: ctx, cancel: cancel,
 		listener: listener, connections: make(map[string]*peerConn), dialing: make(map[string]bool),
 		commands: make(chan domain.Command, 256), updates: make(chan struct{}, 1),
 		transfers: make(map[string]context.CancelFunc), discovery: !opts.DisableDiscovery,
@@ -148,6 +170,9 @@ func New(opts Options) (*Node, error) {
 		n.data.State.Settings.EnsureDefaultShortcuts()
 	}
 	settings := &n.data.State.Settings
+	if !systemauth.Supported() {
+		settings.SystemUnlock = false
+	}
 	settings.InterfaceFontSize = domain.NormalizeInterfaceFontSize(settings.InterfaceFontSize)
 	settings.EnsureVoiceDefaults()
 	if settings.IPMSG.Port == 0 {
@@ -232,6 +257,7 @@ func New(opts Options) (*Node, error) {
 		}
 	}
 	n.resumePrintJobs()
+	retainedLock = true
 	return n, nil
 }
 
@@ -249,10 +275,23 @@ func (n *Node) snapshot(urls bool) domain.State {
 	var s domain.State
 	_ = json.Unmarshal(b, &s)
 	s.LockResult = n.lockResult
+	s.ConnectionFeedback = n.connectionFeedback
+	s.DataResetPending = n.dataResetPending
 	s.LocalIP = n.localIP
 	s.LocalPrinters = append([]domain.LocalPrinter(nil), n.localPrinters...)
 	s.PrintersLoading = n.printersLoading
 	s.PrintError = n.printError
+	s.PrinterAuth = make(map[string]domain.PrinterAuthResult, len(n.printAuthResults))
+	for id, result := range n.printAuthResults {
+		s.PrinterAuth[id] = result
+	}
+	s.PrinterAuthorized = make(map[string]string)
+	for id, access := range n.data.PrintAccess {
+		share := s.Printer(id)
+		if access.OwnerID == share.OwnerID && access.Revision == share.AuthRevision && access.Token != "" {
+			s.PrinterAuthorized[id] = access.Revision
+		}
+	}
 	s.ShareFeedback = n.shareFeedback
 	s.IPMSGStatus = n.ipmsgStatus
 	if s.IPMSGStatus.Pending != nil {
@@ -354,6 +393,14 @@ func (n *Node) Close() error {
 	}
 	err := saveStore(n.db, &n.data)
 	e := n.db.Close()
+	if e == nil {
+		e = completePendingDataReset(n.dir)
+	}
+	if n.dataLock != nil {
+		if lockErr := n.dataLock.Close(); e == nil {
+			e = lockErr
+		}
+	}
 	if err != nil {
 		return err
 	}

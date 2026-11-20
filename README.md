@@ -43,6 +43,8 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
 
 单聊支持双向语音通话，包括来电接听、挂断、麦克风静音和扬声器开关；可在设置的「通话」页选择默认麦克风与扬声器，并分别调节输入和播放音量。
 
+「打印共享」可分享本机打印机，其他成员在独立打印窗口选择文件和打印参数。常用打印机可在卡片上置顶；共享人可在「我的共享 → 编辑共享」设置、更换或关闭打印密码。首次使用受保护的打印机时验证一次，此后使用本机保存的专用授权；共享人改密后需重新验证。双方保留打印记录，验证通过前不会接收打印文件或提交系统打印队列。
+
 使用 `Alt+A` 或聊天输入框里的剪刀截图。Windows 和 macOS 13.3 及以上使用随包提供的 Shotlet，支持标注、滚动截图、OCR 和贴图。确认截图后可直接粘贴到聊天。Shotlet 在 Windows 和 macOS 15 及以上提供录屏功能。Linux 和 macOS 13.0–13.2 使用 GoIM 内置的截图工具。macOS 首次使用 Shotlet 需允许屏幕录制。
 
 ## 安装
@@ -57,15 +59,21 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
 
 Linux 安装包使用 Viva 的纯 Go 构建路径，不要求 GLIBC 2.32 或 2.34。发布校验只允许基础 libc、libpthread 和 libdl，并拒绝高于 GLIBC 2.31 的符号要求。系统仍需要提供 DEB 依赖中列出的 libc、X11、XKB、Vulkan 和 ALSA（`libasound2`）运行库；银河麒麟与统信系统将使用同一份兼容构建。
 
+Linux 文件选择器优先使用桌面的 XDG Portal；`.deb` 同时声明 `zenity | kdialog` 必需依赖，由系统软件中心在安装或升级时自动补齐，无需用户执行命令。`.tar.gz` 便携包不安装系统组件，需要桌面已有可用的 Portal 或上述选择器之一。遇到问题可在 **设置 → 关于** 中复制脱敏报告；导出时若系统选择器不可用，会自动保存到默认下载目录并提示路径（未配置下载目录时保存到应用数据目录的 `diagnostics` 子目录）。
+
 Windows 使用 Viva 安装向导 `Setup.exe`，默认只给当前用户安装。从使用独立 MSI 的旧版本换用 Setup 时，请先卸载旧程序。GoIM 的本地资料和聊天记录保存在独立的用户数据目录。
 
 压缩包需完整解压，保留 GoIM 与截图工具的相对位置。Windows 包未使用商业证书签名，macOS 应用使用 ad-hoc 签名且未经 Apple 公证。可用发布附带的 `SHA256SUMS` 校验下载。
 
 ### 软件更新
 
-GoIM 默认在启动时通过 GitHub Releases 检查稳定版，也可在「设置 → 关于」手动检查。Windows 的当前用户 Setup 安装版，以及复制到可写目录的 macOS `GoIM.app`，可下载经签名校验的更新并在确认后安装重启。macOS 请先把 `.app` 从磁盘映像拖到可写的「应用程序」目录（如 `~/Applications`）。
+GoIM 默认在启动时及每 6 小时通过 GitHub Releases 检查稳定版，检查失败后 30 分钟重试。可在「设置 → 关于」关闭自动检查或随时手动检查；重新开启会立即检查。Windows 的当前用户 Setup 安装版，以及复制到可写目录的 macOS `GoIM.app`，可下载经签名校验的更新并在确认后安装重启。macOS 请先把 `.app` 从磁盘映像拖到可写的「应用程序」目录（如 `~/Applications`）。
 
-Linux `.deb` 由系统包管理器更新。GoIM 提示新版本后，可下载对应架构的 `.deb` 并通过系统安装器升级。
+Linux `.deb` 由系统包管理器更新。GoIM 提示新版本后，可下载对应架构的 `.deb` 并通过系统安装器升级。Windows 与 Linux 安装器会检查运行中的 GoIM；请先从系统托盘退出所有实例，再重试安装，避免新旧版本同时运行。应用内安装更新会先退出当前实例，再由更新助手完成安装和重启。
+
+### 清除本机数据
+
+「设置 → 关于 → 清除所有用户数据」会再次确认。选择「清除并退出」后，GoIM 先停止网络和后台任务、关闭数据库，再清除本机身份密钥、联系人、聊天记录、密码、设置和应用数据目录内的缓存。请重新启动软件；新建身份会被其他设备视为新用户。已下载、分享的原始文件及截图文件不会删除，不影响其他设备的数据。中途退出时，下次启动会继续完成已确认的清除。
 
 ## 快速开始
 
@@ -85,9 +93,9 @@ Linux `.deb` 由系统包管理器更新。GoIM 提示新版本后，可下载�
 | Windows 11 | Windows Hello，支持已配置的 PIN、指纹或人脸 |
 | Windows 10 | 桌面 Hello 验证需要 Windows 11；系统验证不可用时继续使用 GoIM 密码 |
 | macOS | Touch ID；没有 Touch ID 时使用当前 macOS 登录密码 |
-| Linux | polkit 调用的系统认证代理；密码或指纹由发行版的 PAM 和认证代理配置决定 |
+| Linux | 当前版本暂不提供系统验证，开关禁用并显示原因；请使用 GoIM 锁定密码 |
 
-GoIM 只接收系统验证成功或失败的结果，不读取、保存或传输系统密码和生物特征。Linux 的 `.deb` 会安装 `dev.goim.desktop.unlock` polkit 策略；`.tar.gz` 在 `share/polkit-1/actions/` 中附带该文件，需要复制到系统的 `/usr/share/polkit-1/actions/`。从源码运行时也需要把 `internal/brand/assets/dev.goim.desktop.policy` 安装到该目录。Windows Hello 必须先在系统中启用，不能把 Windows 账户密码当作 Hello 凭据直接交给 GoIM。
+GoIM 只接收系统验证成功或失败的结果，不读取、保存或传输系统密码和生物特征。Linux 旧设置中的系统验证会自动关闭，已有 GoIM 锁定密码保留；安装包内保留的 polkit 策略不代表该功能已启用。Windows Hello 必须先在系统中启用，不能把 Windows 账户密码当作 Hello 凭据直接交给 GoIM。
 
 ## 旧版客户端兼容
 
