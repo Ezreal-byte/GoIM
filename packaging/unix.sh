@@ -29,6 +29,9 @@ case "$platform" in
         install -d "$root/DEBIAN" "$root/usr/bin" "$root/usr/share" "$doc"
         install -m 755 "$script_dir/linux/preinst" "$root/DEBIAN/preinst"
         install -m 755 "$payload/GoIM" "$payload/goim-snip" "$root/usr/bin/"
+        test -x "$payload/lib/goim/file-dialog/bin/zenity"
+        [[ $(cat "$payload/lib/goim/file-dialog/architecture") == "$arch" ]]
+        cp -R "$payload/lib" "$root/usr/"
         cp -R "$payload/share/." "$root/usr/share/"
         cp -R "$payload/licenses" "$doc/"
         install -m 644 "$payload/LICENSE" "$doc/copyright"
@@ -46,7 +49,7 @@ Priority: optional
 Architecture: $arch
 Maintainer: GoIM maintainers <71426102+Ezreal-byte@users.noreply.github.com>
 Installed-Size: $(du -sk "$root/usr" | cut -f1)
-Depends: libc6, libx11-6, libx11-xcb1, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libvulkan1, libasound2, zenity | kdialog
+Depends: libc6, libx11-6, libx11-xcb1, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libvulkan1, libasound2
 Recommends: mesa-vulkan-drivers, fonts-noto-cjk, xclip
 Homepage: https://ezreal-byte.github.io/GoIM/
 Description: Native LAN messenger and file sharing
@@ -56,10 +59,12 @@ EOF
         dpkg-deb --root-owner-group --build "$root" "$output/$asset"
         [[ $(dpkg-deb --field "$output/$asset" Architecture) == "$arch" ]]
         [[ $(dpkg-deb --field "$output/$asset" Version) == "$deb_version" ]]
-        [[ $(dpkg-deb --field "$output/$asset" Depends) == *"zenity | kdialog"* ]]
+        [[ $(dpkg-deb --field "$output/$asset" Depends) != *zenity* ]]
         dpkg-deb --extract "$output/$asset" "$work/check"
         cmp "$payload/GoIM" "$work/check/usr/bin/GoIM"
         cmp "$payload/goim-snip" "$work/check/usr/bin/goim-snip"
+        diff -r "$payload/lib/goim/file-dialog" "$work/check/usr/lib/goim/file-dialog"
+        test -x "$work/check/usr/lib/goim/file-dialog/bin/zenity"
         test -f "$work/check/usr/share/applications/dev.goim.desktop.desktop"
         test -f "$work/check/usr/share/polkit-1/actions/dev.goim.desktop.policy"
         ;;

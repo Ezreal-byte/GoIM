@@ -50,8 +50,13 @@ jobs:
             printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           fi
           apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          # Publish corresponding source for the libraries shipped offline.
+          sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
           sudo apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update
-          sudo apt-get "${apt_options[@]}" install -y libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk xvfb xdotool libdigest-sha-perl
+          # Keep bundled binaries at repository versions whose exact source
+          # archives are available for the corresponding-source artifact.
+          sudo apt-get "${apt_options[@]}" upgrade -y
+          sudo apt-get "${apt_options[@]}" install -y libx11-6 libx11-xcb1 libxcb1 libxcb-shape0 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk xvfb xdotool libdigest-sha-perl build-essential meson ninja-build libgtk-3-dev gsettings-desktop-schemas gettext itstool curl xz-utils
       - name: Verify native architecture and dependencies
         run: |
           test "$(go env GOARCH)" = '${{ matrix.arch }}'
@@ -155,12 +160,22 @@ jobs:
           PACKAGE_OS: ${{ matrix.os }}
           PACKAGE_ARCH: ${{ matrix.arch }}
         run: bash packaging/unix.sh "${PACKAGE_VERSION#v}" "$PACKAGE_OS" "$PACKAGE_ARCH"
+      - name: Linux offline file dialog and corresponding sources
+        if: runner.os == 'Linux'
+        env:
+          PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: |
+          name="GoIM_${PACKAGE_VERSION#v}_linux_$PACKAGE_ARCH"
+          GOIM_TEST_DIALOG_RUNTIME="$PWD/dist/$name/lib/goim/file-dialog" xvfb-run -a go test ./cmd/package -run '^TestBundledLinuxDialogOffline$' -count=1 -timeout=90s
+          bash packaging/linux/collect-dialog-sources.sh "dist/$name/lib/goim/file-dialog" "dist/$name-file-dialog-sources.tar.xz"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: GoIM-${{ matrix.os }}-${{ matrix.arch }}
           path: |
             GoIM/dist/*.zip
             GoIM/dist/*.tar.gz
+            GoIM/dist/*-file-dialog-sources.tar.xz
             GoIM/dist/*-Setup.exe
             GoIM/dist/*.dmg
             GoIM/dist/*.deb
@@ -186,7 +201,7 @@ jobs:
           pattern: GoIM-*
           merge-multiple: true
           path: release
-      - name: Verify twelve packages and prepare checksums
+      - name: Verify packages and source bundles and prepare checksums
         env:
           SOURCE_COMMIT: ${{ github.sha }}
           PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
@@ -198,6 +213,7 @@ jobs:
           version = os.environ['PACKAGE_VERSION'].removeprefix('v')
           formats = {'windows': ('.zip', '-Setup.exe'), 'linux': ('.tar.gz', '.deb'), 'darwin': ('.zip', '.dmg')}
           expected = {f'GoIM_{version}_{o}_{a}{ext}': (o,a) for o in formats for a in ('amd64','arm64') for ext in formats[o]}
+          expected.update({f'GoIM_{version}_linux_{a}-file-dialog-sources.tar.xz': ('linux', a) for a in ('amd64', 'arm64')})
           found, sums, frameworks, toolchains, public_keys = set(), [], set(), set(), set()
           for p in sorted(root.iterdir()):
               if p.suffix == '.sha256': continue
@@ -239,6 +255,8 @@ jobs:
                       exe=z.getmember(next(n for n in names if n.endswith('/GoIM')))
                       assert exe.mode & 0o111
                       assert z.getmember(next(n for n in names if n.endswith('/goim-snip'))).mode & 0o111
+                      assert z.getmember(next(n for n in names if n.endswith('/lib/goim/file-dialog/bin/zenity'))).mode & 0o111
+                      assert any(n.endswith('/lib/goim/file-dialog/ld.so') for n in names)
                       assert not any('/licenses/shotlet/' in n for n in names)
                       assert any(n.endswith('/share/applications/dev.goim.desktop.desktop') for n in names)
                       assert any(n.endswith('/share/polkit-1/actions/dev.goim.desktop.policy') for n in names)

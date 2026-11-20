@@ -259,10 +259,11 @@ type panelPendingSetting struct {
 // Panels owns the settings, transfers, and file-sharing surfaces. Init must be
 // called with the application's tree before Draw.
 type Panels struct {
-	tree  *gfx.Tree
-	page  *ui.Page
-	theme ui.Theme
-	ids   panelIDs
+	dialogViewport ui.Rect
+	tree           *gfx.Tree
+	page           *ui.Page
+	theme          ui.Theme
+	ids            panelIDs
 
 	module string
 
@@ -509,7 +510,6 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 	p.transferAnchor = ui.Box{}
 	p.transferMenuEntry = nil
 
-	canvas.Clip(bounds)
 	canvas.Fill(bounds, theme.Background)
 	p.theme = theme
 	if module == panelModuleSettings {
@@ -517,17 +517,22 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 	}
 	var settingsScroll ui.Box
 	p.page.Draw(canvas, bounds, func(f ui.C) {
-		switch module {
-		case panelModuleSettings:
-			settingsScroll = p.drawSettings(f, theme, state, submit)
-		case panelModuleTransfers:
-			p.drawTransfers(f, theme, bounds, state, submit)
-		case panelModuleShares:
-			p.drawShares(f, theme, bounds, state, submit)
-		case panelModulePrint:
-			p.drawPrint(f, theme, bounds, state, submit)
-		}
+		// Clip the panel's content, not the canvas hosting its floating dialogs.
+		// Viva paints popups outside this subtree after its clip has been restored.
+		ui.Stack(f).Fill().Clip().Children(func() {
+			switch module {
+			case panelModuleSettings:
+				settingsScroll = p.drawSettings(f, theme, state, submit)
+			case panelModuleTransfers:
+				p.drawTransfers(f, theme, bounds, state, submit)
+			case panelModuleShares:
+				p.drawShares(f, theme, bounds, state, submit)
+			case panelModulePrint:
+				p.drawPrint(f, theme, bounds, state, submit)
+			}
+		})
 	})
+	canvas.Clip(bounds)
 	if module == panelModuleShares {
 		p.drawShareMenu(canvas, theme, bounds, state.DeviceShare, submit)
 		p.drawShareToast(canvas, theme, bounds, state.ShareFeedback)
@@ -538,6 +543,17 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 		p.settingsScroll[p.settingsTab] = settingsScroll.ScrollState().Offset
 	}
 	canvas.Unclip()
+}
+
+// Panel content has a smaller layout region than the window. Every modal uses
+// the shell's full viewport so its scrim also blocks the rail and title bar.
+func (p *Panels) dialog(f ui.C, spec ui.DialogSpec) ui.Box {
+	spec.Layer = 70
+	dialog := ui.Dialog(f, spec)
+	if p.dialogViewport.Width > 0 && p.dialogViewport.Height > 0 {
+		dialog = dialog.Within(p.dialogViewport)
+	}
+	return dialog
 }
 
 // OnWake resolves local paths from the detached snapshot. Filesystem probes

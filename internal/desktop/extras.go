@@ -75,10 +75,16 @@ func (u *UI) chooseProfileAvatar() {
 		return
 	}
 	path := paths[0]
-	u.profile.crop = profileAvatarCropState{open: true, source: path}
-	u.ensureImage(path)
+	u.profile.crop = profileAvatarCropState{pending: true, source: path}
+	u.requestAvatarImage(path)
 	u.profile.err = ""
-	u.syncProfileAvatarCrop(path)
+}
+
+func (u *UI) requestAvatarImage(path string) {
+	// Supersede any thumbnail probe already in flight. Its result must not
+	// enter the editor before the newly selected source has been validated.
+	delete(u.mediaImageQueued, path)
+	u.ensureImage(path)
 }
 
 func (u *UI) saveProfile() {
@@ -225,16 +231,36 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 }
 
 func (u *UI) syncProfileAvatarCrop(path string) {
-	if !u.profile.crop.open || u.profile.crop.source != path {
+	if (!u.profile.crop.open && !u.profile.crop.pending) || u.profile.crop.source != path {
 		return
 	}
 	if bitmap, ok := u.imageCache[path]; ok && bitmapReady(bitmap) {
+		u.profile.crop.open, u.profile.crop.pending = true, false
 		u.profile.crop.err = ""
 	}
 }
 
 func (u *UI) closeProfileAvatarEditor() {
 	u.profile.crop = profileAvatarCropState{}
+}
+
+func (u *UI) rejectAvatarImage(path string, err error) {
+	selected := false
+	if u.profile.crop.source == path && (u.profile.crop.pending || u.profile.crop.open) {
+		u.closeProfileAvatarEditor()
+		selected = true
+	}
+	if u.groupAvatar.source == path && (u.groupAvatar.pending || u.groupAvatar.open) {
+		u.closeGroupAvatarEditor()
+		selected = true
+	}
+	if selected {
+		message := i18n.T("无法读取图片，请检查文件是否存在或有读取权限。")
+		if err != nil {
+			message = i18n.T(err.Error())
+		}
+		u.showToast(i18n.T("无法选择头像"), message, components.ToastError)
+	}
 }
 
 func (u *UI) activeAvatarCrop() *profileAvatarCropState {

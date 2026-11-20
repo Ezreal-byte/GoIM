@@ -4,6 +4,7 @@ import (
 	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/vivaui/viva/components"
@@ -119,7 +120,15 @@ func (u *UI) drawConversationContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.closeShellMenu()
 		return
 	}
-	menu := u.beginShellMenu(canvas, viewport, 4, 1)
+	canRemark := conversation.Kind == "direct" && conversation.PeerID != u.state.Self.ID && u.state.Peer(conversation.PeerID).ID != ""
+	count := 4
+	if canRemark {
+		count++
+	}
+	menu := u.beginShellMenu(canvas, viewport, count, 1)
+	if canRemark {
+		menu.AddItem(components.ContextMenuItem{ID: u.ids.shellMenuRemark, Label: i18n.T("设置备注…"), Icon: u.iconPencil})
+	}
 	menu.AddItem(components.ContextMenuItem{
 		ID: u.ids.shellMenuPin, Label: i18n.T("置顶聊天"), Kind: components.ContextMenuCheckbox,
 		Checked: conversation.Pinned, Icon: u.iconPin,
@@ -140,6 +149,8 @@ func (u *UI) drawConversationContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 	menu.End()
 
 	switch {
+	case canvas.Clicked(u.ids.shellMenuRemark) && canRemark:
+		u.openContactRemark(conversation.PeerID)
 	case canvas.Clicked(u.ids.shellMenuPin):
 		u.closeShellMenu()
 		u.submit(domain.Command{Kind: domain.TogglePin, ConversationID: conversation.ID})
@@ -163,11 +174,12 @@ func (u *UI) drawContactContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.closeShellMenu()
 		return
 	}
-	count := 4
+	count := 5
 	if peer.Transport == "ipmsg" {
 		count--
 	}
 	menu := u.beginShellMenu(canvas, viewport, count, 0)
+	menu.AddItem(components.ContextMenuItem{ID: u.ids.shellMenuRemark, Label: i18n.T("设置备注…"), Icon: u.iconPencil})
 	menu.AddItem(components.ContextMenuItem{
 		ID: u.ids.shellMenuTalk, Label: i18n.T("发消息"), Icon: u.iconMessage,
 	})
@@ -183,6 +195,8 @@ func (u *UI) drawContactContextMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 	menu.End()
 
 	switch {
+	case canvas.Clicked(u.ids.shellMenuRemark):
+		u.openContactRemark(peer.ID)
 	case canvas.Clicked(u.ids.shellMenuTalk):
 		u.closeShellMenu()
 		u.startDirectFromMembers(peer.ID)
@@ -340,6 +354,16 @@ func (u *UI) closeOrganize() {
 }
 
 func (u *UI) saveOrganize() {
+	if u.organize.mode == domain.SetContactRemark {
+		name := strings.TrimSpace(u.organize.field.Text())
+		if !utf8.ValidString(name) || utf8.RuneCountInString(name) > 40 || strings.ContainsFunc(name, unicode.IsControl) {
+			u.organize.errText = i18n.T("备注最多 40 个字符，请保持单行。")
+			return
+		}
+		u.submit(domain.Command{Kind: domain.SetContactRemark, PeerID: u.organize.peerID, Name: name})
+		u.closeOrganize()
+		return
+	}
 	if mode := u.organize.mode; mode != "" {
 		name := strings.TrimSpace(u.organize.field.Text())
 		if name == "" || name == "未分组" || utf8.RuneCountInString(name) > 30 {
@@ -387,7 +411,11 @@ func (u *UI) drawOrganizeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 	if mode == domain.RenameContactGroup {
 		title = i18n.T("重命名分组")
 	}
-	layout := dialog.Begin(title, i18n.T("分组只用于本机整理，不会同步给对方。"))
+	description := i18n.T("分组只用于本机整理，不会同步给对方。")
+	if mode == domain.SetContactRemark {
+		title, description = i18n.T("设置备注"), i18n.T("备注只在本机显示，留空恢复用户名。")
+	}
+	layout := dialog.Begin(title, description)
 	var submitted bool
 	u.dialogPage.Draw(canvas, layout.Body, func(f ui.C) {
 		ui.Column(f).Fill().Gap(10).Children(func() {
@@ -408,7 +436,11 @@ func (u *UI) drawOrganizeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			if mode == "" {
 				placeholder = i18n.T("留空表示未分组")
 			}
-			field := ui.TextFieldID(f, u.ids.organizeField, &u.organize.field, i18n.T("分组名称"), placeholder).Height(38).FillWidth()
+			label := i18n.T("分组名称")
+			if mode == domain.SetContactRemark {
+				label, placeholder = i18n.T("备注"), i18n.T("输入备注，最多 40 个字符")
+			}
+			field := ui.TextFieldID(f, u.ids.organizeField, &u.organize.field, label, placeholder).Height(38).FillWidth()
 			submitted = field.Submitted()
 			if u.organize.errText != "" {
 				ui.Text(f, u.organize.errText).FontSize(10.5).Color(u.palette.danger)

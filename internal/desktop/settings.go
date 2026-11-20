@@ -586,7 +586,7 @@ func (p *Panels) drawShortcutDialog(f ui.C, theme ui.Theme, state domain.State, 
 	}
 	shortcut := state.Settings.Shortcuts[index]
 	problem := panelShortcutProblem(state.Settings.Shortcuts, index, p.shortcutKeys, p.shortcutError)
-	dialog := ui.Dialog(f, ui.DialogSpec{
+	dialog := p.dialog(f, ui.DialogSpec{
 		Title:       i18n.T("录制快捷键"),
 		Description: fmt.Sprintf(i18n.T("为“%s”按下组合键。Tab 在弹窗内移动焦点，Esc 取消。"), i18n.T(shortcut.Action)),
 		Width:       460, Scope: p.ids.shortcutDialog,

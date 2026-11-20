@@ -100,7 +100,7 @@ func TestProfileEditorSavesNicknameAndChosenAvatar(t *testing.T) {
 	harness.typeInto(harness.ui.ids.profileDetails[0], "示例单位")
 	harness.typeInto(harness.ui.ids.profileDetails[4], "test@example.com")
 	harness.clickID(harness.ui.ids.profileChooseImage)
-	if !harness.ui.profile.crop.open || harness.ui.profile.avatar == avatar {
+	if (!harness.ui.profile.crop.open && !harness.ui.profile.crop.pending) || harness.ui.profile.avatar == avatar {
 		t.Fatalf("avatar crop did not open before commit: crop=%v avatar=%q", harness.ui.profile.crop.open, harness.ui.profile.avatar)
 	}
 	request, ok := harness.driver.LastOpenFilesRequest()
@@ -237,7 +237,7 @@ func TestOwnerCanCropAndSubmitGroupAvatar(t *testing.T) {
 	harness.clickID(harness.ui.ids.chatHeaderMembers)
 	harness.settle()
 	harness.clickID(harness.ui.ids.memberAvatar)
-	if !harness.ui.groupAvatar.open || harness.ui.avatarGroup != "group-1" {
+	if (!harness.ui.groupAvatar.open && !harness.ui.groupAvatar.pending) || harness.ui.avatarGroup != "group-1" {
 		t.Fatalf("group avatar crop state = %+v for %q", harness.ui.groupAvatar, harness.ui.avatarGroup)
 	}
 	request, ok := harness.driver.LastOpenFilesRequest()

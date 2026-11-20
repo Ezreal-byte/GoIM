@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,35 @@ import (
 	"github.com/vivaui/viva/headless"
 	"goim/internal/domain"
 )
+
+func TestHistoryWindowUsesLocalRemarkAndKeepsUsername(t *testing.T) {
+	state := shellTestState(t)
+	state.Peers[0].Remark = "设计同事"
+	v := newHistoryWindowView(newShellTestBackend(state), "conv-alice")
+	defer v.Close()
+	if !strings.Contains(v.title, "设计同事") || v.senderLabel("peer-a") != "设计同事" {
+		t.Fatal("history title or sender filter ignored the local remark")
+	}
+	if len(v.rows) != 1 || v.rows[0].name != "设计同事" || v.rows[0].username != "Alice" {
+		t.Fatalf("history row lost the remark or username: %+v", v.rows)
+	}
+	driver, err := app.NewDriver(v.Config(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer driver.Close()
+	var remark, username gfx.Text
+	for _, label := range driver.Snapshot().Texts {
+		if label.Value == "设计同事" {
+			remark = label
+		} else if label.Value == "Alice" {
+			username = label
+		}
+	}
+	if remark.Value == "" || username.Value == "" || remark.Style.Size <= username.Style.Size || remark.Bounds.X >= username.Bounds.X {
+		t.Fatal("history row did not show the username secondarily after the remark")
+	}
+}
 
 func TestHistoryWindowRequestPreservesConversationAndComposer(t *testing.T) {
 	h := newShellTestHarnessAtSize(t, shellTestState(t), 1440, 960)

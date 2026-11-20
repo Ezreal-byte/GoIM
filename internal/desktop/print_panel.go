@@ -772,7 +772,7 @@ func (p *Panels) drawPrinterShareDialog(f ui.C, theme ui.Theme, state domain.Sta
 	if p.print.shareEditing {
 		title = i18n.T("编辑共享打印机")
 	}
-	dialog := ui.Dialog(f, ui.DialogSpec{
+	dialog := p.dialog(f, ui.DialogSpec{
 		Title: title, Description: i18n.T("设置局域网共享名称和可选的打印密码。"),
 		Width: 480, Scope: p.print.ids.shareDialogScope, DismissID: p.print.ids.shareDismiss,
 		CloseID: p.print.ids.shareClose, InitialFocusID: p.print.ids.shareName,

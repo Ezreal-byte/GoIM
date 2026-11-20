@@ -32,7 +32,7 @@ func TestProfileAvatarEditorScreenshotQA(t *testing.T) {
 			shellQAClick(t, session, shell.ids.profileAvatar)
 			shellQAShot(t, session, directory, filepath.Join("profile-avatar-picker-"+test.name+".png"))
 			shellQAClick(t, session, shell.ids.profileChooseImage)
-			if err := session.Expect("text", "裁剪图片"); err != nil {
+			if err := session.Expect("text", "裁剪图片", "within", "5000"); err != nil {
 				t.Fatal(err)
 			}
 			if err := session.Expect("state", "button:保存", "enabled", "within", "5000"); err != nil {
@@ -81,7 +81,7 @@ func TestGroupAvatarEditorScreenshotQA(t *testing.T) {
 
 			shellQAClick(t, session, shell.ids.chatHeaderMembers)
 			shellQAClick(t, session, shell.ids.memberAvatar)
-			if err := session.Expect("text", "更换群头像"); err != nil {
+			if err := session.Expect("text", "更换群头像", "within", "5000"); err != nil {
 				t.Fatal(err)
 			}
 			if err := session.Expect("state", "button:保存", "enabled", "within", "5000"); err != nil {

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Private relocatable runtime. Never export these libraries into the GoIM process.
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cache=$(mktemp -d "${TMPDIR:-/tmp}/goim-dialog.XXXXXX")
+trap 'rm -rf -- "$cache"' EXIT
+unset LD_PRELOAD LD_LIBRARY_PATH GTK_MODULES GTK3_MODULES
+export GTK_EXE_PREFIX="$root" GTK_DATA_PREFIX="$root" GTK_PATH="$root/gtk"
+# The GTK 3 chooser is a Cairo UI. Do not probe or dlopen host GPU drivers into
+# the private libc/GTK process (especially older Kylin Mesa and WSL drivers).
+export GDK_GL=disable
+export GIO_MODULE_DIR="$root/gio" GIO_EXTRA_MODULES="$root/gio" GIO_USE_VFS=local GSETTINGS_BACKEND=memory
+export GSETTINGS_SCHEMA_DIR="$root/share/glib-2.0/schemas"
+export XDG_DATA_DIRS="$root/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export GOIM_DIALOG_LOCALEDIR="$root/share/locale"
+export GTK_IM_MODULE_FILE="$cache/immodules.cache" GDK_PIXBUF_MODULE_FILE="$cache/loaders.cache"
+"$root/ld.so" --library-path "$root/lib" "$root/gtk-query-immodules-3.0" "$root/gtk/"*.so > "$GTK_IM_MODULE_FILE"
+"$root/ld.so" --library-path "$root/lib" "$root/gdk-pixbuf-query-loaders" "$root/pixbuf/"*.so > "$GDK_PIXBUF_MODULE_FILE"
+# Viva has already tried the portal. Do not recursively try a broken portal.
+export GTK_USE_PORTAL=0
+status=0
+"$root/ld.so" --library-path "$root/lib" "$root/zenity" "$@" || status=$?
+exit "$status"

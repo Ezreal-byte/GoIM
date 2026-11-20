@@ -263,7 +263,7 @@ func (p *Panels) drawInterfaceFontPicker(f ui.C, theme ui.Theme, state domain.St
 		}
 	}
 
-	dialog := ui.Dialog(f, ui.DialogSpec{
+	dialog := p.dialog(f, ui.DialogSpec{
 		Title:          i18n.T("界面字体"),
 		Description:    i18n.T("更改 GoIM 窗口、菜单和设置页使用的字体"),
 		Width:          560,

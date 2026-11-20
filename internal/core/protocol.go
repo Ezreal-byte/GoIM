@@ -230,7 +230,8 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 	delete(n.incoming, conn)
 	n.mu.Unlock()
 	_ = conn.SetDeadline(time.Time{})
-	err = n.change(func(s *domain.State) {
+	err = n.durable(func(data *persisted) []pending {
+		s := &data.State
 		i := peerIndex(s, pc.peer.ID)
 		peer := pc.peer
 		peer.Online = true
@@ -244,9 +245,11 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 		nativeID := nativeIDForGoIM(peer.ID)
 		if i := peerIndex(s, keyIDFromNative(nativeID)); i >= 0 && s.Peers[i].Transport == transportNWT {
 			s.Peers[i].CompatibilityAliasOf = peer.ID
+			migrateContactRemark(data, s.Peers[i].ID, peer.ID)
 			s.Peers[i].Online = false
 			delete(n.compatPeers, compatibilityEndpoint{transportNWT, s.Peers[i].ID})
 		}
+		return nil
 	})
 	defer func() {
 		conn.Close()

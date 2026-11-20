@@ -14,6 +14,7 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 
+	"goim/internal/bundle"
 	"goim/internal/capture"
 	"goim/internal/i18n"
 )
@@ -34,6 +35,10 @@ func main() {
 }
 
 func run(args []string, stderr io.Writer) int {
+	if err := bundle.Configure(); err != nil {
+		fmt.Fprintf(stderr, "goim-snip: %v\n", err)
+		return 1
+	}
 	options, err := parseOptions(args, stderr)
 	if errors.Is(err, flag.ErrHelp) {
 		return 0

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"goim/internal/buildinfo"
+	"goim/internal/bundle"
 	"goim/internal/core"
 	"goim/internal/desktop"
 )
@@ -38,6 +39,9 @@ func run() error {
 	if *showVersion {
 		fmt.Println("GoIM " + version)
 		return nil
+	}
+	if err := bundle.Configure(); err != nil {
+		return err
 	}
 	restart, err := restartArguments(flag.CommandLine)
 	if err != nil {

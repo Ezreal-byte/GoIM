@@ -66,6 +66,7 @@ func TestSavedCompatibilityLinkKeepsHistoryAndUsesNativeForNewSends(t *testing.T
 	native := neiwangtong.Peer{ID: nativeID, Name: "Native", Address: "192.0.2.10:9012", Online: true}
 	if err := node.durable(func(p *persisted) []pending {
 		p.PeerBridges[legacyID] = peerBridge{CanonicalID: legacyID, IPMSGID: legacyID, NeiwangtongID: nativeID, Confirmed: true}
+		p.PeerRemarks = map[string]string{nativeID: "原来的备注"}
 		for _, peer := range []domain.Peer{
 			{ID: legacyID, Name: legacy.Name, ClientType: domain.ClientNeiwangtong, Transport: legacyIPMSG},
 			{ID: nativeID, Name: native.Name, ClientType: domain.ClientNeiwangtong, Transport: transportNWT},
@@ -82,6 +83,9 @@ func TestSavedCompatibilityLinkKeepsHistoryAndUsesNativeForNewSends(t *testing.T
 	s := node.Snapshot()
 	if s.Peer(legacyID).Transport != transportNWT || s.Peer(nativeID).CompatibilityAliasOf != legacyID {
 		t.Fatalf("preferred route is wrong: %+v", s.Peers)
+	}
+	if s.Peer(legacyID).Remark != "原来的备注" || s.Peer(nativeID).Remark != "原来的备注" {
+		t.Fatal("confirmed compatibility link lost its local remark")
 	}
 	primary, archive := directID(s.Self.ID, legacyID), directID(s.Self.ID, nativeID)
 	if err := node.receiveLegacyMessage(legacyID, 3, "original used 2425", nil); err != nil {

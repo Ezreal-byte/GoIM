@@ -141,8 +141,11 @@ func (u *UI) contactIdentity(f ui.C, peer domain.Peer, name string, avatarSize f
 	}
 	ui.Row(f).FillWidth().Items(ui.Center).Gap(13).Children(func() {
 		u.avatarWithPresence(f, name, peer.Avatar, avatarSize, false, false, u.theme.Background)
-		ui.Column(f).Grow(1).Gap(5).Children(func() {
-			ui.Text(f, name).FontSize(22).Weight(gfx.WeightSemibold).Ellipsis()
+		ui.Column(f).Grow(1).Basis(0).MinWidth(0).Gap(5).Children(func() {
+			if peer.Remark != "" {
+				name = peer.Remark
+			}
+			u.peerNameLine(f, name, remarkUsername(peer), 22)
 			ui.Row(f).Gap(8).Items(ui.Center).Children(func() {
 				ui.Row(f).Size(7, 7).Radius(3.5).Background(statusColor)
 				ui.Text(f, peerPresenceLabel(peer)).FontSize(12).Muted()

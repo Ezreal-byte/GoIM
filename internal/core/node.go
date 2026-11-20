@@ -186,6 +186,9 @@ func New(opts Options) (*Node, error) {
 	settings.CompatibilityConfigured = true
 	settings.CompatibilityDefaultsVersion = 1
 	removeUnverifiedBridges(&n.data)
+	for _, peer := range n.data.State.Peers {
+		migrateContactRemark(&n.data, peer.ID, peer.CompatibilityAliasOf)
+	}
 	retireUnboundIPMSGDeliveries(&n.data)
 	n.ipmsgOverride, n.compatibilityDisabled, n.version = opts.DisableIPMSG, opts.DisableCompatibility, opts.Version
 	n.hideUnusedDirectConversations()
@@ -276,6 +279,13 @@ func (n *Node) snapshot(urls bool) domain.State {
 	b, _ := json.Marshal(n.data.State)
 	var s domain.State
 	_ = json.Unmarshal(b, &s)
+	for i := range s.Peers {
+		peer := &s.Peers[i]
+		peer.Remark = n.data.PeerRemarks[peer.ID]
+		if peer.CompatibilityAliasOf != "" {
+			peer.Remark = n.data.PeerRemarks[peer.CompatibilityAliasOf]
+		}
+	}
 	s.LockResult = n.lockResult
 	s.ConnectionFeedback = n.connectionFeedback
 	s.DataResetPending = n.dataResetPending

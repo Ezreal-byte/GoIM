@@ -50,6 +50,7 @@ type mediaJob struct {
 }
 
 type mediaImageResult struct {
+	err        error
 	path       string
 	generation uint64
 	stamp      imageStamp
@@ -390,7 +391,8 @@ func processMediaImage(job mediaJob) mediaProcessingResult {
 	if err != nil || info == nil || info.IsDir() {
 		return result
 	}
-	result.image.bitmap, result.image.decoded = decodeBitmap(job.path, limit)
+	result.image.bitmap, result.image.err = decodeBitmapChecked(job.path, limit)
+	result.image.decoded = result.image.err == nil
 	if result.image.decoded && job.imageRotation != 0 {
 		result.image.bitmap = rotateBitmapQuarter(result.image.bitmap, job.imageRotation)
 	}

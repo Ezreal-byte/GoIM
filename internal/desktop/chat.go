@@ -210,8 +210,12 @@ func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 		} else {
 			u.avatarWithPresence(f, avatarName, avatar, 38, online, false, u.palette.chat)
 		}
-		ui.Column(f).Grow(1).Gap(1).Justify(ui.Center).Children(func() {
-			ui.Text(f, title).FontSize(17).Weight(gfx.WeightSemibold).Ellipsis()
+		ui.Column(f).Grow(1).Basis(0).MinWidth(0).Gap(1).Justify(ui.Center).Children(func() {
+			username := ""
+			if conversation.Kind == "direct" {
+				username = remarkUsername(u.state.Peer(conversation.PeerID))
+			}
+			u.peerNameLine(f, title, username, 17)
 			ui.Row(f).Items(ui.Center).Gap(7).Children(func() {
 				dot := u.palette.secondaryText
 				if online {

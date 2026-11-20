@@ -13,10 +13,10 @@ import (
 )
 
 type historyResult struct {
-	message                     domain.Message
-	name, day, time, text, meta string
-	icon                        gfx.Icon
-	key                         int
+	message                               domain.Message
+	name, username, day, time, text, meta string
+	icon                                  gfx.Icon
+	key                                   int
 }
 
 type historyWindowView struct {
@@ -140,7 +140,7 @@ func (v *historyWindowView) refresh() {
 	conversation := v.state.Conversation(v.conversationID)
 	name := ""
 	if conversation.Kind == "direct" {
-		name = v.state.Peer(conversation.PeerID).Name
+		name = v.state.Peer(conversation.PeerID).DisplayName()
 	}
 	if conversation.Kind == "group" {
 		name = v.state.Group(conversation.GroupID).Name
@@ -158,8 +158,10 @@ func (v *historyWindowView) refresh() {
 			v.keys[m.ID] = key
 		}
 		r := historyResult{message: m, name: v.senderLabel(m.SenderID), day: friendlyDay(m.CreatedAt), time: shortTime(m.CreatedAt), text: m.Text, key: key}
+		r.username = remarkUsername(v.state.Peer(m.SenderID))
 		if m.Nickname != "" && conversation.Kind == "group" {
 			r.name = m.Nickname
+			r.username = ""
 		}
 		file := v.state.File(m.FileID)
 		switch {
@@ -218,8 +220,8 @@ func (v *historyWindowView) senderLabel(id string) string {
 	if id == v.state.Self.ID {
 		return i18n.T("我")
 	}
-	if p := v.state.Peer(id); p.Name != "" {
-		return p.Name
+	if p := v.state.Peer(id); p.DisplayName() != "" {
+		return p.DisplayName()
 	}
 	return i18n.T("未知成员")
 }
@@ -398,7 +400,14 @@ func (v *historyWindowView) drawResult(row ui.ListRow) {
 			}
 			ui.Column(f).Grow(1).MinWidth(0).Gap(8).Children(func() {
 				ui.Row(f).FillWidth().Gap(12).Children(func() {
-					ui.Text(f, r.name).FontSize(12).Muted().Grow(1).Ellipsis()
+					if r.username == "" {
+						ui.Text(f, r.name).FontSize(12).Muted().Grow(1).Ellipsis()
+					} else {
+						ui.Row(f).Grow(1).MinWidth(0).Gap(6).Children(func() {
+							ui.Text(f, r.name).FontSize(12).Weight(gfx.WeightSemibold).Ellipsis()
+							ui.Text(f, r.username).FontSize(11).Muted().MaxWidth(140).Ellipsis()
+						})
+					}
 					ui.Text(f, r.time).FontSize(11).Muted()
 				})
 				if r.message.FileID != "" || r.message.Kind == "print" || isVoiceRecord(r.message) {

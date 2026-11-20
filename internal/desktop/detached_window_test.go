@@ -323,6 +323,27 @@ func TestConversationDragPreviewFollowsPointerAndCloses(t *testing.T) {
 	}
 }
 
+func TestUnavailableDragPreviewIsProbedOncePerGesture(t *testing.T) {
+	h := newShellTestHarness(t, shellTestState(t))
+	opened := 0
+	h.ui.openDragPreview = func(app.DragPreviewConfig) (conversationDragPreview, error) {
+		opened++
+		return nil, app.ErrNoDragPreview
+	}
+	drag := conversationDragState{}
+	for range 10 {
+		h.ui.openConversationDragPreview(&drag, gfx.PointerEvent{})
+	}
+	if opened != 1 || drag.preview != nil {
+		t.Fatalf("attempts=%d preview=%v", opened, drag.preview)
+	}
+	drag = conversationDragState{}
+	h.ui.openConversationDragPreview(&drag, gfx.PointerEvent{})
+	if opened != 2 {
+		t.Fatal("next gesture did not retry preview support")
+	}
+}
+
 func findDetachedHit(snapshot app.Snapshot, id gfx.ID) (gfx.Hit, bool) {
 	for _, hit := range snapshot.Hits {
 		if hit.ID == id {

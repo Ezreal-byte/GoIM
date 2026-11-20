@@ -150,7 +150,7 @@ func (p *Panels) drawResetDataDialog(f ui.C, state domain.State, submit func(dom
 	if !p.resetDataOpen {
 		return
 	}
-	dialog := ui.Dialog(f, ui.DialogSpec{
+	dialog := p.dialog(f, ui.DialogSpec{
 		Title:       i18n.T("确定清除所有用户数据？"),
 		Description: i18n.T("此操作不可撤销。GoIM 将退出并清除本机账号、联系人、聊天记录、密码和设置；已下载或分享的原始文件会保留。请重新启动软件，系统将创建新的身份。"),
 		Width:       520, Layer: 75, Scope: p.ids.aboutResetScope,

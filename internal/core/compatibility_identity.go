@@ -52,7 +52,7 @@ func removeUnverifiedBridges(data *persisted) {
 		if bridge.Confirmed {
 			for _, contactID := range []string{bridge.IPMSGID, bridge.NeiwangtongID} {
 				if i := peerIndex(&data.State, contactID); i >= 0 && data.State.Peers[i].Transport != domain.TransportGoIM {
-					preferNativeContact(&data.State.Peers[i], bridge)
+					preferNativeContact(data, &data.State.Peers[i], bridge)
 				}
 			}
 			continue
@@ -70,7 +70,7 @@ func removeUnverifiedBridges(data *persisted) {
 	}
 }
 
-func preferNativeContact(peer *domain.Peer, bridge peerBridge) {
+func preferNativeContact(data *persisted, peer *domain.Peer, bridge peerBridge) {
 	if peer.Transport != transportNWT {
 		peer.Address = ""
 	}
@@ -78,6 +78,7 @@ func preferNativeContact(peer *domain.Peer, bridge peerBridge) {
 	peer.CompatibilityAliasOf = ""
 	if peer.ID != bridge.CanonicalID {
 		peer.CompatibilityAliasOf = bridge.CanonicalID
+		migrateContactRemark(data, peer.ID, bridge.CanonicalID)
 	}
 }
 
@@ -201,7 +202,7 @@ func (n *Node) refreshCompatibilityContactLocked(data *persisted, id string) []s
 			continue // suppressed GoIM compatibility advertisement
 		}
 		if linked {
-			preferNativeContact(p, bridge)
+			preferNativeContact(data, p, bridge)
 		}
 		p.Online = false
 		wireID := wireCompatibilityID(data, contactID, p.Transport)
