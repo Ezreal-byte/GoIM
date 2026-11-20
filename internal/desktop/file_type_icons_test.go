@@ -1,8 +1,10 @@
 package desktop
 
 import (
+	"errors"
 	"image/color"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -50,8 +52,29 @@ func TestFileTypeIconsRenderWithOriginalColorsAndThemeFallback(t *testing.T) {
 			t.Fatal(err)
 		}
 		img, err := session.Image()
+		primitives := session.Snapshot().Primitives
 		session.Close()
 		page.Close()
+		// Every driver records the same paint primitives, including native macOS
+		// builds where the offscreen rasterizer requires the vivahead build tag.
+		for i, tint := range []gfx.Color{fileTypeGlyphs["folder"].Layers[0].Fill, theme.MutedForeground, fileTypeGlyphs["go"].Layers[0].Fill} {
+			tile := gfx.Rect{X: float32(i * 48), Width: 48, Height: 48}
+			var background, glyph bool
+			for _, p := range primitives {
+				if p.Kind == app.RectanglePrimitive && p.Bounds == tile && p.Color == theme.Muted {
+					background = true
+				}
+				if p.Kind == app.TrianglePrimitive && p.Color == tint && p.Points[0].X >= tile.X && p.Points[0].X < tile.Right() {
+					glyph = true
+				}
+			}
+			if !background || !glyph {
+				t.Fatalf("tile %d: painted background=%t, glyph=%t", i, background, glyph)
+			}
+		}
+		if runtime.GOOS == "darwin" && errors.Is(err, headless.ErrNoRenderer) {
+			continue
+		}
 		if err != nil {
 			t.Fatal(err)
 		}

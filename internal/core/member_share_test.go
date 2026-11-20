@@ -27,10 +27,22 @@ func TestMemberShareServedOnConnectedInterface(t *testing.T) {
 	if err := owner.shareFile(root, ""); err != nil {
 		t.Fatal(err)
 	}
-	// The native TLS listener accepts connections on every local interface.
-	// Use a second loopback address so this also exercises a single-NIC CI host.
+	// Reach the wildcard TLS listener on loopback while the browser server is
+	// bound to its selected LAN address. macOS configures only 127.0.0.1 by default.
+	browserHost, _, err := net.SplitHostPort(owner.webAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := "127.0.0.1"
+	if browserHost == target {
+		target = "127.0.0.2"
+		probe, err := net.Listen("tcp4", net.JoinHostPort(target, "0"))
+		if err != nil {
+			t.Skipf("a second local IPv4 address is required for the multi-interface test: %v", err)
+		}
+		probe.Close()
+	}
 	_, port, _ := net.SplitHostPort(owner.Address())
-	target := "127.0.0.2"
 	member.Connect(net.JoinHostPort(target, port))
 	var project domain.File
 	eventually(t, "project on alternate interface", func() bool {
