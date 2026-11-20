@@ -9,7 +9,7 @@ $original = Join-Path $root 'original'
 $exe = Join-Path $original 'FeiQ.exe'
 $checker = Join-Path $root 'check.exe'
 $group = 'GoIM FeiQ isolated test'
-$checks = [ordered]@{package_hash=$false; firewall=$false; original_listening=$false; unicast_discovery=$false; outgoing_text_receipt=$false; outgoing_text_visible=$false; incoming_text_exact=$false; outgoing_file_sha256=$false; incoming_file_sha256=$false}
+$checks = [ordered]@{package_hash=$false; firewall=$false; original_listening=$false; unicast_discovery=$false; outgoing_text_receipt=$false; outgoing_text_visible=$false; incoming_text_exact=$false; outgoing_file_served=$false; outgoing_file_sha256=$false; incoming_file_sha256=$false}
 $problem = ''
 $exitDescription = ''
 $env:GOIM_FEIQ_LAB='1'
@@ -30,10 +30,14 @@ try {
     $checks.package_hash=$true
     if (@(Get-NetUDPEndpoint -LocalPort 2425,2426 -ErrorAction SilentlyContinue).Count) {throw 'Reference or checker port is already occupied'}
     Set-NetFirewallProfile -All -Enabled True
-    $remote = @('0.0.0.0-126.255.255.255','128.0.0.0-255.255.255.255','::/0')
+    # Cover all actual adapters (including virtual/VPN), leaving only the OS loopback route.
+    $loopback = @(Get-NetIPAddress -IPAddress 127.0.0.1 | Select-Object -ExpandProperty InterfaceIndex -Unique)
+    if ($loopback.Count -ne 1) {throw 'Cannot identify loopback interface'}
+    $adapters = @(Get-NetIPInterface | Where-Object InterfaceIndex -ne $loopback[0] | Select-Object -ExpandProperty InterfaceAlias -Unique)
+    if ($adapters.Count -eq 0) {throw 'Cannot enumerate non-loopback adapters'}
     foreach ($p in @($exe,$checker)) {
         foreach ($direction in @('Inbound','Outbound')) {
-            $rule = New-NetFirewallRule -Group $group -DisplayName "GoIM test $([IO.Path]::GetFileName($p)) $direction" -Direction $direction -Action Block -Enabled True -Profile Any -Program $p -RemoteAddress $remote
+            $rule = New-NetFirewallRule -Group $group -DisplayName "GoIM test $([IO.Path]::GetFileName($p)) $direction" -Direction $direction -Action Block -Enabled True -Profile Any -Program $p -InterfaceAlias $adapters
             $active = Get-NetFirewallRule -PolicyStore ActiveStore -Name $rule.Name
             if ($active.Enabled -ne 'True' -or $active.Action -ne 'Block' -or $active.Direction -ne $direction) {throw 'Required firewall isolation is not active'}
         }

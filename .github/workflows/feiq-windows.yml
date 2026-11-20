@@ -23,7 +23,7 @@ jobs:
           New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
           go build -trimpath -o (Join-Path $dir 'check.exe') ./cmd/ipmsg-check
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-          python -m pip install --disable-pip-version-check pywinauto==0.6.9
+          python -m pip install --disable-pip-version-check pywinauto==0.6.9 pillow==11.3.0
       - name: Verify FeiQ and exercise the original
         shell: pwsh
         run: ./scripts/feiq-lab/windows.ps1 -Lab (Join-Path $env:RUNNER_TEMP 'goim-feiq-lab')
@@ -35,8 +35,11 @@ jobs:
           path: |
             ${{ runner.temp }}/goim-feiq-lab/report.json
             ${{ runner.temp }}/goim-feiq-lab/backend.json
+            ${{ runner.temp }}/goim-feiq-lab/observations.json
             ${{ runner.temp }}/goim-feiq-lab/plan.json
             ${{ runner.temp }}/goim-feiq-lab/ui.json
+            ${{ runner.temp }}/goim-feiq-lab/chat-*.png
+            ${{ runner.temp }}/goim-feiq-lab/chat-controls.json
             ${{ runner.temp }}/goim-feiq-lab/checker-errors.txt
             ${{ runner.temp }}/goim-feiq-lab/ui-errors.txt
           if-no-files-found: warn

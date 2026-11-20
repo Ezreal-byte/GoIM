@@ -66,7 +66,7 @@ func runWindowsFeiq(dir string) error {
 	if err := write("plan.json", plan); err != nil {
 		return err
 	}
-	checks := map[string]bool{"unicast_discovery": false, "outgoing_text_receipt": false, "incoming_text_exact": false, "incoming_file_sha256": false}
+	checks := map[string]bool{"unicast_discovery": false, "outgoing_text_receipt": false, "incoming_text_exact": false, "outgoing_file_served": false, "incoming_file_sha256": false}
 	defer func() { _ = write("backend.json", checks) }()
 	node, err := core.New(core.Options{DataDir: filepath.Join(dir, "goim"), Name: plan.Name, Listen: "127.0.0.1:0",
 		DownloadDir: filepath.Dir(plan.ReceivePath), DisableDiscovery: true, DisableCompatibility: true})
@@ -85,10 +85,23 @@ func runWindowsFeiq(dir string) error {
 		return fmt.Errorf("IPMSG service did not start")
 	}
 	peer, chat, offered, accepted := "", "", false, false
+	defer func() {
+		state := node.Snapshot()
+		messages := make([]map[string]string, 0)
+		for _, m := range state.Messages {
+			messages = append(messages, map[string]string{"kind": m.Kind, "text": m.Text, "status": m.Status, "sender": m.SenderID})
+		}
+		transfers := make([]map[string]any, 0)
+		for _, t := range state.Transfers {
+			transfers = append(transfers, map[string]any{"name": t.Name, "direction": t.Direction, "status": t.Status, "bytes": t.Done, "error": t.Error})
+		}
+		_ = write("observations.json", map[string]any{"reference_peer": peer, "messages": messages, "transfers": transfers})
+	}()
 	timeout := time.After(105 * time.Second)
 	tick := time.NewTicker(150 * time.Millisecond)
 	defer tick.Stop()
 	var nextProbe time.Time
+	ready := false
 	for {
 		select {
 		case <-timeout:
@@ -136,6 +149,9 @@ func runWindowsFeiq(dir string) error {
 				}
 			}
 			for _, t := range state.Transfers {
+				if t.PeerID == peer && t.Direction == "send" && t.ConversationID == chat && t.Name == filepath.Base(plan.OutgoingFile) && t.Status == "completed" && t.Done == 98321 {
+					checks["outgoing_file_served"] = true
+				}
 				if t.PeerID != peer || t.ConversationID != chat || t.Direction != "receive" || t.Name != filepath.Base(plan.IncomingFile) || t.Size != 98321 {
 					continue
 				}
@@ -148,8 +164,14 @@ func runWindowsFeiq(dir string) error {
 					checks["incoming_file_sha256"] = e == nil && fmt.Sprintf("%x", sha256.Sum256(data)) == plan.IncomingHash
 				}
 			}
-			if checks["incoming_file_sha256"] && checks["incoming_text_exact"] && checks["outgoing_text_receipt"] {
-				// Stay online until the other process has inspected/saved the outgoing offer.
+			if checks["incoming_file_sha256"] && checks["outgoing_file_served"] && checks["incoming_text_exact"] && checks["outgoing_text_receipt"] {
+				// Keep serving until the original has finished saving the outgoing file.
+				if !ready {
+					if err := os.WriteFile(filepath.Join(dir, "backend-complete"), nil, 0600); err != nil {
+						return err
+					}
+					ready = true
+				}
 				if _, e := os.Stat(filepath.Join(dir, "ui-finished")); e == nil {
 					return nil
 				}
