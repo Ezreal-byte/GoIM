@@ -1,7 +1,5 @@
-github.com/Ezreal-byte/viva v0.1.1-0.20261119115650-15819aec0c1b h1:oG6RZt1PnuHOkfDCu20v/4+YE0hM/Ni40JxdMS1PAmg=
-github.com/Ezreal-byte/viva v0.1.1-0.20261119115650-15819aec0c1b/go.mod h1:e9In6+J77G7B9ow4enZ2FSOFh7U3q4cQ5iJr3Qn/Olk=
-github.com/Ezreal-byte/viva v0.1.1-0.20261119173556-4c73c350089a h1:57BcfnPMSotUahp3+J30PIH6b4Ci9TKY2zrADY8HlgA=
-github.com/Ezreal-byte/viva v0.1.1-0.20261119173556-4c73c350089a/go.mod h1:e9In6+J77G7B9ow4enZ2FSOFh7U3q4cQ5iJr3Qn/Olk=
+github.com/Ezreal-byte/viva v0.1.1-0.20261120105459-9fae79cadcf4 h1:epcpHUay70oLMFLzRW11IwSVnW2Z+Or7/YYyobfDSq8=
+github.com/Ezreal-byte/viva v0.1.1-0.20261120105459-9fae79cadcf4/go.mod h1:e9In6+J77G7B9ow4enZ2FSOFh7U3q4cQ5iJr3Qn/Olk=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dsnet/compress v0.0.0-20171208185109-cc9eb1d7ad76 h1:eX+pdPPlD279OWgdx7f6KqIRSONuK7egk+jDx7OM3Ac=

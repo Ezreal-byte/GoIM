@@ -44,6 +44,10 @@ func (u *UI) openChatSearch() {
 	}
 	u.closeChatPickers()
 	u.moreOpen = false
+	if u.presentHistory != nil {
+		u.presentHistory(u.selected)
+		return
+	}
 	editor := u.ensureChatSearchEditor()
 	if u.chatFind.open {
 		if u.focusedID == u.ids.chatSearchField {

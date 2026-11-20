@@ -1267,6 +1267,12 @@ func TestMultiRecipientFileDetailsUseTransferSpecificActions(t *testing.T) {
 	harness.clickID(harness.ui.fileRowIDs["file-1"])
 	harness.settle()
 
+	pane := harness.ui.surface.filesPane
+	if err := harness.driver.Scroll(gfx.ScrollEvent{X: pane.X + pane.Width/2, Y: pane.Bottom() - 80, DeltaY: 1000, Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	harness.settle()
+
 	if harness.hasHit(harness.ui.fileCancelIDs["transfer-a"]) ||
 		!harness.hasHit(harness.ui.fileCancelIDs["transfer-b"]) ||
 		!harness.hasHit(harness.ui.fileCancelIDs["transfer-c"]) {

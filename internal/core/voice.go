@@ -377,13 +377,16 @@ func (n *Node) recordVoiceHistoryLocked(call domain.VoiceCall) {
 		"cancelled": "通话已取消", "disconnected": "连接已断开", "unavailable": "对方不可用",
 		"incompatible": "客户端不兼容", "ended": "通话已结束",
 	}[call.Reason]
+	seconds := 0
 	if !call.ConnectedAt.IsZero() {
-		seconds := max(int(time.Since(call.ConnectedAt).Seconds()), 0)
+		seconds = max(int(time.Since(call.ConnectedAt).Seconds()), 0)
 		detail = fmt.Sprintf("通话时长 %02d:%02d", seconds/60, seconds%60)
 	}
 	addMessageState(state, domain.Message{
 		ID: messageID, ConversationID: conversationID, SenderID: state.Self.ID,
 		Kind: "system", Text: "语音通话 · " + detail, CreatedAt: time.Now(), Status: "delivered",
+		Voice: &domain.VoiceRecord{Direction: call.Direction, Reason: call.Reason,
+			Connected: !call.ConnectedAt.IsZero(), DurationSeconds: seconds},
 	})
 	state.Revision++
 	if err := saveStore(n.db, &n.data); err != nil {

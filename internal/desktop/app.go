@@ -430,26 +430,32 @@ type UI struct {
 	contactPeer        string
 	contactGroup       string
 
-	chatEditor        *text.Editor
-	chatEditorField   ui.Field
-	requestScreenshot func()
-	presentViewer     func()
-	pinViewer         func(bool) bool
-	saveViewer        func(string)
-	fullscreenViewer  func(bool) bool
-	dismissViewer     func()
-	presentDetached   func(string) bool
-	openDragPreview   func(app.DragPreviewConfig) (conversationDragPreview, error)
-	chatInput         app.TextInput
-	chatLayout        components.TextareaLayout
-	drafts            map[string]string
-	draftSaved        map[string]string
-	moreOpen          bool
-	dragging          bool
-	chatScrollToEnd   bool
-	timeline          chatTimeline
-	emojiOpen         bool
-	emojiButton       ui.Box
+	chatEditor         *text.Editor
+	chatEditorField    ui.Field
+	requestScreenshot  func()
+	presentViewer      func()
+	pinViewer          func(bool) bool
+	saveViewer         func(string)
+	fullscreenViewer   func(bool) bool
+	dismissViewer      func()
+	presentDetached    func(string) bool
+	presentHistory     func(string) bool
+	locateMessageID    string
+	locateMessageBox   ui.Box
+	highlightMessageID string
+	activePrintID      string
+	activeVoiceRecord  domain.Message
+	openDragPreview    func(app.DragPreviewConfig) (conversationDragPreview, error)
+	chatInput          app.TextInput
+	chatLayout         components.TextareaLayout
+	drafts             map[string]string
+	draftSaved         map[string]string
+	moreOpen           bool
+	dragging           bool
+	chatScrollToEnd    bool
+	timeline           chatTimeline
+	emojiOpen          bool
+	emojiButton        ui.Box
 
 	mention       mentionState
 	mentionEditor ui.Box

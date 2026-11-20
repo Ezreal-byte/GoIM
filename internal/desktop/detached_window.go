@@ -91,7 +91,7 @@ func (u *UI) paintDetached(canvas *gfx.Canvas, size ui.Size) {
 	u.lastBody, u.lastChat = body, body
 
 	u.drawDetachedTitlebar(canvas, titlebar)
-	u.drawChatSurface(canvas, body, u.state.Conversation(u.selected))
+	u.drawChat(canvas, body)
 	u.hover.Paint(canvas, u.theme, body, components.TooltipOptions{Layer: 55}, 0)
 	u.drawToasts(canvas, body)
 	u.drawOverlays(canvas, body)

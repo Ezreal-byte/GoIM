@@ -121,10 +121,19 @@ type Message struct {
 	Kind           string // text, image, file, print, system
 	Text           string
 	FileID         string
-	PrintJobID     string `json:",omitempty"`
+	PrintJobID     string       `json:",omitempty"`
+	Voice          *VoiceRecord `json:",omitempty"`
 	CreatedAt      time.Time
 	Status         string // pending, sent, delivered, failed
 	Nickname       string
+}
+
+// VoiceRecord retains call facts after the live call has been cleared.
+type VoiceRecord struct {
+	Direction       VoiceCallDirection
+	Reason          string
+	Connected       bool
+	DurationSeconds int
 }
 
 func (m Message) CanRecallNeiwangtongText(now time.Time) bool {

@@ -24,7 +24,20 @@ func (u *UI) drawChat(canvas *gfx.Canvas, bounds ui.Rect) {
 	if u.drawer == "files" && conversation.ID == "" {
 		u.closeDrawer()
 	}
-	u.drawChatSurface(canvas, bounds, conversation)
+	if u.drawer == "files" {
+		panel := bounds
+		// On compact windows the inspector occupies the workspace, with a clear
+		// close action. Keep hidden chat controls out of the hit tree entirely.
+		if bounds.Width >= 800 {
+			panel.Width = min(float32(400)*u.theme.Metrics.EffectiveTextScale(), bounds.Width*.46)
+			panel.X = bounds.Right() - panel.Width
+			bounds.Width -= panel.Width
+			u.drawChatSurface(canvas, bounds, conversation)
+		}
+		u.drawChatFilesPane(canvas, panel)
+	} else {
+		u.drawChatSurface(canvas, bounds, conversation)
+	}
 	// The image viewer is a shell-level overlay so it stays above menus and
 	// dialogs; the shell paints drawChatImageViewer after drawOverlays.
 }
@@ -65,6 +78,7 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 		composerMinimum = chatReadOnlyMinHeight
 	}
 	var timeline ui.Box
+	u.locateMessageBox = ui.Box{}
 	u.chatPage.Draw(canvas, bounds, func(f ui.C) {
 		ui.Column(f).Fill().Children(func() {
 			u.drawChatHeader(f, conversation)
@@ -99,6 +113,12 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 			scroll.ScrollTo(scroll.Offset)
 		}
 		u.timeline.offset, u.timeline.atEnd = scroll.Offset, scroll.AtEnd()
+		if u.locateMessageID != "" && u.locateMessageBox.Valid() {
+			rect := u.locateMessageBox.Rect()
+			scroll.ScrollTo(scroll.Offset + rect.Y - timeline.Rect().Y - max((timeline.Rect().Height-rect.Height)/2, 0))
+			u.locateMessageID = ""
+			canvas.RequestFrame()
+		}
 	}
 	u.chatFind.restorePending = false
 	if u.dragging {
@@ -302,7 +322,14 @@ func (u *UI) drawChatTimeline(f ui.C, conversation domain.Conversation) ui.Box {
 					}
 					lastDay = day
 				}
-				u.drawMessage(f, conversation, message)
+				box := ui.Column(f.Key(message.ID)).FillWidth()
+				if u.highlightMessageID == message.ID {
+					box.Background(u.palette.selected).Radius(10).PadY(6)
+				}
+				box.Children(func() { u.drawMessage(f, conversation, message) })
+				if u.locateMessageID == message.ID {
+					u.locateMessageBox = box
+				}
 			}
 		})
 	})
@@ -322,6 +349,10 @@ func (u *UI) drawDateSeparator(f ui.C, at time.Time) {
 func (u *UI) drawMessage(f ui.C, conversation domain.Conversation, message domain.Message) {
 	if message.Recalled {
 		u.drawRecalledMessage(f, conversation, message)
+		return
+	}
+	if isVoiceRecord(message) {
+		u.drawVoiceRecord(f, message)
 		return
 	}
 	if message.Kind == "system" {
@@ -505,7 +536,7 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 			if !own && conversation.Kind == "group" {
 				ui.Text(f, u.messageSenderName(conversation, message)).FontSize(11.5).Muted().Ellipsis()
 			}
-			cardWidth := min(float32(480), max(maxWidth, float32(310)))
+			cardWidth := min(float32(380), maxWidth)
 			card := ui.Column(f).Width(cardWidth).Pad(14).Radius(radiusControl).
 				Background(u.palette.fileCard).Border(1, u.palette.fileBorder).Gap(10).
 				HitWith(u.fileButtonIDs[file.ID], i18n.T("查看 ")+displayFileName(file, message)+i18n.T(" 详情"),
@@ -518,21 +549,24 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 						})
 						ui.Column(f).Grow(1).Gap(3).Children(func() {
 							ui.Text(f, displayFileName(file, message)).FontSize(14).
-								Weight(gfx.WeightSemibold).Ellipsis()
-							ui.Text(f, fileMeta(file, message)).FontSize(11).Muted().Ellipsis()
+								Weight(gfx.WeightSemibold).MaxLines(2)
+							ui.Text(f, fileMeta(file, message)).FontSize(12).Muted().Ellipsis()
 						})
 					})
-					ui.Text(f, u.transferSummary(file)).FontSize(11.5).Muted().Ellipsis()
+					if len(u.transfersFor[file.ID]) > 1 {
+						ui.Text(f, u.transferSummary(file)).FontSize(11.5).Muted().Ellipsis()
+					}
 					activeShown := false
 					for _, transfer := range u.transfersFor[file.ID] {
 						if !transferNeedsAttention(transfer) {
 							continue
 						}
 						activeShown = true
-						fraction := transferFraction(transfer)
-						ui.Progress(f, fraction).Height(6)
+						if transfer.Status == "transferring" || transfer.Status == "verifying" {
+							ui.Progress(f, transferFraction(transfer)).Height(5)
+						}
 						ui.Row(f).Items(ui.Center).Children(func() {
-							ui.Text(f, u.transferProgressLabel(transfer)).FontSize(10.5).Muted().Ellipsis()
+							ui.Text(f, u.transferProgressLabel(transfer)).FontSize(12).Muted().Ellipsis()
 							ui.Spacer(f)
 							ui.Text(f, i18n.T("查看详情")).FontSize(11).Weight(gfx.WeightMedium).
 								Color(u.palette.selectedText)
@@ -540,7 +574,7 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 					}
 					if !activeShown {
 						ui.Row(f).Items(ui.Center).Children(func() {
-							ui.Text(f, fileAvailability(u, file)).FontSize(10.5).Muted().Ellipsis()
+							ui.Text(f, fileAvailability(u, file)).FontSize(12).Muted().Ellipsis()
 							ui.Spacer(f)
 							ui.Text(f, i18n.T("查看详情")).FontSize(11).Weight(gfx.WeightMedium).
 								Color(u.palette.selectedText)
@@ -548,9 +582,12 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 					}
 					if !own {
 						for _, transfer := range u.transfersFor[file.ID] {
-							if transfer.Direction == "receive" && (transfer.Status == "offered" || transfer.Status == "waiting") {
+							if !transfer.Revoked && transfer.Direction == "receive" && (transfer.Status == "offered" || transfer.Status == "waiting") {
 								ui.Row(f).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-									u.drawTransferRowActions(f, transfer)
+									if namedButton(f, u.fileAcceptIDs[transfer.ID], i18n.T("接收文件")).Height(u.textExtent(40, 18)).FontSize(14).Clicked() {
+										u.submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID})
+									}
+									ui.Text(f, i18n.T("更多操作 ›")).FontSize(12).Color(u.palette.selectedText)
 								})
 								break
 							}
@@ -602,11 +639,11 @@ func (u *UI) drawPrintMessage(f ui.C, conversation domain.Conversation, message 
 			if !own && conversation.Kind == "group" {
 				ui.Text(f, u.messageSenderName(conversation, message)).FontSize(11.5).Muted().Ellipsis()
 			}
-			cardWidth := min(float32(480), max(maxWidth, float32(310)))
-			ui.Column(f).Width(cardWidth).Pad(14).Radius(radiusControl).
+			cardWidth := min(float32(380), maxWidth)
+			card := ui.Column(f).Width(cardWidth).Pad(14).Radius(radiusControl).
 				Background(u.palette.fileCard).Border(1, u.palette.fileBorder).Gap(9).
 				HitWith(u.messageIDs[message.ID], i18n.T("打印记录 ")+job.FileName,
-					gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
+					gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("查看打印详情")}).
 				Children(func() {
 					ui.Row(f).Items(ui.Center).Gap(11).Children(func() {
 						ui.Row(f).Size(40, 40).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
@@ -630,6 +667,12 @@ func (u *UI) drawPrintMessage(f ui.C, conversation domain.Conversation, message 
 						}
 					})
 				})
+			if card.Clicked() {
+				u.closeDrawer()
+				u.activePrintID = job.ID
+				u.activeFileID = ""
+				u.drawer = "files"
+			}
 			u.messageContextPointer(f.Canvas(), u.messageIDs[message.ID], message)
 			ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
 				u.messageTime(f, message, own)
@@ -969,6 +1012,10 @@ func (u *UI) groupCounts(group domain.Group) (total, online int) {
 
 func (u *UI) fileIcon(file domain.File) gfx.Icon {
 	switch {
+	case file.Folder:
+		return u.iconFolder
+	case strings.HasPrefix(file.MIME, "video/") || strings.HasPrefix(file.MIME, "audio/"):
+		return u.iconPlay
 	case fileIsImage(file):
 		return u.iconImage
 	case strings.EqualFold(filepath.Ext(file.Name), ".zip") ||
@@ -976,7 +1023,8 @@ func (u *UI) fileIcon(file domain.File) gfx.Icon {
 		strings.EqualFold(filepath.Ext(file.Name), ".7z"):
 		return u.iconFileArchive
 	case strings.EqualFold(filepath.Ext(file.Name), ".txt") ||
-		strings.EqualFold(filepath.Ext(file.Name), ".md"):
+		strings.EqualFold(filepath.Ext(file.Name), ".md") || strings.EqualFold(filepath.Ext(file.Name), ".pdf") ||
+		strings.EqualFold(filepath.Ext(file.Name), ".docx") || strings.EqualFold(filepath.Ext(file.Name), ".doc"):
 		return u.iconFileText
 	default:
 		return u.iconFile
@@ -984,6 +1032,9 @@ func (u *UI) fileIcon(file domain.File) gfx.Icon {
 }
 
 func fileIconTint(file domain.File) ui.Color {
+	if strings.EqualFold(filepathExt(file.Name), ".pdf") {
+		return ui.RGBA(220, 65, 65, .10)
+	}
 	if fileIsImage(file) {
 		return ui.RGBA(34, 176, 94, 0.11)
 	}
@@ -991,6 +1042,9 @@ func fileIconTint(file domain.File) ui.Color {
 }
 
 func fileIconColor(file domain.File) ui.Color {
+	if strings.EqualFold(filepathExt(file.Name), ".pdf") {
+		return ui.RGB(220, 65, 65)
+	}
 	if fileIsImage(file) {
 		return ui.RGB(28, 145, 76)
 	}
@@ -1010,7 +1064,7 @@ func displayFileName(file domain.File, message domain.Message) string {
 func fileMeta(file domain.File, message domain.Message) string {
 	size := formatBytes(file.Size)
 	if size != "" {
-		return size
+		return size + fileTypeSuffix(file)
 	}
 	if message.Text != "" {
 		return message.Text
@@ -1026,6 +1080,9 @@ func transferFraction(transfer domain.Transfer) float32 {
 }
 
 func transferNeedsAttention(transfer domain.Transfer) bool {
+	if transfer.Revoked {
+		return false
+	}
 	switch transfer.Status {
 	case "transferring", "verifying", "offered", "waiting", "retry_requested":
 		return true
@@ -1102,6 +1159,14 @@ func fileAvailability(u *UI, file domain.File) string {
 	if file.ID == "" {
 		return i18n.T("文件记录尚未同步")
 	}
+	for _, transfer := range u.transfersFor[file.ID] {
+		if transfer.Direction == "receive" {
+			return transferStatusText(transfer)
+		}
+	}
+	if peerOnline(u, file.SenderID) {
+		return i18n.T("尚未接收")
+	}
 	return i18n.T("等待发送方上线")
 }
 
@@ -1158,11 +1223,11 @@ func friendlyDay(at time.Time) string {
 	now := time.Now()
 	y, m, d := local.Date()
 	nowY, nowM, nowD := now.Date()
-	label := local.Format("2006-01-02")
+	label := ""
 	switch {
 	case y == nowY && m == nowM && d == nowD:
 		label = i18n.T("今天")
-	case now.Sub(local) < 48*time.Hour:
+	case local.Year() == now.AddDate(0, 0, -1).Year() && local.YearDay() == now.AddDate(0, 0, -1).YearDay():
 		label = i18n.T("昨天")
 	}
 	if i18n.Language() == i18n.English {
@@ -1173,7 +1238,10 @@ func friendlyDay(at time.Time) string {
 		return date
 	}
 	weekdays := [...]string{"日", "一", "二", "三", "四", "五", "六"}
-	return label + " " + local.Format("2006-01-02") + " 星期" + weekdays[local.Weekday()]
+	if label != "" {
+		label += " "
+	}
+	return label + local.Format("2006-01-02") + " 星期" + weekdays[local.Weekday()]
 }
 
 func relativeTime(at time.Time) string {
@@ -1208,6 +1276,8 @@ func (u *UI) toggleFilesPane() {
 }
 
 func (u *UI) openFileDetail(fileID, from string) {
+	u.activeVoiceRecord = domain.Message{}
+	u.activePrintID = ""
 	if fileID == "" {
 		return
 	}

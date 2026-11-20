@@ -65,10 +65,12 @@ func TestIncomingChatFileAcceptAndSaveAsUseOneAction(t *testing.T) {
 			h := newShellTestHarness(t, state)
 			destination := filepath.Join(t.TempDir(), "received.zip")
 			if saveAs {
+				h.clickID(h.ui.fileButtonIDs["file-1"])
 				if err := h.driver.QueueSaveFile(destination, nil); err != nil {
 					t.Fatal(err)
 				}
 				h.clickID(h.ui.fileSaveIDs["transfer-1"])
+				h.clickID(h.ui.ids.fileClose)
 			} else {
 				h.clickID(h.ui.fileAcceptIDs["transfer-1"])
 			}

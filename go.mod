@@ -20,5 +20,5 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
-// Temporary until the Windows windowing, transparent text, and Linux Fcitx 4 fixes reach Viva upstream.
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261119173556-4c73c350089a
+// Pin the compatible Viva fork while native fixes, text scaling, and search highlighting reach upstream.
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261120105459-9fae79cadcf4
