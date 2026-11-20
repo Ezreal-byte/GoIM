@@ -18,8 +18,6 @@ import (
 
 func (u *UI) drawSideDrawer(canvas *gfx.Canvas) {
 	switch u.drawer {
-	case "files":
-		u.drawChatFilesPane(canvas, u.lastChat)
 	case "members":
 		u.drawMemberDrawer(canvas, u.lastChat)
 	}
@@ -692,6 +690,8 @@ func (u *UI) cancelTransfers(transfers []domain.Transfer) {
 }
 
 func (u *UI) closeDrawer() {
+	u.activeVoiceRecord = domain.Message{}
+	u.activePrintID = ""
 	u.drawer = ""
 	u.activeFileID = ""
 	u.fileReturn = ""
@@ -766,24 +766,35 @@ func (u *UI) drawChatFilesPane(canvas *gfx.Canvas, viewport ui.Rect) {
 	}
 	surface := u.surface
 	surface.filesPane = viewport
-	detail := u.activeFileID != ""
+	detail := u.activeFileID != "" || u.activePrintID != "" || u.activeVoiceRecord.ID != ""
 	title := i18n.T("聊天文件")
-	subtitle := u.conversationTitle(conversation)
-	if detail {
+	if u.activeFileID != "" {
 		title = i18n.T("文件详情")
-		subtitle = u.state.File(u.activeFileID).Name
 	}
-	drawer := components.BeginDrawer(canvas, u.theme, viewport, components.DrawerOptions{
-		Layer: 60, Scope: u.ids.fileScope, DismissID: u.ids.fileDismiss, CloseID: u.ids.fileClose,
-		Side: components.DrawerRight, ContentExtent: min(float32(420), viewport.Width),
-	})
-	layout := drawer.Begin(title, subtitle)
-	surface.filesPane = layout.Content
-	defer drawer.End()
-	u.drawerPage.Draw(canvas, layout.Body, func(f ui.C) {
+	if u.activePrintID != "" {
+		title = i18n.T("打印详情")
+	}
+	if u.activeVoiceRecord.ID != "" {
+		title = i18n.T("通话详情")
+	}
+	canvas.Fill(viewport, u.palette.sidebar)
+	canvas.Fill(ui.Rect{X: viewport.X, Y: viewport.Y, Width: 1, Height: viewport.Height}, u.palette.border)
+	u.drawerPage.Draw(canvas, viewport, func(f ui.C) {
 		ui.Column(f).Fill().Children(func() {
-			ui.Column(f).Grow(1).PadSides(14, 16, 12, 16).Children(func() {
-				if detail {
+			ui.Row(f).FillWidth().Height(u.textExtent(60, 32)).PadX(20).Items(ui.Center).Gap(12).Children(func() {
+				ui.Text(f, title).FontSize(16).Weight(gfx.WeightSemibold).Grow(1)
+				if u.iconButton(f, u.ids.fileClose, u.iconX, i18n.T("关闭详情"), 36).Clicked() {
+					u.closeDrawer()
+					u.activePrintID = ""
+				}
+			})
+			ui.Divider(f)
+			ui.Column(f).FillWidth().Height(max(viewport.Height-u.textExtent(60, 32)-1, 0)).Pad(20).Children(func() {
+				if u.activeVoiceRecord.ID != "" {
+					u.drawVoiceRecordDetail(f, u.activeVoiceRecord)
+				} else if u.activePrintID != "" {
+					u.drawPrintDetail(f, u.state.PrintJob(u.activePrintID))
+				} else if detail {
 					u.drawFileDetail(f, u.state.File(u.activeFileID))
 				} else {
 					u.drawFileList(f)
@@ -791,10 +802,6 @@ func (u *UI) drawChatFilesPane(canvas *gfx.Canvas, viewport ui.Rect) {
 			})
 		})
 	})
-	if canvas.Clicked(u.ids.fileClose) || canvas.Clicked(u.ids.fileDismiss) {
-		u.closeDrawer()
-		surface.filesPane = ui.Rect{}
-	}
 }
 
 func (u *UI) drawFileList(f ui.C) {
@@ -885,9 +892,9 @@ func (u *UI) drawFileList(f ui.C) {
 }
 
 func (u *UI) drawFileDetail(f ui.C, file domain.File) {
-	ui.Column(f).Fill().Gap(12).Children(func() {
+	ui.Scroll(f.Part("inspector-content")).Fill().Scrollbars().Gap(16).Children(func() {
 		if u.fileReturn == "list" {
-			if namedButton(f, u.ids.fileBack, i18n.T("返回文件列表")).XSmall().Outline().Clicked() {
+			if namedButton(f, u.ids.fileBack, i18n.T("返回文件列表")).Height(36).Ghost().Clicked() {
 				u.activeFileID = ""
 				u.fileReturn = ""
 			}
@@ -898,8 +905,8 @@ func (u *UI) drawFileDetail(f ui.C, file domain.File) {
 				ui.Icon(f, u.fileIcon(file)).Size(25, 25).Color(fileIconColor(file))
 			})
 			ui.Column(f).Grow(1).Gap(4).Children(func() {
-				ui.Text(f, file.Name).FontSize(17).Weight(gfx.WeightSemibold).MaxLines(2)
-				ui.Text(f, formatBytes(file.Size)+fileTypeSuffix(file)).FontSize(11).Muted()
+				ui.Wrap(f, file.Name).FontSize(17).Weight(gfx.WeightSemibold)
+				ui.Text(f, formatBytes(file.Size)+fileTypeSuffix(file)).FontSize(12).Muted()
 			})
 		})
 		if fileIsImage(file) {
@@ -913,14 +920,14 @@ func (u *UI) drawFileDetail(f ui.C, file domain.File) {
 		ui.Divider(f)
 		u.fileInfoRow(f, i18n.T("发送者"), senderName(u.state, file))
 		u.fileInfoRow(f, i18n.T("发送时间"), longDate(file.CreatedAt))
-		u.fileInfoRow(f, i18n.T("所在群聊"), u.conversationTitle(u.state.Conversation(file.ConversationID)))
+		u.fileInfoRow(f, i18n.T("所在会话"), u.conversationTitle(u.state.Conversation(file.ConversationID)))
 		u.fileInfoRow(f, i18n.T("本机状态"), fileAvailability(u, file))
 		if path := u.fileLocalPath[file.ID]; path != "" {
 			u.fileInfoRow(f, i18n.T("本地路径"), path)
 		}
 		ui.Divider(f)
 		ui.Text(f, i18n.T("传输状态")).FontSize(13).Weight(gfx.WeightSemibold)
-		ui.Scroll(f.Part("file-details")).MaxHeight(190).Grow(1).Gap(4).Children(func() {
+		ui.Column(f).FillWidth().Gap(10).Children(func() {
 			transfers := u.transfersFor[file.ID]
 			if len(transfers) == 0 {
 				ui.Row(f).PadSides(10, 8, 10, 8).Children(func() {
@@ -931,47 +938,49 @@ func (u *UI) drawFileDetail(f ui.C, file domain.File) {
 				u.drawTransferRow(f, entry)
 			}
 		})
-		ui.Spacer(f)
 		u.drawFileActions(f, file)
 	})
 }
 
 func (u *UI) drawTransferRow(f ui.C, transfer domain.Transfer) {
 	peer := u.state.Peer(transfer.PeerID)
-	ui.Column(f).FillWidth().MinHeight(54).Pad(9).Radius(8).
-		Background(u.palette.incoming).Gap(7).Children(func() {
-		ui.Row(f).FillWidth().Items(ui.Center).Gap(9).Children(func() {
-			u.avatarStatus(f, peer.Name, peer.Avatar, 28, peerOnline(u, peer.ID))
-			ui.Column(f).Grow(1).Gap(3).Children(func() {
-				ui.Text(f, transferPeerLabel(u, transfer)).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
-				ui.Text(f, transferStatusText(transfer)).FontSize(10.5).Muted().Ellipsis()
+	ui.Column(f).FillWidth().Pad(14).Radius(10).Background(u.palette.incoming).Gap(12).Children(func() {
+		ui.Row(f).FillWidth().Items(ui.Center).Gap(10).Children(func() {
+			u.avatarStatus(f, peer.Name, peer.Avatar, 32, peerOnline(u, peer.ID))
+			ui.Column(f).Grow(1).MinWidth(0).Gap(5).Children(func() {
+				ui.Text(f, transferPeerLabel(u, transfer)).FontSize(13).Weight(gfx.WeightMedium).Ellipsis()
+				ui.Wrap(f, transferStatusText(transfer)).FontSize(13).Muted()
 			})
-			if transferNeedsAttention(transfer) {
-				ui.Progress(f, transferFraction(transfer)).Width(78).Height(5)
-			}
-			u.drawTransferRowActions(f, transfer)
 		})
+		if transfer.Status == "transferring" || transfer.Status == "verifying" {
+			ui.Progress(f, transferFraction(transfer)).FillWidth().Height(5)
+			ui.Text(f, u.transferProgressLabel(transfer)).FontSize(11).Muted().Ellipsis()
+		}
+		ui.Flow(f).FillWidth().Gap(8).Items(ui.Center).Children(func() { u.drawTransferRowActions(f, transfer) })
 	})
 }
 
 func (u *UI) drawTransferRowActions(f ui.C, transfer domain.Transfer) {
+	if transfer.Revoked {
+		return
+	}
 	switch {
 	case transfer.Direction == "receive" && (transfer.Status == "offered" || transfer.Status == "waiting"):
-		if namedButton(f, u.fileAcceptIDs[transfer.ID], i18n.T("接收文件")).XSmall().Clicked() {
+		if namedButton(f, u.fileAcceptIDs[transfer.ID], i18n.T("接收文件")).Height(u.textExtent(40, 18)).FontSize(14).Clicked() {
 			u.submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID})
 		}
-		if namedButton(f, u.fileSaveIDs[transfer.ID], i18n.T("另存为…")).XSmall().Outline().Clicked() {
+		if namedButton(f, u.fileSaveIDs[transfer.ID], i18n.T("另存为")).Height(u.textExtent(40, 18)).FontSize(14).Outline().Clicked() {
 			u.chooseTransferDestination(f.Canvas(), transfer)
 		}
-		if namedButton(f, u.fileRejectIDs[transfer.ID], i18n.T("拒绝")).XSmall().Outline().Clicked() {
+		if namedButton(f, u.fileRejectIDs[transfer.ID], i18n.T("拒绝")).Height(u.textExtent(40, 18)).FontSize(14).Ghost().Clicked() {
 			u.submit(domain.Command{Kind: domain.RejectTransfer, TransferID: transfer.ID})
 		}
 	case transfer.Direction == "receive" && transferNeedsAttention(transfer):
-		if namedButton(f, u.fileCancelIDs[transfer.ID], i18n.T("取消接收")).XSmall().Outline().Clicked() {
+		if namedButton(f, u.fileCancelIDs[transfer.ID], i18n.T("取消接收")).Height(u.textExtent(36, 16)).FontSize(13).Outline().Clicked() {
 			u.submit(domain.Command{Kind: domain.CancelTransfer, TransferID: transfer.ID})
 		}
 	case transfer.Direction != "receive" && transferNeedsAttention(transfer):
-		if namedButton(f, u.fileCancelIDs[transfer.ID], i18n.T("取消发送")).XSmall().Outline().Clicked() {
+		if namedButton(f, u.fileCancelIDs[transfer.ID], i18n.T("取消发送")).Height(u.textExtent(36, 16)).FontSize(13).Outline().Clicked() {
 			u.submit(domain.Command{Kind: domain.CancelTransfer, TransferID: transfer.ID})
 		}
 	case transfer.Status == "failed" || transfer.Status == "cancelled" || transfer.Status == "rejected":
@@ -979,7 +988,7 @@ func (u *UI) drawTransferRowActions(f ui.C, transfer domain.Transfer) {
 		if transfer.Direction == "receive" {
 			label = i18n.T("重试接收")
 		}
-		if namedButton(f, u.fileRetryIDs[transfer.ID], label).XSmall().Clicked() {
+		if namedButton(f, u.fileRetryIDs[transfer.ID], label).Height(u.textExtent(36, 16)).FontSize(13).Clicked() {
 			u.submit(domain.Command{Kind: domain.RetryTransfer, TransferID: transfer.ID})
 		}
 	}
@@ -988,18 +997,18 @@ func (u *UI) drawTransferRowActions(f ui.C, transfer domain.Transfer) {
 func (u *UI) drawFileActions(f ui.C, file domain.File) {
 	localPath := u.fileLocalPath[file.ID]
 	localAvailable := u.fileAvailable[file.ID]
-	ui.Row(f).Height(36).Gap(8).Items(ui.Center).Children(func() {
+	ui.Row(f).MinHeight(u.textExtent(36, 16)).Gap(8).Items(ui.Center).Children(func() {
 		if localPath != "" && localAvailable {
-			if namedButton(f, u.ids.fileOpen, i18n.T("打开文件")).Small().Clicked() {
+			if namedButton(f, u.ids.fileOpen, i18n.T("打开文件")).Height(u.textExtent(36, 16)).FontSize(13).Clicked() {
 				_ = app.OpenPath(localPath)
 			}
-			if namedButton(f, u.ids.fileReveal, i18n.T("打开文件夹")).Small().Outline().Clicked() {
+			if namedButton(f, u.ids.fileReveal, i18n.T("打开文件夹")).Height(u.textExtent(36, 16)).FontSize(13).Outline().Clicked() {
 				_ = app.RevealPath(localPath)
 			}
 		}
 		if cancellable := u.fileCancelCount(file.ID); cancellable > 1 {
 			label := i18n.T("取消全部（") + intString(cancellable) + "）…"
-			if namedButton(f, u.ids.fileBatchCancel, label).Small().Outline().Clicked() {
+			if namedButton(f, u.ids.fileBatchCancel, label).Height(u.textExtent(36, 16)).FontSize(13).Outline().Clicked() {
 				u.requestBatchCancel(file)
 			}
 		}
@@ -1075,8 +1084,8 @@ func (u *UI) chooseTransferDestination(canvas *gfx.Canvas, transfer domain.Trans
 
 func (u *UI) fileInfoRow(f ui.C, label, value string) {
 	ui.Row(f).MinHeight(30).Items(ui.Center).Gap(12).Children(func() {
-		ui.Text(f, label).Width(82).FontSize(11.5).Muted()
-		ui.Text(f, value).FontSize(11.5).Grow(1).Ellipsis()
+		ui.Text(f, label).Width(u.textExtent(86, 60)).Shrink(0).FontSize(13).Muted()
+		ui.Wrap(f, value).FontSize(13).Grow(1).Basis(0).MinWidth(0)
 	})
 }
 
@@ -1122,6 +1131,9 @@ func transferPeerLabel(u *UI, transfer domain.Transfer) string {
 }
 
 func transferStatusText(transfer domain.Transfer) string {
+	if transfer.Revoked {
+		return i18n.T("发送方已撤回")
+	}
 	switch transfer.Status {
 	case "offered":
 		return i18n.T("等待接收")
@@ -1150,8 +1162,8 @@ func transferStatusText(transfer domain.Transfer) string {
 }
 
 func fileTypeSuffix(file domain.File) string {
-	if file.MIME != "" {
-		return " · " + file.MIME
+	if file.Folder {
+		return " · " + i18n.T("文件夹")
 	}
 	if ext := strings.TrimPrefix(strings.ToLower(filepathExt(file.Name)), "."); ext != "" {
 		return " · " + strings.ToUpper(ext)

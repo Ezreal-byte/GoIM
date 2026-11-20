@@ -26,6 +26,8 @@ type desktopRuntime struct {
 	window              *app.Window
 	conversationWindows map[string]*detachedConversationWindow
 	printWindows        map[string]*printWindowEntry
+	historyWindows      map[string]*historyWindowEntry
+	historyPending      string
 	tray                *app.StatusItem
 	seen                map[string]bool
 	badge               int
@@ -132,6 +134,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 			shell.invalidator.Invalidate()
 		}
 		shell.presentDetached = r.openDetachedConversation
+		shell.presentHistory = r.requestHistoryWindow
 		shell.panels.presentPrint = r.openPrintWindow
 		shell.dismissViewer = r.closeViewer
 		shell.pinViewer = r.pinViewer
@@ -149,6 +152,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 			r.closeViewer()
 			r.closeDetachedConversations()
 			r.closePrintWindows()
+			r.closeHistoryWindows()
 			if closed != nil {
 				closed()
 			}
@@ -220,6 +224,14 @@ func (r *desktopRuntime) observe() {
 	}
 	s := r.ui.state
 	locked := r.ui.lockVisible()
+	if r.historyPending != "" {
+		id := r.historyPending
+		r.historyPending = ""
+		r.openHistoryWindow(id)
+	}
+	for _, entry := range r.historyWindows {
+		entry.conceal(locked)
+	}
 	if locked && r.ui.conversationDrag.preview != nil {
 		r.ui.conversationDrag.preview.Close()
 		r.ui.conversationDrag = conversationDragState{}
@@ -232,6 +244,9 @@ func (r *desktopRuntime) observe() {
 	}
 	if s.Revision != r.windowRevision {
 		r.windowRevision = s.Revision
+		for _, entry := range r.historyWindows {
+			entry.view.wake.Invalidate()
+		}
 		for _, detached := range r.conversationWindows {
 			detached.ui.invalidator.Invalidate()
 		}

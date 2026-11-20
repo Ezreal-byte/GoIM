@@ -379,7 +379,7 @@ func TestChatComposerResizesAndKeepsTheManualHeight(t *testing.T) {
 	}
 }
 
-func TestChatFilesDrawerOverlaysWithoutCompressingChat(t *testing.T) {
+func TestChatFilesInspectorDocksBesideUsableChat(t *testing.T) {
 	harness := newChatSurfaceHarness(t, shellTestState(t), 1440, 960)
 	harness.clickID(harness.ui.ids.chatHeaderFile)
 	harness.settle()
@@ -396,12 +396,12 @@ func TestChatFilesDrawerOverlaysWithoutCompressingChat(t *testing.T) {
 	}
 
 	header, ok := harness.findHit(harness.ui.ids.chatHeaderFile)
-	if !ok || header.Bounds.Right() <= pane.X {
-		t.Fatalf("drawer compressed the chat header: %+v vs %+v", header.Bounds, pane)
+	if !ok || header.Bounds.Right() > pane.X {
+		t.Fatalf("inspector overlaps the chat header: %+v vs %+v", header.Bounds, pane)
 	}
 	editor, ok := harness.chatEditorHit()
-	if !ok || editor.Bounds.Right() <= pane.X {
-		t.Fatalf("drawer compressed the composer: %+v vs %+v", editor.Bounds, pane)
+	if !ok || editor.Bounds.Right() > pane.X {
+		t.Fatalf("inspector overlaps the composer: %+v vs %+v", editor.Bounds, pane)
 	}
 	search, ok := harness.findHit(harness.ui.ids.fileSearch)
 	if !ok || search.Bounds.X < pane.X || search.Bounds.X+search.Bounds.Width > pane.X+pane.Width+0.01 {
@@ -456,12 +456,11 @@ func TestChatFilesPaneCompressesWhenMaximizedAtMinimumSize(t *testing.T) {
 	harness.clickID(harness.ui.ids.chatHeaderFile)
 	harness.settle()
 	pane := harness.ui.surface.filesPane
-	if pane.Width < chatFilesMinWidth || pane.Width > 420 {
-		t.Fatalf("maximized pane width %.1f is outside %.0f..%.0f", pane.Width, chatFilesMinWidth, chatFilesMaxWidth)
+	if pane != harness.ui.lastChat {
+		t.Fatalf("compact inspector should occupy the workspace: %+v vs %+v", pane, harness.ui.lastChat)
 	}
-	header, ok := harness.findHit(harness.ui.ids.chatHeaderFile)
-	if !ok || header.Bounds.Right() <= pane.X {
-		t.Fatalf("drawer compressed the maximized chat: %+v vs %+v", header.Bounds, pane)
+	if harness.hasHit(harness.ui.ids.chatHeaderFile) {
+		t.Fatal("compact inspector left hidden chat controls interactive")
 	}
 	if pane.X+pane.Width > 1000.01 || pane.Y+pane.Height > 700.01 {
 		t.Fatalf("maximized pane is outside the window: %+v", pane)

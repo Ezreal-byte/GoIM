@@ -18,6 +18,7 @@ func (r *desktopRuntime) openDetachedConversation(conversationID string) bool {
 	}
 
 	detached := newDetachedConversationView(r.backend, conversationID)
+	detached.presentHistory = r.requestHistoryWindow
 	config := detached.DetachedConfig()
 	config.Icon = windowIcon()
 	config.Class = "GoIM.Conversation"

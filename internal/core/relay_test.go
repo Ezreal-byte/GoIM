@@ -158,6 +158,14 @@ func TestVoiceHistoryIsPersistedOnceOnBothSides(t *testing.T) {
 			state := node.Snapshot()
 			return len(state.Messages) == 1 && state.Messages[0].ID == "voice:"+call.ID && state.Messages[0].Kind == "system"
 		})
+		voice := node.Snapshot().Messages[0].Voice
+		want := domain.VoiceCallOutgoing
+		if node == receiver {
+			want = domain.VoiceCallIncoming
+		}
+		if voice == nil || voice.Direction != want || !voice.Connected || voice.DurationSeconds < 0 {
+			t.Fatalf("call facts were lost: %+v, want direction %s", voice, want)
+		}
 		node.finishVoice(call.ID, "ended", true)
 		if len(node.Snapshot().Messages) != 1 {
 			t.Fatal("duplicate call history")
@@ -170,6 +178,9 @@ func TestVoiceHistoryIsPersistedOnceOnBothSides(t *testing.T) {
 	restarted := testNodeAt(t, "接听方", directory)
 	if len(restarted.Snapshot().Messages) != 1 {
 		t.Fatal("restart lost call history")
+	}
+	if voice := restarted.Snapshot().Messages[0].Voice; voice == nil || voice.Direction != domain.VoiceCallIncoming {
+		t.Fatalf("restart lost structured call facts: %+v", voice)
 	}
 }
 
