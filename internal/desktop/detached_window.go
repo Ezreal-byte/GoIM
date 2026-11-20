@@ -83,6 +83,7 @@ func (u *UI) paintDetached(canvas *gfx.Canvas, size ui.Size) {
 	u.focusedID = canvas.Focused()
 	u.emojiButton, u.mentionEditor, u.composerBox = ui.Box{}, ui.Box{}, ui.Box{}
 	if u.lockVisible() {
+		u.textSelection.clear()
 		return
 	}
 	titlebar := ui.Rect{Width: bounds.Width, Height: min(detachedTitlebarHeight, bounds.Height)}

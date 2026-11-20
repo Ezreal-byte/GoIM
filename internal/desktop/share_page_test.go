@@ -40,6 +40,9 @@ func TestShareListUsesNativePickersAndKeepsPasswordOptional(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.click(p.ids.shareDialogSubmit)
+	if p.shareFilter != panelSharesMine {
+		t.Fatal("created projects should open My shares")
+	}
 	if command := h.requireLastCommand(); command.Kind != domain.ShareFiles || len(command.Paths) != 2 ||
 		command.Paths[0] != a || command.Paths[1] != b || command.Text != "sample-password" {
 		t.Fatalf("share command = %#v", command)
@@ -90,6 +93,7 @@ func TestShareProjectMenuAndTransientFeedback(t *testing.T) {
 	state.Files[0].ShareQR = qr
 	h := panelTestNewHarness(t, panelModuleShares, state)
 	p := h.panels
+	h.clickLabelRole(p.shareLabels[panelSharesMine], gfx.RoleTab)
 	entry := p.sharesMine[0]
 	first, _ := h.findHit(entry.rowID)
 	h.click(entry.copyID)
@@ -153,6 +157,48 @@ func TestShareProjectMenuAndTransientFeedback(t *testing.T) {
 	h.click(p.ids.sharePasswordSubmit)
 	if c := h.requireLastCommand(); c.Kind != domain.SetSharePassword || c.FileID != "own" || c.Text != "new-password" {
 		t.Fatalf("password command = %#v", c)
+	}
+}
+
+func TestMemberShareVisitRequiresOnlinePeerAndExplicitClick(t *testing.T) {
+	for _, protected := range []bool{false, true} {
+		state := panelTestDefaultState(t)
+		const address = "http://192.0.2.21:8080/s/test"
+		state.Peers = []domain.Peer{{ID: "sender", Name: "Alice", Online: true}}
+		state.Files = []domain.File{{ID: "project", SenderID: "sender", Name: "Folder", Shared: true, ShareFolder: !protected, ShareProtected: protected, MemberURL: address}}
+		h := panelTestNewHarness(t, panelModuleShares, state)
+		entry := h.panels.sharesRemote[0]
+		if _, ok := h.driver.LastOpenedURL(); ok {
+			t.Fatal("opening member tab launched a browser")
+		}
+		if protected && (entry.title != "受密码保护的共享" || entry.meta != "Alice") {
+			t.Fatalf("password gate exposed metadata: %q / %q", entry.title, entry.meta)
+		}
+		if hit, ok := h.findHit(entry.copyID); !ok || hit.Label != "打开共享" || hit.Disabled {
+			t.Fatalf("online member action: %+v", hit)
+		}
+		h.click(entry.moreID)
+		if _, ok := h.findHit(h.panels.ids.shareMenuGet); ok {
+			t.Fatal("web project offers native download")
+		}
+		if _, ok := h.findHit(h.panels.ids.shareMenuCopy); ok {
+			t.Fatal("web project offers copying another member's URL")
+		}
+		h.click(h.panels.ids.shareMenuVisit)
+		if got, ok := h.driver.LastOpenedURL(); !ok || got != address {
+			t.Fatalf("opened %q", got)
+		}
+		state.Revision++
+		state.Peers[0].Online = false
+		state.Files[0].MemberURL = ""
+		h.publish(state)
+		if hit, ok := h.findHit(entry.copyID); !ok || hit.Label != "打开共享" || !hit.Disabled {
+			t.Fatalf("offline member action: %+v", hit)
+		}
+		h.click(entry.moreID)
+		if hit, ok := h.findHit(h.panels.ids.shareMenuVisit); !ok || !hit.Disabled {
+			t.Fatalf("offline menu: %+v", hit)
+		}
 	}
 }
 
@@ -256,6 +302,10 @@ func TestShareListDesignScreenshots(t *testing.T) {
 		}
 	}
 	click(shell.ids.navShares)
+	shot("shares-members")
+	if err := session.ClickLabel(shell.panels.shareLabels[panelSharesMine]); err != nil {
+		t.Fatal(err)
+	}
 	shot("shares-light")
 	entry := shell.panels.sharesMine[0]
 	click(entry.copyID)

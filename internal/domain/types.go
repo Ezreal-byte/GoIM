@@ -242,6 +242,7 @@ type File struct {
 	Shared          bool
 	ShareFolder     bool `json:",omitempty"` // browser-only directory share
 	CreatedAt       time.Time
+	MemberURL       string `json:"-"` // snapshot only, for a member directory or password prompt
 	ShareURL        string `json:"-"` // snapshot only, never sent to peers
 	ShareProtected  bool   `json:"-"`
 	ShareQR         []byte `json:"-"`
@@ -275,6 +276,10 @@ type Transfer struct {
 	FolderStage       string `json:",omitempty"` // private staging directory of a group folder download
 	RemotePeerID      string `json:",omitempty"` // wire identity of an existing compatibility transfer
 	PrintJobID        string `json:",omitempty"` // local print task served by this transfer
+}
+
+func (t Transfer) CanClearPartial() bool {
+	return t.Direction == "receive" && t.PrintJobID == "" && (t.Status == "failed" || t.Status == "waiting" || t.Status == "cancelled" || t.Status == "rejected")
 }
 
 // PrintCapabilities is the portable subset of printer options both sides can
@@ -735,6 +740,7 @@ const (
 	AcceptTransfer       CommandKind = "accept_transfer"
 	RejectTransfer       CommandKind = "reject_transfer"
 	CancelTransfer       CommandKind = "cancel_transfer"
+	ClearTransferPartial CommandKind = "clear_transfer_partial"
 	RetryTransfer        CommandKind = "retry_transfer"
 	CreateGroup          CommandKind = "create_group"
 	InviteMembers        CommandKind = "invite_members"

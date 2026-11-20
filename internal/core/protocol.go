@@ -41,6 +41,7 @@ type envelope struct {
 	Invitation      domain.Invitation
 	File            domain.File
 	Files           []domain.File
+	MemberCatalog   *memberCatalog `json:",omitempty"`
 	CatalogRevision uint64
 	Printers        []domain.PrinterShare
 	PrinterRevision uint64
@@ -633,6 +634,7 @@ func (n *Node) receive(peer string, e envelope) error {
 				return nil
 			}
 			data.CatalogRevisions[peer] = e.CatalogRevision
+			data.updateMemberProjects(peer, e.MemberCatalog)
 			s := &data.State
 			for i := range s.Files {
 				if s.Files[i].SenderID == peer {

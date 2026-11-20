@@ -93,6 +93,9 @@ func (r *desktopRuntime) syncVoiceWindow(state domain.State, locked bool) {
 		}
 		view.Close()
 	}
+	if !invitation {
+		r.geometry.remember("voice", &config)
+	}
 	var canvas gfx.Canvas
 	window, err := r.application.OpenWindow(config, &canvas)
 	if err != nil {

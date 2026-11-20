@@ -392,6 +392,28 @@ func TestReceiveStockFileFrames(t *testing.T) {
 	}
 }
 
+func TestInterruptedFrameReportsPartialPayload(t *testing.T) {
+	local, remote := net.Pipe()
+	defer local.Close()
+	const total = nativeFileBlock
+	go func() {
+		defer remote.Close()
+		var header [nativeFileHeader]byte
+		binary.BigEndian.PutUint32(header[:4], nativeFileHeader+total)
+		binary.BigEndian.PutUint32(header[4:8], 1)
+		binary.BigEndian.PutUint32(header[8:12], 4)
+		if _, err := remote.Write(header[:]); err == nil {
+			_, _ = remote.Write([]byte("prefix"))
+		}
+	}()
+	var got bytes.Buffer
+	var progress int64
+	err := receiveFileFrames(local, &got, 0, total, func(n, _ int64) { progress = n })
+	if err == nil || got.String() != "prefix" || progress != 6 {
+		t.Fatalf("received %q, progress %d, error %v", got.Bytes(), progress, err)
+	}
+}
+
 func TestReverseFileChannel(t *testing.T) {
 	srv, err := StartTransferServer(loopback, 0, nil)
 	if err != nil {

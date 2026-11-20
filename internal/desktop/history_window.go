@@ -179,14 +179,8 @@ func (v *historyWindowView) refresh() {
 		case m.FileID != "":
 			r.text = displayFileName(file, m)
 			r.meta = fileMeta(file, m)
-			r.icon = File
-			if fileIsImage(file) {
-				r.icon = Image
-			} else if file.Folder {
-				r.icon = Folder
-			} else if strings.EqualFold(filepathExt(file.Name), ".pdf") {
-				r.icon = FileText
-			}
+			file.Name = r.text
+			r.icon = *fileTypeIcon(file)
 		}
 		v.all = append(v.all, r)
 		if !containsString(v.senders, m.SenderID) {

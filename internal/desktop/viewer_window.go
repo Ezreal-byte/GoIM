@@ -45,6 +45,7 @@ func (r *desktopRuntime) syncViewer() {
 			u.closeImageViewer()
 		}
 	}
+	r.geometry.remember("image", &config)
 	var err error
 	window, err = r.application.OpenWindow(config, &canvas)
 	if err != nil {

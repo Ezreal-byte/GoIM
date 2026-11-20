@@ -355,6 +355,28 @@ func requireShellLayout(t *testing.T, snapshot app.Snapshot) {
 	}
 }
 
+func TestMemberShareCatalogRefreshOnNavigationAndRestore(t *testing.T) {
+	for _, restored := range []bool{false, true} {
+		state := shellTestState(t)
+		if restored {
+			state.Settings.LastSection = sectionShares
+		}
+		h := newShellTestHarness(t, state)
+		if !restored {
+			h.clickID(h.ui.ids.navShares)
+		}
+		var refreshes int
+		for _, cmd := range h.backend.commandLog() {
+			if cmd.Kind == domain.RefreshShares {
+				refreshes++
+			}
+		}
+		if refreshes != 1 || h.ui.panels.shareFilter != panelSharesRemote {
+			t.Fatalf("restore=%v: refreshes=%d, tab=%v", restored, refreshes, h.ui.panels.shareFilter)
+		}
+	}
+}
+
 func TestMainSectionRestoresAndPersistsNavigation(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -185,7 +185,8 @@ func (s *Service) ReceiveGroupDirectory(ctx context.Context, peer, id, name, des
 
 // ResumeGroupDirectory receives an invitation into the caller's private
 // staging paths. The manifest must be outside the directory tree. A changed
-// or unversioned manifest starts a fresh copy.
+// or unversioned manifest starts a fresh copy. The first progress callback
+// reports the verified bytes already on disk, before reading any file data.
 func (s *Service) ResumeGroupDirectory(ctx context.Context, peer, id, name, destination, manifest string,
 	progress func(done, total int64)) (int64, error) {
 	return s.receiveGroupDirectory(ctx, peer, id, name, directoryTarget{path: destination, manifest: manifest}, progress)
@@ -243,7 +244,7 @@ func (s *Service) receiveGroupDirectory(ctx context.Context, peer, id, name stri
 	var total int64
 	metadata := func(size int64) {
 		total = size
-		if progress != nil {
+		if progress != nil && target.manifest == "" {
 			progress(0, total)
 		}
 	}

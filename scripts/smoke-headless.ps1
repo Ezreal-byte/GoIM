@@ -230,6 +230,34 @@ try {
     foreach($taskGuest in @($taskBob,$taskCharlie)){Send-Command $taskGuest 'waitfor "加入" 10000';Send-Command $taskGuest 'click "加入"'}
     Send-Command $taskAlice 'waitfor "三端验证群" 10000'
     Send-Command $taskAlice 'waitfor "3 人在线" 15000'
+    foreach($taskMemberPass in 1..2){
+        Send-Command $taskAlice 'window 1'
+        Send-Command $taskAlice 'click "群聊成员"'
+        Send-Command $taskAlice 'settle 100'
+        $taskMemberWindows=Send-Command $taskAlice 'windows'
+        $taskMembers=[regex]::Match($taskMemberWindows,'(?m)^id=(\d+) [^\r\n]+title="群聊成员 · 三端验证群"')
+        if(!$taskMembers.Success){throw "Member window missing: $taskMemberWindows"}
+        Send-Command $taskAlice ('window '+$taskMembers.Groups[1].Value)
+        if($taskMemberPass -eq 1) {
+            Send-Command $taskAlice 'resize 660 680'
+            Send-Command $taskAlice 'windowmove 80 90'
+            Send-Command $taskAlice 'click "搜索群成员"'
+            Send-Command $taskAlice 'type 不存在的成员'
+            Send-Command $taskAlice 'expect text "没有匹配的成员"'
+            Send-Command $taskAlice 'expect layout clean'
+            Send-Command $taskAlice ('closewindow '+$taskMembers.Groups[1].Value)
+        } else {
+            $taskMemberFrame=Send-Command $taskAlice 'frame'
+            if($taskMemberFrame -notmatch 'x=80 y=90 w=660 h=680'){throw "Restored member frame: $taskMemberFrame"}
+            Send-Command $taskAlice 'expect exists "搜索群成员"'
+            Send-Command $taskAlice 'expect text "林晓"'
+            Send-Command $taskAlice 'click "button:林晓"'
+            Send-Command $taskAlice 'click "查看资料"'
+            Send-Command $taskAlice 'expect text "成员资料"'
+            Send-Command $taskAlice 'key esc'
+        }
+    }
+    Send-Command $taskAlice 'window 1'
     Send-Command $taskAlice 'click "消息输入框"'
     Send-Command $taskAlice 'type 三个独立进程通过真实群聊通信。'
     Send-Command $taskAlice 'key enter'
@@ -262,11 +290,18 @@ try {
     Enter-PasswordKeys $taskAlice
     Send-Command $taskAlice 'click "设置并锁定"'
     Send-Command $taskAlice 'waitfor "GoIM 已锁定" 10000'
+    $taskMemberID=$taskMembers.Groups[1].Value
+    $taskLockedWindows=Send-Command $taskAlice 'windows'
+    if($taskLockedWindows -notmatch ('(?m)^id={0} [^\r\n]*hidden=true title="GoIM"' -f $taskMemberID)){throw "Locked member window exposed: $taskLockedWindows"}
     Send-Command $taskAlice 'expect layout clean'
     Save-Screenshot $taskAlice 'real-locked.png'
     Enter-PasswordKeys $taskAlice
     Send-Command $taskAlice 'key enter'
+    Send-Command $taskAlice 'window 1'
     Send-Command $taskAlice 'waitfor "快捷键" 10000'
+    $taskUnlockedWindows=Send-Command $taskAlice 'windows'
+    if($taskUnlockedWindows -notmatch ('(?m)^id={0} [^\r\n]*hidden=false title="群聊成员 · 三端验证群"' -f $taskMemberID)){throw "Member window failed to return: $taskUnlockedWindows"}
+    Send-Command $taskAlice ('closewindow '+$taskMemberID)
     $taskFolderShare=Join-Path $taskRunDir '交付资料'
     $taskFolderChild=Join-Path $taskFolderShare '界面设计'
     New-Item -ItemType Directory -Path $taskFolderChild -Force | Out-Null

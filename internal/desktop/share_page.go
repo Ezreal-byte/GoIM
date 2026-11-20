@@ -115,6 +115,9 @@ func (p *Panels) submitShareSendDialog(submit func(domain.Command)) {
 	paths := append([]string(nil), p.shareDialog.paths...)
 	password := p.shareDialog.password.Text()
 	p.closeShareSendDialog()
+	p.shareFilter = panelSharesMine
+	p.shareSearch.SetText("")
+	p.shareSelected = ""
 	submit(domain.Command{Kind: domain.ShareFiles, Paths: paths, Text: password})
 }
 
@@ -186,10 +189,10 @@ func (p *Panels) drawShareDialogs(f ui.C, theme ui.Theme, submit func(domain.Com
 func (p *Panels) drawShareSendDialog(f ui.C, theme ui.Theme, submit func(domain.Command)) {
 	count := len(p.shareDialog.paths)
 	title := i18n.T("分享所选文件")
-	description := fmt.Sprintf(i18n.T("将通过 GoIM 共享 %d 个文件；访问者使用链接或二维码下载。"), count)
+	description := fmt.Sprintf(i18n.T("成员可在 GoIM 中直接获取这 %d 个文件。设置密码后，成员需在共享页面输入密码。"), count)
 	if p.shareDialog.folder {
 		title = i18n.T("分享文件夹")
-		description = i18n.T("访问者可浏览此文件夹的现有内容。新增文件和符号链接不会加入分享。")
+		description = i18n.T("成员可在共享页面浏览此文件夹的现有内容。新增文件和符号链接不会加入分享。")
 	}
 	dialog := p.dialog(f, ui.DialogSpec{
 		Title: title, Description: description, Width: 460,

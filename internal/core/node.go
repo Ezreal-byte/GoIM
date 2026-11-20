@@ -326,6 +326,9 @@ func (n *Node) snapshot(urls bool) domain.State {
 	}
 	n.hydrateGroupAvatars(&s)
 	n.attachShareLinks(&s, urls)
+	if urls {
+		n.attachMemberProjects(&s)
+	}
 	if n.voice != nil {
 		s.VoiceCall = n.voice.call
 	}

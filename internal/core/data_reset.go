@@ -15,7 +15,7 @@ const resetMarkerContent = "GoIM user data reset v1\n"
 
 var ownedDataEntries = []string{
 	"goim.db", "identity.key", "avatars", "backgrounds", "chat-images", "group-avatars",
-	"partials", "nwt-partials", "print-jobs", "diagnostics", "cache",
+	"partials", "nwt-partials", "print-jobs", "diagnostics", "cache", "window-layout.json",
 }
 
 func lockDataDirectory(directory string) (*os.File, error) {

@@ -660,17 +660,26 @@ func receiveFileFramesAt(ctx context.Context, conn net.Conn, out io.Writer, sele
 		}
 		for remaining := block; remaining > 0; {
 			_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-			n, err := io.ReadFull(conn, buf[:min(remaining, int64(len(buf)))])
-			if err != nil {
-				return fmt.Errorf("read native file block after %d bytes: %w", done, err)
+			n, readErr := conn.Read(buf[:min(remaining, int64(len(buf)))])
+			if n > 0 {
+				written, err := out.Write(buf[:n])
+				if err != nil {
+					return err
+				}
+				if written != n {
+					return io.ErrShortWrite
+				}
+				done += int64(n)
+				remaining -= int64(n)
+				if progress != nil {
+					progress(done, total)
+				}
 			}
-			if _, err := out.Write(buf[:n]); err != nil {
-				return err
+			if readErr != nil && !(errors.Is(readErr, io.EOF) && done == total) {
+				return fmt.Errorf("read native file block after %d bytes: %w", done, readErr)
 			}
-			done += int64(n)
-			remaining -= int64(n)
-			if progress != nil {
-				progress(done, total)
+			if n == 0 && readErr == nil {
+				return io.ErrNoProgress
 			}
 			if err := ctx.Err(); err != nil {
 				return err

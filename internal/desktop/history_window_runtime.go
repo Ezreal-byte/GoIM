@@ -54,6 +54,7 @@ func (r *desktopRuntime) openHistoryWindow(id string) bool {
 			_ = window.SetTitle(v.title)
 		}
 	}
+	r.geometry.remember("history", &config)
 	var canvas gfx.Canvas
 	opened, err := r.application.OpenWindow(config, &canvas)
 	if err != nil {

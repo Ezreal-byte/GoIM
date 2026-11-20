@@ -38,11 +38,14 @@ func drawPanelPageHeading(f ui.C, width float32, title, description string) {
 }
 
 type transferActionIDs struct {
-	more, accept, saveAs, reject, cancel, retry, open, reveal gfx.ID
+	more, accept, saveAs, reject, cancel, retry, open, reveal, clearPartial gfx.ID
 }
 
 func newTransferActionIDs(tree *gfx.Tree, scope gfx.Scope, entry panelTransferEntry) (ids transferActionIDs) {
 	ids.more = tree.ID(scope, "more")
+	if entry.transfer.CanClearPartial() {
+		ids.clearPartial = tree.ID(scope, "clear-partial")
+	}
 	if entry.accept {
 		ids.accept = tree.ID(scope, "accept")
 		ids.saveAs = tree.ID(scope, "save-as")
@@ -242,11 +245,9 @@ func (p *Panels) drawTransferTableHead(f ui.C, theme ui.Theme, columns panelTabl
 }
 
 func drawTransferIdentity(f ui.C, theme ui.Theme, entry *panelTransferEntry) {
-	icon, ink, fill := transferFileIcon(theme, entry.fileKind)
+
 	ui.Row(f).Grow(1).MinWidth(0).Gap(15).Items(ui.Center).Children(func() {
-		ui.Row(f).Size(40, 40).Radius(8).Background(fill).Center().Children(func() {
-			ui.Icon(f, icon).Size(23, 23).Color(ink)
-		})
+		drawFileIcon(f, theme, entry.icon, 40, 23)
 		ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
 			ui.Text(f, entry.name).FontSize(18).Weight(gfx.WeightSemibold).Ellipsis()
 			ui.Text(f, entry.meta).FontSize(15).Muted().Ellipsis()
@@ -267,34 +268,19 @@ func panelFilterTransfers(entries []panelTransferEntry, query string) []panelTra
 	return filtered
 }
 
-func transferFileIcon(theme ui.Theme, kind string) (gfx.Icon, ui.Color, ui.Color) {
-	switch kind {
-	case "archive":
-		ink := ui.RGB(181, 121, 16)
-		if panelDark(theme) {
-			ink = ui.RGB(244, 189, 78)
-		}
-		return FileArchive, ink, ink.WithAlpha(.16)
-	case "sheet":
-		return FileText, theme.Success, theme.Success.WithAlpha(.14)
-	case "image":
-		return shareProjectIcon(theme, panelShareEntry{iconKind: "image"})
-	default:
-		return FileText, panelAccentText(theme), panelAccentSurface(theme)
-	}
-}
-
 func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, columns panelTableColumns, entry *panelTransferEntry, submit func(domain.Command)) {
+	tooltip := entry.name
+	if entry.progress != "" {
+		tooltip += "\n" + entry.progress
+	}
 	row := ui.Row(f).FillWidth().Height(panelTableRowHeight).PadX(15).Gap(12).Items(ui.Center).Radius(radiusControl).
 		Hover(ui.Look{}.Background(theme.Hover)).
 		HitWith(entry.ids.more, entry.name, gfx.HitOptions{Role: gfx.RoleButton, Hint: entry.name}).
-		Tooltip(entry.name)
+		Tooltip(tooltip)
 	row.Children(func() {
 		ui.Row(f).Grow(1).MinWidth(0).Gap(11).Items(ui.Center).Children(func() {
-			icon, ink, fill := transferFileIcon(theme, entry.fileKind)
-			ui.Row(f).Size(32, 32).Radius(radiusControl).Background(fill).Items(ui.Center).Justify(ui.Center).Children(func() {
-				ui.Icon(f, icon).Size(20, 20).Color(ink)
-			})
+
+			drawFileIcon(f, theme, entry.icon, 32, 20)
 			ui.Text(f, entry.name).FontSize(15).Weight(gfx.WeightMedium).MinWidth(0).Ellipsis()
 		})
 		ui.Text(f, entry.peer).Width(columns.peer).FontSize(13).Ellipsis()
@@ -313,9 +299,14 @@ func drawTransferStatus(f ui.C, theme ui.Theme, entry *panelTransferEntry, width
 	if entry.percent == "" {
 		return ui.Text(f, entry.status).Width(width).FontSize(13).Color(panelStatusColor(theme, entry.transfer.Status)).Ellipsis()
 	}
-	return ui.Row(f).Width(width).Gap(7).Items(ui.Center).Clip().Children(func() {
-		ui.Progress(f, entry.fraction).Grow(1).MinWidth(24).Height(6)
-		ui.Text(f, entry.percent).Muted().FontSize(13).MinWidth(38)
+	return ui.Column(f).Width(width).Gap(2).Justify(ui.Center).Children(func() {
+		ui.Row(f).FillWidth().Gap(7).Items(ui.Center).Clip().Children(func() {
+			ui.Progress(f, entry.fraction).Grow(1).MinWidth(24).Height(6)
+			ui.Text(f, entry.percent).Muted().FontSize(13).MinWidth(38)
+		})
+		if rate := transferRateLabel(entry.transfer); rate != "" {
+			ui.Text(f, rate).Muted().FontSize(12).Ellipsis()
+		}
 	})
 }
 
@@ -370,6 +361,9 @@ func (p *Panels) drawTransferMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rec
 		return
 	}
 	height := float32(44)
+	if entry.transfer.CanClearPartial() {
+		height += 41
+	}
 	if entry.reveal {
 		height += 32
 	}
@@ -396,8 +390,14 @@ func (p *Panels) drawTransferMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rec
 		menu.AddSeparator()
 		menu.AddItem(components.ContextMenuItem{ID: entry.ids.reject, Label: i18n.T("拒绝"), Icon: X, Variant: components.ContextMenuItemDestructive})
 	}
+	if entry.transfer.CanClearPartial() {
+		menu.AddSeparator()
+		menu.AddItem(components.ContextMenuItem{ID: entry.ids.clearPartial, Label: i18n.T("清理传输临时文件"), Icon: X})
+	}
 	menu.End()
 	switch {
+	case entry.transfer.CanClearPartial() && c.Clicked(entry.ids.clearPartial):
+		submit(domain.Command{Kind: domain.ClearTransferPartial, TransferID: entry.transfer.ID})
 	case c.Clicked(p.ids.transferMenuCopy):
 		name := entry.name
 		c.AfterPaint(func() {

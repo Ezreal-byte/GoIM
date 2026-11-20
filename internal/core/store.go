@@ -30,6 +30,7 @@ type persisted struct {
 	PeerRemarks             map[string]string            `json:",omitempty"`
 	MessageTargets          map[string][]string
 	MessageRecalls          map[string]bool
+	MemberProjects          map[string]memberCatalog `json:",omitempty"`
 	CatalogRevisions        map[string]uint64
 	PrinterCatalogRevisions map[string]uint64
 	PrintCredentials        map[string]credential    `json:",omitempty"`

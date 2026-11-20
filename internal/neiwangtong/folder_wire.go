@@ -298,6 +298,7 @@ func sendDirectory(ctx context.Context, conn net.Conn, task string, dir Director
 		return errors.New("内网通文件夹清单确认数量不符")
 	}
 	offsets := make([]int64, len(dir.items))
+	var done int64
 	for i, item := range dir.items {
 		at := folderManifestHead + i*folderManifestAck
 		offset := binary.BigEndian.Uint64(ack[at+4 : at+12])
@@ -305,6 +306,7 @@ func sendDirectory(ctx context.Context, conn net.Conn, task string, dir Director
 			return errors.New("内网通子文件续传偏移无效")
 		}
 		offsets[i] = int64(offset)
+		done += offsets[i]
 	}
 	expected := acknowledgeFolderManifest(dir.items, offsets)
 	if !bytes.Equal(ack[folderManifestHead:], expected[folderManifestHead:]) {
@@ -315,11 +317,11 @@ func sendDirectory(ctx context.Context, conn net.Conn, task string, dir Director
 		return err
 	}
 	defer root.Close()
-	var done int64
 	for i, item := range dir.items {
-		if err := sendDirectoryItem(conn, root, uint32(i), item, offsets[i], func(n int64) {
+		offset := offsets[i]
+		if err := sendDirectoryItem(conn, root, uint32(i), item, offset, func(n int64) {
 			if progress != nil {
-				progress(done + n)
+				progress(done + (n - offset))
 			}
 		}); err != nil {
 			return err
@@ -332,7 +334,7 @@ func sendDirectory(ctx context.Context, conn net.Conn, task string, dir Director
 			item.size == 0 && binary.BigEndian.Uint32(complete[44:48]) != 1 {
 			return errors.New("内网通子文件确认编号或大小不匹配")
 		}
-		done += item.size
+		done += item.size - offset
 	}
 	if err := writeFolderFrame(conn, newFolderFrame(7, 72)); err != nil {
 		return err
@@ -448,19 +450,22 @@ func receiveDirectory(ctx context.Context, conn net.Conn, init []byte, offer Fol
 		return err
 	}
 	var done int64
+	for _, offset := range offsets {
+		done += offset
+	}
+	if target.manifest != "" && progress != nil {
+		progress(done)
+	}
 	for i, item := range items {
 		offset := offsets[i]
-		if offset > 0 && progress != nil {
-			progress(done + offset)
-		}
 		if err := receiveDirectoryItem(ctx, conn, root, uint32(i), item, offset, target.manifest != "", func(n int64) {
 			if progress != nil {
-				progress(done + n)
+				progress(done + (n - offset))
 			}
 		}); err != nil {
 			return err
 		}
-		done += item.size
+		done += item.size - offset
 		finished := newFolderFrame(6, 58)
 		binary.BigEndian.PutUint32(finished[32:36], uint32(i))
 		binary.BigEndian.PutUint64(finished[36:44], uint64(item.size))

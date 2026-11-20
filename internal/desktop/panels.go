@@ -5,7 +5,7 @@ import (
 	"github.com/vivaui/viva/gfx"
 	"goim/internal/i18n"
 	"net"
-	"path/filepath"
+
 	"slices"
 	"sort"
 	"strconv"
@@ -55,8 +55,8 @@ const (
 type shareFilter uint8
 
 const (
-	panelSharesMine shareFilter = iota
-	panelSharesRemote
+	panelSharesRemote shareFilter = iota
+	panelSharesMine
 )
 
 var transferFilters = [...]transferFilter{
@@ -65,7 +65,7 @@ var transferFilters = [...]transferFilter{
 	panelTransferPending,
 	panelTransferFinished,
 }
-var shareFilters = [...]shareFilter{panelSharesMine, panelSharesRemote}
+var shareFilters = [...]shareFilter{panelSharesRemote, panelSharesMine}
 
 var (
 	panelSettingsLabels = [...]string{"常规", "快捷键", "关于", "个人资料", "通知", "通话", "网络", "文件传输", "安全"}
@@ -152,6 +152,7 @@ type panelIDs struct {
 	shareMenuOpen      gfx.ID
 	shareMenuFolder    gfx.ID
 	shareMenuGet       gfx.ID
+	shareMenuVisit     gfx.ID
 	shareMenuCopy      gfx.ID
 	shareMenuQR        gfx.ID
 	shareMenuPassword  gfx.ID
@@ -205,10 +206,11 @@ type panelLocalAction struct {
 }
 
 type panelTransferEntry struct {
+	icon                                      *gfx.Icon
 	transfer                                  domain.Transfer
 	ids                                       transferActionIDs
 	name, peer, status, meta, err, path, size string
-	progress, percent, fileKind               string
+	progress, percent                         string
 	fraction                                  float32
 	updated                                   time.Time
 
@@ -222,16 +224,18 @@ type panelTransferEntry struct {
 }
 
 type panelShareEntry struct {
-	file                                                    domain.File
-	rowID, copyID, moreID                                   gfx.ID
-	title, label, kind, date, access, compactMeta, iconKind string
-	size                                                    string
-	sender                                                  string
-	meta                                                    string
-	state                                                   string
-	own                                                     bool
-	path                                                    string
-	available                                               bool
+	icon                                          *gfx.Icon
+	online                                        bool
+	file                                          domain.File
+	rowID, copyID, moreID                         gfx.ID
+	title, label, kind, date, access, compactMeta string
+	size                                          string
+	sender                                        string
+	meta                                          string
+	state                                         string
+	own                                           bool
+	path                                          string
+	available                                     bool
 }
 
 type panelTableColumns struct {
@@ -452,6 +456,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.shareMenuOpen = tree.ID(shares, "share-menu-open")
 	p.ids.shareMenuFolder = tree.ID(shares, "share-menu-folder")
 	p.ids.shareMenuGet = tree.ID(shares, "share-menu-get")
+	p.ids.shareMenuVisit = tree.ID(shares, "share-menu-visit")
 	p.ids.shareMenuCopy = tree.ID(shares, "share-menu-copy")
 	p.ids.shareMenuQR = tree.ID(shares, "share-menu-qr")
 	p.ids.shareMenuPassword = tree.ID(shares, "share-menu-password")
@@ -852,14 +857,7 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer) panelTrans
 		entry.name = i18n.T("未命名文件")
 	}
 	entry.path = transfer.Path
-	switch strings.ToLower(filepath.Ext(transfer.Name)) {
-	case ".zip", ".7z", ".rar", ".tar", ".gz":
-		entry.fileKind = "archive"
-	case ".xlsx", ".xls", ".csv", ".ods":
-		entry.fileKind = "sheet"
-	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg":
-		entry.fileKind = "image"
-	}
+	entry.icon = fileTypeIcon(domain.File{Name: transfer.Name})
 	direction := i18n.T("发送给 ") + name
 	if transfer.Direction == "receive" {
 		direction = fmt.Sprintf(i18n.T("%s 发来"), name)
@@ -996,7 +994,8 @@ func (p *Panels) rebuildShares(state domain.State) {
 			continue
 		}
 		own := file.SenderID != "" && file.SenderID == state.Self.ID
-		sender := state.Peer(file.SenderID).Name
+		peer := state.Peer(file.SenderID)
+		sender := peer.Name
 		if own {
 			sender = i18n.T("我")
 		} else if strings.TrimSpace(sender) == "" {
@@ -1004,10 +1003,13 @@ func (p *Panels) rebuildShares(state domain.State) {
 		}
 		local := p.localFiles[file.ID]
 		entry := panelShareEntry{
-			file: file, sender: sender, own: own,
+			file: file, sender: sender, own: own, online: peer.Online,
 			path: local.path, available: local.available,
 		}
 		entry.title = panelShareName(file)
+		if !own && file.ShareProtected {
+			entry.title = i18n.T("受密码保护的共享")
+		}
 		entry.kind = i18n.T("文件")
 		entry.label = i18n.T("共享文件 ") + entry.title
 		entry.meta = panelFormatBytes(file.Size)
@@ -1017,7 +1019,11 @@ func (p *Panels) rebuildShares(state domain.State) {
 			entry.meta = fmt.Sprintf(i18n.T("%d 个项目"), file.ShareEntryCount) + " · " + entry.meta
 		}
 		if !own {
-			entry.meta += " · " + sender
+			if file.ShareProtected {
+				entry.meta = sender
+			} else {
+				entry.meta += " · " + sender
+			}
 		}
 		if !file.CreatedAt.IsZero() {
 			entry.date = file.CreatedAt.Local().Format("2006-01-02 15:04")
@@ -1031,17 +1037,12 @@ func (p *Panels) rebuildShares(state domain.State) {
 		switch {
 		case file.ShareProtected:
 			entry.access = i18n.T("密码访问")
-		case file.ShareURL != "":
+		case file.ShareURL != "" || file.MemberURL != "":
 			entry.access = i18n.T("公开访问")
 		default:
 			entry.access = i18n.T("成员访问")
 		}
-		switch strings.ToLower(filepath.Ext(file.Name)) {
-		case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg":
-			entry.iconKind = "image"
-		case ".xlsx", ".xls", ".csv", ".ods":
-			entry.iconKind = "sheet"
-		}
+		entry.icon = fileTypeIcon(file)
 		entry.rowID = p.tree.ID(p.ids.shareRow, file.ID)
 		entry.copyID = p.tree.ID(p.ids.shareCopyLink, file.ID)
 		entry.moreID = p.tree.ID(p.ids.shareMore, file.ID)
@@ -1068,8 +1069,8 @@ func (p *Panels) rebuildShares(state domain.State) {
 	panelSortShares(p.sharesMine)
 	panelSortShares(p.sharesRemote)
 	p.shareLabels = [2]string{
-		fmt.Sprintf(i18n.T("我的分享 %d"), len(p.sharesMine)),
-		fmt.Sprintf(i18n.T("成员共享 %d"), len(p.sharesRemote)),
+		panelSharesRemote: fmt.Sprintf(i18n.T("成员共享 %d"), len(p.sharesRemote)),
+		panelSharesMine:   fmt.Sprintf(i18n.T("我的分享 %d"), len(p.sharesMine)),
 	}
 }
 

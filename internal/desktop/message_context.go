@@ -21,6 +21,7 @@ func (u *UI) messageContextPointer(c *gfx.Canvas, id gfx.ID, m domain.Message) {
 	}
 	if event, ok := c.PointerOn(id); ok && event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 		u.openShellMenu(shellMenuMessage, m.ID, event.X, event.Y)
+		u.shellMenu.messageText = id == u.messageTextIDs[m.ID]
 		c.Consume()
 		c.RequestFrame()
 	}
@@ -58,6 +59,13 @@ func (u *UI) drawMessageContextMenu(c *gfx.Canvas, viewport ui.Rect) {
 	canRecall := !m.Recalled && m.SenderID == u.state.Self.ID && u.canRecallMessage(conv, peer, m)
 	f := u.state.File(m.FileID)
 	isAttachment := !m.Recalled && (m.Kind == "file" || m.Kind == "image")
+	copyFile := isAttachment && !u.shellMenu.messageText
+	copyText := m.Text
+	if u.shellMenu.messageText && u.textSelection.id == u.messageTextIDs[m.ID] {
+		if selection := u.textSelection.selected(); selection != "" {
+			copyText = selection
+		}
+	}
 	path := u.fileLocalPath[f.ID]
 	available := path != "" && u.fileAvailable[f.ID]
 	var offer domain.Transfer
@@ -82,7 +90,7 @@ func (u *UI) drawMessageContextMenu(c *gfx.Canvas, viewport ui.Rect) {
 	menu := u.beginShellMenu(c, viewport, rows, 0)
 	if !m.Recalled {
 		menu.AddItem(components.ContextMenuItem{ID: u.ids.messageMenuCopy, Label: i18n.T("复制"), Icon: Copy,
-			Disabled: isAttachment && !available || !isAttachment && m.Text == ""})
+			Disabled: copyFile && !available || !copyFile && copyText == ""})
 	}
 	if isAttachment {
 		menu.AddItem(components.ContextMenuItem{ID: u.ids.messageMenuSave, Label: i18n.T("另存为…"), Icon: Download, Disabled: !available && offer.ID == ""})
@@ -96,10 +104,10 @@ func (u *UI) drawMessageContextMenu(c *gfx.Canvas, viewport ui.Rect) {
 	case c.Clicked(u.ids.messageMenuCopy):
 		u.closeShellMenu()
 		var err error
-		if isAttachment && available {
+		if copyFile && available {
 			err = app.SetClipboardFiles([]string{path})
-		} else if !isAttachment && !m.Recalled {
-			err = app.SetClipboardText(m.Text)
+		} else if !copyFile && !m.Recalled {
+			err = app.SetClipboardText(copyText)
 		}
 		if err != nil {
 			u.submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("复制失败：") + err.Error()})

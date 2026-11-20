@@ -23,6 +23,7 @@ import (
 	"github.com/skip2/go-qrcode"
 	"goim/internal/brand"
 	"goim/internal/domain"
+	"goim/internal/fileicon"
 )
 
 type browserShare struct {
@@ -372,6 +373,26 @@ type sharePageItem struct {
 	Folder                             bool
 }
 
+// FileIcons embeds each type visible on this page once, including in large directories.
+func (page sharePageData) FileIcons() map[string]template.URL {
+	icons := make(map[string]template.URL)
+	add := func(kind string) {
+		if _, ok := icons[kind]; ok || kind == "" {
+			return
+		}
+		if raw := fileicon.SVG(kind); len(raw) > 0 {
+			icons[kind] = template.URL("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(raw))
+		}
+	}
+	for _, item := range page.Items {
+		add(item.Style)
+	}
+	for _, item := range page.Catalog {
+		add(item.Style)
+	}
+	return icons
+}
+
 func shareFileSize(size int64) string {
 	for _, unit := range []struct {
 		bytes int64
@@ -402,6 +423,9 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case strings.HasPrefix(r.URL.Path, "/m/"):
+		n.openMemberProject(w, r)
+		return
 	case r.URL.Path == "/assets/share-upload.js":
 		serveShareUploadScript(w, r)
 		return
@@ -519,18 +543,8 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 }
 
 func webFileItem(name string, size int64, date time.Time, url string) sharePageItem {
-	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
-	kind, style := strings.ToUpper(ext), "file"
-	switch ext {
-	case "png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "avif":
-		style = "image"
-	case "zip", "7z", "rar", "gz", "tar":
-		style = "archive"
-	case "pdf":
-		style = "pdf"
-	case "xls", "xlsx", "csv":
-		style = "table"
-	}
+	kind := strings.ToUpper(strings.TrimPrefix(filepath.Ext(name), "."))
+	style := fileicon.Kind(name, "", false)
 	if len(kind) == 0 || len(kind) > 6 {
 		kind = "文件"
 	}

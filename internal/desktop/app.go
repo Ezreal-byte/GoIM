@@ -443,6 +443,11 @@ type UI struct {
 	connectField       ui.Field
 	connectRoute       connectionRoute
 	contactPeer        string
+	contactDrag        ui.DragState
+	contactListBounds  ui.Rect
+	contactScrollTime  time.Duration
+	acceptContactDrop  func(gfx.ID, gfx.ID) bool
+	moveDroppedContact func(gfx.ID, gfx.ID)
 	contactGroup       string
 
 	chatEditor           *text.Editor
@@ -455,6 +460,9 @@ type UI struct {
 	dismissViewer        func()
 	presentDetached      func(string) bool
 	presentHistory       func(string) bool
+	presentMembers       func(string)
+	presentMemberChat    func(string)
+	memberWindow         bool
 	presentArchiveTarget func(string)
 	locateMessageID      string
 	locateMessageBox     ui.Box
@@ -570,6 +578,9 @@ type UI struct {
 	recentEmoji         []string
 	emojiPanel          ui.Rect
 	messageIDs          map[string]gfx.ID
+	messageTextIDs      map[string]gfx.ID
+	textSelection       messageTextSelection
+	drawTextSelection   func(*ui.DrawContext)
 	messageAvatarIDs    map[string]gfx.ID
 
 	imageCache  map[string]gfx.Bitmap
@@ -588,68 +599,63 @@ type UI struct {
 	mediaImageQueued    map[string]uint64
 	mediaDesiredImages  map[string]bool
 	mediaPendingBitmaps map[string]gfx.Bitmap
-
-	iconMessage       gfx.Icon
-	iconUsers         gfx.Icon
-	iconTransfers     gfx.Icon
-	iconFolder        gfx.Icon
-	iconSettings      gfx.Icon
-	iconMoon          gfx.Icon
-	iconSun           gfx.Icon
-	iconUserPlus      gfx.Icon
-	iconPlus          gfx.Icon
-	iconInbox         gfx.Icon
-	iconChevronDown   gfx.Icon
-	iconChevronRight  gfx.Icon
-	iconPin           gfx.Icon
-	iconBellOff       gfx.Icon
-	iconPaperclip     gfx.Icon
-	iconImage         gfx.Icon
-	iconSmile         gfx.Icon
-	iconSend          gfx.Icon
-	iconFile          gfx.Icon
-	iconFileText      gfx.Icon
-	iconFolderOpen    gfx.Icon
-	iconDownload      gfx.Icon
-	iconUpload        gfx.Icon
-	iconCheck         gfx.Icon
-	iconCheckCheck    gfx.Icon
-	iconX             gfx.Icon
-	iconMore          gfx.Icon
-	iconSearch        gfx.Icon
-	iconExternalLink  gfx.Icon
-	iconRotate        gfx.Icon
-	iconTrash         gfx.Icon
-	iconUserMinus     gfx.Icon
-	iconCrown         gfx.Icon
-	iconLogOut        gfx.Icon
-	iconPencil        gfx.Icon
-	iconClock         gfx.Icon
-	iconAlert         gfx.Icon
-	iconWifi          gfx.Icon
-	iconWifiOff       gfx.Icon
-	iconAt            gfx.Icon
-	iconFileArchive   gfx.Icon
-	iconMessageSquare gfx.Icon
-	iconCircleCheck   gfx.Icon
-	iconPlay          gfx.Icon
-	iconPause         gfx.Icon
-	iconHardDrive     gfx.Icon
-	iconRefresh       gfx.Icon
-	iconEye           gfx.Icon
-	iconLock          gfx.Icon
-	iconShield        gfx.Icon
-	iconCalendar      gfx.Icon
-	iconReply         gfx.Icon
-	iconArchive       gfx.Icon
-	iconLink          gfx.Icon
-	iconCopy          gfx.Icon
-	iconPhone         gfx.Icon
-	iconPhoneOff      gfx.Icon
-	iconMic           gfx.Icon
-	iconMicOff        gfx.Icon
-	iconVolume        gfx.Icon
-	iconVolumeX       gfx.Icon
+	iconMessage         gfx.Icon
+	iconUsers           gfx.Icon
+	iconTransfers       gfx.Icon
+	iconFolder          gfx.Icon
+	iconSettings        gfx.Icon
+	iconMoon            gfx.Icon
+	iconSun             gfx.Icon
+	iconUserPlus        gfx.Icon
+	iconPlus            gfx.Icon
+	iconInbox           gfx.Icon
+	iconChevronDown     gfx.Icon
+	iconChevronRight    gfx.Icon
+	iconPin             gfx.Icon
+	iconBellOff         gfx.Icon
+	iconPaperclip       gfx.Icon
+	iconImage           gfx.Icon
+	iconSmile           gfx.Icon
+	iconSend            gfx.Icon
+	iconFolderOpen      gfx.Icon
+	iconDownload        gfx.Icon
+	iconUpload          gfx.Icon
+	iconCheck           gfx.Icon
+	iconCheckCheck      gfx.Icon
+	iconX               gfx.Icon
+	iconMore            gfx.Icon
+	iconSearch          gfx.Icon
+	iconExternalLink    gfx.Icon
+	iconRotate          gfx.Icon
+	iconTrash           gfx.Icon
+	iconUserMinus       gfx.Icon
+	iconCrown           gfx.Icon
+	iconLogOut          gfx.Icon
+	iconPencil          gfx.Icon
+	iconClock           gfx.Icon
+	iconAlert           gfx.Icon
+	iconWifi            gfx.Icon
+	iconWifiOff         gfx.Icon
+	iconAt              gfx.Icon
+	iconMessageSquare   gfx.Icon
+	iconCircleCheck     gfx.Icon
+	iconPause           gfx.Icon
+	iconHardDrive       gfx.Icon
+	iconRefresh         gfx.Icon
+	iconEye             gfx.Icon
+	iconLock            gfx.Icon
+	iconShield          gfx.Icon
+	iconCalendar        gfx.Icon
+	iconReply           gfx.Icon
+	iconArchive         gfx.Icon
+	iconLink            gfx.Icon
+	iconCopy            gfx.Icon
+	iconPhone           gfx.Icon
+	iconPhoneOff        gfx.Icon
+	iconMic             gfx.Icon
+	iconMicOff          gfx.Icon
+	iconVolume          gfx.Icon
+	iconVolumeX         gfx.Icon
 }
 
 // New creates the shell from an already-running backend. It takes the first
@@ -705,6 +711,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 		emojiIDs:            make(map[string]gfx.ID),
 		emojiRecentIDs:      make(map[string]gfx.ID),
 		messageIDs:          make(map[string]gfx.ID),
+		messageTextIDs:      make(map[string]gfx.ID),
 		messageAvatarIDs:    make(map[string]gfx.ID),
 		imageCache:          make(map[string]gfx.Bitmap),
 		avatarCache:         make(map[string]gfx.Bitmap),
@@ -735,8 +742,6 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 		iconImage:         Image,
 		iconSmile:         Smile,
 		iconSend:          Send,
-		iconFile:          File,
-		iconFileText:      FileText,
 		iconFolderOpen:    FolderOpen,
 		iconDownload:      Download,
 		iconUpload:        Upload,
@@ -757,10 +762,8 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 		iconWifi:          Wifi,
 		iconWifiOff:       WifiOff,
 		iconAt:            AtSign,
-		iconFileArchive:   FileArchive,
 		iconMessageSquare: MessageSquare,
 		iconCircleCheck:   CircleCheck,
-		iconPlay:          Play,
 		iconPause:         Pause,
 		iconHardDrive:     HardDriveDownload,
 		iconRefresh:       RefreshCw,
@@ -780,6 +783,8 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 		iconVolumeX:       VolumeX,
 	}
 	u.chatEditorField.Bind(u.chatEditor)
+	u.acceptContactDrop, u.moveDroppedContact = u.canDropContact, u.dropContact
+	u.drawTextSelection = u.paintMessageSelection
 	u.chatFind.field.Bind(u.ensureChatSearchEditor())
 	u.windowVisible.Store(true)
 	u.palette = paletteFor(u.theme)
@@ -811,9 +816,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 		u.section = restoreMainSection(u.state.Settings.LastSection)
 		u.recentEmoji = append([]string(nil), u.state.Settings.RecentEmoji...)
 		u.queueMediaJobs()
-		if u.section == sectionPrint {
-			u.submit(domain.Command{Kind: domain.RefreshPrinters})
-		}
+		u.refreshSectionCatalog(u.section)
 		if watch {
 			go u.watchUpdates()
 		}
@@ -1375,6 +1378,7 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	u.drawTitlebar(canvas, titlebar)
 	if u.lockVisible() {
 		u.drawLocked(canvas, body)
+		u.textSelection.clear()
 		u.drawToasts(canvas, body)
 		u.markSelectedConversationRead()
 		return
@@ -1604,6 +1608,7 @@ func (u *UI) railItemBadged(f ui.C, id gfx.ID, icon gfx.Icon, label string,
 func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	canvas.Fill(bounds, u.palette.sidebar)
 	var connect, create, refresh bool
+	var list ui.Box
 	u.sidebarPage.Draw(canvas, bounds, func(f ui.C) {
 		ui.Column(f).Fill().PadSides(10, 8, 4, 8).Children(func() {
 			ui.TextFieldID(f, u.ids.sidebarSearch, &u.sidebarSearch, i18n.T("搜索"), u.searchPlaceholder()).
@@ -1613,7 +1618,7 @@ func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 				u.drawContactFilters(f)
 				ui.Row(f).Height(4)
 			}
-			ui.Scroll(f.Key(u.section)).Grow(1).Gap(4).
+			list = ui.Scroll(f.Key(u.section)).Grow(1).Gap(4).
 				HitWith(u.ids.sidebarSurface, i18n.T("侧栏列表"),
 					gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
 				Children(func() {
@@ -1634,6 +1639,8 @@ func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 			})
 		})
 	})
+	u.contactListBounds = list.Rect()
+	u.scrollDraggedContact(canvas, list)
 	if connect {
 		u.openConnect()
 	}
@@ -1736,7 +1743,7 @@ func (u *UI) drawContacts(f ui.C) {
 	for _, group := range u.contacts {
 		otherPeers += group.Total
 		peers := u.filteredPeers(group.Peers, query)
-		if len(peers) == 0 && (query != "" || group.Name == "未分组") {
+		if len(peers) == 0 && (query != "" || group.Name == "未分组") && !u.contactDrag.Dragging() {
 			continue
 		}
 		visible += len(peers)
@@ -1940,6 +1947,9 @@ func (u *UI) contactGroupHeader(f ui.C, group contactGroupView, collapsed bool) 
 			ui.Spacer(f)
 			ui.Text(f, intString(group.Online)+"/"+intString(group.Total)).FontSize(11).Muted()
 		})
+	if !hidden {
+		u.contactDropTarget(header, id)
+	}
 	if header.Clicked() {
 		if hidden {
 			u.hiddenCollapsed = !collapsed
@@ -1984,6 +1994,10 @@ func (u *UI) contactRow(f ui.C, peer domain.Peer) {
 		event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 		u.openContactMenu(peer, event.X, event.Y)
 		f.Canvas().Consume()
+	}
+	if !peer.ContactHidden {
+		row.DragSource(&u.contactDrag)
+		u.contactDropTarget(row, id)
 	}
 	if row.Clicked() {
 		u.showContact(peer.ID)
@@ -2289,6 +2303,11 @@ func (u *UI) rebuildPresentation(oldError string) {
 		return u.ownershipInvites[i].CreatedAt.After(u.ownershipInvites[j].CreatedAt)
 	})
 
+	if u.memberWindow {
+		u.reconcileCompose(oldError)
+		u.refreshImages()
+		return
+	}
 	u.transfersFor = make(map[string][]domain.Transfer)
 	for _, transfer := range u.state.Transfers {
 		if transfer.FileID != "" {
@@ -2390,9 +2409,19 @@ func (u *UI) selectAfterSnapshot(oldSelected string) {
 
 func (u *UI) rebuildSelection() {
 	u.messages = append(u.messages[:0], u.state.ChatMessages(u.selected)...)
+	keepSelection := false
 	for _, m := range u.messages {
 		u.ensureID(u.messageIDs, u.ids.chat, "message:", m.ID)
+		if m.Text != "" && !m.Recalled {
+			u.ensureID(u.messageTextIDs, u.ids.chat, "message-text:", m.ID)
+			if u.textSelection.id == u.messageTextIDs[m.ID] && u.textSelection.text == m.Text {
+				keepSelection = true
+			}
+		}
 		u.ensureID(u.messageAvatarIDs, u.ids.chat, "message-avatar:", m.ID)
+	}
+	if !keepSelection {
+		u.textSelection.clear()
 	}
 	sort.SliceStable(u.messages, func(i, j int) bool {
 		return u.messages[i].CreatedAt.Before(u.messages[j].CreatedAt)
@@ -2479,7 +2508,7 @@ func (u *UI) loadDraft(conversationID string) {
 }
 
 func (u *UI) saveCurrentDraft() {
-	if u.selected == "" || u.chatEditor == nil {
+	if u.memberWindow || u.selected == "" || u.chatEditor == nil {
 		return
 	}
 	u.persistDraft(u.selected, u.chatEditor.String())
@@ -2541,6 +2570,17 @@ func (u *UI) startChat(peerID string) {
 	u.submit(domain.Command{Kind: domain.StartChat, PeerID: peerID})
 }
 
+func (u *UI) refreshSectionCatalog(section string) {
+	switch section {
+	case sectionPrint:
+		u.submit(domain.Command{Kind: domain.RefreshPrinters})
+	case sectionShares:
+		if u.panels.shareFilter == panelSharesRemote {
+			u.submit(domain.Command{Kind: domain.RefreshShares})
+		}
+	}
+}
+
 func (u *UI) setSection(section string) {
 	if section == u.section {
 		return
@@ -2560,6 +2600,7 @@ func (u *UI) setSection(section string) {
 		u.saveCurrentDraft()
 	}
 	u.section = section
+	u.textSelection.clear()
 	u.state.Settings.LastSection = section
 	u.submit(domain.Command{Kind: domain.SetSetting, Setting: "last_section", Value: section})
 	u.invalidator.Invalidate()
@@ -2570,9 +2611,7 @@ func (u *UI) setSection(section string) {
 		u.panels.refreshNetwork = true
 		u.invalidator.Invalidate()
 	}
-	if section == sectionPrint {
-		u.submit(domain.Command{Kind: domain.RefreshPrinters})
-	}
+	u.refreshSectionCatalog(section)
 	u.closeChatPickers()
 	u.closeShellMenu()
 	u.closeOrganize()
@@ -2796,7 +2835,7 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 	if u.isPanelSection() {
 		return u.panels.TextInput(context)
 	}
-	if u.drawer != "" {
+	if u.drawer != "" || u.memberWindow {
 		if input := u.drawerPage.TextInput(context); input != nil {
 			return input
 		}
@@ -2844,7 +2883,7 @@ func (u *UI) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 		result.Handled = true
 		return result
 	}
-	if u.drawer != "" && pointInside(event.X, event.Y, u.lastChat) {
+	if (u.drawer != "" || u.memberWindow) && pointInside(event.X, event.Y, u.lastChat) {
 		return u.drawerPage.Wheel(event)
 	}
 	if u.isPanelSection() {
@@ -2857,6 +2896,9 @@ func (u *UI) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 }
 
 func (u *UI) onPointer(event gfx.PointerEvent) gfx.EventResult {
+	if event.Kind == gfx.PointerDown && !u.shellMenu.open && u.textSelection.id != event.Target {
+		u.textSelection.clear()
+	}
 	if u.detachedWindow && u.lockVisible() {
 		return gfx.EventResult{Handled: true}
 	}
@@ -2865,6 +2907,14 @@ func (u *UI) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	}
 	if result, handled := u.dragConversationPointer(event); handled {
 		return result
+	}
+	if u.section == sectionContacts && !u.detachedWindow && !u.modalOpen() {
+		if event.Kind == gfx.PointerUp && u.contactDrag.Dragging() && !pointInside(event.X, event.Y, u.contactListBounds) {
+			u.contactDrag.Cancel()
+		}
+		if result := u.sidebarPage.Pointer(event); result.Handled {
+			return result
+		}
 	}
 	if crop := u.activeAvatarCrop(); crop != nil {
 		state, result := crop.layout.Pointer(event, crop.state)
@@ -2895,6 +2945,9 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 	}
 	if result, handled := u.chatOverlayKey(event); handled {
 		return result
+	}
+	if u.contactDrag.Dragging() && event.Key == gfx.KeyEscape {
+		return u.sidebarPage.Key(event)
 	}
 	if u.mention.open && u.fieldFocused(&u.chatEditorField) && !event.Release &&
 		event.Modifiers == 0 && u.chatEditor != nil {
@@ -2984,7 +3037,7 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if u.isPanelSection() {
 		return u.panels.Key(event)
 	}
-	if u.drawer != "" {
+	if u.drawer != "" || u.memberWindow {
 		if result := u.drawerPage.Key(event); result.Handled {
 			return result
 		}
@@ -3004,6 +3057,12 @@ func (u *UI) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 	}
 	if u.modalOpen() {
 		return gfx.EventResult{}
+	}
+	if !event.Release && (event.Modifiers == gfx.ModifierControl || event.Modifiers == gfx.ModifierMeta) &&
+		strings.EqualFold(event.Text, "c") && event.Target == u.textSelection.id {
+		if value := u.textSelection.selected(); value != "" {
+			return gfx.EventResult{Handled: true, ClipboardText: value}
+		}
 	}
 	if u.isPanelSection() {
 		if result := u.panels.Shortcut(event); result.Handled {
@@ -3091,6 +3150,7 @@ func (u *UI) chatDropReady() bool {
 
 func (u *UI) ensureStateIDs() {
 	u.ensurePeerID(u.state.Self.ID)
+	u.ensureID(u.groupHeadIDs, u.ids.side, "contact-group:", "未分组")
 	for _, name := range u.state.ContactGroups {
 		u.ensureID(u.groupHeadIDs, u.ids.side, "contact-group:", name)
 	}

@@ -25,11 +25,12 @@ const (
 )
 
 type shellMenuState struct {
-	open   bool
-	kind   string
-	target string
-	x      float32
-	y      float32
+	messageText bool
+	open        bool
+	kind        string
+	target      string
+	x           float32
+	y           float32
 }
 
 type organizeState struct {

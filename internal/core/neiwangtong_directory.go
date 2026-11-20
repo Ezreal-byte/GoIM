@@ -294,13 +294,19 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 	content := stage
 	if groupFolder {
 		content = filepath.Join(stage, "files")
+		first := true
 		_, err = service.ResumeGroupDirectory(ctx, peerID, t.RemoteShareID, f.Name, content, filepath.Join(stage, "manifest"), func(done, total int64) {
-			if done == 0 {
+			if first {
+				first = false
+				t.Size = total
+				last = time.Now()
 				_ = n.change(func(st *domain.State) {
 					if i, j := transferIndex(st, t.ID), fileIndex(st, f.ID); i >= 0 && j >= 0 && !terminalTransfer(st.Transfers[i].Status) {
 						st.Transfers[i].Size, st.Files[j].Size = total, total
+						st.Transfers[i].Done, st.Transfers[i].Speed, st.Transfers[i].UpdatedAt = done, 0, last
 					}
 				})
+				return
 			}
 			progress(done)
 		})

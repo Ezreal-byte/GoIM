@@ -879,6 +879,10 @@ func TestPanelTransferAndShareTablesSearchFilterLongNamesAndThemes(t *testing.T)
 	if len(h.panels.sharesAll) != 2 || len(h.panels.sharesMine) != 1 {
 		t.Fatalf("share rows: all=%d mine=%d", len(h.panels.sharesAll), len(h.panels.sharesMine))
 	}
+	if !h.hasText("品牌资产库.zip") || h.hasText(longName) {
+		t.Fatal("member shares should be visible first")
+	}
+	h.clickLabelRole(h.panels.shareLabels[panelSharesMine], gfx.RoleTab)
 	if !h.hasText(longName) {
 		t.Fatal("share table is incomplete")
 	}
@@ -924,6 +928,7 @@ func TestPanelFileTablesLocalizeEnglishChrome(t *testing.T) {
 	}
 
 	h.showModule(panelModuleShares)
+	h.clickLabelRole(h.panels.shareLabels[panelSharesMine], gfx.RoleTab)
 	for _, label := range []string{"Size · Items", "Access", "Date shared", "Search files"} {
 		if !h.hasText(label) {
 			t.Fatalf("English share UI is missing %q", label)
@@ -956,8 +961,8 @@ func TestPanelSharesAddFilterGetRemoveAndOpen(t *testing.T) {
 	}
 	state.Revision = 2
 	h := panelTestNewHarness(t, panelModuleShares, state)
-	if len(h.panels.sharesAll) != 2 || h.panels.shareLabels[0] != "我的分享 1" ||
-		h.panels.shareLabels[1] != "成员共享 1" {
+	if len(h.panels.sharesAll) != 2 || h.panels.shareLabels[0] != "成员共享 1" ||
+		h.panels.shareLabels[1] != "我的分享 1" || h.panels.shareFilter != panelSharesRemote {
 		t.Fatalf("share groups = %v, labels = %v", len(h.panels.sharesAll), h.panels.shareLabels)
 	}
 	ownIndex := panelTestShareIndex(h.panels.sharesAll, "own-share")

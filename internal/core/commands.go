@@ -106,6 +106,8 @@ func (n *Node) execute(c domain.Command) error {
 			path = c.Paths[0]
 		}
 		n.startReceive(c.TransferID, path)
+	case domain.ClearTransferPartial:
+		return n.clearTransferPartial(c.TransferID)
 	case domain.RetryTransfer:
 		s := n.snapshot(false)
 		i := transferIndex(&s, c.TransferID)

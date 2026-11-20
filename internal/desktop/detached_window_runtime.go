@@ -19,20 +19,8 @@ func (r *desktopRuntime) openDetachedConversation(conversationID string) bool {
 
 	detached := newDetachedConversationView(r.backend, conversationID)
 	detached.presentHistory = r.requestHistoryWindow
-	detached.presentArchiveTarget = func(peerID string) {
-		if r.ui.lockVisible() {
-			return
-		}
-		if peerID != "" {
-			if entry := r.conversationWindows[r.ui.directByPeer[peerID]]; entry != nil {
-				entry.window.Show()
-				return
-			}
-		}
-		r.window.Show()
-		r.ui.openArchiveTarget(peerID)
-		r.ui.invalidator.Invalidate()
-	}
+	detached.presentMembers = r.openMembersWindow
+	detached.presentArchiveTarget = r.showPeerTarget
 	config := detached.DetachedConfig()
 	config.Icon = windowIcon()
 	config.Class = "GoIM.Conversation"
@@ -55,6 +43,7 @@ func (r *desktopRuntime) openDetachedConversation(conversationID string) bool {
 		}
 	}
 
+	r.geometry.remember("conversation", &config)
 	var canvas gfx.Canvas
 	opened, err := r.application.OpenWindow(config, &canvas)
 	if err != nil {
@@ -72,6 +61,21 @@ func (r *desktopRuntime) openDetachedConversation(conversationID string) bool {
 	}
 	opened.Show()
 	return true
+}
+
+func (r *desktopRuntime) showPeerTarget(peerID string) {
+	if r.ui.lockVisible() {
+		return
+	}
+	if peerID != "" {
+		if entry := r.conversationWindows[r.ui.directByPeer[peerID]]; entry != nil {
+			entry.window.Show()
+			return
+		}
+	}
+	r.window.Show()
+	r.ui.openArchiveTarget(peerID)
+	r.ui.invalidator.Invalidate()
 }
 
 func (entry *detachedConversationWindow) conceal(locked bool) {

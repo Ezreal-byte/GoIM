@@ -369,13 +369,7 @@ func (n *Node) receiveNeiwangtongTaskProgress(peerID, taskHex string, done, tota
 			if terminalTransfer(t.Status) {
 				return
 			}
-			t.Status = status
-			t.Done = max(t.Done, done)
-			if terminalTransfer(status) {
-				t.Speed = 0
-			}
-			t.Error = problem
-			t.UpdatedAt = time.Now()
+			updateTransferProgress(t, status, max(t.Done, done), 0, problem)
 		}
 	})
 }

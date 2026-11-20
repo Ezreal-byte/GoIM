@@ -289,12 +289,8 @@ func (n *Node) receiveLegacyProgress(packetNumber uint64, fileID uint32, done, t
 			if terminalTransfer(t.Status) {
 				return
 			}
-			t.Status = status
-			t.Done = done
 			t.Size = total
-			t.Speed = 0
-			t.Error = problem
-			t.UpdatedAt = time.Now()
+			updateTransferProgress(t, status, done, 0, problem)
 			return
 		}
 	})

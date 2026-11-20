@@ -47,6 +47,7 @@ func (r *desktopRuntime) openPrintWindow(shareID string) bool {
 		}
 	}
 
+	r.geometry.remember("printer", &config)
 	var canvas gfx.Canvas
 	opened, err := r.application.OpenWindow(config, &canvas)
 	if err != nil {

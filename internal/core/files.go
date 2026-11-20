@@ -425,14 +425,29 @@ func (n *Node) setTransfer(id, status string, done int64, speed float64, problem
 			if terminalTransfer(t.Status) {
 				return
 			}
-			t.Status = status
-			t.Done = done
-			t.Speed = speed
-			t.Error = problem
-			t.UpdatedAt = time.Now()
+			updateTransferProgress(t, status, done, speed, problem)
 		}
 	})
 }
+
+// Compatibility transports report byte offsets without a rate.
+func updateTransferProgress(t *domain.Transfer, status string, done int64, rate float64, problem string) {
+	// The data socket and the peer's acknowledgement can report the same
+	// offset. Keep the timestamp paired with the last byte advance.
+	if status == "transferring" && t.Status == status && done == t.Done && rate == 0 && problem == t.Error {
+		return
+	}
+	now := time.Now()
+	if status != "transferring" {
+		rate = 0
+	} else if rate == 0 && t.Status == status && done > t.Done && !t.UpdatedAt.IsZero() {
+		if elapsed := now.Sub(t.UpdatedAt); elapsed > 0 {
+			rate = float64(done-t.Done) / elapsed.Seconds()
+		}
+	}
+	t.Status, t.Done, t.Speed, t.Error, t.UpdatedAt = status, done, rate, problem, now
+}
+
 func (n *Node) transferContext(id string) (context.Context, func(), bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -782,14 +797,10 @@ func (n *Node) serveFile(conn *tls.Conn, e envelope, peer string) {
 	}
 }
 func (n *Node) sendCatalog(peer string) {
-	s := n.snapshot(false)
-	var list []domain.File
-	for _, f := range s.Files {
-		if f.Shared && !f.ShareFolder && !f.ShareProtected && f.SenderID == s.Self.ID {
-			list = append(list, publicFile(f))
-		}
-	}
-	_ = n.send(peer, envelope{Type: "catalog", Files: list, CatalogRevision: s.Revision})
+	n.mu.Lock()
+	catalog := n.shareCatalog()
+	n.mu.Unlock()
+	_ = n.send(peer, catalog)
 }
 func (n *Node) broadcastCatalog() {
 	s := n.snapshot(false)

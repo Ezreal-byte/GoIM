@@ -20,6 +20,7 @@ import (
 )
 
 type desktopRuntime struct {
+	geometry            windowLayoutStore
 	ui                  *UI
 	backend             domain.Backend
 	application         *app.Application
@@ -27,6 +28,7 @@ type desktopRuntime struct {
 	conversationWindows map[string]*detachedConversationWindow
 	printWindows        map[string]*printWindowEntry
 	historyWindows      map[string]*historyWindowEntry
+	memberWindows       map[string]*membersWindow
 	historyPending      string
 	tray                *app.StatusItem
 	seen                map[string]bool
@@ -93,6 +95,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 	)
 	shell.panels.loadAutostart()
 	if dataDir, ok := backend.(interface{ DataDir() string }); ok {
+		r.geometry = loadWindowGeometry(dataDir.DataDir())
 		shell.panels.diagnosticDataDir = dataDir.DataDir
 	}
 	shell.updater = newUpdateController(
@@ -136,6 +139,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		}
 		shell.presentDetached = r.openDetachedConversation
 		shell.presentHistory = r.requestHistoryWindow
+		shell.presentMembers = r.openMembersWindow
 		shell.panels.presentPrint = r.openPrintWindow
 		shell.dismissViewer = r.closeViewer
 		shell.pinViewer = r.pinViewer
@@ -155,6 +159,9 @@ func Run(backend domain.Backend, restartArguments []string) error {
 			r.closeDetachedConversations()
 			r.closePrintWindows()
 			r.closeHistoryWindows()
+			for _, entry := range r.memberWindows {
+				entry.window.Close()
+			}
 			if closed != nil {
 				closed()
 			}
@@ -235,6 +242,9 @@ func (r *desktopRuntime) observe() {
 	}
 	for _, entry := range r.historyWindows {
 		entry.conceal(locked)
+	}
+	for _, entry := range r.memberWindows {
+		entry.sync(s, locked, s.Revision != r.windowRevision)
 	}
 	if locked && r.ui.conversationDrag.preview != nil {
 		r.ui.conversationDrag.preview.Close()

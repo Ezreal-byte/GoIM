@@ -247,7 +247,12 @@ func (u *UI) drawChatHeader(f ui.C, conversation domain.Conversation) {
 	}
 	if memberShown && memberButton.Clicked() {
 		u.closeChatPickers()
-		u.drawer = "members"
+		if u.presentMembers != nil {
+			id := conversation.ID
+			f.After(func() { u.presentMembers(id) })
+		} else {
+			u.drawer = "members"
+		}
 		u.activeFileID = ""
 		u.memberMenu = ""
 		u.moreOpen = false
@@ -420,7 +425,7 @@ func (u *UI) messageBubble(f ui.C, conversation domain.Conversation, message dom
 		HitWith(u.messageIDs[message.ID], i18n.T("聊天消息"), gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
 		Background(background).Border(1, u.palette.bubbleBorder).Gap(3).Children(func() {
 		if message.Text != "" {
-			ui.Paragraph(f, message.Text, 60).FontSize(14).LineHeight(21)
+			u.messageParagraph(f, message, 60, 14, 21)
 		}
 		if message.Kind == "text" && message.Text == "" {
 			ui.Text(f, i18n.T("（空消息）")).FontSize(13).Muted()
@@ -499,7 +504,7 @@ func (u *UI) drawImageMessage(f ui.C, conversation domain.Conversation, message 
 			if message.Text != "" && message.Text != file.Name {
 				ui.Column(f).MaxWidth(width).PadSides(8, 12, 7, 12).Radius(radiusControl).
 					Background(u.palette.incoming).Children(func() {
-					ui.Paragraph(f, message.Text, 4).FontSize(13).LineHeight(19)
+					u.messageParagraph(f, message, 4, 13, 19)
 				})
 			}
 			ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
@@ -527,6 +532,9 @@ func chatImageThumbnail(bitmap gfx.Bitmap, maxWidth float32) (float32, float32) 
 
 func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message domain.Message, own bool, maxWidth float32) {
 	file := u.state.File(message.FileID)
+	if file.Name == "" {
+		file.Name = displayFileName(file, message)
+	}
 	justify := ui.Start
 	if own {
 		justify = ui.End
@@ -547,10 +555,7 @@ func (u *UI) drawFileMessage(f ui.C, conversation domain.Conversation, message d
 					gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("查看文件详情")}).
 				Children(func() {
 					ui.Row(f).Items(ui.Center).Gap(11).Children(func() {
-						ui.Row(f).Size(40, 40).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
-							Background(fileIconTint(file)).Children(func() {
-							ui.Icon(f, u.fileIcon(file)).Size(21, 21).Color(fileIconColor(file))
-						})
+						drawFileIcon(f, u.theme, fileTypeIcon(file), 40, 21)
 						ui.Column(f).Grow(1).Gap(3).Children(func() {
 							ui.Text(f, displayFileName(file, message)).FontSize(14).
 								Weight(gfx.WeightSemibold).MaxLines(2)
@@ -1108,47 +1113,6 @@ func (u *UI) groupCounts(group domain.Group) (total, online int) {
 	return total, online
 }
 
-func (u *UI) fileIcon(file domain.File) gfx.Icon {
-	switch {
-	case file.Folder:
-		return u.iconFolder
-	case strings.HasPrefix(file.MIME, "video/") || strings.HasPrefix(file.MIME, "audio/"):
-		return u.iconPlay
-	case fileIsImage(file):
-		return u.iconImage
-	case strings.EqualFold(filepath.Ext(file.Name), ".zip") ||
-		strings.EqualFold(filepath.Ext(file.Name), ".rar") ||
-		strings.EqualFold(filepath.Ext(file.Name), ".7z"):
-		return u.iconFileArchive
-	case strings.EqualFold(filepath.Ext(file.Name), ".txt") ||
-		strings.EqualFold(filepath.Ext(file.Name), ".md") || strings.EqualFold(filepath.Ext(file.Name), ".pdf") ||
-		strings.EqualFold(filepath.Ext(file.Name), ".docx") || strings.EqualFold(filepath.Ext(file.Name), ".doc"):
-		return u.iconFileText
-	default:
-		return u.iconFile
-	}
-}
-
-func fileIconTint(file domain.File) ui.Color {
-	if strings.EqualFold(filepathExt(file.Name), ".pdf") {
-		return ui.RGBA(220, 65, 65, .10)
-	}
-	if fileIsImage(file) {
-		return ui.RGBA(34, 176, 94, 0.11)
-	}
-	return ui.RGBA(31, 96, 221, 0.09)
-}
-
-func fileIconColor(file domain.File) ui.Color {
-	if strings.EqualFold(filepathExt(file.Name), ".pdf") {
-		return ui.RGB(220, 65, 65)
-	}
-	if fileIsImage(file) {
-		return ui.RGB(28, 145, 76)
-	}
-	return ui.RGB(31, 96, 221)
-}
-
 func displayFileName(file domain.File, message domain.Message) string {
 	if file.Name != "" {
 		return file.Name
@@ -1188,9 +1152,19 @@ func transferNeedsAttention(transfer domain.Transfer) bool {
 	return false
 }
 
+func transferRateLabel(t domain.Transfer) string {
+	if t.Status == "transferring" && t.Speed > 0 {
+		return panelFormatBytes(int64(t.Speed)) + "/s"
+	}
+	return ""
+}
+
 func (u *UI) transferProgressLabel(transfer domain.Transfer) string {
 	fraction := transferFraction(transfer)
 	label := intString(int(fraction*100)) + "%"
+	if rate := transferRateLabel(transfer); rate != "" {
+		label += " · " + rate
+	}
 	prefix := transferPeerLabel(u, transfer) + " · "
 	if transfer.Status == "verifying" {
 		return prefix + i18n.T("校验中 · ") + label

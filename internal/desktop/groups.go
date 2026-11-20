@@ -32,7 +32,6 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		u.fileReturn = ""
 		return
 	}
-	native := group.Transport == domain.TransportNeiwangtong
 	owner := u.state.Self.ID != "" && group.OwnerID == u.state.Self.ID
 	extent := min(float32(430), max(viewport.Width-24, 300))
 	drawer := components.BeginDrawer(canvas, u.theme, viewport, components.DrawerOptions{
@@ -41,6 +40,18 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		InitialFocusID: u.ids.memberSearch, ButtonSize: components.ButtonSizeSmall,
 	})
 	layout := drawer.Begin(i18n.T("群聊信息"), group.Name)
+	anchor, avatarClicked := u.drawMemberContent(canvas, layout.Body, conversation, group, owner)
+	drawer.Actions(layout, u.membershipAction(owner))
+	drawer.End()
+	if canvas.Clicked(u.ids.memberDismiss) || canvas.Clicked(u.ids.memberClose) {
+		u.requestCloseDrawer()
+		return
+	}
+	u.handleMemberActions(canvas, viewport, group, owner, anchor, avatarClicked)
+}
+
+func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation domain.Conversation, group domain.Group, owner bool) (ui.Rect, bool) {
+	native := group.Transport == domain.TransportNeiwangtong
 	if u.renameOpen && u.renameGroupID != "" && u.renameGroupID != group.ID {
 		u.resetGroupRename()
 	}
@@ -50,7 +61,7 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 
 	var menuAnchor ui.Box
 	var avatarClicked bool
-	u.drawerPage.Draw(canvas, layout.Body, func(f ui.C) {
+	u.drawerPage.Draw(canvas, body, func(f ui.C) {
 		ui.Column(f).Fill().Gap(11).Children(func() {
 			ui.Row(f).Items(ui.Center).Gap(12).Children(func() {
 				avatar := ui.Row(f).Size(46, 46).Radius(23).Items(ui.Center).Justify(ui.Center)
@@ -199,23 +210,22 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		})
 	})
 
-	if owner {
-		drawer.Actions(layout, components.ButtonAction{
-			ID: u.ids.memberDissolve, Label: i18n.T("解散群聊"), Variant: components.ButtonDestructiveOutline,
-		})
-	} else {
-		drawer.Actions(layout, components.ButtonAction{
-			ID: u.ids.memberLeave, Label: i18n.T("退出群聊"), Variant: components.ButtonDestructiveOutline,
-		})
+	if menuAnchor.Valid() {
+		return menuAnchor.Rect(), avatarClicked
 	}
-	drawer.End()
+	return ui.Rect{}, avatarClicked
+}
 
-	if avatarClicked {
-		u.openGroupAvatar(group)
-		return
+func (u *UI) membershipAction(owner bool) components.ButtonAction {
+	if owner {
+		return components.ButtonAction{ID: u.ids.memberDissolve, Label: i18n.T("解散群聊"), Variant: components.ButtonDestructiveOutline}
 	}
-	if canvas.Clicked(u.ids.memberDismiss) || canvas.Clicked(u.ids.memberClose) {
-		u.requestCloseDrawer()
+	return components.ButtonAction{ID: u.ids.memberLeave, Label: i18n.T("退出群聊"), Variant: components.ButtonDestructiveOutline}
+}
+
+func (u *UI) handleMemberActions(canvas *gfx.Canvas, viewport ui.Rect, group domain.Group, owner bool, anchor ui.Rect, avatarClicked bool) {
+	if avatarClicked {
+		canvas.AfterPaint(func() { u.openGroupAvatar(group) })
 		return
 	}
 	if owner && canvas.Clicked(u.ids.memberDissolve) {
@@ -227,7 +237,6 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		return
 	}
 	if u.memberMenu != "" {
-		anchor := menuAnchor.Rect()
 		if anchor.Width <= 0 {
 			u.memberMenu = ""
 			return
@@ -487,6 +496,10 @@ func (u *UI) startDirectFromMembers(peerID string) {
 	open := func() {
 		u.memberMenu = ""
 		u.memberProfile = ""
+		if u.presentMemberChat != nil {
+			u.presentMemberChat(peerID)
+			return
+		}
 		u.closeDrawer()
 		u.setSection(sectionMessages)
 		u.startChat(peerID)
@@ -854,10 +867,7 @@ func (u *UI) drawFileList(f ui.C) {
 					HitWith(u.fileRowIDs[file.ID], file.Name,
 						gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("文件详情")}).
 					Children(func() {
-						ui.Row(f).Size(36, 36).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
-							Background(fileIconTint(file)).Children(func() {
-							ui.Icon(f, u.fileIcon(file)).Size(19, 19).Color(fileIconColor(file))
-						})
+						drawFileIcon(f, u.theme, fileTypeIcon(file), 36, 19)
 						ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
 							ui.Text(f, file.Name).FontSize(13).Weight(gfx.WeightMedium).Ellipsis()
 							sender := i18n.T("我")
@@ -900,10 +910,7 @@ func (u *UI) drawFileDetail(f ui.C, file domain.File) {
 			}
 		}
 		ui.Row(f).Items(ui.Center).Gap(13).Children(func() {
-			ui.Row(f).Size(52, 52).Radius(radiusControl).Items(ui.Center).Justify(ui.Center).
-				Background(fileIconTint(file)).Children(func() {
-				ui.Icon(f, u.fileIcon(file)).Size(25, 25).Color(fileIconColor(file))
-			})
+			drawFileIcon(f, u.theme, fileTypeIcon(file), 52, 25)
 			ui.Column(f).Grow(1).Gap(4).Children(func() {
 				ui.Wrap(f, file.Name).FontSize(17).Weight(gfx.WeightSemibold)
 				ui.Text(f, formatBytes(file.Size)+fileTypeSuffix(file)).FontSize(12).Muted()

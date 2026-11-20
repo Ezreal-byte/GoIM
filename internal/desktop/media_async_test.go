@@ -326,6 +326,7 @@ func TestLocalOpenRunsOnMediaWorkerBeforeWake(t *testing.T) {
 		})
 	})
 
+	harness.clickLabelRole(harness.panels.shareLabels[panelSharesMine], gfx.RoleTab)
 	harness.click(harness.panels.sharesMine[0].moreID)
 	harness.click(harness.panels.ids.shareMenuOpen)
 	select {
