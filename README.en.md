@@ -1,4 +1,4 @@
-<!-- The gallery uses GoIM's native headless renderer with synthetic demo data. -->
+<!-- Desktop screenshots use Viva's headless renderer. The web screenshot uses a headless browser connected to GoIM's sharing service. Both use demo data. -->
 <div align="center">
   <p>English · <a href="README.md">简体中文</a></p>
   <img src="website/assets/goim.png" width="84" height="84" alt="GoIM logo" />
@@ -27,7 +27,11 @@ GoIM is a desktop messenger built with Go and [Viva](https://github.com/vivaui/v
     <td width="50%"><a href="website/assets/screenshots/transfers-dark.png"><img src="website/assets/screenshots/transfers-dark.png" alt="The incoming queue and active transfers in dark mode" /></a><strong>Transfers</strong></td>
   </tr>
   <tr>
-    <td width="50%"><a href="website/assets/screenshots/shares-light.png"><img src="website/assets/screenshots/shares-light.png" alt="File shares with access protection indicators" /></a><strong>File sharing</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/shares-light.png"><img src="website/assets/screenshots/shares-light.png" alt="File shares and password protection in the desktop app" /></a><strong>Desktop file sharing</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/web-file-sharing.png"><img src="website/assets/screenshots/web-file-sharing.png" alt="Device homepage in a browser with a download list on the left and a file upload area on the right" /></a><strong>LAN file sharing in a browser</strong></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="website/assets/screenshots/print-sharing.png"><img src="website/assets/screenshots/print-sharing.png" alt="Three shared printers with availability, paper sizes, color and duplex options, followed by recent jobs" /></a><strong>Printer sharing</strong></td>
     <td width="50%"><a href="website/assets/screenshots/chat-dark.png"><img src="website/assets/screenshots/chat-dark.png" alt="Group chat and the file panel in dark mode" /></a><strong>Dark appearance</strong></td>
   </tr>
 </table>
@@ -78,9 +82,10 @@ Windows and Linux installers check for running GoIM instances before replacing f
 ## Quick start
 
 1. Run GoIM on two devices on the same reachable LAN.
-2. Select the other device in **Contacts**. If discovery is unavailable, use **Connect manually** with its IP or `IP:47842`.
+2. Use the search field at the top of **Contacts** to find the other device. If discovery is unavailable, choose **Connect by IP** at the bottom of the sidebar and enter its IP or `IP:47842`.
 3. Send a message or image. Receive other attachments in the conversation or on the **Transfers** page.
-4. To share with a phone or a browser, add a file or folder in **File Sharing**, then copy its link or QR code. The optional device homepage also accepts uploads.
+4. Add a file or folder in **File sharing**, then copy its link or show its QR code. To share several items from one page, choose **Device sharing → Enable device page** and copy the homepage link. Anyone on the same LAN with the link can browse the shares, download files, or drag a file onto the page to send it to you.
+5. To use a colleague’s printer, open **Print sharing**, choose an available printer with the paper, color and duplex options you need, then click **Print** to select a file. Check its status under **Recent prints**.
 
 Native chat uses TCP 47842 and IPv4 multicast at `239.192.77.77:47841` for discovery. Browser sharing uses LAN HTTP on trusted networks.
 
@@ -161,7 +166,7 @@ On Windows, `pwsh -File scripts/start-temp-dev.ps1` builds and starts a client w
 
 Windows and macOS packaging builds the Shotlet capture SDK helper from pinned revisions with CMake 3.20 or later. Windows needs Visual Studio C++ tools for the target architecture and the Windows SDK. Visual Studio 2026 requires CMake 4.2 or later. macOS needs the Xcode Command Line Tools. Install NSIS to build Windows Setup with `go run ./cmd/package --windows-setup`. Linux builds use the existing GoIM toolchain because Shotlet's Wayland capture and native selection overlay are incomplete. [Shotlet source](https://github.com/Ezreal-byte/shotlet)
 
-`pwsh -File scripts/smoke-headless.ps1` builds a fresh headless client and runs a three-process test of messaging, file transfer, and browser sharing. Use `scripts/build.ps1` to build the desktop app and screenshot companion without starting them, or `scripts/promo-headless.ps1` to regenerate the demo gallery. See [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/release.yml) for platform packaging and validation.
+`pwsh -File scripts/smoke-headless.ps1` builds a fresh headless client and runs a three-process test of messaging, file transfer, and browser sharing. Use `scripts/build.ps1` to build the desktop app and screenshot companion without starting them, or `scripts/promo-headless.ps1` to regenerate the chat, contacts, transfers, and desktop file sharing screenshots. See [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/release.yml) for platform packaging and validation.
 
 See the [release guidelines](docs/releases/README.md) for the release notes format.
 
