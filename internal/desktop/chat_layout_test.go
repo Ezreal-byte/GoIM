@@ -13,6 +13,64 @@ import (
 	"goim/internal/domain"
 )
 
+func TestSidebarPinsSearchAndActionsAroundScrollingList(t *testing.T) {
+	for _, section := range []string{sectionMessages, sectionContacts} {
+		t.Run(section, func(t *testing.T) {
+			const height = 700
+			state := shellTestState(t)
+			state.Settings.LastSection = section
+			for i := 0; i < 24; i++ {
+				id := "extra-" + intString(i)
+				state.Peers = append(state.Peers, domain.Peer{ID: id, Name: id, Online: true})
+				state.Conversations = append(state.Conversations, domain.Conversation{ID: id, Kind: "direct", PeerID: id})
+			}
+			h := newShellTestHarnessAtSize(t, state, 1000, height)
+			bounds := func(id gfx.ID) ui.Rect {
+				t.Helper()
+				hit, ok := h.findHit(id)
+				if !ok {
+					t.Fatalf("missing sidebar control %v", id)
+				}
+				return hit.Bounds
+			}
+			ids := h.ui.ids
+			search, list := bounds(ids.sidebarSearch), bounds(ids.sidebarSurface)
+			if search.Bottom() > list.Y || search.X != list.X || search.Width != list.Width {
+				t.Fatalf("search %v must span the list %v above the results", search, list)
+			}
+			actions := []gfx.ID{ids.sidebarConnect, ids.sidebarCreate}
+			first := h.ui.convRowIDs["conv-group"]
+			if section == sectionContacts {
+				actions = append(actions, ids.sidebarRefresh)
+				first = ids.selfRow
+			}
+			checkFooter := func() {
+				t.Helper()
+				for _, id := range actions {
+					button := bounds(id)
+					if button.Y < list.Bottom() || button.Bottom() < height-16 || button.Bottom() > height {
+						t.Fatalf("action %v must stay below list %v at the window bottom", button, list)
+					}
+				}
+			}
+			checkFooter()
+			before := bounds(first)
+			if err := h.driver.Scroll(gfx.ScrollEvent{X: list.X + list.Width/2, Y: list.Y + list.Height/2, DeltaY: 900, Precise: true}); err != nil {
+				t.Fatal(err)
+			}
+			if after, ok := h.findHit(first); ok && after.Bounds == before {
+				t.Fatal("the long list did not scroll")
+			}
+			if bounds(ids.sidebarSearch) != search {
+				t.Fatal("the search field moved with the results")
+			}
+			checkFooter()
+			h.typeInto(ids.sidebarSearch, "no matching sidebar entry")
+			checkFooter()
+		})
+	}
+}
+
 type testWindowGeometry struct {
 	frame   ui.Rect
 	sizes   [][2]int

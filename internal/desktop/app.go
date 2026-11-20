@@ -1603,26 +1603,15 @@ func (u *UI) railItemBadged(f ui.C, id gfx.ID, icon gfx.Icon, label string,
 
 func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	canvas.Fill(bounds, u.palette.sidebar)
-	var connect, create ui.Box
+	var connect, create, refresh bool
 	u.sidebarPage.Draw(canvas, bounds, func(f ui.C) {
-		ui.Column(f).Fill().PadSides(24, 16, 14, 16).Children(func() {
-			ui.Row(f).Height(38).Items(ui.Center).Gap(8).Children(func() {
-				ui.TextFieldID(f, u.ids.sidebarSearch, &u.sidebarSearch, i18n.T("搜索"), u.searchPlaceholder()).
-					Height(38).Grow(1)
-				connect = u.iconButton(f, u.ids.sidebarConnect, u.iconUserPlus, i18n.T("手动连接"), 32)
-				create = u.iconButton(f, u.ids.sidebarCreate, u.iconPlus, i18n.T("创建群聊"), 32)
-				if u.section == sectionContacts {
-					refresh := u.iconButton(f, u.ids.sidebarRefresh, u.iconRefresh, i18n.T("刷新联系人"), 32)
-					if refresh.Clicked() {
-						u.submit(domain.Command{Kind: domain.RefreshContacts})
-						u.showToast(i18n.T("正在刷新局域网联系人"), "", components.ToastInfo)
-					}
-				}
-			})
-			ui.Row(f).Height(10)
+		ui.Column(f).Fill().PadSides(10, 8, 4, 8).Children(func() {
+			ui.TextFieldID(f, u.ids.sidebarSearch, &u.sidebarSearch, i18n.T("搜索"), u.searchPlaceholder()).
+				Icon(u.iconSearch).FillWidth().Height(38)
+			ui.Row(f).Height(6)
 			if u.section == sectionContacts {
 				u.drawContactFilters(f)
-				ui.Row(f).Height(10)
+				ui.Row(f).Height(4)
 			}
 			ui.Scroll(f.Key(u.section)).Grow(1).Gap(4).
 				HitWith(u.ids.sidebarSurface, i18n.T("侧栏列表"),
@@ -1634,13 +1623,26 @@ func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 						u.drawConversationList(f)
 					}
 				})
+			ui.Divider(f).FillWidth()
+			ui.Row(f).FillWidth().PadSides(max(8, 8*u.theme.Metrics.EffectiveTextScale()), 0, 4, 0).Items(ui.Center).Gap(4).Children(func() {
+				connect = u.iconButton(f, u.ids.sidebarConnect, u.iconUserPlus, i18n.T("手动连接"), 36).Clicked()
+				create = u.iconButton(f, u.ids.sidebarCreate, u.iconPlus, i18n.T("创建群聊"), 36).Clicked()
+				if u.section == sectionContacts {
+					ui.Spacer(f)
+					refresh = u.iconButton(f, u.ids.sidebarRefresh, u.iconRefresh, i18n.T("刷新联系人"), 36).Clicked()
+				}
+			})
 		})
 	})
-	if connect.Clicked() {
+	if connect {
 		u.openConnect()
 	}
-	if create.Clicked() {
+	if create {
 		u.openCompose("create", "")
+	}
+	if refresh {
+		u.submit(domain.Command{Kind: domain.RefreshContacts})
+		u.showToast(i18n.T("正在刷新局域网联系人"), "", components.ToastInfo)
 	}
 	if event, ok := canvas.PointerOn(u.ids.sidebarSurface); ok &&
 		event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {

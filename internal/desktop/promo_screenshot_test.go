@@ -145,7 +145,8 @@ func TestPromoScreenshots(t *testing.T) {
 	shot("chat-light")
 
 	click(shell.ids.navContacts)
-	for _, label := range []string{"联系人", "设计与产品", "内容制作", "林晚", "许知远", "周予安"} {
+	click(shell.peerRowIDs["lin"])
+	for _, label := range []string{"联系人资料", "设计与产品", "内容制作", "林晚", "许知远", "周予安"} {
 		waitText(label)
 		if err := session.Expect("text", label); err != nil {
 			t.Fatal(err)
@@ -230,14 +231,19 @@ func promoState(t *testing.T) domain.State {
 			Presence: presence, Signature: "正在整理北岭计划的交付资料",
 		})
 	}
+	posterPath := filepath.Join(dir, "visual.png")
+	ridgeAvatar := filepath.Join(dir, "ridge-avatar.png")
+	gridPath := filepath.Join(dir, "grid.png")
+	writePromoPoster(t, posterPath, ridgeAvatar)
+	writePromoGrid(t, gridPath)
 	state.Groups = []domain.Group{
-		{ID: "north-team", Name: "北岭计划", OwnerID: "lin", Members: []string{"self", "lin", "xu", "su", "chen", "xia"}, Epoch: 1},
-		{ID: "design-team", Name: "设计工作室", OwnerID: "self", Members: []string{"self", "lin", "xu", "su", "gu"}, Epoch: 1},
+		{ID: "north-team", Name: "北岭计划", Avatar: ridgeAvatar, OwnerID: "lin", Members: []string{"self", "lin", "xu", "su", "chen", "xia"}, Epoch: 1},
+		{ID: "design-team", Name: "设计工作室", Avatar: gridPath, OwnerID: "self", Members: []string{"self", "lin", "xu", "su", "gu"}, Epoch: 1},
 		{ID: "launch-team", Name: "秋季发布协作", OwnerID: "chen", Members: []string{"self", "chen", "cheng", "xia"}, Epoch: 1},
 		{ID: "photo-team", Name: "山野影像组", OwnerID: "shen", Members: []string{"self", "shen", "xia", "lin"}, Epoch: 1},
 	}
 	state.Conversations = []domain.Conversation{
-		{ID: "north", Kind: "group", GroupID: "north-team", Title: "北岭计划", Pinned: true, Preview: "苏禾：收到，下午按这版走。", UpdatedAt: at(0)},
+		{ID: "north", Kind: "group", GroupID: "north-team", Title: "北岭计划", Pinned: true, Preview: "苏禾：清单收到了，下午按这版走。", UpdatedAt: at(0)},
 		{ID: "design", Kind: "group", GroupID: "design-team", Title: "设计工作室", Pinned: true, Unread: 3, Preview: "林晚：色板我更新到文件里了", UpdatedAt: at(-3)},
 		{ID: "c-su", Kind: "direct", PeerID: "su", Unread: 2, Preview: "两版排版都发你了", UpdatedAt: at(-7)},
 		{ID: "launch", Kind: "group", GroupID: "launch-team", Title: "秋季发布协作", Unread: 5, Preview: "陈墨：发布排期已同步", UpdatedAt: at(-11)},
@@ -250,8 +256,6 @@ func promoState(t *testing.T) domain.State {
 		{ID: "c-xia", Kind: "direct", PeerID: "xia", Preview: "路上信号不好，回去传原图", UpdatedAt: at(-86)},
 	}
 
-	posterPath := filepath.Join(dir, "visual.png")
-	writePromoPoster(t, posterPath)
 	stat, err := os.Stat(posterPath)
 	if err != nil {
 		t.Fatal(err)
@@ -276,8 +280,7 @@ func promoState(t *testing.T) domain.State {
 		path := ""
 		// Only files actually previewed or marked locally available need an asset.
 		if item.id == "grid" {
-			path = filepath.Join(dir, "grid.png")
-			writePromoGrid(t, path)
+			path = gridPath
 			stat, err := os.Stat(path)
 			if err != nil {
 				t.Fatal(err)

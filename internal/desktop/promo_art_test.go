@@ -18,7 +18,7 @@ import (
 
 // This is the group's fictional design attachment. Viva renders the artwork
 // and then renders it again as an ordinary image in the actual chat.
-func writePromoPoster(t *testing.T, path string) {
+func writePromoPoster(t *testing.T, path, avatarPath string) {
 	t.Helper()
 	const width, height = 720, 384
 	session, err := vivaheadless.Open(app.Config{
@@ -73,9 +73,12 @@ func writePromoPoster(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	defer session.Close()
-	if err := session.Screenshot(path); err != nil {
+	picture, err := session.Image()
+	if err != nil {
 		t.Fatal(err)
 	}
+	savePromoPNG(t, path, picture)
+	savePromoPNG(t, avatarPath, picture.SubImage(image.Rect(390, 20, 702, 332)))
 }
 
 // Illustrative portraits, not photographs of real people. Use distinct colors
@@ -149,14 +152,7 @@ func writePromoAvatar(t *testing.T, path string, index int) {
 			picture.SetNRGBA(x, y, pixel)
 		}
 	}
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	if err := png.Encode(f, picture); err != nil {
-		t.Fatal(err)
-	}
+	savePromoPNG(t, path, picture)
 }
 
 func writePromoGrid(t *testing.T, path string) {
@@ -177,6 +173,11 @@ func writePromoGrid(t *testing.T, path string) {
 			picture.SetNRGBA(x, y, pixel)
 		}
 	}
+	savePromoPNG(t, path, picture)
+}
+
+func savePromoPNG(t *testing.T, path string, picture image.Image) {
+	t.Helper()
 	f, err := os.Create(path)
 	if err != nil {
 		t.Fatal(err)
