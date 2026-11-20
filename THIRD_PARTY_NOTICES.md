@@ -14,7 +14,7 @@ GoIM application source is MIT licensed. Releases include the full applicable li
 | godbus/dbus (Linux companion) | 5.1.0 | licenses/godbus-dbus.txt |
 | jezek/xgb (Linux companion) | 1.1.1 | licenses/jezek-xgb.txt |
 | Go runtime / standard library | 1.27.3 | licenses/Go-BSD.txt |
-| Material Icon Theme file-type icons | Material Extensions, via Motty and the upstream PowerPoint icon | licenses/material-icon-theme-MIT.txt |
+| Material Icon Theme file-type icons | Material Extensions, via Iconify and Motty. The PowerPoint icon comes directly from Material Icon Theme. | licenses/material-icon-theme-MIT.txt |
 | Lucide compiled icons and application icon geometry | Lucide SVG sources compiled by Viva | Lucide ISC and Feather MIT sections in licenses/Viva-third-party.md |
 | Lucide icons in the browser share page | [0.468.0](https://github.com/lucide-icons/lucide/tree/0.468.0) | licenses/lucide-web-ISC.txt |
 

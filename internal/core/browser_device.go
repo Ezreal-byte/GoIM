@@ -111,7 +111,7 @@ func (n *Node) deviceSharePage(token string) (sharePageData, string, bool) {
 			continue
 		}
 		href := "/s/" + record.Token
-		item := webFileItem(file.Name, file.Size, file.CreatedAt, href)
+		item := webFileItem(file.Name, file.MIME, file.Size, file.CreatedAt, href)
 		if file.ShareFolder {
 			item.Folder, item.Style = true, "folder"
 		}

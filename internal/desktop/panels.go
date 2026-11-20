@@ -800,8 +800,18 @@ func (p *Panels) rebuildTransfers(state domain.State) {
 	p.transferIncoming = p.transferIncoming[:0]
 	p.transferPending = p.transferPending[:0]
 	p.transferFinished = p.transferFinished[:0]
+	fileIndex := make(map[string]int)
+	if len(state.Transfers) > 0 {
+		for i := range state.Files {
+			fileIndex[state.Files[i].ID] = i
+		}
+	}
 	for _, transfer := range state.Transfers {
-		entry := panelBuildTransfer(state, transfer)
+		var file domain.File
+		if i, ok := fileIndex[transfer.FileID]; ok {
+			file = state.Files[i]
+		}
+		entry := panelBuildTransfer(state, transfer, file)
 		scope := p.tree.Sub(p.ids.transferActions, p.tree.Name(transfer.ID))
 		entry.ids = newTransferActionIDs(p.tree, scope, entry)
 		switch {
@@ -838,7 +848,7 @@ func (p *Panels) refreshTransferRows() {
 	}
 }
 
-func panelBuildTransfer(state domain.State, transfer domain.Transfer) panelTransferEntry {
+func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domain.File) panelTransferEntry {
 	peer := state.Peer(transfer.PeerID)
 	name := peer.Name
 	if strings.TrimSpace(name) == "" {
@@ -857,7 +867,10 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer) panelTrans
 		entry.name = i18n.T("未命名文件")
 	}
 	entry.path = transfer.Path
-	entry.icon = fileTypeIcon(domain.File{Name: transfer.Name})
+	if file.Name == "" {
+		file.Name = transfer.Name
+	}
+	entry.icon = fileTypeIcon(file)
 	direction := i18n.T("发送给 ") + name
 	if transfer.Direction == "receive" {
 		direction = fmt.Sprintf(i18n.T("%s 发来"), name)
@@ -900,7 +913,6 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer) panelTrans
 	case "failed", "cancelled", "rejected":
 		entry.retry = true
 		if transfer.Direction == "send" && transfer.FromShare {
-			file := state.File(transfer.FileID)
 			entry.retry = !transfer.Revoked && file.Shared && !file.ShareProtected
 		}
 	case "completed":

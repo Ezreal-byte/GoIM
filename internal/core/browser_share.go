@@ -511,7 +511,7 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 			n.renderFolderShare(w, r, f, record, page)
 		} else {
 			page.Ready, page.Current, page.Count = true, "分享内容", "1 个文件"
-			page.Items = []sharePageItem{webFileItem(f.Name, f.Size, f.CreatedAt, page.Path+"/download")}
+			page.Items = []sharePageItem{webFileItem(f.Name, f.MIME, f.Size, f.CreatedAt, page.Path+"/download")}
 			renderShare(w, http.StatusOK, page)
 		}
 		return
@@ -549,9 +549,9 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, f.Name, stat.ModTime(), source)
 }
 
-func webFileItem(name string, size int64, date time.Time, url string) sharePageItem {
+func webFileItem(name, mediaType string, size int64, date time.Time, url string) sharePageItem {
 	kind := strings.ToUpper(strings.TrimPrefix(filepath.Ext(name), "."))
-	style := fileicon.Kind(name, "", false)
+	style := fileicon.Kind(name, mediaType, false)
 	if len(kind) == 0 || len(kind) > 6 {
 		kind = "文件"
 	}

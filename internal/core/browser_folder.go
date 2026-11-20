@@ -176,7 +176,7 @@ func (n *Node) renderFolderShare(w http.ResponseWriter, r *http.Request, file do
 		} else {
 			files++
 			url := page.Path + "/download?file=" + strconv.Itoa(index+1)
-			page.Items = append(page.Items, webFileItem(name, entry.Size, entry.Modified, url))
+			page.Items = append(page.Items, webFileItem(name, "", entry.Size, entry.Modified, url))
 		}
 	}
 	slices.SortStableFunc(page.Items, func(a, b sharePageItem) int {

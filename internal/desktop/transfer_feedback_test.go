@@ -4,8 +4,33 @@ import (
 	"testing"
 
 	"github.com/vivaui/viva/gfx"
+	"goim/internal/desktop/fileglyph"
 	"goim/internal/domain"
 )
+
+func TestTransferListUsesAttachmentMetadataForIcons(t *testing.T) {
+	state := panelTestDefaultState(t)
+	state.Files = []domain.File{
+		{ID: "folder", Name: "存档.zip", Folder: true},
+		{ID: "sound", Name: "录音", MIME: "audio/ogg"},
+	}
+	state.Transfers = []domain.Transfer{
+		{ID: "directory-transfer", FileID: "folder", Name: "存档.zip"},
+		{ID: "audio-transfer", FileID: "sound", Name: "录音"},
+		{ID: "old-transfer", FileID: "missing", Name: "历史文档.pdf"},
+	}
+	h := panelTestNewHarness(t, panelModuleTransfers, state)
+	want := map[string]*gfx.Icon{"directory-transfer": &fileglyph.Folder, "audio-transfer": &fileglyph.Audio, "old-transfer": &fileglyph.Pdf}
+	for _, row := range h.panels.transferRows {
+		if row.icon != want[row.transfer.ID] {
+			t.Errorf("incorrect transfer icon for %q", row.transfer.ID)
+		}
+		delete(want, row.transfer.ID)
+	}
+	if len(want) > 0 {
+		t.Fatalf("missing transfer rows: %v", want)
+	}
+}
 
 func TestTransferRateAndPartialCleanupInTable(t *testing.T) {
 	state := panelTestDefaultState(t)
