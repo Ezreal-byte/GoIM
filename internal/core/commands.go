@@ -187,6 +187,8 @@ func (n *Node) execute(c domain.Command) error {
 		return n.deleteConversation(c.ConversationID)
 	case domain.SetContactGroup, domain.CreateContactGroup, domain.RenameContactGroup, domain.DeleteContactGroup:
 		return n.updateContactGroups(c)
+	case domain.SetContactRemark:
+		return n.setContactRemark(c.PeerID, c.Name)
 	case domain.TogglePin, domain.ToggleMute, domain.MarkRead, domain.SaveDraft:
 		n.change(func(s *domain.State) {
 			if i := convIndex(s, c.ConversationID); i >= 0 {

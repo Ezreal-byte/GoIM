@@ -191,7 +191,7 @@ func (p *Panels) drawShareSendDialog(f ui.C, theme ui.Theme, submit func(domain.
 		title = i18n.T("分享文件夹")
 		description = i18n.T("访问者可浏览此文件夹的现有内容。新增文件和符号链接不会加入分享。")
 	}
-	dialog := ui.Dialog(f, ui.DialogSpec{
+	dialog := p.dialog(f, ui.DialogSpec{
 		Title: title, Description: description, Width: 460,
 		Scope: p.ids.shareDialogScope, DismissID: p.ids.shareDialogDismiss,
 		CloseID: p.ids.shareDialogClose, InitialFocusID: p.ids.shareDialogPassword,
@@ -240,7 +240,7 @@ func (p *Panels) drawSharePasswordDialog(f ui.C, theme ui.Theme, submit func(dom
 	if p.sharePassword.protected {
 		title = i18n.T("更改访问密码")
 	}
-	dialog := ui.Dialog(f, ui.DialogSpec{
+	dialog := p.dialog(f, ui.DialogSpec{
 		Title: title, Description: i18n.T("密码只影响这项分享；留空并保存会清除密码。"), Width: 440,
 		Scope: p.ids.sharePasswordScope, DismissID: p.ids.sharePasswordDismiss,
 		CloseID: p.ids.sharePasswordClose, InitialFocusID: p.ids.sharePasswordField,
@@ -273,7 +273,7 @@ func (p *Panels) drawSharePasswordDialog(f ui.C, theme ui.Theme, submit func(dom
 }
 
 func (p *Panels) drawShareQRDialog(f ui.C, theme ui.Theme) {
-	dialog := ui.Dialog(f, ui.DialogSpec{
+	dialog := p.dialog(f, ui.DialogSpec{
 		Title: i18n.T("分享二维码"), Description: p.shareQR.name, Width: 380,
 		Scope: p.ids.shareQRScope, DismissID: p.ids.shareQRDismiss,
 		CloseID: p.ids.shareQRClose,

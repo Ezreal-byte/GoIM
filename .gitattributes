@@ -3,4 +3,5 @@
 *.yml text eol=lf
 *.sh text eol=lf
 packaging/linux/preinst text eol=lf
+packaging/linux/zenity text eol=lf
 *.ps1 text eol=lf

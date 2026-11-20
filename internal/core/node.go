@@ -274,6 +274,13 @@ func (n *Node) snapshot(urls bool) domain.State {
 	b, _ := json.Marshal(n.data.State)
 	var s domain.State
 	_ = json.Unmarshal(b, &s)
+	for i := range s.Peers {
+		peer := &s.Peers[i]
+		peer.Remark = n.data.PeerRemarks[peer.ID]
+		if peer.CompatibilityAliasOf != "" && peer.Remark == "" {
+			peer.Remark = n.data.PeerRemarks[peer.CompatibilityAliasOf]
+		}
+	}
 	s.LockResult = n.lockResult
 	s.ConnectionFeedback = n.connectionFeedback
 	s.DataResetPending = n.dataResetPending

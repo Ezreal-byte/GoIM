@@ -351,7 +351,7 @@ func (p *Panels) drawPasswordDialog(f ui.C, theme ui.Theme, state domain.State, 
 	if s.passwordSystem {
 		title, saveLabel = i18n.T("启用系统验证解锁"), i18n.T("确认开启")
 	}
-	dialog := ui.Dialog(f, ui.DialogSpec{
+	dialog := p.dialog(f, ui.DialogSpec{
 		Title: title, Width: 420,
 		Scope: s.passwordScope, DismissID: s.passwordDismiss, CloseID: s.passwordClose,
 		InitialFocusID: focus, NoClose: s.passwordPending,

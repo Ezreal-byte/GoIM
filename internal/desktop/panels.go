@@ -259,10 +259,11 @@ type panelPendingSetting struct {
 // Panels owns the settings, transfers, and file-sharing surfaces. Init must be
 // called with the application's tree before Draw.
 type Panels struct {
-	tree  *gfx.Tree
-	page  *ui.Page
-	theme ui.Theme
-	ids   panelIDs
+	dialogViewport ui.Rect
+	tree           *gfx.Tree
+	page           *ui.Page
+	theme          ui.Theme
+	ids            panelIDs
 
 	module string
 
@@ -538,6 +539,17 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 		p.settingsScroll[p.settingsTab] = settingsScroll.ScrollState().Offset
 	}
 	canvas.Unclip()
+}
+
+// Panel content has a smaller layout region than the window. Every modal uses
+// the shell's full viewport so its scrim also blocks the rail and title bar.
+func (p *Panels) dialog(f ui.C, spec ui.DialogSpec) ui.Box {
+	spec.Layer = 70
+	dialog := ui.Dialog(f, spec)
+	if p.dialogViewport.Width > 0 && p.dialogViewport.Height > 0 {
+		dialog = dialog.Within(p.dialogViewport)
+	}
+	return dialog
 }
 
 // OnWake resolves local paths from the detached snapshot. Filesystem probes

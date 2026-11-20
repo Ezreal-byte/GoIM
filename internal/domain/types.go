@@ -4,10 +4,11 @@ package domain
 import "time"
 
 type Peer struct {
-	RecallSupported      bool `json:"RecallSupported,omitempty"`
-	PrintSupported       bool `json:"PrintSupported,omitempty"`
-	VoiceSupported       bool `json:",omitempty"`
-	RelaySupported       bool `json:",omitempty"`
+	Remark               string `json:"-"` // local presentation only; never sent to another peer
+	RecallSupported      bool   `json:"RecallSupported,omitempty"`
+	PrintSupported       bool   `json:"PrintSupported,omitempty"`
+	VoiceSupported       bool   `json:",omitempty"`
+	RelaySupported       bool   `json:",omitempty"`
 	ID                   string
 	Name                 string
 	Address              string
@@ -23,6 +24,13 @@ type Peer struct {
 	Transport            string         `json:",omitempty"` // empty for GoIM TLS
 	ClientType           ClientType     `json:",omitempty"`
 	CompatibilityAliasOf string         `json:",omitempty"` // local contact linkage; never an authenticated identity
+}
+
+func (p Peer) DisplayName() string {
+	if p.Remark != "" {
+		return p.Remark
+	}
+	return p.Name
 }
 
 // ProfileDetails contains optional information shared with connected GoIM peers.
@@ -660,6 +668,7 @@ const (
 	SetSetting           CommandKind = "set_setting"
 	SetProfile           CommandKind = "set_profile"
 	SetContactGroup      CommandKind = "set_contact_group"
+	SetContactRemark     CommandKind = "set_contact_remark"
 	CreateContactGroup   CommandKind = "create_contact_group"
 	RenameContactGroup   CommandKind = "rename_contact_group"
 	DeleteContactGroup   CommandKind = "delete_contact_group"

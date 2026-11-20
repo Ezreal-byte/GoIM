@@ -95,6 +95,6 @@ func (u *UI) drawToasts(c *gfx.Canvas, viewport gfx.Rect) {
 		n++
 	}
 	components.PaintSonner(c, u.theme, viewport, stack[:n], components.SonnerOptions{
-		Layer: 60, Position: components.ToastTopRight, Expanded: true,
+		Layer: 100, Position: components.ToastTopRight, Expanded: true,
 	})
 }

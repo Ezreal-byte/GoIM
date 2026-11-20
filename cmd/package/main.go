@@ -195,6 +195,9 @@ func build() error {
 			return err
 		}
 	case "linux":
+		if err := stageLinuxDialog(staging); err != nil {
+			return err
+		}
 		if err := copyFile(filepath.Join(logoAssets, "goim.desktop"), filepath.Join(staging, "share", "applications", "dev.goim.desktop.desktop")); err != nil {
 			return err
 		}
@@ -632,6 +635,9 @@ func pack(root, dest, platform string) error {
 				return err
 			}
 			hdr.Name = rel
+			// Shared Windows/WSL build directories can report every file as
+			// writable by everyone. Never carry those write bits into a release.
+			hdr.Mode &^= 0o022
 			hdr.ModTime = time.Unix(0, 0)
 			if err = tw.WriteHeader(hdr); err != nil {
 				return err

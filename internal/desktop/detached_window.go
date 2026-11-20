@@ -1,7 +1,6 @@
 package desktop
 
 import (
-	"errors"
 	"math"
 	"strings"
 
@@ -252,9 +251,9 @@ func (u *UI) openConversationDragPreview(drag *conversationDragState, event gfx.
 		},
 	})
 	if err != nil {
-		if !errors.Is(err, app.ErrNoDragPreview) {
-			drag.previewOpenFail = true
-		}
+		// Probe once per gesture. An unavailable Linux compositor must not
+		// reconnect to X11 on every pointer movement.
+		drag.previewOpenFail = true
 		return
 	}
 	drag.preview = preview

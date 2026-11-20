@@ -27,6 +27,7 @@ var systemVoiceDevices = voiceDevices{
 // call. It is driven by detached snapshots on OnWake; it never polls the backend
 // and never persists media.
 type voiceAudioRuntime struct {
+	ringtone         incomingRingtone
 	mu               sync.Mutex
 	backend          domain.VoiceAudioBackend
 	devices          voiceDevices
@@ -62,6 +63,7 @@ func (runtime *voiceAudioRuntime) sync(call domain.VoiceCall, settings domain.Se
 	if runtime == nil {
 		return
 	}
+	ringtoneStopped := runtime.ringtone.sync(call, settings, runtime.devices)
 	var (
 		stop             *voiceAudioSession
 		start            bool
@@ -132,7 +134,17 @@ func (runtime *voiceAudioRuntime) sync(call domain.VoiceCall, settings domain.Se
 		stop.stop()
 	}
 	if start {
-		go runtime.open(call.ID, settings.VoiceMicrophone, settings.VoiceSpeaker, devices, generation, muted, speaker, microphoneVolume, speakerVolume)
+		go func() {
+			if ringtoneStopped != nil {
+				<-ringtoneStopped
+			}
+			runtime.mu.Lock()
+			current := !runtime.closed && runtime.generation == generation && runtime.desiredID == call.ID
+			runtime.mu.Unlock()
+			if current {
+				runtime.open(call.ID, settings.VoiceMicrophone, settings.VoiceSpeaker, devices, generation, muted, speaker, microphoneVolume, speakerVolume)
+			}
+		}()
 	}
 }
 
@@ -223,6 +235,7 @@ func (runtime *voiceAudioRuntime) close() {
 	if runtime == nil {
 		return
 	}
+	runtime.ringtone.close()
 	runtime.mu.Lock()
 	if runtime.closed {
 		runtime.mu.Unlock()

@@ -111,6 +111,7 @@ type conversationDragState struct {
 }
 
 type conversationCardData struct {
+	username   string
 	title      string
 	avatarName string
 	avatarPath string
@@ -145,11 +146,12 @@ type profileState struct {
 }
 
 type profileAvatarCropState struct {
-	open   bool
-	source string
-	state  components.AvatarEditorState
-	layout components.AvatarEditorLayout
-	err    string
+	pending bool
+	open    bool
+	source  string
+	state   components.AvatarEditorState
+	layout  components.AvatarEditorLayout
+	err     string
 }
 
 type mentionCandidate struct {
@@ -237,6 +239,7 @@ type appIDs struct {
 	shellMenuDelete                                                        gfx.ID
 	shellMenuTalk                                                          gfx.ID
 	shellMenuOrganize                                                      gfx.ID
+	shellMenuRemark                                                        gfx.ID
 	shellMenuProfile                                                       gfx.ID
 	shellMenuNewGroup                                                      gfx.ID
 	shellMenuNewContactGroup                                               gfx.ID
@@ -1035,12 +1038,7 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 		if !result.decoded {
 			delete(u.imageCache, result.path)
 			delete(u.avatarCache, result.path)
-			if u.profile.crop.open && u.profile.crop.source == result.path {
-				u.profile.crop.err = i18n.T("无法读取这张图片")
-			}
-			if u.groupAvatar.open && u.groupAvatar.source == result.path {
-				u.groupAvatar.err = i18n.T("无法读取这张图片")
-			}
+			u.rejectAvatarImage(result.path, result.err)
 			if u.profile.open && u.profile.avatar == result.path {
 				u.profile.err = i18n.T("无法读取这张图片")
 			}
@@ -1196,6 +1194,7 @@ func (u *UI) initIDs() {
 	u.ids.shellMenuDelete = u.tree.ID(u.ids.menu, "shell-delete")
 	u.ids.shellMenuTalk = u.tree.ID(u.ids.menu, "shell-talk")
 	u.ids.shellMenuOrganize = u.tree.ID(u.ids.menu, "shell-organize")
+	u.ids.shellMenuRemark = u.tree.ID(u.ids.menu, "shell-remark")
 	u.ids.shellMenuProfile = u.tree.ID(u.ids.menu, "shell-profile")
 	u.ids.shellMenuNewGroup = u.tree.ID(u.ids.menu, "shell-new-group")
 	u.ids.shellMenuNewContactGroup = u.tree.ID(u.ids.menu, "shell-new-contact-group")
@@ -1350,6 +1349,7 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 		return
 	}
 
+	u.panels.dialogViewport = bounds
 	u.drawMainBody(canvas, body)
 	u.drawConversationDragGhost(canvas, body)
 
@@ -1742,7 +1742,7 @@ func (u *UI) selfContactRow(f ui.C) {
 			gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("编辑个人资料")}).
 		Children(func() {
 			u.avatarStatus(f, name, u.selfAvatarPath(), 34, true)
-			ui.Column(f).Grow(1).Gap(2).Justify(ui.Center).Children(func() {
+			ui.Column(f).Grow(1).Basis(0).MinWidth(0).Gap(2).Justify(ui.Center).Children(func() {
 				ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
 					ui.Text(f, name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
 					ui.Stack(f).Size(6, 6).Radius(3).Background(u.palette.success)
@@ -1918,13 +1918,11 @@ func (u *UI) contactRow(f ui.C, peer domain.Peer) {
 	}
 	row := ui.Row(f).FillWidth().Height(u.textExtent(sidebarContactHeight, 30)).PadSides(8, 7, 8, 7).Radius(radiusCard).Gap(9).
 		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
-		HitWith(id, peer.Name, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
+		HitWith(id, peer.DisplayName(), gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
 			u.avatarStatus(f, peer.Name, peer.Avatar, 34, peer.VisibleOnline())
 			ui.Column(f).Grow(1).Gap(2).Justify(ui.Center).Children(func() {
-				ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
-					ui.Text(f, peer.Name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
-				})
+				u.peerNameLine(f, peer.DisplayName(), remarkUsername(peer), 14)
 				subtitle := peerPresenceLabel(peer)
 				if peer.Transport != domain.TransportGoIM {
 					subtitle += " · " + contactClientLabel(peer)
@@ -1973,7 +1971,7 @@ func (u *UI) drawConversationList(f ui.C) {
 	shown := 0
 	for _, conversation := range u.conversations {
 		title := u.conversationTitle(conversation)
-		if query != "" && !containsFold(title, query) && !containsFold(conversation.Preview, query) {
+		if query != "" && !containsFold(title, query) && !containsFold(u.state.Peer(conversation.PeerID).Name, query) && !containsFold(conversation.Preview, query) {
 			continue
 		}
 		shown++
@@ -2027,7 +2025,7 @@ func (u *UI) conversationCardBody(f ui.C, card conversationCardData) {
 	u.avatarStatus(f, card.avatarName, card.avatarPath, 38, card.online)
 	ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
 		ui.Row(f).Items(ui.Center).Gap(5).Children(func() {
-			ui.Text(f, card.title).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
+			u.peerNameLine(f, card.title, card.username, 14)
 			if card.pinned {
 				ui.Icon(f, u.iconPin).Size(12, 12).Color(u.palette.secondaryText)
 			}
@@ -2108,6 +2106,13 @@ func (u *UI) badgeText(f ui.C, label string, primary bool) {
 }
 
 func (u *UI) conversationTitle(conversation domain.Conversation) string {
+	if conversation.Kind == "direct" {
+		for _, peer := range u.state.Peers {
+			if peer.ID == conversation.PeerID && peer.DisplayName() != "" {
+				return peer.DisplayName()
+			}
+		}
+	}
 	title := conversation.Title
 	if title != "" {
 		return title
@@ -2137,6 +2142,7 @@ func (u *UI) conversationCard(conversation domain.Conversation) conversationCard
 		peer := u.state.Peer(conversation.PeerID)
 		card.online = peer.ID != "" && peer.Online
 		card.avatarPath = peer.Avatar
+		card.username = remarkUsername(peer)
 		if peer.Name != "" {
 			card.avatarName = peer.Name
 		}
@@ -2720,7 +2726,7 @@ func (u *UI) filteredPeers(peers []domain.Peer, query string) []domain.Peer {
 		if u.sidebarFilter == "online" && !peer.Online {
 			continue
 		}
-		if query != "" && !containsFold(peer.Name, query) && !containsFold(peer.ContactGroup, query) {
+		if query != "" && !containsFold(peer.Name, query) && !containsFold(peer.Remark, query) && !containsFold(peer.ContactGroup, query) {
 			continue
 		}
 		out = append(out, peer)
@@ -3177,12 +3183,12 @@ func (u *UI) refreshImages() {
 	}
 	u.markAvatarImage(u.state.Self.Avatar)
 	u.markAvatarImage(u.state.Settings.Avatar)
-	if u.profile.crop.open {
+	if u.profile.crop.open || u.profile.crop.pending {
 		u.markImage(u.profile.crop.source)
 	} else if u.profile.open {
 		u.markAvatarImage(u.profile.avatar)
 	}
-	if u.groupAvatar.open {
+	if u.groupAvatar.open || u.groupAvatar.pending {
 		u.markImage(u.groupAvatar.source)
 	}
 	for _, group := range u.state.Groups {
@@ -3243,12 +3249,14 @@ func (u *UI) queueImage(path string) {
 		return
 	}
 	previous, previousSet := u.imageStamps[path]
+	validatingAvatar := u.profile.crop.pending && u.profile.crop.source == path ||
+		u.groupAvatar.pending && u.groupAvatar.source == path
 	generation, queued := u.mediaImageQueued[path]
 	if queued {
 		// The old stat can return unchanged without waking the UI. Keep one
 		// coalesced probe at the same generation for the newer wake, but do
 		// not duplicate the first decode of an image we haven't loaded yet.
-		if !previousSet {
+		if !previousSet || validatingAvatar {
 			return
 		}
 	} else {
@@ -3257,11 +3265,16 @@ func (u *UI) queueImage(path string) {
 		u.mediaImageQueued[path] = generation
 	}
 	limit := 512
-	if u.profile.crop.open && u.profile.crop.source == path ||
-		u.groupAvatar.open && u.groupAvatar.source == path {
+	if (u.profile.crop.open || u.profile.crop.pending) && u.profile.crop.source == path ||
+		(u.groupAvatar.open || u.groupAvatar.pending) && u.groupAvatar.source == path {
 		// Keep enough source pixels for an 8x crop to remain sharp on a
 		// high-DPI display while bounding worker-thread memory.
 		limit = 4096
+		// A previously cached thumbnail has different decode limits and may be
+		// stale. Validate the selected file before entering the editor.
+		if validatingAvatar {
+			previousSet = false
+		}
 	} else if u.avatarImagePaths[path] && path != u.state.Settings.Background {
 		limit = 192
 	} else if path == u.state.Settings.Background {
@@ -3583,9 +3596,14 @@ const (
 )
 
 func decodeBitmap(path string, limit int) (gfx.Bitmap, bool) {
+	bitmap, err := decodeBitmapChecked(path, limit)
+	return bitmap, err == nil
+}
+
+func decodeBitmapChecked(path string, limit int) (gfx.Bitmap, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return gfx.Bitmap{}, false
+		return gfx.Bitmap{}, errors.New("无法读取图片，请检查文件是否存在或有读取权限。")
 	}
 	defer file.Close()
 	info, err := file.Stat()
@@ -3593,12 +3611,18 @@ func decodeBitmap(path string, limit int) (gfx.Bitmap, bool) {
 	if limit <= 192 {
 		maxBytes = 8 << 20
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxBytes {
-		return gfx.Bitmap{}, false
+	if err != nil || !info.Mode().IsRegular() {
+		return gfx.Bitmap{}, errors.New("无法读取图片，请检查文件是否存在或有读取权限。")
 	}
-	config, format, err := image.DecodeConfig(file)
+	if info.Size() > maxBytes {
+		return gfx.Bitmap{}, errors.New("图片文件太大，请选择不超过 32 MB 的图片。")
+	}
+	config, format, err := image.DecodeConfig(io.LimitReader(file, maxBytes+1))
 	if err != nil {
-		return gfx.Bitmap{}, false
+		if errors.Is(err, image.ErrFormat) {
+			return gfx.Bitmap{}, errors.New("不支持的图片格式，请选择 PNG、JPEG 或 GIF 图片。")
+		}
+		return gfx.Bitmap{}, errors.New("图片已损坏或无法解码，请选择其他图片。")
 	}
 	maxPixels := maxImageDecodePixels
 	if format == "gif" || (format == "png" && limit <= 192) {
@@ -3606,18 +3630,18 @@ func decodeBitmap(path string, limit int) (gfx.Bitmap, bool) {
 	}
 	if config.Width <= 0 || config.Height <= 0 || config.Width > maxImageDimension || config.Height > maxImageDimension ||
 		int64(config.Width)*int64(config.Height) > maxPixels {
-		return gfx.Bitmap{}, false
+		return gfx.Bitmap{}, errors.New("图片尺寸太大：最长边不超过 8192 像素，总像素不超过 1600 万（GIF 为 800 万）。")
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return gfx.Bitmap{}, false
+		return gfx.Bitmap{}, errors.New("无法读取图片，请检查文件是否存在或有读取权限。")
 	}
-	source, _, err := image.Decode(file)
+	source, _, err := image.Decode(io.LimitReader(file, maxBytes+1))
 	if err != nil {
-		return gfx.Bitmap{}, false
+		return gfx.Bitmap{}, errors.New("图片已损坏或无法解码，请选择其他图片。")
 	}
 	bounds := source.Bounds()
 	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
-		return gfx.Bitmap{}, false
+		return gfx.Bitmap{}, errors.New("图片已损坏或无法解码，请选择其他图片。")
 	}
 	width, height := bounds.Dx(), bounds.Dy()
 	if width > limit || height > limit {
@@ -3634,10 +3658,10 @@ func decodeBitmap(path string, limit int) (gfx.Bitmap, bool) {
 		for i := 0; i < len(rgba.Pix); i += 4 {
 			rgba.Pix[i], rgba.Pix[i+2] = rgba.Pix[i+2], rgba.Pix[i]
 		}
-		return gfx.Bitmap{Pix: rgba.Pix, Width: width, Height: height, Stride: rgba.Stride}, true
+		return gfx.Bitmap{Pix: rgba.Pix, Width: width, Height: height, Stride: rgba.Stride}, nil
 	}
 	pixels := resamplePremultipliedBGRA(source, width, height)
-	return gfx.Bitmap{Pix: pixels, Width: width, Height: height, Stride: width * 4}, true
+	return gfx.Bitmap{Pix: pixels, Width: width, Height: height, Stride: width * 4}, nil
 }
 
 // resamplePremultipliedBGRA shrinks an image with a box filter. Each output

@@ -367,9 +367,6 @@ func (r *desktopRuntime) observeVoiceCall(s domain.State) {
 			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("系统通知暂不可用：") + err.Error()})
 		}
 	}
-	if s.Settings.Sound {
-		_ = app.PlaySystemSound(app.SoundInformation)
-	}
 }
 
 func parseGlobal(keys string) (app.GlobalShortcut, error) {

@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestLinuxDEBRequiresFileDialogFallback(t *testing.T) {
+func TestLinuxDEBBundlesFileDialogFallback(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("DEB assembly requires Linux")
 	}
@@ -29,6 +29,7 @@ func TestLinuxDEBRequiresFileDialogFallback(t *testing.T) {
 			for _, entry := range []string{
 				"GoIM", "goim-snip", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md", "build-info.json",
 				"licenses/fixture.txt", "share/applications/dev.goim.desktop.desktop", "share/polkit-1/actions/dev.goim.desktop.policy",
+				"lib/goim/file-dialog/bin/zenity", "lib/goim/file-dialog/lib/libgtk-3.so.0",
 			} {
 				path := filepath.Join(output, name, filepath.FromSlash(entry))
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -37,6 +38,9 @@ func TestLinuxDEBRequiresFileDialogFallback(t *testing.T) {
 				if err := os.WriteFile(path, []byte("fixture"), 0o755); err != nil {
 					t.Fatal(err)
 				}
+			}
+			if err := os.WriteFile(filepath.Join(output, name, "lib/goim/file-dialog/architecture"), []byte(architecture), 0644); err != nil {
+				t.Fatal(err)
 			}
 			command := exec.Command("bash", script, "0.1.14-dialog-test", "linux", architecture, output)
 			if result, err := command.CombinedOutput(); err != nil {
@@ -53,8 +57,17 @@ func TestLinuxDEBRequiresFileDialogFallback(t *testing.T) {
 					found = true
 				}
 			}
-			if !found {
-				t.Fatalf("file dialogs must work even with Recommends disabled; Depends=%s", result)
+			if found {
+				t.Fatalf("offline installation must not require an external dialog package; Depends=%s", result)
+			}
+			extracted := filepath.Join(t.TempDir(), "extract")
+			if result, err := exec.Command("dpkg-deb", "--extract", archive, extracted).CombinedOutput(); err != nil {
+				t.Fatalf("extract: %v\n%s", err, result)
+			}
+			for _, file := range []string{"bin/zenity", "lib/libgtk-3.so.0", "architecture"} {
+				if _, err := os.Stat(filepath.Join(extracted, "usr/lib/goim/file-dialog", file)); err != nil {
+					t.Fatal(err)
+				}
 			}
 			control := filepath.Join(t.TempDir(), "control")
 			if result, err := exec.Command("dpkg-deb", "--control", archive, control).CombinedOutput(); err != nil {

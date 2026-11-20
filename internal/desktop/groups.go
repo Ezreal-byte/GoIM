@@ -262,15 +262,16 @@ func (u *UI) openGroupAvatar(group domain.Group) {
 	}
 	path := paths[0]
 	u.avatarGroup = group.ID
-	u.groupAvatar = profileAvatarCropState{open: true, source: path}
-	u.ensureImage(path)
+	u.groupAvatar = profileAvatarCropState{pending: true, source: path}
+	u.requestAvatarImage(path)
 }
 
 func (u *UI) syncGroupAvatarCrop(path string) {
-	if !u.groupAvatar.open || u.groupAvatar.source != path {
+	if (!u.groupAvatar.open && !u.groupAvatar.pending) || u.groupAvatar.source != path {
 		return
 	}
 	if bitmap, ok := u.imageCache[path]; ok && bitmapReady(bitmap) {
+		u.groupAvatar.open, u.groupAvatar.pending = true, false
 		u.groupAvatar.err = ""
 	}
 }

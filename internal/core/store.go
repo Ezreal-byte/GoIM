@@ -26,6 +26,7 @@ type ownershipOffer struct {
 	CreatedAt time.Time
 }
 type persisted struct {
+	PeerRemarks             map[string]string `json:",omitempty"`
 	MessageTargets          map[string][]string
 	MessageRecalls          map[string]bool
 	CatalogRevisions        map[string]uint64
