@@ -1,0 +1,84 @@
+name: Windows NWT stock receiver
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/nwt-windows-acceptance*']
+permissions:
+  contents: read
+jobs:
+  stock:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Prepare official 3.4.3055 and UI driver
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'nwt-3.4.3055.exe'
+          curl.exe -fsSL --retry 2 --max-time 120 'https://www.51nwt.com/nwt_setup_3.4.3055.exe' -o $installer
+          if ($LASTEXITCODE -ne 0 -or (Get-FileHash $installer).Hash -ne '5E61FA1C736572F1FC0F27B1121629315E3DFFA800E7A9599348038241ED986C') { throw 'Official package unavailable or pinned checksum mismatch' }
+          $stockDir = Join-Path $env:RUNNER_TEMP 'nwt-stock'
+          & 7z x -y "-o$stockDir" $installer | Select-Object -Last 4
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot extract installer' }
+          $apps = @(Get-ChildItem $stockDir -Filter 'ShiYeLine.exe' -File -Recurse)
+          if ($apps.Count -ne 1) { throw "Expected exactly one stock main executable, got $($apps.Count)" }
+          $app = $apps[0].FullName
+          $driver = Join-Path $env:RUNNER_TEMP 'nwt-stock-driver.exe'
+          gcc -municode -O2 -o $driver scripts/neiwangtong-lab/drive.c -lgdi32 -luser32
+          if ($LASTEXITCODE -ne 0) { throw 'Could not compile stock UI driver' }
+          "GOIM_NWT_STOCK=$app" >> $env:GITHUB_ENV
+          "GOIM_NWT_DRIVER=$driver" >> $env:GITHUB_ENV
+          "GOIM_NWT_QA_BITMAP=$env:RUNNER_TEMP/stock-chat.bmp" >> $env:GITHUB_ENV
+          $checker = Join-Path $env:RUNNER_TEMP 'nwt-stock-check.exe'
+          go test -c -o $checker ./cmd/neiwangtong-check
+          if ($LASTEXITCODE -ne 0) { throw 'Could not build the checker' }
+          "GOIM_NWT_CHECKER=$checker" >> $env:GITHUB_ENV
+          Set-NetFirewallProfile -All -Enabled True
+          $interfaces = @(Get-NetIPInterface | Where-Object InterfaceIndex -ne 1 | Select-Object -ExpandProperty InterfaceAlias -Unique)
+          if (!$interfaces.Count -or !(Get-NetIPAddress -InterfaceIndex 1 -IPAddress '127.0.0.1' -ErrorAction SilentlyContinue)) { throw 'Cannot verify network interface isolation' }
+          # Apply only to this disposable VM's stock executables, before starting any of them.
+          foreach ($bin in (@(Get-ChildItem $stockDir -Recurse -File -Filter '*.exe') + @(Get-Item $checker))) {
+            foreach ($direction in @('Inbound','Outbound')) {
+              $rule = New-NetFirewallRule -DisplayName "NWT QA $direction $($bin.Name)" -Program $bin.FullName -Direction $direction -Action Block -Profile Any -InterfaceAlias $interfaces
+              $active = Get-NetFirewallRule -PolicyStore ActiveStore -Name $rule.Name
+              if ($active.Enabled -ne 'True' -or $active.Action -ne 'Block' -or $active.Direction -ne $direction) { throw 'Required firewall rule inactive' }
+            }
+          }
+          if (@(Get-NetFirewallProfile -PolicyStore ActiveStore | Where-Object Enabled -ne True).Count) { throw 'Firewall profile disabled' }
+      - name: Check actual small and boundary downloads
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = Get-Item $env:GOIM_NWT_STOCK
+          $p = Start-Process -FilePath $app.FullName -WorkingDirectory $app.DirectoryName -WindowStyle Hidden -PassThru
+          try {
+            $bound = $false
+            foreach ($i in 1..25) {
+              Start-Sleep -Seconds 1
+              $p.Refresh()
+              if ($p.HasExited) { throw "Stock client exited during startup ($($p.ExitCode))" }
+              if (@(Get-NetUDPEndpoint -LocalPort 9011 -OwningProcess $p.Id -ErrorAction SilentlyContinue).Count -gt 0) { $bound=$true;break }
+            }
+            if (!$bound) { throw "Stock client never opened UDP 9011, main window: $($p.MainWindowTitle)" }
+            Get-NetTCPConnection -State Listen -OwningProcess $p.Id -ErrorAction SilentlyContinue | Select-Object LocalAddress, LocalPort | Format-Table
+            Get-NetUDPEndpoint -OwningProcess $p.Id -ErrorAction SilentlyContinue | Select-Object LocalAddress, LocalPort | Format-Table
+            & $env:GOIM_NWT_CHECKER '-test.run=^TestWindowsStockReceiverBoundary$' '-test.v' '-test.timeout=23m'
+            if ($LASTEXITCODE -ne 0) { throw 'Stock receiver compatibility check failed' }
+          } finally {
+            if (!$p.HasExited) { Stop-Process -Id $p.Id -Force }
+          }
+      - name: Attach the fresh stock chat if the control fails
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: nwt-stock-chat
+          path: ${{ runner.temp }}/stock-chat.bmp
+          if-no-files-found: ignore
+          retention-days: 1

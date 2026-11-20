@@ -65,6 +65,41 @@ static BOOL CALLBACK describe_window(HWND window, LPARAM arg) {
 static BOOL activate_control(HWND window, int x, int y);
 static int fail(const char *message);
 
+// Only the fresh stock QA contact's native window is captured.
+static void capture_stock_chat(HWND chat, RECT rect) {
+    const wchar_t *path = _wgetenv(L"GOIM_NWT_QA_BITMAP");
+    if (!path) return;
+    HDC screen = GetDC(chat), dc = CreateCompatibleDC(screen);
+    BITMAPINFO info = {0};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = rect.right;
+    info.bmiHeader.biHeight = -rect.bottom;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    void *pixels = NULL;
+    HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &pixels, NULL, 0);
+    if (dc && bitmap) {
+        HGDIOBJ previous = SelectObject(dc, bitmap);
+        if (BitBlt(dc, 0, 0, rect.right, rect.bottom, screen, 0, 0, SRCCOPY)) {
+            DWORD size = rect.right * rect.bottom * 4;
+            BITMAPFILEHEADER header = {0x4d42, sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + size, 0, 0,
+                                       sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER)};
+            FILE *f = _wfopen(path, L"wb");
+            if (f) {
+                GdiFlush();
+                fwrite(&header, sizeof(header), 1, f);
+                fwrite(&info.bmiHeader, sizeof(info.bmiHeader), 1, f);
+                fwrite(pixels, size, 1, f);
+                fclose(f);
+            }
+        }
+        SelectObject(dc, previous);
+    }
+    if (bitmap) DeleteObject(bitmap);
+    if (dc) DeleteDC(dc);
+    ReleaseDC(chat, screen);
+}
+
 static void dismiss_guide(const wchar_t *exe) {
     struct window_query guide = {exe, L"新手引导", L"SkinDialog", NULL};
     EnumWindows(match_window, (LPARAM)&guide);
@@ -440,6 +475,7 @@ int wmain(int argc, wchar_t **argv) {
     RECT client = {0};
     if (!chat || !GetClientRect(chat, &client) ||
         ((client.right != 874 || client.bottom != 600) &&
+         (wcscmp(action, L"accept-file") || client.right != 874 || client.bottom != 596) &&
          (client.right != 1034 || client.bottom != 624))) {
         EnumWindows(describe_window, (LPARAM)exe);
         return fail("expected original chat window with the stock 3.4.3055 layout");
@@ -675,7 +711,17 @@ int wmain(int argc, wchar_t **argv) {
     if (!wcscmp(action, L"accept-file") && argc == 4) {
         if (stock_pair && !focus_chat(chat)) return fail("could not activate the stock receiver");
         Sleep(350); // the reference animates the transfer pane after an offer
-        return activate_control(chat, 766, button_y) ? 0 : fail("could not accept fixture file");
+        if (_wgetenv(L"GOIM_NWT_QA_BITMAP")) {
+            dismiss_guide(exe);
+            ShowWindow(chat, SW_RESTORE);
+            SetWindowPos(chat, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+            focus_chat(chat);
+            RedrawWindow(chat, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+            Sleep(500);
+        }
+        GetClientRect(chat, &client);
+        capture_stock_chat(chat, client);
+        return activate_control(chat, 766, client.bottom == 596 ? client.bottom - 19 : button_y) ? 0 : fail("could not accept fixture file");
     }
     if (!wcscmp(action, L"cancel-file") && argc == 4) {
         Sleep(600); // the stock transfer pane slides out to the right
