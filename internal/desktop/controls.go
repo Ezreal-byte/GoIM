@@ -23,7 +23,10 @@ func fontToken(theme gfx.Theme, size float32) float32 {
 	return size / theme.Metrics.EffectiveTextScale()
 }
 
-func (u *UI) railExtent() float32 { return max(railWidth, 56*u.theme.Metrics.EffectiveTextScale()) }
+func (u *UI) railExtent() float32 {
+	// Labels scale with the interface font; the outer control inset stays fixed.
+	return max(railWidth, 12+56*u.theme.Metrics.EffectiveTextScale())
+}
 
 func (u *UI) textExtent(base, extra float32) float32 {
 	return base + extra*max(u.theme.Metrics.EffectiveTextScale()-1, 0)

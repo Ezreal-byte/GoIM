@@ -23,6 +23,7 @@ import (
 
 const protocolVersion = 1
 const maxFrame = 4 << 20
+const maxPendingPeerConnections = 64
 
 type envelope struct {
 	RelaySupported  bool         `json:",omitempty"`
@@ -129,6 +130,8 @@ func (n *Node) establish(conn *tls.Conn, outbound bool, expected string) {
 }
 
 func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound bool, expected string, ready chan<- bool) {
+	stop := watchConnection(n.ctx, conn)
+	defer stop()
 	notify := func(ok bool) {
 		if ready != nil {
 			ready <- ok
@@ -222,6 +225,9 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 		return
 	}
 	n.connections[pc.peer.ID] = pc
+	// Established messaging peers have their own lifetime and must not consume
+	// the admission budget for handshakes and temporary file connections.
+	delete(n.incoming, conn)
 	n.mu.Unlock()
 	_ = conn.SetDeadline(time.Time{})
 	err = n.change(func(s *domain.State) {
@@ -598,6 +604,8 @@ func (n *Node) receive(peer string, e envelope) error {
 func (n *Node) receiveMessage(peer string, e envelope) error {
 	m := e.Message
 	m.Deleted, m.Recalled = false, false
+	// Text envelopes cannot attach authority over file or print records.
+	m.FileID, m.PrintJobID = "", ""
 	if m.ID == "" || m.SenderID != peer || m.Kind != "text" || len(m.Text) > 256<<10 {
 		return errors.New("无效聊天消息")
 	}

@@ -236,7 +236,9 @@ func (u *updateController) check() {
 	defer cancelNotes()
 	notes, notesErr := u.client.ReleaseNotes(notesCtx, offer)
 	u.change(func(v *updateView) {
-		if v.offer.Version != offer.Version || v.phase != updateOffered {
+		// Download and installation can advance while the independent notes
+		// request is pending. They still describe the same offered version.
+		if v.offer.Version != offer.Version {
 			return
 		}
 		v.notesLoading = false

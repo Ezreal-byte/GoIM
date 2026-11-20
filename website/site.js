@@ -12,9 +12,12 @@
   window.addEventListener("scroll", updateHeader, { passive: true });
 
   if (header && menuToggle && mobileNav) {
+    const english = document.documentElement.lang.toLowerCase().startsWith("en");
     const setMenu = (open) => {
       menuToggle.setAttribute("aria-expanded", String(open));
-      menuToggle.setAttribute("aria-label", open ? "关闭导航" : "打开导航");
+      menuToggle.setAttribute("aria-label", english
+        ? (open ? "Close navigation" : "Open navigation")
+        : (open ? "关闭导航" : "打开导航"));
       mobileNav.hidden = !open;
       header.classList.toggle("is-open", open);
     };

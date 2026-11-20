@@ -52,6 +52,7 @@ type Node struct {
 	listener              net.Listener
 	localIP               string
 	connections           map[string]*peerConn
+	incoming              map[*tls.Conn]struct{}
 	dialing               map[string]bool
 	commands              chan domain.Command
 	updates               chan struct{}
@@ -152,6 +153,7 @@ func New(opts Options) (*Node, error) {
 		dataLock: dataLock,
 		data:     data, db: db, key: key, tls: tlsConfig, dir: opts.DataDir, ctx: ctx, cancel: cancel,
 		listener: listener, connections: make(map[string]*peerConn), dialing: make(map[string]bool),
+		incoming: make(map[*tls.Conn]struct{}),
 		commands: make(chan domain.Command, 256), updates: make(chan struct{}, 1),
 		transfers: make(map[string]context.CancelFunc), discovery: !opts.DisableDiscovery,
 		discoveryWake: make(chan struct{}, 1), relayRoutes: make(map[string]map[string]bool),
@@ -426,8 +428,25 @@ func (n *Node) acceptLoop() {
 		if err != nil {
 			return
 		}
-		if !n.async(func() { n.establish(tls.Server(c, n.tls), false, "") }) {
-			c.Close()
+		conn := tls.Server(c, n.tls)
+		n.mu.Lock()
+		admitted := !n.closing && len(n.incoming) < maxPendingPeerConnections
+		if admitted {
+			n.incoming[conn] = struct{}{}
+		}
+		n.mu.Unlock()
+		if !admitted {
+			conn.Close()
+			continue
+		}
+		if !n.async(func() {
+			defer func() { n.mu.Lock(); delete(n.incoming, conn); n.mu.Unlock() }()
+			n.establish(conn, false, "")
+		}) {
+			conn.Close()
+			n.mu.Lock()
+			delete(n.incoming, conn)
+			n.mu.Unlock()
 		}
 	}
 }

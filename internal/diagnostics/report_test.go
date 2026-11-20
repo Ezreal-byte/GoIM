@@ -156,6 +156,27 @@ func TestReportKeepsUsefulNonPrivateErrorContext(t *testing.T) {
 	}
 }
 
+func TestReportRedactsPrintingDataInErrorAndAdapterNames(t *testing.T) {
+	private := []string{"private-queue", "private-printer", "private-share", "private-owner", "private-document.pdf", "private-local-job", "private-spooler-detail"}
+	state := domain.State{
+		LocalPrinters: []domain.LocalPrinter{{ID: private[0], Name: private[1]}},
+		Printers:      []domain.PrinterShare{{ID: private[2], OwnerName: private[3]}},
+		PrintJobs:     []domain.PrintJob{{FileName: private[4], LocalJobID: private[5], Error: private[6]}},
+		Error:         "print submission failed: " + strings.Join(private, ", "),
+	}
+	report := Build(Input{State: state, Interfaces: func() ([]net.Interface, error) {
+		return []net.Interface{{Name: private[1]}}, nil
+	}})
+	for _, value := range private {
+		if strings.Contains(report, value) {
+			t.Errorf("report contains private printing value %q", value)
+		}
+	}
+	if !strings.Contains(report, "print submission failed:") {
+		t.Fatal("printing error context was lost")
+	}
+}
+
 func TestStorageProbesVerifyWritabilityAndDatabaseReadability(t *testing.T) {
 	directory := t.TempDir()
 	if got := directoryState(directory); got != "present, writable" {

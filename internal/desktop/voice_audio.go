@@ -63,14 +63,10 @@ func (runtime *voiceAudioRuntime) sync(call domain.VoiceCall, settings domain.Se
 		return
 	}
 	var (
-		stop             *voiceAudioSession
-		start            bool
-		generation       uint64
-		devices          voiceDevices
-		muted            bool
-		speaker          bool
-		microphoneVolume int
-		speakerVolume    int
+		stop       *voiceAudioSession
+		start      bool
+		generation uint64
+		devices    voiceDevices
 	)
 	runtime.mu.Lock()
 	if runtime.closed {
@@ -124,64 +120,60 @@ func (runtime *voiceAudioRuntime) sync(call domain.VoiceCall, settings domain.Se
 		start = true
 		generation = runtime.generation
 		devices = runtime.devices
-		muted, speaker = runtime.muted, runtime.speakerMuted
-		microphoneVolume, speakerVolume = runtime.microphoneVolume, runtime.speakerVolume
 	}
 	runtime.mu.Unlock()
 	if stop != nil {
 		stop.stop()
 	}
 	if start {
-		go runtime.open(call.ID, settings.VoiceMicrophone, settings.VoiceSpeaker, devices, generation, muted, speaker, microphoneVolume, speakerVolume)
+		go runtime.open(call.ID, settings.VoiceMicrophone, settings.VoiceSpeaker, devices, generation)
 	}
 }
 
-func (runtime *voiceAudioRuntime) open(callID, microphone, speaker string, devices voiceDevices, generation uint64, muted, speakerMuted bool, microphoneVolume, speakerVolume int) {
+func (runtime *voiceAudioRuntime) open(callID, microphone, speaker string, devices voiceDevices, generation uint64) {
 	if runtime.backend == nil {
-		runtime.fail(callID, nil, i18n.T("当前版本无法建立语音音频通道"))
+		runtime.fail(callID, generation, nil, i18n.T("当前版本无法建立语音音频通道"))
 		return
 	}
 	capture, err := devices.openCapture(microphone)
 	if err != nil {
-		runtime.fail(callID, nil, i18n.T("无法打开麦克风：")+err.Error())
+		runtime.fail(callID, generation, nil, i18n.T("无法打开麦克风：")+err.Error())
 		return
 	}
 	playback, err := devices.openPlayback(speaker)
 	if err != nil {
 		_ = capture.Close()
-		runtime.fail(callID, nil, i18n.T("无法打开扬声器：")+err.Error())
+		runtime.fail(callID, generation, nil, i18n.T("无法打开扬声器：")+err.Error())
 		return
 	}
 	audio := runtime.backend.VoiceAudio(callID)
 	if audio == nil {
 		_ = capture.Close()
 		_ = playback.Close()
-		runtime.fail(callID, nil, i18n.T("语音音频通道不可用"))
+		runtime.fail(callID, generation, nil, i18n.T("语音音频通道不可用"))
 		return
 	}
 	session := &voiceAudioSession{
 		callID: callID, capture: capture, playback: playback, audio: audio, done: make(chan struct{}),
 	}
-	session.muted.Store(muted)
-	session.speakerMuted.Store(speakerMuted)
-	session.microphoneVolume.Store(int32(microphoneVolume))
-	session.speakerVolume.Store(int32(speakerVolume))
-
 	runtime.mu.Lock()
 	if runtime.closed || runtime.generation != generation || runtime.desiredID != callID {
 		runtime.mu.Unlock()
 		session.stop()
 		return
 	}
+	// Device drivers can block while the user changes call controls. Apply the
+	// latest values before either stream starts, especially microphone privacy.
+	session.setControls(runtime.muted, runtime.speakerMuted, runtime.microphoneVolume, runtime.speakerVolume)
 	runtime.session = session
 	runtime.starting = false
 	runtime.mu.Unlock()
-	go session.run(runtime.backend, func(err error) { runtime.fail(callID, session, err.Error()) })
+	go session.run(runtime.backend, func(err error) { runtime.fail(callID, generation, session, err.Error()) })
 }
 
-func (runtime *voiceAudioRuntime) fail(callID string, session *voiceAudioSession, message string) {
+func (runtime *voiceAudioRuntime) fail(callID string, generation uint64, session *voiceAudioSession, message string) {
 	runtime.mu.Lock()
-	if runtime.closed || runtime.desiredID != callID || session != nil && runtime.session != session {
+	if runtime.closed || runtime.generation != generation || runtime.desiredID != callID || session != nil && runtime.session != session {
 		runtime.mu.Unlock()
 		return
 	}

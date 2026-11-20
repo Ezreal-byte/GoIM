@@ -263,20 +263,27 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 		var printJob domain.PrintJob
 		if isPrint {
 			var printErr error
+			storageRejected := false
 			printJob, autoReceive, printErr = n.receivePrintOffer(peer, p, f, e)
+			if printErr == nil && transferIndex(s, e.TransferID) < 0 && pendingPrintBytes(s)+f.Size > maxPendingPrintBytes {
+				printErr = errors.New("本机打印接收缓存已达上限，请稍后重试")
+			}
+			if printErr == nil {
+				if err := ensurePrintDirectory(printReceivePath(n.dir, printJob)); err != nil {
+					printErr = errors.New("无法创建打印接收目录，请联系打印机共享人")
+					storageRejected = true
+				}
+			}
 			if printErr != nil {
 				authRejected = errors.Is(printErr, errPrinterAuthorization)
-				if printOfferRejected(printErr) {
+				if storageRejected || printOfferRejected(printErr) {
+					suppressed = true
 					p.TransferTombstones[peer+":"+e.TransferID] = "rejected"
 					return []pending{{PeerID: peer, Envelope: envelope{
 						Type: "file_status", TransferID: e.TransferID, Status: "rejected", Error: printErr.Error(),
 					}}}
 				}
 				denied = printErr
-				return nil
-			}
-			if transferIndex(s, e.TransferID) < 0 && pendingPrintBytes(s)+f.Size > maxPendingPrintBytes {
-				denied = errors.New("本机打印接收缓存已达上限，请稍后重试")
 				return nil
 			}
 			if transferIndex(s, e.TransferID) < 0 && printJobIndex(s, printJob.ID) >= 0 {
@@ -323,10 +330,6 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 				kind = "print"
 				transfer.PrintJobID = printJob.ID
 				transfer.Path = printReceivePath(n.dir, printJob)
-				if err := ensurePrintDirectory(transfer.Path); err != nil {
-					denied = err
-					return nil
-				}
 			}
 			s.Transfers = append(s.Transfers, transfer)
 			found := false
@@ -384,7 +387,11 @@ func printOfferRejected(err error) bool {
 func pendingPrintBytes(s *domain.State) int64 {
 	var total int64
 	for _, transfer := range s.Transfers {
-		if transfer.PrintJobID == "" || terminalTransfer(transfer.Status) {
+		if transfer.PrintJobID == "" || transfer.Direction != "receive" {
+			continue
+		}
+		job := s.PrintJob(transfer.PrintJobID)
+		if job.Terminal() || transfer.Status == "cancelled" || transfer.Status == "rejected" || job.ID == "" && terminalTransfer(transfer.Status) {
 			continue
 		}
 		total += transfer.Size

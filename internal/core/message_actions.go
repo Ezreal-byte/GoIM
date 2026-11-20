@@ -209,25 +209,41 @@ func (n *Node) receiveMessageRecall(peer string, e envelope) error {
 
 func applyMessageRecall(p *persisted, m domain.Message) []string {
 	s := &p.State
+	attachment := m.FileID != "" && (m.Kind == "file" || m.Kind == "image" || m.Kind == "print")
 	p.MessageRecalls[messageRecallKey(m.SenderID, m.ConversationID, m.ID)] = true
 	if i := messageIndex(s, m.ConversationID, m.ID); i >= 0 {
 		s.Messages[i].Recalled, s.Messages[i].Text = true, ""
 	}
 	for key, work := range p.Outbox {
 		e := work.Envelope
+		attachmentWork := attachment && e.Type == "file_offer" && e.File.ID == m.FileID &&
+			e.File.SenderID == m.SenderID && e.File.ConversationID == m.ConversationID
+		if attachment && e.Type == "file_retry" && e.File.ID == m.FileID {
+			if i := transferIndex(s, e.TransferID); i >= 0 {
+				task := s.Transfers[i]
+				attachmentWork = task.Direction == "receive" && task.PeerID == m.SenderID && task.ConversationID == m.ConversationID
+			}
+		}
 		if e.Type == "message" && e.Message.ID == m.ID && e.Message.SenderID == m.SenderID && e.Message.ConversationID == m.ConversationID ||
-			m.FileID != "" && (e.Type == "file_offer" || e.Type == "file_retry") && e.File.ID == m.FileID {
+			attachmentWork {
 			delete(p.Outbox, key)
 		}
 	}
 	var cancelled []string
-	if m.FileID != "" {
-		if i := fileIndex(s, m.FileID); i >= 0 && s.Files[i].ConversationID == m.ConversationID && !s.Files[i].Shared {
+	if attachment {
+		if i := fileIndex(s, m.FileID); i >= 0 && s.Files[i].SenderID == m.SenderID && s.Files[i].ConversationID == m.ConversationID && !s.Files[i].Shared {
 			s.Files = slices.Delete(s.Files, i, i+1)
 		}
 		for i := range s.Transfers {
 			t := &s.Transfers[i]
 			if t.FileID != m.FileID || t.ConversationID != m.ConversationID {
+				continue
+			}
+			sender := t.PeerID
+			if t.Direction == "send" {
+				sender = s.Self.ID
+			}
+			if sender != m.SenderID {
 				continue
 			}
 			t.Revoked = true

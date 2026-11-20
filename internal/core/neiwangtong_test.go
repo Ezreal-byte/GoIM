@@ -535,7 +535,8 @@ func testNeiwangtongDirectories(t *testing.T, n *Node, remote *neiwangtong.Servi
 		for name, want := range files {
 			got, err := os.ReadFile(filepath.Join(target, filepath.FromSlash(name)))
 			if err != nil || !bytes.Equal(got, want) {
-				t.Fatalf("directory item %s did not match: %v", name, err)
+				t.Fatalf("directory item %s in %s did not match: got %d bytes (%x), want %d bytes (%x): %v",
+					name, target, len(got), sha256.Sum256(got), len(want), sha256.Sum256(want), err)
 			}
 		}
 	}
