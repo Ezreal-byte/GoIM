@@ -7,7 +7,7 @@ lab_path=/usr/sbin:/usr/bin:/sbin:/bin
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
 case "${1:-}" in
-    reply|queue-text|send-file|accept-file|cancel-file|send-image|send-folder|probe-group|group-open|group-close|group-await-closed|group-reply|group-check|group-image|group-exit|group-exit-seen|group-kick-goim|group-file-send|group-file-receive|chat-check|chat-reveal|chat-emoticon|chat-emoticon-check|chat-recall-stock|chat-recall-check|chat-recall-gone|group-recall-stock|group-recall-check|group-recall-gone|stock-open-chat|stock-reply|stock-chat-check|stock-send-file|stock-accept-file|stock-presence|stock-avatar)
+    reply|queue-text|send-file|accept-file|cancel-file|send-image|send-folder|probe-group|group-open|group-close|group-await-closed|group-reply|group-check|group-image|group-exit|group-exit-seen|group-kick-goim|group-photo-set|group-photo-check|group-file-send|group-file-receive|chat-check|chat-reveal|chat-emoticon|chat-emoticon-check|chat-recall-stock|chat-recall-check|chat-recall-gone|group-recall-stock|group-recall-check|group-recall-gone|stock-open-chat|stock-reply|stock-chat-check|stock-send-file|stock-accept-file|stock-presence|stock-avatar)
         # Launched by the checker as the lab user. Wine and X11 connect to
         # the same private session over local sockets, not over the veth.
         original=$(winepath -w "$GOIM_NWT_ORIGINAL/ShiYeLine.exe")
@@ -58,7 +58,7 @@ case "${1:-}" in
         ;;
     isolated) shift ;;
     *)
-        if [ "${2:-}" = --avatar-update ]; then
+        if [ "${2:-}" = --avatar-update ] || [ "${2:-}" = --group-photo ]; then
             exec unshare --mount --uts "$0" isolated "$@"
         fi
         exec unshare --uts "$0" isolated "$@"
@@ -68,7 +68,7 @@ esac
 [ "$#" -gt 0 ] && [ "$#" -le 2 ] || fail 'Specify the Linux path to the original client directory and at most one check mode.'
 mode=${2:-}
 case "$mode" in
-    ''|--offline-replay|--offline-send|--resume-receive|--large-from-reference|--large-to-reference|--large-stock-control|--large-stock-boundary|--directory-from-reference|--directory-to-reference|--directory-resend-from-reference|--directory-resend-to-reference|--multi-group|--avatar-update|--text-recall|--group-recall|--group-dismiss|--group-kick|--group-file|--group-file-resume|--group-file-retry|--group-folder|--group-folder-retry|--stock-folder-retry|--emoticons) ;;
+    ''|--offline-replay|--offline-send|--resume-receive|--large-from-reference|--large-to-reference|--large-stock-control|--large-stock-boundary|--directory-from-reference|--directory-to-reference|--directory-resend-from-reference|--directory-resend-to-reference|--multi-group|--avatar-update|--text-recall|--group-recall|--group-dismiss|--group-kick|--group-photo|--group-file|--group-file-resume|--group-file-retry|--group-folder|--group-folder-retry|--stock-folder-retry|--emoticons) ;;
     *) fail 'Unknown sandbox option.' ;;
 esac
 [ "$(id -u)" -eq 0 ] || fail 'Use root in the dedicated lab distro to create its isolated links.'
@@ -81,7 +81,7 @@ lab_home=$(getent passwd "$lab_user" | cut -d: -f6)
 [ -n "$lab_home" ] || fail 'The dedicated lab user nwtlab is missing.'
 original=$(realpath "$1")
 [ -f "$original/ShiYeLine.exe" ] || fail 'Missing original ShiYeLine.exe.'
-if [ "$mode" = --avatar-update ]; then
+if [ "$mode" = --avatar-update ] || [ "$mode" = --group-photo ]; then
     # WSLg mounts its X socket directory read-only. Keep the private Xvfb
     # socket available to both lab namespaces without touching WSLg.
     [ "$(readlink /proc/self/ns/mnt)" != "$(readlink /proc/1/ns/mnt)" ] || fail 'Missing isolated mount namespace.'
@@ -234,7 +234,7 @@ case "$mode" in
 --avatar-update)
     set -- "$@" -timeout 20s -lab-avatar-update
     ;;
---text-recall|--group-recall|--group-dismiss|--group-kick|--group-file|--group-file-resume|--group-file-retry|--group-folder|--group-folder-retry|--stock-folder-retry|--emoticons)
+--text-recall|--group-recall|--group-dismiss|--group-kick|--group-photo|--group-file|--group-file-resume|--group-file-retry|--group-folder|--group-folder-retry|--stock-folder-retry|--emoticons)
     set -- "$@" -timeout 60s "-lab-${mode#--}"
     ;;
 *)

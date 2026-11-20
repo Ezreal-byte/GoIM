@@ -19,6 +19,7 @@ param(
     [switch]$OfflineSend,
     [switch]$MultiGroup,
     [switch]$GroupManagement,
+    [switch]$GroupPhoto,
     [switch]$GroupFile,
     [switch]$GroupFileResume,
     [switch]$GroupFolder,
@@ -33,7 +34,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 $env:GOWORK = 'off'
-$special = @($LargeFile, $StockLargeFile, $OfflineReplay, $OfflineSend, $MultiGroup, $GroupManagement, $GroupFile, $GroupFileResume, $GroupFolder, $GroupFolderRetry, $Emoticons, $AvatarUpdate, $TextRecall,
+$special = @($LargeFile, $StockLargeFile, $OfflineReplay, $OfflineSend, $MultiGroup, $GroupManagement, $GroupPhoto, $GroupFile, $GroupFileResume, $GroupFolder, $GroupFolderRetry, $Emoticons, $AvatarUpdate, $TextRecall,
     $ResumeReceive, $DirectoryRetry, $DirectoryResend | Where-Object { $_ })
 if ($special.Count -gt 1 -or ($special.Count -gt 0 -and $Mode -ne 'Sandbox')) {
     throw 'Each special check requires a separate Sandbox run.'
@@ -96,7 +97,7 @@ function Invoke-ReferenceSandbox {
         }
         & wsl.exe @linux chmod +x "$stage/run.sh" "$stage/check"
         if ($LASTEXITCODE -ne 0) { throw 'Failed to stage the Linux reference checker.' }
-        & wsl.exe @linux i686-w64-mingw32-gcc -municode -O2 -Wall -Wextra -Werror -o "$stage/drive.exe" "$stage/drive.c"
+        & wsl.exe @linux i686-w64-mingw32-gcc -municode -O2 -Wall -Wextra -Werror -o "$stage/drive.exe" "$stage/drive.c" -lgdi32
         if ($LASTEXITCODE -ne 0) { throw 'Failed to build the reference fixture. Install the dependencies listed in docs/neiwangtong-testing.md.' }
         $runs = if ($SandboxSuite) {
             @(
@@ -110,6 +111,7 @@ function Invoke-ReferenceSandbox {
                 @{ Name = 'group-recall'; Option = '--group-recall' },
                 @{ Name = 'original-group-dismiss'; Option = '--group-dismiss' },
                 @{ Name = 'original-group-kick'; Option = '--group-kick' },
+                @{ Name = 'group-photo'; Option = '--group-photo' },
                 @{ Name = 'group-file'; Option = '--group-file' },
                 @{ Name = 'group-file-resume'; Option = '--group-file-resume' },
                 @{ Name = 'group-file-retry'; Option = '--group-file-retry' },
@@ -162,6 +164,7 @@ function Invoke-ReferenceSandbox {
             $option = if ($OfflineReplay) { '--offline-replay' }
                       elseif ($OfflineSend) { '--offline-send' }
                       elseif ($MultiGroup) { '--multi-group' }
+                      elseif ($GroupPhoto) { '--group-photo' }
                       elseif ($GroupFile) { '--group-file' }
                       elseif ($GroupFolder) { '--group-folder' }
                       elseif ($Emoticons) { '--emoticons' }

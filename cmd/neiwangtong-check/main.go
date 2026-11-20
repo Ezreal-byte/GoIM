@@ -43,6 +43,7 @@ type options struct {
 	labGroupRecall      bool
 	labGroupDismiss     bool
 	labGroupKick        bool
+	labGroupPhoto       bool
 	labGroupFile        bool
 	labGroupFileResume  bool
 	labGroupFileRetry   bool
@@ -108,6 +109,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opt.labGroupRecall, "lab-group-recall", false, "Verify both directions of group text recall against the original")
 	flags.BoolVar(&opt.labGroupDismiss, "lab-group-dismiss", false, "Verify that GoIM accepts dismissal from the original group owner")
 	flags.BoolVar(&opt.labGroupKick, "lab-group-kick", false, "Verify that GoIM accepts removal from the original group owner")
+	flags.BoolVar(&opt.labGroupPhoto, "lab-group-photo", false, "Verify group photo changes and resets with the original client")
 	flags.BoolVar(&opt.labGroupFile, "lab-group-file", false, "Verify regular group files with the original client")
 	flags.BoolVar(&opt.labGroupFileResume, "lab-group-file-resume", false, "Interrupt and resume a regular group file from the original client")
 	flags.BoolVar(&opt.labGroupFileRetry, "lab-group-file-retry", false, "Interrupt a group file and retry the same offer on the original receiver")
@@ -140,7 +142,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	special := 0
 	for _, enabled := range []bool{opt.labLargeFile, opt.labOffline, opt.labOfflineSend, opt.labMultiGroup, opt.labAvatarUpdate,
 		opt.labTextRecall, opt.labGroupRecall, opt.labGroupDismiss, opt.labGroupKick, opt.labGroupFile, opt.labGroupFileResume, opt.labGroupFolder, opt.labEmoticons,
-		opt.labGroupFileRetry, opt.labGroupFolderRetry, opt.labStockFolderRetry, opt.labResume, opt.labDirectory, opt.labFolderResend} {
+		opt.labGroupFileRetry, opt.labGroupFolderRetry, opt.labStockFolderRetry, opt.labResume, opt.labDirectory, opt.labFolderResend, opt.labGroupPhoto} {
 		if enabled {
 			special++
 		}

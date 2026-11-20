@@ -317,23 +317,18 @@ static BOOL CALLBACK match_profile_picker(HWND window, LPARAM param) {
     return FALSE;
 }
 
-static int stock_avatar(const wchar_t *exe, const wchar_t *path) {
+static int choose_stock_photo(const wchar_t *exe, HWND profile, const wchar_t *path, BOOL group) {
     BOOL clear = !wcscmp(path, L"default");
     if (!clear && (wcscmp(path, L"C:\\goim-qa\\profile-red.png") && wcscmp(path, L"C:\\goim-qa\\profile-green.png")))
         return fail("unexpected stock avatar filename");
     if (!clear && GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES)
         return fail("stock avatar fixture does not exist");
-    dismiss_guide(exe);
-    HWND main = wait_for_window(exe, L"单位名称", L"SkinDialog");
     RECT size;
-    if (!main || !GetClientRect(main, &size) || size.right != 304 || size.bottom != 574 || !activate_control(main, 57, 98))
-        return fail("could not open the original self profile");
-    HWND profile = wait_for_window(exe, L"个人信息", L"SkinDialog");
-    if (!profile || !GetClientRect(profile, &size) || size.right != 324 || size.bottom != 524 ||
-        !focus_chat(profile) || !activate_control(profile, 266, 124))
+    if (!profile || !GetClientRect(profile, &size) || size.right != (group ? 344 : 324) || size.bottom != (group ? 599 : 524) ||
+        !focus_chat(profile) || !activate_control(profile, group ? 287 : 266, 124))
         return fail("could not edit the original self profile");
     Sleep(250);
-    if (!activate_control(profile, 163, 82)) return fail("could not open the original photo library");
+    if (!activate_control(profile, group ? 172 : 163, 82)) return fail("could not open the original photo library");
     HWND photo = wait_for_window(exe, L"设置照片", L"SkinDialog");
     if (!photo || !GetClientRect(photo, &size) || size.right != 604 || size.bottom != 394 || !focus_chat(photo))
         return fail("expected the stock photo library");
@@ -362,10 +357,59 @@ static int stock_avatar(const wchar_t *exe, const wchar_t *path) {
     if (!activate_control(photo, 514, 275)) return fail("could not save the original photo");
     for (int i = 0; i < 60 && IsWindowVisible(photo); ++i) Sleep(50);
     if (IsWindowVisible(photo)) return fail("original photo library did not close");
-    if (!focus_chat(profile) || !activate_control(profile, 229, 124)) return fail("could not save the edited profile");
+    if (!focus_chat(profile) || !activate_control(profile, group ? 246 : 229, 124)) return fail("could not save the edited profile");
     Sleep(850);
-    if (IsWindowVisible(profile)) activate_control(profile, 309, 27);
+    if (IsWindowVisible(profile)) activate_control(profile, group ? 317 : 309, 27);
     return 0;
+}
+
+static int stock_avatar(const wchar_t *exe, const wchar_t *path) {
+    dismiss_guide(exe);
+    HWND main = wait_for_window(exe, L"单位名称", L"SkinDialog");
+    RECT size;
+    if (!main || !GetClientRect(main, &size) || size.right != 304 || size.bottom != 574 || !activate_control(main, 57, 98))
+        return fail("could not open the original self profile");
+    return choose_stock_photo(exe, wait_for_window(exe, L"个人信息", L"SkinDialog"), path, FALSE);
+}
+
+static int group_photo(const wchar_t *exe, HWND chat, const wchar_t *value, BOOL edit) {
+    BOOL red = !wcscmp(value, L"red"), green = !wcscmp(value, L"green");
+    if (!edit && !red && !green && wcscmp(value, L"default")) return fail("unexpected group photo color");
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        if (!focus_chat(chat) || !activate_control(chat, 990, 60)) return fail("could not open group information");
+        HWND info = wait_for_window(exe, L"设置群信息", L"SkinDialog");
+        RECT bounds;
+        if (!info || !GetClientRect(info, &bounds) || bounds.right != 344 || bounds.bottom != 599)
+            return fail("expected the private stock group information window");
+        if (edit) return choose_stock_photo(exe, info, value, TRUE);
+        if (!focus_chat(info)) return fail("could not focus group information");
+        Sleep(300);
+        POINT origin = {0, 0};
+        if (!ClientToScreen(info, &origin)) return fail("could not locate the stock group avatar");
+        HDC dc = GetDC(NULL);
+        int matches = 0;
+        for (int y = 56; y < 108; y += 4) {
+            for (int x = 142; x < 198; x += 4) {
+                COLORREF pixel = GetPixel(dc, origin.x + x, origin.y + y);
+                int r = GetRValue(pixel), g = GetGValue(pixel), b = GetBValue(pixel);
+                if (red ? r > 140 && g < 65 && b < 65 :
+                    green ? g > 120 && r < 65 && b < 65 :
+                            r > 210 && g > 105 && g < 210 && b < 140) ++matches;
+            }
+        }
+        if (attempt == 4 && matches < 90) {
+            COLORREF sample = GetPixel(dc, origin.x + 148, origin.y + 70);
+            fprintf(stderr, "original group photo sample: RGB(%u,%u,%u), %d matching pixels\n",
+                    (unsigned)GetRValue(sample), (unsigned)GetGValue(sample), (unsigned)GetBValue(sample), matches);
+        }
+        ReleaseDC(NULL, dc);
+        if (!activate_control(info, 317, 26)) return fail("could not close group information");
+        if (matches >= 90) return 0;
+        // The stock client updates open chats asynchronously. Read the group
+        // information again after the new roster is reflected in the UI.
+        Sleep(450);
+    }
+    return fail("the original group photo does not show the expected fixture");
 }
 
 int wmain(int argc, wchar_t **argv) {
@@ -429,11 +473,12 @@ int wmain(int argc, wchar_t **argv) {
     BOOL group_await_closed = !wcscmp(action, L"group-await-closed");
     BOOL group_exit = !wcscmp(action, L"group-exit"), group_exit_seen = !wcscmp(action, L"group-exit-seen");
     BOOL group_kick = !wcscmp(action, L"group-kick-goim");
+    BOOL photo_set = !wcscmp(action, L"group-photo-set"), photo_check = !wcscmp(action, L"group-photo-check");
     BOOL group_file_send = !wcscmp(action, L"group-file-send");
     BOOL group_file_receive = !wcscmp(action, L"group-file-receive");
     BOOL group_recall = !wcsncmp(action, L"group-recall-", 13);
     if (group_reply || group_check || group_image || group_open || group_close || group_await_closed || group_recall ||
-        group_exit || group_exit_seen || group_kick || group_file_send || group_file_receive) {
+        group_exit || group_exit_seen || group_kick || group_file_send || group_file_receive || photo_set || photo_check) {
         const wchar_t *prefix = L"GOIM-NWT，GoIM QA";
         const wchar_t *owned = L"GoIM QA 群聊 ";
         BOOL owned_name = FALSE;
@@ -483,6 +528,8 @@ int wmain(int argc, wchar_t **argv) {
 
     // Locations come from the stock chat skin at 96 dpi with a new profile.
     const int composer_x = 230, composer_y = 535, button_y = 581;
+    if ((photo_set || photo_check) && argc == 5 && client.right == 1034 && client.bottom == 624)
+        return group_photo(exe, chat, argv[4], photo_set);
     if (!wcscmp(action, L"chat-reveal") && argc == 4) {
         dismiss_guide(exe);
         ShowWindow(chat, SW_RESTORE);

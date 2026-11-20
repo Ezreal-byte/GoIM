@@ -67,6 +67,12 @@ pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -TextRecall
 pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -GroupManagement
 ```
 
+群头像专项使用两张可区分的 PNG。分别由原版和 GoIM 担任群主，验证首次设置、再次更换和恢复默认。原版接收时还核对群资料窗口的显示和本地缓存字节。
+
+```powershell
+pwsh -File scripts/test-neiwangtong.ps1 -Mode Sandbox -GroupPhoto
+```
+
 验收群内普通文件：
 
 ```powershell

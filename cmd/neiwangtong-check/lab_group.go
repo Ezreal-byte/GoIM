@@ -28,6 +28,9 @@ func (l *labChecks) checkGroup(ctx context.Context, r *report, service *neiwangt
 		return r.run("native_group_roster", func() (string, error) { return "", errors.Join(driveErr, err) })
 	}
 
+	if l.opt.labGroupPhoto {
+		return l.checkGroupPhotos(ctx, r, service, peer, event.roster)
+	}
 	text := r.run("native_group_text", func() (string, error) {
 		return l.checkGroupText(ctx, service, peer, event.roster)
 	})

@@ -115,6 +115,8 @@ type labChecks struct {
 	folders     chan labDirectory
 	folderDone  chan labDirectoryResult
 	rosters     chan labRoster
+	groupPhotos chan labGroupPhoto
+	servedPhoto atomic.Pointer[labGroupPhoto]
 	groupTexts  chan labRoomMessage
 	departures  chan labDeparture
 	peerEvents  chan neiwangtong.Peer
@@ -186,6 +188,18 @@ func (l *labChecks) attach(cfg *neiwangtong.Config) {
 	}
 	cfg.Callbacks.GroupRoster = func(peer string, roster neiwangtong.GroupRoster) {
 		publish(l.rosters, labRoster{peer, roster})
+	}
+	if l.opt.labGroupPhoto {
+		l.groupPhotos = make(chan labGroupPhoto, 8)
+		cfg.Callbacks.GroupPhoto = func(peer, room, digest string, version uint64) {
+			publish(l.groupPhotos, labGroupPhoto{peer: peer, room: room, digest: digest, version: version})
+		}
+		cfg.Callbacks.GroupAvatar = func(peer, digest string) []byte {
+			if current := l.servedPhoto.Load(); current != nil && current.peer == peer && current.digest == digest {
+				return current.data
+			}
+			return nil
+		}
 	}
 	cfg.Callbacks.GroupText = func(peer string, message neiwangtong.GroupMessage) error {
 		publish(l.groupTexts, labRoomMessage{peer, message})
@@ -266,6 +280,9 @@ func (l *labChecks) run(ctx context.Context, r *report, service *neiwangtong.Ser
 		}
 		return "matching peer and UTF-8 contents", nil
 	})
+	if l.opt.labGroupPhoto {
+		return text && l.checkGroup(ctx, r, service, reference.ID)
+	}
 	if l.opt.labAvatarUpdate {
 		out := r.run("goim_avatar_update_in_original", func() (string, error) {
 			return l.checkAvatarToOriginal(ctx, service)
