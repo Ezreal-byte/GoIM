@@ -1,0 +1,43 @@
+name: Windows FeiQ interoperability
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/feiq-windows-acceptance']
+permissions:
+  contents: read
+jobs:
+  original:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
+        with:
+          go-version-file: go.mod
+      - name: Prepare production checker and desktop driver
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'goim-feiq-lab'
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+          go build -trimpath -o (Join-Path $dir 'check.exe') ./cmd/ipmsg-check
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          python -m pip install --disable-pip-version-check pywinauto==0.6.9
+      - name: Verify FeiQ and exercise the original
+        shell: pwsh
+        run: ./scripts/feiq-lab/windows.ps1 -Lab (Join-Path $env:RUNNER_TEMP 'goim-feiq-lab')
+      - name: Save test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: feiq-windows-evidence
+          path: |
+            ${{ runner.temp }}/goim-feiq-lab/report.json
+            ${{ runner.temp }}/goim-feiq-lab/backend.json
+            ${{ runner.temp }}/goim-feiq-lab/plan.json
+            ${{ runner.temp }}/goim-feiq-lab/ui.json
+            ${{ runner.temp }}/goim-feiq-lab/checker-errors.txt
+            ${{ runner.temp }}/goim-feiq-lab/ui-errors.txt
+          if-no-files-found: warn
+          retention-days: 7

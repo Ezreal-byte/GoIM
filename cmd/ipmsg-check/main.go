@@ -52,7 +52,15 @@ func wait(ctx context.Context, node *core.Node, accept func(domain.State) bool) 
 func main() {
 	dir := flag.String("lab-dir", "", "isolated lab directory")
 	driver := flag.String("driver", "", "private reference command-line runner")
+	windowsFeiq := flag.Bool("feiq-windows", false, "run the Windows FeiQ original-client acceptance scenario")
 	flag.Parse()
+	if *windowsFeiq {
+		if err := runWindowsFeiq(*dir); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	r := report{Reference: "original IP Messenger"}
 	run := func(name string, action func() (string, error)) bool {
 		detail, err := action()
