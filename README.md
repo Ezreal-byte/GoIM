@@ -1,4 +1,3 @@
-<!-- 桌面截图来自 Viva 无头渲染器，网页截图来自访问 GoIM 分享服务的无头浏览器。两者均使用演示数据。 -->
 <div align="center">
   <p>简体中文 · <a href="README.en.md">English</a></p>
   <img src="website/assets/goim.png" width="84" height="84" alt="GoIM 标志" />
@@ -10,10 +9,16 @@
     <a href="#快速开始">快速开始</a> ·
     <a href="#旧版客户端兼容">兼容进度</a>
   </p>
+  <p>
+    <sub>Motty 社区</sub><br />
+    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=1131573299"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-qq.svg" alt="QQ 群 1131573299" /></a>
+    <a href="https://docs.qq.com/doc/DVXBGYnFFdm9UWkVP"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-wechat.svg" alt="微信群" /></a>
+    <a href="https://discord.gg/6s5tn9H4p2"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-discord.svg" alt="Discord" /></a>
+    <a href="https://linux.do/t/topic/3086528/1"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-linuxdo.svg" alt="LINUX DO 讨论帖" /></a>
+  </p>
   <a href="website/assets/screenshots/chat-dark.png">
     <img src="website/assets/screenshots/chat-dark.png" alt="暗色外观下的 GoIM 群聊、图片消息与聊天文件" width="100%" />
   </a>
-  <p><sub>GoIM 原生界面，由无头脚本使用演示数据渲染。</sub></p>
 </div>
 
 GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通讯工具。同一局域网内的设备可以直接发现彼此、聊天和传文件，聊天记录保存在本机。浏览器也可以打开分享链接，无需安装客户端。
@@ -114,42 +119,15 @@ GoIM 只接收系统验证成功或失败的结果，不读取、保存或传输
 
 ## 旧版客户端兼容
 
-GoIM 会根据对端自动选择通信协议，不需要为联系人选择“兼容连接”，也不用手工关联同一设备的两套身份。
+GoIM 会按对端自动选择协议。以下为 `0.1.16` 发布后在 `main` 上使用原版客户端验证的结果。
 
-| 对端 | 自动使用的协议 |
-| --- | --- |
-| GoIM | GoIM 原生 TLS 协议 |
-| 内网通 | 内网通原生协议：UDP 9011 发现、ENet 9012 控制、TCP 9013 头像与文件流 |
-| 飞鸽／飞秋 | 端口 `2425` 的标准 IPMSG |
-
-以下结果来自 `0.1.16` 发布后的 `main` 开发版。表中使用原版内网通 `3.4.3055`，按场景核对实际接收的文件、聊天记录、哈希或协议回执。
-
-| 能力 | 当前进度 | 自动验收依据 |
+| 客户端 | 已验证的能力 | 详细进度 |
 | --- | --- | --- |
-| 发现、上下线、资料交换、原生头像下载 | 原版通过 | 无需手填 IP，原版退出和重启后同一联系人更新；握手和头像摘要核对 |
-| 单聊文字、中文、特殊字符、应用回执 | 原版双向通过 | 消息记录与应用回执匹配 |
-| 单聊和群聊文字撤回 | 原版双向通过 | 被撤回的原文消失，旁边的对照消息保留 |
-| 在线单文件、拒收、撤回和取消 | 原版双向通过 | 实际文件 SHA-256 核对 |
-| PNG、JPEG、GIF 内联图片 | 原版双向通过 | 原版缓存与接收字节逐项一致 |
-| 文件夹直传 | 原版双向通过 | 多层中文路径、空子目录和 0 字节文件均保留 |
-| 单聊文件夹中断后重传 | 新邀请双向通过 | 重新接受新邀请后从头传输，接收文件通过 SHA-256 核验。同一邀请的断点续传尚未通过原版验证 |
-| 忙碌／离开状态与头像更新 | 原版状态→GoIM、头像双向更新通过 | 同一联系人状态按顺序更新；双方两次换图均可识别，原版恢复默认后 GoIM 清除旧图 |
-| 普通文件断点续传 | 原版双向通过 | 非零偏移和最终 SHA-256 核对；GoIM 重试沿用该文件的任务号 |
-| 离线文字和文件补投 | 原版双向通过 | 两端均使用独立档案重启验证 |
-| 原版创建的群聊 | 群文字、PNG／JPEG／GIF 图片双向通过 | 原版会话中读回 GoIM 文字，原版缓存和 GoIM 下载的图片均与样本一致 |
-| GoIM 创建内网通群 | 建群、添加成员、改名、三方群文字和原版主动退群通过 | 两台原版和一台 GoIM 互通；改名后仍在同一会话，原版退群后保留其余成员 |
-| 群主解散和移出成员 | GoIM 操作原版通过；原版操作已验证报文和 GoIM 状态 | 原版关闭对应群窗口；GoIM 仅采纳群主操作并保留本机历史 |
-| 群内普通文件 | 原版双向通过 | 从群里发送并接收，实际落盘与原文件的 SHA-256 一致 |
-| 原版内置表情 | 84 个编号转换已实现，微笑双向验证 | 内网通收到原生表情；GoIM 显示相应的自有表情或文字语义 |
-| 超过 4 GiB 的单聊普通文件 | 原版双向通过 | 两个方向均实际传输 4,295,032,849 字节，接收文件的长度和 SHA-256 均与源文件一致。[Windows 原版接收记录](https://github.com/Ezreal-byte/GoIM/actions/runs/44755141926) |
+| 内网通 `3.4.3055` | 自动发现，单聊与群聊双向收发文字、图片、文件和文件夹。单聊普通文件已验证超过 4 GiB。 | [内网通适配进度](docs/neiwangtong-compatibility-progress.md) |
+| 飞鸽 IP Messenger `5.9.1` | 自动发现、双向中文消息和普通文件收发。 | [飞鸽适配进度](docs/ipmsg-compatibility-progress.md) |
+| 飞秋 2013（`3.0.0.2`） | 指定回环地址时可发现对方，双向收发中文消息和中文名文件。跨机器广播发现仍待验证。 | [飞秋原版验证与限制](docs/ipmsg-compatibility-progress.md#windows-飞秋联调) |
 
-群文件夹也已完成原版双向验收，保留多层中文路径、空子目录和零字节文件；群文件邀请在 GoIM 重启后仍可下载。
-
-群文件夹已通过原版双向断点续传。群内普通文件在 GoIM 接收时可续传，原版接收时可以用同一邀请从头重试。GoIM 向其他版本的内网通或内网通群聊发送普通文件时，单个文件仍须小于 4 GiB。原版接收群普通文件时的非零偏移续传、完全空的根目录、群主转让、自定义表情包、原生共享目录和远程协助仍待验收。
-
-原版 IP Messenger `5.9.1` 已验证自动发现、双向中文消息和普通文件收发。Windows 原版飞秋 2013（`3.0.0.2`）已验证指定回环地址的单播发现、双向中文消息，以及双向传输中文文件名的普通文件。两个方向收到的 98,321 字节文件均通过 SHA-256 核验。飞秋跨机器的广播发现和其他版本仍待验收。[Windows 飞秋原版验收记录](https://github.com/Ezreal-byte/GoIM/actions/runs/44756249204) · [飞鸽／飞秋适配进度](docs/ipmsg-compatibility-progress.md)
-
-完整范围和后续顺序见[内网通适配进度](docs/neiwangtong-compatibility-progress.md)，无需抓包的回环测试和原版客户端自动验证见[内网通互通验证](docs/neiwangtong-testing.md)。互通能力可在「设置 → 网络」中管理，也可用 `--no-compatibility` 启动仅使用 GoIM 协议的实例。
+可在「设置 → 网络」管理旧版客户端互通，也可用 `--no-compatibility` 启动仅使用 GoIM 协议的实例。
 
 ## 从源码构建
 
@@ -165,13 +143,13 @@ Windows 上，运行 `pwsh -File scripts/start-temp-dev.ps1` 可构建并启动�
 
 Windows 和 macOS 打包时，使用 CMake 3.20+ 从固定提交构建 Shotlet 的截图 SDK 助手。Windows 需要 Visual Studio 对应架构的 C++ 工具和 Windows SDK，使用 Visual Studio 2026 时需要 CMake 4.2+。macOS 需 Xcode 命令行工具。Windows Setup 另需 NSIS，可以用 `go run ./cmd/package --windows-setup` 构建。Linux 构建只需 GoIM 原有工具链，Shotlet 的 Wayland 捕获和原生选区窗口仍待实现。[Shotlet 源码](https://github.com/Ezreal-byte/shotlet)
 
-`pwsh -File scripts/smoke-headless.ps1` 会重新构建无头客户端，使用三个独立进程验证消息、文件传输和网页分享。`scripts/build.ps1` 只构建桌面程序和截图工具，`scripts/promo-headless.ps1` 可重新生成聊天、联系人、传输和桌面文件共享截图。发布构建及各平台校验见 [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/release.yml)。
+`pwsh -File scripts/smoke-headless.ps1` 使用三个独立进程验证消息、文件传输和网页分享。`scripts/build.ps1` 可构建桌面程序和截图工具。各平台的打包与校验见 [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/release.yml)。
 
 版本说明按[发布规范](docs/releases/README.md)编写。
 
 ## 致谢
 
-感谢 Viva 团队提供原生 Go 桌面框架。GoIM 使用 Viva 构建聊天窗口和桌面控件，也用它的无头渲染器验证界面、生成截图。[Viva 项目](https://github.com/vivaui/viva)
+感谢 [t8y2 / Viva](https://github.com/vivaui/viva) 提供原生 Go 桌面框架。GoIM 的聊天窗口和桌面控件均基于 Viva 构建。
 
 感谢 [imjakey / Shotlet](https://github.com/imjakey/shotlet) 提供开源截图工具。GoIM 在 Windows 和 macOS 上集成了基于 Shotlet 的截图助手。
 

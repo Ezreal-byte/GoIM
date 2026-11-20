@@ -1,4 +1,3 @@
-<!-- Desktop screenshots use Viva's headless renderer. The web screenshot uses a headless browser connected to GoIM's sharing service. Both use demo data. -->
 <div align="center">
   <p>English · <a href="README.md">简体中文</a></p>
   <img src="website/assets/goim.png" width="84" height="84" alt="GoIM logo" />
@@ -10,10 +9,16 @@
     <a href="#quick-start">Quick start</a> ·
     <a href="#legacy-compatibility">Compatibility</a>
   </p>
+  <p>
+    <sub>Motty community</sub><br />
+    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=1131573299"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-qq.svg" alt="QQ group 1131573299" /></a>
+    <a href="https://docs.qq.com/doc/DVXBGYnFFdm9UWkVP"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-wechat.svg" alt="WeChat group" /></a>
+    <a href="https://discord.gg/6s5tn9H4p2"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-discord.svg" alt="Discord" /></a>
+    <a href="https://linux.do/t/topic/3086528/1"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-linuxdo.svg" alt="LINUX DO discussion" /></a>
+  </p>
   <a href="website/assets/screenshots/chat-dark.png">
     <img src="website/assets/screenshots/chat-dark.png" alt="GoIM group chat in dark mode with an inline image and the chat files panel" width="100%" />
   </a>
-  <p><sub>The native GoIM interface, rendered headlessly with demo data.</sub></p>
 </div>
 
 GoIM is a desktop messenger built with Go and [Viva](https://github.com/vivaui/viva). Devices discover each other on the LAN, exchange messages and files directly, and keep their chat history locally. Recipients can open file shares in a browser.
@@ -112,42 +117,15 @@ GoIM receives only the verification result and never reads, stores, or transmits
 
 ## Legacy compatibility
 
-GoIM chooses the wire protocol from the peer. There is no per-contact compatibility selector and no manual identity-linking step.
+GoIM selects the protocol for each peer automatically. These results were verified with the original clients on `main` after the `0.1.16` release.
 
-| Peer | Route |
-| --- | --- |
-| GoIM | Native GoIM TLS protocol |
-| Neiwangtong (内网通) | Native Neiwangtong protocol: UDP 9011 discovery, ENet 9012 control, TCP 9013 avatar and file streams |
-| FeiQ (飞秋) / IP Messenger | Standard IPMSG on port 2425 |
-
-These results apply to development on `main` after the `0.1.16` release. The table covers the original Neiwangtong `3.4.3055` client. Checks use received files, chat records, hashes or protocol receipts as appropriate.
-
-| Capability | Status | Automated evidence |
+| Client | Verified behavior | Details |
 | --- | --- | --- |
-| Discovery, online and offline transitions, profile exchange, native avatar download | Verified | No manual address; the same contact was updated after the original exited and restarted. Handshake and image digests checked |
-| Direct text, Chinese text, special characters, delivery receipts | Verified in both directions | Sent and received records matched with application receipts |
-| Direct and group text recall | Verified in both directions | The recalled text disappeared and the neighboring control message remained |
-| Online individual files, reject, recall and cancel | Verified in both directions | Real files compared by SHA-256 |
-| Inline PNG, JPEG and GIF messages | Verified in both directions | Original-client cache and received bytes compared exactly |
-| Directory transfer | Verified in both directions | Nested Chinese paths, empty subdirectories and zero-byte files preserved |
-| Restarting an interrupted direct-chat folder transfer | Fresh offer verified in both directions | Accepting a new offer restarted the transfer from zero. Received files matched by SHA-256. Resuming from the original offer has not passed testing |
-| Busy and away presence, avatar replacement | Original presence → GoIM and avatar replacement in both directions verified | The same contact changed presence in sequence. Both clients received two replacements; GoIM cleared its copy when the original restored its default avatar |
-| Individual file resume | Verified in both directions | Non-zero offsets and final SHA-256 checks; GoIM retries reuse the file's original task ID |
-| Offline text and file replay | Verified in both directions | Both clients restarted with isolated profiles |
-| Original-client-created group chat | Text and inline PNG, JPEG, and GIF verified in both directions | Text matched the original transcript; the original cache and GoIM downloads matched the image samples |
-| Neiwangtong group created in GoIM | Creation, member addition, renaming, three-client text and original-client exit verified | Two originals and GoIM exchanged messages. Renaming kept the conversation, and when one original left the other stayed in the group |
-| Group dismissal and member removal | Verified against the original for GoIM-initiated actions; original commands and GoIM state also tested | The original closed the affected group window. GoIM accepts these actions only from the owner and retains local history |
-| Regular group files | Verified in both directions | Files sent and accepted in a group matched the source SHA-256 on disk |
-| Original built-in emoticons | Mapping for 84 IDs implemented; the smile verified in both directions | Neiwangtong receives its native symbol; GoIM renders its own emoji or descriptive text |
-| Regular files larger than 4 GiB in direct chats | Verified in both directions | Each receiver saved a 4,295,032,849-byte file with the source length and SHA-256. [Windows original-client receive test](https://github.com/Ezreal-byte/GoIM/actions/runs/44755141926) |
+| Neiwangtong (内网通) `3.4.3055` | Automatic discovery. Direct and group chats exchange text, images, files and folders in both directions. Direct file transfers over 4 GiB also passed. | [Neiwangtong compatibility](docs/neiwangtong-compatibility-progress.md) |
+| IP Messenger `5.9.1` | Automatic discovery, two-way Chinese messages and file transfers. | [IP Messenger compatibility](docs/ipmsg-compatibility-progress.md) |
+| FeiQ 2013 (`3.0.0.2`) | Discovery at a specified loopback address, two-way Chinese messages and file transfers with Chinese filenames. Broadcast discovery between machines still needs verification. | [FeiQ verification and limits](docs/ipmsg-compatibility-progress.md#windows-飞秋联调) |
 
-Group folders also passed both directions against the original, preserving nested Chinese paths, empty subdirectories and zero-byte files. Group file invitations remain downloadable after GoIM restarts.
-
-Group folders resume in both directions. GoIM can resume regular group files, and the original client can restart them from the same offer. Files sent by GoIM to other Neiwangtong versions or to Neiwangtong group chats must still be smaller than 4 GiB each. Remaining gaps include nonzero-offset resume for group files received by the original client, fully empty root directories, group ownership transfer, custom expression packs, native shared-directory browsing and remote assistance.
-
-Original IP Messenger `5.9.1` passed automatic discovery, two-way Chinese messaging and regular file transfers. The original Windows FeiQ 2013 (`3.0.0.2`) passed unicast discovery at an explicit loopback address, two-way Chinese messaging and two-way regular file transfers with Chinese filenames. In each direction the receiver saved a 98,321-byte file with the expected SHA-256. Broadcast discovery between machines and other FeiQ versions await testing. [Windows FeiQ acceptance run](https://github.com/Ezreal-byte/GoIM/actions/runs/44756249204) · [IPMSG compatibility progress](docs/ipmsg-compatibility-progress.md)
-
-See the detailed [Neiwangtong compatibility progress](docs/neiwangtong-compatibility-progress.md) and the [automated Neiwangtong test guide](docs/neiwangtong-testing.md). The adapters can be managed under **Settings → Network**; `--no-compatibility` starts a GoIM-only instance.
+Manage legacy clients under **Settings → Network**, or start GoIM with `--no-compatibility` to use only its native protocol.
 
 ## Build from source
 
@@ -163,13 +141,13 @@ On Windows, `pwsh -File scripts/start-temp-dev.ps1` builds and starts a client w
 
 Windows and macOS packaging builds the Shotlet capture SDK helper from pinned revisions with CMake 3.20 or later. Windows needs Visual Studio C++ tools for the target architecture and the Windows SDK. Visual Studio 2026 requires CMake 4.2 or later. macOS needs the Xcode Command Line Tools. Install NSIS to build Windows Setup with `go run ./cmd/package --windows-setup`. Linux builds use the existing GoIM toolchain because Shotlet's Wayland capture and native selection overlay are incomplete. [Shotlet source](https://github.com/Ezreal-byte/shotlet)
 
-`pwsh -File scripts/smoke-headless.ps1` builds a fresh headless client and runs a three-process test of messaging, file transfer, and browser sharing. Use `scripts/build.ps1` to build the desktop app and screenshot companion without starting them, or `scripts/promo-headless.ps1` to regenerate the chat, contacts, transfers, and desktop file sharing screenshots. See [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/release.yml) for platform packaging and validation.
+`pwsh -File scripts/smoke-headless.ps1` tests messaging, file transfer and browser sharing across three processes. Use `scripts/build.ps1` to build the desktop app and screenshot companion. See [Actions](https://github.com/Ezreal-byte/GoIM/actions/workflows/release.yml) for platform packaging and validation.
 
 See the [release guidelines](docs/releases/README.md) for the release notes format.
 
 ## Acknowledgements
 
-Thanks to the Viva team for its native Go desktop framework. GoIM uses Viva for its chat windows and controls, and its headless renderer for UI tests and screenshots. [Viva project](https://github.com/vivaui/viva)
+Thanks to [t8y2 / Viva](https://github.com/vivaui/viva) for the native Go desktop framework that powers GoIM’s chat windows and desktop controls.
 
 Thanks to [imjakey / Shotlet](https://github.com/imjakey/shotlet) for the open-source screenshot tool. GoIM integrates a Shotlet-based capture helper on Windows and macOS.
 
