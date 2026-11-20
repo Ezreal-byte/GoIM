@@ -7,6 +7,18 @@ import (
 	"unicode/utf8"
 )
 
+// A confirmed identity link keeps the user's local name with the visible
+// contact. An explicitly named canonical contact takes precedence.
+func migrateContactRemark(data *persisted, alias, canonical string) {
+	if alias == canonical || canonical == "" {
+		return
+	}
+	if remark := data.PeerRemarks[alias]; remark != "" && data.PeerRemarks[canonical] == "" {
+		data.PeerRemarks[canonical] = remark
+	}
+	delete(data.PeerRemarks, alias)
+}
+
 func (n *Node) setContactRemark(id, value string) error {
 	value = strings.TrimSpace(value)
 	if !utf8.ValidString(value) || utf8.RuneCountInString(value) > 40 || strings.ContainsFunc(value, unicode.IsControl) {

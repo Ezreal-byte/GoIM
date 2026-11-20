@@ -68,3 +68,50 @@ func TestContactRemarkRejectsInvalidValues(t *testing.T) {
 		t.Fatal("accepted missing peer")
 	}
 }
+
+func TestContactRemarkFollowsAuthenticatedIdentity(t *testing.T) {
+	for _, canonicalRemark := range []string{"", "原生备注"} {
+		t.Run("canonical="+canonicalRemark, func(t *testing.T) {
+			a, b := testNode(t, "Alice"), testNode(t, "Bob")
+			peer := b.Snapshot().Self
+			alias := keyIDFromNative(nativeIDForGoIM(peer.ID))
+			if err := a.change(func(s *domain.State) {
+				s.Peers = append(s.Peers, domain.Peer{ID: alias, Name: "Bob", Transport: transportNWT}, peer)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.setContactRemark(alias, "兼容备注"); err != nil {
+				t.Fatal(err)
+			}
+			if canonicalRemark != "" {
+				if err := a.setContactRemark(peer.ID, canonicalRemark); err != nil {
+					t.Fatal(err)
+				}
+			}
+			connectNodes(t, a, b)
+			want := canonicalRemark
+			if want == "" {
+				want = "兼容备注"
+			}
+			for _, id := range []string{alias, peer.ID} {
+				if got := a.Snapshot().Peer(id).Remark; got != want {
+					t.Fatalf("remark for %s = %q, want %q", id, got, want)
+				}
+			}
+			// Old conversations may still address the compatibility identity.
+			if err := a.setContactRemark(alias, ""); err != nil {
+				t.Fatal(err)
+			}
+			dir := a.dir
+			if err := a.Close(); err != nil {
+				t.Fatal(err)
+			}
+			a = testNodeAt(t, "Alice", dir)
+			for _, id := range []string{alias, peer.ID} {
+				if got := a.Snapshot().Peer(id).Remark; got != "" {
+					t.Fatalf("cleared remark reappeared for %s: %q", id, got)
+				}
+			}
+		})
+	}
+}

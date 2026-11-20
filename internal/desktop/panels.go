@@ -510,7 +510,6 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 	p.transferAnchor = ui.Box{}
 	p.transferMenuEntry = nil
 
-	canvas.Clip(bounds)
 	canvas.Fill(bounds, theme.Background)
 	p.theme = theme
 	if module == panelModuleSettings {
@@ -518,17 +517,22 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 	}
 	var settingsScroll ui.Box
 	p.page.Draw(canvas, bounds, func(f ui.C) {
-		switch module {
-		case panelModuleSettings:
-			settingsScroll = p.drawSettings(f, theme, state, submit)
-		case panelModuleTransfers:
-			p.drawTransfers(f, theme, bounds, state, submit)
-		case panelModuleShares:
-			p.drawShares(f, theme, bounds, state, submit)
-		case panelModulePrint:
-			p.drawPrint(f, theme, bounds, state, submit)
-		}
+		// Clip the panel's content, not the canvas hosting its floating dialogs.
+		// Viva paints popups outside this subtree after its clip has been restored.
+		ui.Stack(f).Fill().Clip().Children(func() {
+			switch module {
+			case panelModuleSettings:
+				settingsScroll = p.drawSettings(f, theme, state, submit)
+			case panelModuleTransfers:
+				p.drawTransfers(f, theme, bounds, state, submit)
+			case panelModuleShares:
+				p.drawShares(f, theme, bounds, state, submit)
+			case panelModulePrint:
+				p.drawPrint(f, theme, bounds, state, submit)
+			}
+		})
 	})
+	canvas.Clip(bounds)
 	if module == panelModuleShares {
 		p.drawShareMenu(canvas, theme, bounds, state.DeviceShare, submit)
 		p.drawShareToast(canvas, theme, bounds, state.ShareFeedback)

@@ -20,6 +20,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
-// Main plus pending Linux cursor/drag preview/dialog fixes (Viva #364–366).
-// Retains the existing text-scale, Windows transparent-text and Fcitx 4 fixes.
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261120093834-ce478e3e3e62
+// Fork main includes Linux cursor/drag preview fixes (Viva #364–365).
+// Retains text scaling, Windows transparent text, Fcitx 4 and search highlighting.
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261120110727-6613a2dce6ef
