@@ -143,16 +143,6 @@ func peerID(host, logon string) string {
 	return "ipmsg-" + hex.EncodeToString(sum[:16])
 }
 
-// UnboundPeerID identifies a pre-0.1.10 contact whose ID did not include a logon.
-func UnboundPeerID(id string) bool {
-	suffix, ok := strings.CutPrefix(id, "ipmsg-")
-	if !ok || len(suffix) != 16 {
-		return false
-	}
-	_, err := hex.DecodeString(suffix)
-	return err == nil
-}
-
 func decodeMessage(extra string, utf8Flag bool) (string, string) {
 	message, attachments, _ := strings.Cut(extra, "\x00")
 	if utf8Flag && utf8.ValidString(message) {

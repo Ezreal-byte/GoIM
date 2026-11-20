@@ -28,6 +28,16 @@ type outgoingFile struct {
 	cancel    context.CancelFunc
 }
 
+// FileAccess binds a local transfer to the file revision the application verified.
+type FileAccess struct {
+	Source  os.FileInfo
+	Allowed func() bool
+}
+
+func sameFileRevision(a, b os.FileInfo) bool {
+	return os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
+}
+
 const maxFileSelector = math.MaxUint32
 
 const (
@@ -152,10 +162,10 @@ func (s *TransferServer) RegisterFile(taskID uint64, path string, size int64) {
 }
 
 func (s *TransferServer) registerFile(fileID, taskID uint64, path string, size int64, recipient netip.Addr, chunked bool) error {
-	return s.registerFileWithAccess(fileID, taskID, path, size, recipient, chunked, nil)
+	return s.registerFileWithAccess(fileID, taskID, path, size, recipient, chunked, FileAccess{})
 }
 
-func (s *TransferServer) registerFileWithAccess(fileID, taskID uint64, path string, size int64, recipient netip.Addr, chunked bool, allowed func() bool) error {
+func (s *TransferServer) registerFileWithAccess(fileID, taskID uint64, path string, size int64, recipient netip.Addr, chunked bool, access FileAccess) error {
 	if fileID == 0 || fileID > maxFileSelector || taskID == 0 || !validFileSize(size, chunked) {
 		return errors.New("invalid native file offer")
 	}
@@ -163,15 +173,14 @@ func (s *TransferServer) registerFileWithAccess(fileID, taskID uint64, path stri
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() || info.Size() != size {
+	if !info.Mode().IsRegular() || info.Size() != size || access.Source != nil && !sameFileRevision(access.Source, info) {
 		return errors.New("源文件已变化")
 	}
 	s.filesMu.Lock()
 	defer s.filesMu.Unlock()
 	if existing, ok := s.files[fileID]; ok {
 		if existing.TaskID == taskID && existing.Recipient == recipient && existing.Path == path &&
-			existing.Size == size && existing.chunked == chunked && (existing.allowed == nil) == (allowed == nil) && os.SameFile(existing.Info, info) &&
-			existing.Info.ModTime().Equal(info.ModTime()) {
+			existing.Size == size && existing.chunked == chunked && (existing.allowed == nil) == (access.Allowed == nil) && sameFileRevision(existing.Info, info) {
 			return nil // the same offer was queued again after a reconnect
 		}
 		return errors.New("内网通文件编号已被占用")
@@ -181,7 +190,7 @@ func (s *TransferServer) registerFileWithAccess(fileID, taskID uint64, path stri
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.files[fileID] = outgoingFile{TaskID: taskID, Path: path, Size: size, Recipient: recipient,
-		Info: info, chunked: chunked, allowed: allowed, ctx: ctx, cancel: cancel}
+		Info: info, chunked: chunked, allowed: access.Allowed, ctx: ctx, cancel: cancel}
 	return nil
 }
 
@@ -447,7 +456,7 @@ func (s *TransferServer) serveFile(conn net.Conn, selector uint64, position int6
 			return nil
 		}
 		if file.allowed != nil && !file.allowed() {
-			return errors.New("群成员权限已变更")
+			return errors.New("文件传输权限已变更")
 		}
 		_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
 		count := min(file.Size-done, nativeFileBlock)

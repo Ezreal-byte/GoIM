@@ -46,7 +46,7 @@ func TestRegisteredGroupFileStopsServingAfterMembershipIsRevoked(t *testing.T) {
 	var member atomic.Bool
 	member.Store(true)
 	const selector = 3689
-	if err := srv.registerFileWithAccess(selector, 782, source, int64(len(data)), loopback, true, member.Load); err != nil {
+	if err := srv.registerFileWithAccess(selector, 782, source, int64(len(data)), loopback, true, FileAccess{Allowed: member.Load}); err != nil {
 		t.Fatal(err)
 	}
 	target := netip.AddrPortFrom(loopback, uint16(srv.Port()))

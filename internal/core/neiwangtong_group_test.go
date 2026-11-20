@@ -37,6 +37,10 @@ func testGoIMCreatedNeiwangtongGroup(t *testing.T, node *Node, remote *neiwangto
 	if room.Transport != transportNWT || room.OwnerID != node.Snapshot().Self.ID || !contains(room.Members, peerID) {
 		t.Fatalf("native and local group identities did not match: %+v", room)
 	}
+	if err := node.execute(domain.Command{Kind: domain.SetGroupAvatar, GroupID: room.ID,
+		AvatarSize: 2, AvatarBGRA: make([]byte, 16)}); err == nil {
+		t.Fatal("reported a synchronized native group avatar without a group image transfer protocol")
+	}
 	conversation := "group:" + room.ID
 	if err := node.sendText(conversation, "GoIM → 原版"); err != nil {
 		t.Fatal(err)

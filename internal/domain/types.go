@@ -1,7 +1,11 @@
 // Package domain is the typed boundary between the peer engine and desktop UI.
 package domain
 
-import "time"
+import (
+	"encoding/hex"
+	"strings"
+	"time"
+)
 
 type Peer struct {
 	Remark               string `json:"-"` // local presentation only; never sent to another peer
@@ -90,6 +94,34 @@ func (p Peer) VisibleOnline() bool {
 // Neiwangtong clients in addition to their native discovery.
 func (p Peer) IsLegacyNeiwangtong() bool {
 	return p.Transport == TransportIPMSG && p.ClientType == ClientNeiwangtong
+}
+
+// UnboundIPMSGPeerID identifies old records that did not retain the sender's login.
+func UnboundIPMSGPeerID(id string) bool {
+	suffix, ok := strings.CutPrefix(id, "ipmsg-")
+	if !ok || len(suffix) != 16 {
+		return false
+	}
+	_, err := hex.DecodeString(suffix)
+	return err == nil
+}
+
+// DirectReadOnlyReason is shared by the composer and the delivery admission check.
+// Confirmed bridges between two compatibility transports can still send.
+func (s State) DirectReadOnlyReason(peer Peer) string {
+	switch {
+	case peer.IsLegacyNeiwangtong():
+		return "这条旧会话仅保留聊天记录。请从联系人列表打开内网通会话"
+	case peer.Transport == TransportIPMSG && UnboundIPMSGPeerID(peer.ID):
+		return "旧飞鸽／飞秋会话的登录身份未确认，请选择当前联系人重新发送"
+	case peer.CompatibilityAliasOf != "":
+		for _, canonical := range s.Peers {
+			if canonical.ID == peer.CompatibilityAliasOf && canonical.Transport == TransportGoIM {
+				return "此联系人已使用 GoIM 连接，请打开当前会话。"
+			}
+		}
+	}
+	return ""
 }
 
 func (p Peer) ListedContact() bool {
@@ -722,6 +754,8 @@ const (
 )
 
 type Command struct {
+	// OnResult reports local command completion. Callbacks must not block or mutate window state.
+	OnResult       func(error) `json:"-"`
 	Transport      string
 	Compatibility  CompatibilityConfig
 	MessageID      string

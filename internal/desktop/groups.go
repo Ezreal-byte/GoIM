@@ -54,7 +54,7 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 		ui.Column(f).Fill().Gap(11).Children(func() {
 			ui.Row(f).Items(ui.Center).Gap(12).Children(func() {
 				avatar := ui.Row(f).Size(46, 46).Radius(23).Items(ui.Center).Justify(ui.Center)
-				if owner {
+				if owner && !native {
 					avatar = avatar.Hover(ui.Look{}.Background(u.palette.hover)).
 						HitWith(u.ids.memberAvatar, i18n.T("更换群头像"), gfx.HitOptions{
 							Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand,
@@ -64,7 +64,7 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 				avatar.Children(func() {
 					u.avatarStatus(f, group.Name, group.Avatar, 46, true)
 				})
-				if owner && avatar.Clicked() {
+				if owner && !native && avatar.Clicked() {
 					avatarClicked = true
 				}
 				ui.Column(f).Grow(1).Gap(3).Children(func() {
@@ -237,7 +237,7 @@ func (u *UI) drawMemberDrawer(canvas *gfx.Canvas, viewport ui.Rect) {
 }
 
 func (u *UI) openGroupAvatar(group domain.Group) {
-	if group.ID == "" || group.OwnerID != u.state.Self.ID || group.Left || group.Dissolved {
+	if group.ID == "" || group.OwnerID != u.state.Self.ID || group.Left || group.Dissolved || group.Transport == domain.TransportNeiwangtong {
 		return
 	}
 	paths, err := u.openFilePicker(app.OpenFileOptions{
@@ -281,7 +281,7 @@ func (u *UI) closeGroupAvatarEditor() {
 
 func (u *UI) drawGroupAvatarEditor(canvas *gfx.Canvas, viewport ui.Rect) {
 	group := u.state.Group(u.avatarGroup)
-	if group.ID == "" || group.OwnerID != u.state.Self.ID || group.Left || group.Dissolved {
+	if group.ID == "" || group.OwnerID != u.state.Self.ID || group.Left || group.Dissolved || group.Transport == domain.TransportNeiwangtong {
 		u.closeGroupAvatarEditor()
 		return
 	}

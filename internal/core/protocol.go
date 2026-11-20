@@ -321,7 +321,8 @@ func (n *Node) reliable(peer string, e envelope) {
 	_ = n.durable(func(*persisted) []pending { return []pending{{PeerID: peer, Envelope: e}} })
 }
 func (n *Node) replay(peer string) {
-	n.restoreNativeGroupFiles(peer)
+	n.restoreNeiwangtongFiles(peer)
+	n.restoreIPMSGOffers(peer)
 	n.flushPeer(peer)
 	n.mu.Lock()
 	var resume []string
@@ -336,8 +337,39 @@ func (n *Node) replay(peer string) {
 	}
 }
 func (n *Node) flushPeer(peer string) {
-	n.flushMu.Lock()
-	defer n.flushMu.Unlock()
+	n.mu.Lock()
+	if n.closing {
+		n.mu.Unlock()
+		return
+	}
+	if _, running := n.flushing[peer]; running {
+		n.flushing[peer] = true
+		n.mu.Unlock()
+		return
+	}
+	if n.flushing == nil {
+		n.flushing = make(map[string]bool)
+	}
+	n.flushing[peer] = false
+	n.workers.Add(1)
+	n.mu.Unlock()
+	go func() {
+		defer n.workers.Done()
+		for {
+			n.deliverPeerOutbox(peer)
+			n.mu.Lock()
+			if n.closing || !n.flushing[peer] {
+				delete(n.flushing, peer)
+				n.mu.Unlock()
+				return
+			}
+			n.flushing[peer] = false
+			n.mu.Unlock()
+		}
+	}()
+}
+
+func (n *Node) deliverPeerOutbox(peer string) {
 	n.mu.Lock()
 	var list []pending
 	for _, p := range n.data.Outbox {
@@ -417,6 +449,11 @@ func (n *Node) flushPeer(peer string) {
 			return
 		}
 		if err != nil {
+			if transport == legacyIPMSG && p.Envelope.Type == "file_offer" && errors.Is(err, ipmsg.ErrReceiptTimeout) {
+				// Some clients confirm only by downloading. Keep the invitation
+				// queued without holding later messages until the user accepts.
+				continue
+			}
 			if n.ctx.Err() != nil || transport == transportNWT && errors.Is(err, neiwangtong.ErrDeliveryUncertain) ||
 				transport == legacyIPMSG && (errors.Is(err, ipmsg.ErrReceiptTimeout) || errors.Is(err, ipmsg.ErrPeerOffline)) {
 				return // preserve order and the original identifiers on replay

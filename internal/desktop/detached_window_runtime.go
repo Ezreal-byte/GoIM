@@ -19,6 +19,20 @@ func (r *desktopRuntime) openDetachedConversation(conversationID string) bool {
 
 	detached := newDetachedConversationView(r.backend, conversationID)
 	detached.presentHistory = r.requestHistoryWindow
+	detached.presentArchiveTarget = func(peerID string) {
+		if r.ui.lockVisible() {
+			return
+		}
+		if peerID != "" {
+			if entry := r.conversationWindows[r.ui.directByPeer[peerID]]; entry != nil {
+				entry.window.Show()
+				return
+			}
+		}
+		r.window.Show()
+		r.ui.openArchiveTarget(peerID)
+		r.ui.invalidator.Invalidate()
+	}
 	config := detached.DetachedConfig()
 	config.Icon = windowIcon()
 	config.Class = "GoIM.Conversation"

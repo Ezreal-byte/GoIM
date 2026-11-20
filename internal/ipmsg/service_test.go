@@ -207,10 +207,14 @@ func TestServiceOffersAndServesResumableFile(t *testing.T) {
 	if err := os.WriteFile(path, content, 0600); err != nil {
 		t.Fatal(err)
 	}
-	packetNumber, fileID, err := service.OfferFile(remoteID, path, "transfer", "file caption")
+	const packetNumber, fileID = uint64(718), uint32(10)
+	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	outgoing := FileOffer{Packet: packetNumber, ID: fileID, TransferID: "transfer", Path: path, Name: info.Name(), Size: info.Size(), Source: info, Digest: fmt.Sprintf("%x", sha256.Sum256(content))}
+	delivered := make(chan error, 1)
+	go func() { delivered <- service.SendFileOffer(context.Background(), remoteID, outgoing, "file caption") }()
 	if err := remote.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -230,6 +234,12 @@ func TestServiceOffersAndServesResumableFile(t *testing.T) {
 	files := decodeAttachments(encodedFiles)
 	if text != "file caption" || len(files) != 1 || files[0].ID != fileID {
 		t.Fatalf("offer content = %q %+v", text, files)
+	}
+	// Dropping the invitation must repeat identical wire identifiers and bytes.
+	firstOffer := bytes.Clone(payload[:count])
+	count, _, err = remote.ReadFromUDP(payload)
+	if err != nil || !bytes.Equal(firstOffer, payload[:count]) {
+		t.Fatalf("offer replay changed: %v", err)
 	}
 	t.Run("Neiwangtong request without NUL", func(t *testing.T) {
 		conn, err := net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), time.Second)
@@ -251,6 +261,9 @@ func TestServiceOffersAndServesResumableFile(t *testing.T) {
 			t.Fatalf("resumed bytes from Neiwangtong request = %q, %v", got, err)
 		}
 	})
+	if err := <-delivered; err != nil {
+		t.Fatalf("valid download request did not confirm invitation: %v", err)
+	}
 	service.mu.Lock()
 	service.peers[remoteID].addr.Port = port
 	service.mu.Unlock()
@@ -361,4 +374,60 @@ func freeIPMSGPort(t *testing.T) int {
 	}
 	t.Fatal("no port available for both UDP and TCP")
 	return 0
+}
+
+func TestFileOfferVerificationIsBoundToOpenedSourceVersion(t *testing.T) {
+	svc, _, peer := receiptFixture(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "source")
+	openInfo := func(path string) os.FileInfo {
+		t.Helper()
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		info, err := f.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info
+	}
+	content := []byte("first")
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	info := openInfo(path)
+	offer := FileOffer{Packet: 9, ID: 0, TransferID: "offer", Path: path, Name: "source", Size: info.Size(), Source: info, Digest: fmt.Sprintf("%x", sha256.Sum256(content))}
+	if svc.VerifiedFile(peer, offer) {
+		t.Fatal("fresh service reused an unverified source")
+	}
+	if err := svc.RememberFile(peer, offer); err != nil {
+		t.Fatal(err)
+	}
+	offer.Source = openInfo(path)
+	if !svc.VerifiedFile(peer, offer) {
+		t.Fatal("unchanged source did not reuse its verified version")
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime().Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	offer.Source = openInfo(path)
+	if svc.VerifiedFile(peer, offer) {
+		t.Fatal("changed timestamp retained a cached digest")
+	}
+	// A sync tool can atomically replace a file with the same name, size, and time.
+	if err := os.Rename(path, path+".original"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("other"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	offer.Source = openInfo(path)
+	if svc.VerifiedFile(peer, offer) {
+		t.Fatal("replacement reused the old file identity")
+	}
 }

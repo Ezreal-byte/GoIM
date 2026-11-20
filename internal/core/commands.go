@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"goim/internal/domain"
-	"goim/internal/ipmsg"
 )
 
 func (n *Node) execute(c domain.Command) error {
@@ -20,6 +19,9 @@ func (n *Node) execute(c domain.Command) error {
 	locked := n.data.State.Locked
 	n.mu.Unlock()
 	if locked && c.Kind != domain.UnlockApp && c.Kind != domain.UnlockAppSystem && c.Kind != domain.ReportError {
+		if c.Kind == domain.SendText && c.OnResult != nil {
+			return errors.New("应用已锁定，请解锁后发送消息。")
+		}
 		return nil
 	}
 	switch c.Kind {
@@ -454,11 +456,8 @@ func recipients(s domain.State, c domain.Conversation) ([]string, error) {
 		}
 		return peers, nil
 	}
-	if s.Peer(c.PeerID).IsLegacyNeiwangtong() {
-		return nil, errors.New("这条旧会话仅保留聊天记录。请从联系人列表打开内网通会话")
-	}
-	if s.Peer(c.PeerID).Transport == legacyIPMSG && ipmsg.UnboundPeerID(c.PeerID) {
-		return nil, errUnboundIPMSGPeer
+	if reason := s.DirectReadOnlyReason(s.Peer(c.PeerID)); reason != "" {
+		return nil, errors.New(reason)
 	}
 	return []string{c.PeerID}, nil
 }

@@ -1,9 +1,15 @@
 package core
 
 import (
+	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -230,5 +236,191 @@ func TestLegacyMessageKeepsItsIdentityWhenClosedBeforeTheReceipt(t *testing.T) {
 	defer next.mu.Unlock()
 	if len(next.data.Outbox) != 0 {
 		t.Fatal("a confirmed IPMSG message remained in the outbox")
+	}
+}
+
+// A reference peer first loses the invite, then acknowledges after a restart.
+// Its original TCP identifiers must remain valid after another sender restart.
+func TestLegacyFileOfferSurvivesRestartBeforeAndAfterReceipt(t *testing.T) {
+	udp, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer udp.Close()
+	dir := t.TempDir()
+	port := freeCompatibilityPort(t)
+	endpoint := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}
+	start := func() *Node {
+		n := testNodeAt(t, "", dir)
+		if err := n.applyIPMSG(domain.CompatibilityConfig{Enabled: true, Port: port}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := udp.WriteToUDP([]byte("1:81:file-fixture:file-host:16777219:Receiver\x00"), endpoint); err != nil {
+			t.Fatal(err)
+		}
+		eventually(t, "IPMSG file recipient online", func() bool {
+			peers := n.Snapshot().Peers
+			return len(peers) == 1 && peers[0].Online
+		})
+		return n
+	}
+	invite := func() []byte {
+		if err := udp.SetReadDeadline(time.Now().Add(4 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		buf := make([]byte, 8192)
+		for {
+			count, _, err := udp.ReadFromUDP(buf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fields := strings.SplitN(string(buf[:count]), ":", 6)
+			if len(fields) != 6 {
+				continue
+			}
+			cmd, _ := strconv.ParseUint(fields[4], 10, 32)
+			if cmd&0xff == 32 && cmd&0x200000 != 0 {
+				return bytes.Clone(buf[:count])
+			}
+		}
+	}
+	n := start()
+	peer := n.Snapshot().Peers[0]
+	if err := n.execute(domain.Command{Kind: domain.StartChat, PeerID: peer.ID}); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("file content held across two sender restarts")
+	path := filepath.Join(dir, "资料.txt")
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	sent := make(chan error, 1)
+	go func() { sent <- n.sendFile(directID(n.Snapshot().Self.ID, peer.ID), path, false, "") }()
+	first := invite()
+	if err := n.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-sent; err != nil {
+		t.Fatal(err)
+	}
+	n = start()
+	second := invite()
+	if !bytes.Equal(first, second) {
+		t.Fatalf("restarted invitation changed:\n%q\n%q", first, second)
+	}
+	packet := strings.SplitN(string(second), ":", 3)[1]
+	if _, err := udp.WriteToUDP([]byte("1:84:file-fixture:file-host:33:"+packet+"\x00"), endpoint); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "matching invitation was acknowledged", func() bool {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		for _, p := range n.data.Outbox {
+			if p.Envelope.Type == "file_offer" {
+				return false
+			}
+		}
+		return true
+	})
+	if err := n.Close(); err != nil {
+		t.Fatal(err)
+	}
+	n = start()
+	task := n.Snapshot().Transfers[0]
+	number, id, err := legacyOfferIDs(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := verifiedLegacyOffer(t.Context(), nil, peer.ID, task, n.Snapshot().File(task.FileID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "same acknowledged offer registered on restart", func() bool { return n.legacy.VerifiedFile(peer.ID, expected) })
+	conn, err := net.DialTimeout("tcp4", endpoint.String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Fprintf(conn, "1:87:file-fixture:file-host:96:%x:%x:0:\x00", number, id); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(conn)
+	if err != nil || !bytes.Equal(got, content) {
+		t.Fatalf("restored download=%q, err=%v", got, err)
+	}
+	eventually(t, "original file completed", func() bool { return n.Snapshot().Transfers[0].Status == "completed" })
+}
+
+func TestLegacyQueuedOfferRejectsChangedSameSizeContent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sample")
+	if err := os.WriteFile(path, []byte("first"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := fileHash(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("other"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = verifiedLegacyOffer(t.Context(), nil, "", domain.Transfer{RemotePacket: "123", RemoteFile: "0"}, domain.File{SourcePath: path, Size: 5, Hash: digest})
+	if !errors.Is(err, errLegacySourceChanged) {
+		t.Fatalf("changed file accepted: %v", err)
+	}
+}
+
+func TestRejectedLegacyReceiveRetriesOriginalAttachment(t *testing.T) {
+	original, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: freeCompatibilityPort(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer original.Close()
+	addr := original.Addr().(*net.TCPAddr)
+	udp, err := net.ListenUDP("udp4", &net.UDPAddr{IP: addr.IP, Port: addr.Port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer udp.Close()
+	port := freeCompatibilityPort(t)
+	n := testNode(t, "receiver")
+	if err := n.applyIPMSG(domain.CompatibilityConfig{Enabled: true, Port: port}); err != nil {
+		t.Fatal(err)
+	}
+	target := &net.UDPAddr{IP: addr.IP, Port: port}
+	if _, err := udp.WriteToUDP([]byte("1:23:user:host:16777219:Sender\x00"), target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := udp.WriteToUDP([]byte("1:42:user:host:2097440:item.txt\x009:item.txt:5:1:1:\a\x00"), target); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "incoming file", func() bool { return len(n.Snapshot().Transfers) == 1 })
+	task := n.Snapshot().Transfers[0]
+	if err := n.execute(domain.Command{Kind: domain.RejectTransfer, TransferID: task.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.execute(domain.Command{Kind: domain.RetryTransfer, TransferID: task.ID}); err != nil {
+		t.Fatal(err)
+	}
+	_ = original.SetDeadline(time.Now().Add(4 * time.Second))
+	conn, err := original.AcceptTCP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	request, err := bufio.NewReader(conn).ReadString(0)
+	if err != nil || !strings.HasSuffix(request, ":96:2a:9:0:\x00") {
+		t.Fatalf("wrong retry request %q: %v", request, err)
+	}
+	if _, err := io.WriteString(conn, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "original receive completed", func() bool { tasks := n.Snapshot().Transfers; return len(tasks) == 1 && tasks[0].Status == "completed" })
+	got, err := os.ReadFile(n.Snapshot().Transfers[0].Path)
+	if err != nil || string(got) != "hello" {
+		t.Fatalf("saved %q: %v", got, err)
 	}
 }

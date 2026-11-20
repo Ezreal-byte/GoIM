@@ -375,7 +375,7 @@ func (n *Node) manageGroup(c domain.Command) error {
 			if g.OwnerID != s.Self.ID {
 				return errors.New("只有群主可以执行此操作")
 			}
-			return n.setNativeGroupAvatar(g, c)
+			return errors.New("当前内网通协议不支持同步群头像")
 		}
 		return errors.New("内网通群不支持这个管理操作")
 	}

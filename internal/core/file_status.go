@@ -88,6 +88,9 @@ func (n *Node) retryTransfer(t domain.Transfer) error {
 			return errNativeDirectoryResend
 		}
 		if t.Status == "cancelled" || t.Status == "rejected" {
+			if t.LegacyTransport == legacyIPMSG {
+				return n.retryLegacyReceive(t)
+			}
 			if t.LegacyTransport == transportNWT {
 				return errors.New("此内网通任务已结束，请让对方重新发送")
 			}

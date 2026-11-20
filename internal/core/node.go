@@ -41,7 +41,7 @@ type Node struct {
 	dataLock              *os.File
 	mu                    sync.Mutex
 	groupMu               sync.Mutex
-	flushMu               sync.Mutex
+	flushing              map[string]bool // present while a peer worker runs; true requests another pass
 	data                  persisted
 	db                    *bolt.DB
 	key                   ed25519.PrivateKey
@@ -323,11 +323,18 @@ func (n *Node) snapshot(urls bool) domain.State {
 	return s
 }
 func (n *Node) Submit(c domain.Command) {
+	var err error
 	select {
 	case n.commands <- c:
+		return
 	case <-n.ctx.Done():
+		err = n.ctx.Err()
 	default:
-		n.report(errors.New("操作队列已满，请稍后重试"))
+		err = errors.New("操作队列已满，请稍后重试")
+		n.report(err)
+	}
+	if c.OnResult != nil {
+		c.OnResult(err)
 	}
 }
 func (n *Node) change(fn func(*domain.State)) error {
@@ -423,8 +430,12 @@ func (n *Node) commandLoop() {
 	for {
 		select {
 		case c := <-n.commands:
-			if err := n.execute(c); err != nil {
+			err := n.execute(c)
+			if err != nil {
 				n.report(err)
+			}
+			if c.OnResult != nil {
+				c.OnResult(err)
 			}
 		case <-n.ctx.Done():
 			return

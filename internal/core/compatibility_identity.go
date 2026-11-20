@@ -133,6 +133,16 @@ func (n *Node) compatibilitySenderLocked(transport, id string) domain.Peer {
 }
 
 func (n *Node) observeCompatibilityPeer(value domain.Peer) {
+	// The adapter tracks liveness on every packet. An unchanged announcement
+	// does not change the contact or require another database transaction.
+	n.mu.Lock()
+	previous, known := n.compatPeers[compatibilityEndpoint{value.Transport, value.ID}]
+	n.mu.Unlock()
+	if known && previous.Online == value.Online && previous.Presence == value.Presence &&
+		previous.Name == value.Name && previous.Address == value.Address && previous.ClientType == value.ClientType &&
+		previous.Signature == value.Signature && previous.Details == value.Details && previous.Version == value.Version {
+		return
+	}
 	if value.IsLegacyNeiwangtong() {
 		n.mu.Lock()
 		saved := n.data.State.Peer(value.ID)

@@ -190,14 +190,14 @@ func (n *Node) discoveryLoop() {
 		n.mu.Lock()
 		queued := make(map[string]bool)
 		for _, delivery := range n.data.Outbox {
-			transport, _, _ := n.pendingRouteLocked(delivery)
-			if transport == domain.TransportGoIM && n.connections[delivery.PeerID] == nil {
+			transport, _, online := n.pendingRouteLocked(delivery)
+			if transport == domain.TransportGoIM && n.connections[delivery.PeerID] == nil || transport != domain.TransportGoIM && online {
 				queued[delivery.PeerID] = true
 			}
 		}
 		n.mu.Unlock()
 		for id := range queued {
-			n.replay(id)
+			n.flushPeer(id)
 		}
 		for _, p := range s.Peers {
 			if p.Transport == domain.TransportGoIM && !p.Online && p.Address != "" {

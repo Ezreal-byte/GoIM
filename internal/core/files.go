@@ -56,10 +56,14 @@ func fileHashContext(ctx context.Context, path string) (string, error) {
 		return "", e
 	}
 	defer f.Close()
+	return fileReaderHashContext(ctx, f)
+}
+
+func fileReaderHashContext(ctx context.Context, f io.Reader) (string, error) {
 	h := sha256.New()
 	buf := make([]byte, 256<<10)
 	for {
-		if e = ctx.Err(); e != nil {
+		if e := ctx.Err(); e != nil {
 			return "", e
 		}
 		nr, err := f.Read(buf)
@@ -99,6 +103,19 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 			return n.sendNeiwangtongDirectory(convID, path, target)
 		}
 		return errors.New("首期仅支持文件，请先将文件夹打包")
+	}
+	if !shared && info.Size() >= neiwangtongSendLimit {
+		// This limit belongs to the receiving client. Report it even when
+		// the contact is offline, before hashing a multi-gigabyte file.
+		n.mu.Lock()
+		state := &n.data.State
+		conv := state.Conversation(convID)
+		native := conv.Kind == "direct" && state.Peer(conv.PeerID).Transport == transportNWT ||
+			conv.Kind == "group" && n.data.NativeGroups[conv.GroupID].WireID != ""
+		n.mu.Unlock()
+		if native {
+			return errors.New(neiwangtongFileSizeMessage)
+		}
 	}
 	hash, err := fileHashContext(n.ctx, path)
 	if err != nil {

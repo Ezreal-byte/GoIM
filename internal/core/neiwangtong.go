@@ -24,6 +24,7 @@ const transportNWT = domain.TransportNeiwangtong
 // The stock client reliably sends files larger than 4 GiB to us. Its
 // receiver has yet to complete the corresponding large-file fixture.
 const neiwangtongSendLimit = 1 << 32
+const neiwangtongFileSizeMessage = "发给内网通的单个文件需小于 4 GiB，请拆分后重发"
 
 var errNeedsGoIMConnection = errors.New("已发现 GoIM 设备，但尚未建立 GoIM 连接")
 
@@ -436,20 +437,37 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 			return n.neiwangtongDirectoryPending(service, peer, value, t, f)
 		}
 		if f.Size >= neiwangtongSendLimit {
-			n.setTransfer(t.ID, "failed", t.Done, 0, "发给内网通的单个文件需小于 4 GiB，请拆分后重发")
+			n.setTransfer(t.ID, "failed", t.Done, 0, neiwangtongFileSizeMessage)
 			return nil
 		}
+		var source os.FileInfo
+		if !f.InlineImage {
+			var err error
+			source, err = n.verifiedNeiwangtongSource(f)
+			if err != nil {
+				return err
+			}
+		}
 		taskID, fileID := neiwangtongOutgoingIDs(t)
+		ready := false
 		if err := n.change(func(st *domain.State) {
 			if idx := transferIndex(st, t.ID); idx >= 0 {
-				st.Transfers[idx].RemotePacket = fmt.Sprint(taskID)
-				st.Transfers[idx].RemoteFile = fmt.Sprint(fileID)
-				st.Transfers[idx].Status = "offered"
-				st.Transfers[idx].LegacyTransport = transportNWT
-				st.Transfers[idx].RemotePeerID = peer
+				current := &st.Transfers[idx]
+				if current.Revoked || terminalTransfer(current.Status) {
+					return
+				}
+				current.RemotePacket = fmt.Sprint(taskID)
+				current.RemoteFile = fmt.Sprint(fileID)
+				current.Status = "offered"
+				current.LegacyTransport = transportNWT
+				current.RemotePeerID = peer
+				ready = true
 			}
 		}); err != nil {
 			return err
+		}
+		if !ready {
+			return nil
 		}
 		if f.InlineImage {
 			var room string
@@ -467,14 +485,11 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 			if err != nil {
 				return err
 			}
-			ref := neiwangtong.GroupFileRef{ID: legacyStableID("nwt-group-file", f.ID), Name: f.Name, Size: f.Size}
+			ref := neiwangtong.GroupFileRef{ID: legacyStableID("nwt-group-file", f.ID), Name: f.Name, Size: f.Size, SourceInfo: source}
 			return service.SendGroupFile(peer, room, nativeMessagePacket(value), f.ID, ref, taskID, fileID, f.SourcePath)
 		}
-		info, err := os.Stat(f.SourcePath)
-		if err != nil {
-			return err
-		}
-		return service.SendFileOfferWithIDs(peer, taskID, fileID, f.Name, f.Size, info.ModTime().Unix(), f.SourcePath)
+		return service.SendFileOfferWithAccess(peer, taskID, fileID, f.Name, f.Size, source.ModTime().Unix(), f.SourcePath,
+			n.neiwangtongFileAccess(service, peer, t.ID, source))
 	case "file_status":
 		if e.Status != "rejected" && e.Status != "cancelled" {
 			return nil
@@ -507,6 +522,71 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 		return service.StopReceiving(peer, task)
 	default:
 		return nil
+	}
+}
+
+// File invitations outlive the command that picked the path. Pin the verified
+// revision through registration as well as verifying its original content.
+func (n *Node) verifiedNeiwangtongSource(file domain.File) (os.FileInfo, error) {
+	info, err := os.Lstat(file.SourcePath)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() != file.Size {
+		return nil, errors.New("源文件已变化，请重新发送")
+	}
+	digest, err := fileHashContext(n.ctx, file.SourcePath)
+	if err != nil {
+		return nil, err
+	}
+	if digest != file.Hash {
+		return nil, errors.New("源文件已变化，请重新发送")
+	}
+	return info, nil
+}
+
+func (n *Node) neiwangtongFileAccess(service *neiwangtong.Service, peer, id string, source os.FileInfo) neiwangtong.FileAccess {
+	n.mu.Lock()
+	index := transferIndex(&n.data.State, id)
+	n.mu.Unlock()
+	return neiwangtong.FileAccess{Source: source, Allowed: func() bool {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		state := &n.data.State
+		if index < 0 || index >= len(state.Transfers) || state.Transfers[index].ID != id {
+			index = transferIndex(state, id)
+		}
+		if n.closing || n.neiwangtong != service || index < 0 {
+			return false
+		}
+		t := state.Transfers[index]
+		return t.Direction == "send" && t.LegacyTransport == transportNWT && transferWireID(&n.data, t) == peer &&
+			!t.Revoked && !terminalTransfer(t.Status) && !n.data.fileMessageRecalled(t) &&
+			(!t.FromShare || publicSharedFile(&n.data, state.File(t.FileID)))
+	}}
+}
+
+func (n *Node) restoreNeiwangtongDirectFile(service *neiwangtong.Service, peer string, t domain.Transfer, file domain.File) {
+	if file.Folder || file.Size >= neiwangtongSendLimit || t.RemoteFile == "" {
+		return
+	}
+	// Restore the selectors the recipient already holds, including historical
+	// invitations whose task and file selectors were identical.
+	taskID, taskErr := strconv.ParseUint(t.RemotePacket, 10, 32)
+	selector, fileErr := strconv.ParseUint(t.RemoteFile, 10, 32)
+	if taskErr != nil || fileErr != nil || taskID == 0 || selector == 0 || service.HasFileOffer(peer, taskID, selector) {
+		return
+	}
+	source, err := n.verifiedNeiwangtongSource(file)
+	if err == nil {
+		access := n.neiwangtongFileAccess(service, peer, t.ID, source)
+		if !access.Allowed() {
+			return
+		}
+		err = service.RememberFileOffer(peer, taskID, selector, file.Size, file.SourcePath, access)
+	}
+	if err != nil && !errors.Is(err, neiwangtong.ErrNotConnected) && n.ctx.Err() == nil {
+		n.setTransfer(t.ID, "failed", t.Done, 0, err.Error())
 	}
 }
 

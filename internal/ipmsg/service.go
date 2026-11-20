@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,12 +32,12 @@ type Peer struct {
 }
 
 type Callbacks struct {
-	Peer         func(Peer)
-	Message      func(peerID string, packetNumber uint64, text string, files []Attachment) error
-	FilePrepared func(transferID string, packetNumber uint64, fileID uint32) error
-	FileProgress func(packetNumber uint64, fileID uint32, done, total int64, complete bool, err error)
-	AllowFile    func(transferID string) bool
-	Error        func(error)
+	Peer          func(Peer)
+	Message       func(peerID string, packetNumber uint64, text string, files []Attachment) error
+	FileRequested func(transferID string)
+	FileProgress  func(packetNumber uint64, fileID uint32, done, total int64, complete bool, err error)
+	AllowFile     func(transferID string) bool
+	Error         func(error)
 }
 
 type Config struct {
@@ -65,7 +64,8 @@ type peerState struct {
 type servingFile struct {
 	path       string
 	size       int64
-	modified   time.Time
+	source     os.FileInfo
+	digest     string
 	recipient  net.IP
 	peerID     string
 	transferID string
@@ -90,7 +90,6 @@ type Service struct {
 	udp       *net.UDPConn
 	tcp       net.Listener
 	packet    atomic.Uint64
-	fileID    atomic.Uint32
 	profile   atomic.Pointer[localProfile]
 	broadcast atomic.Bool
 
@@ -138,7 +137,6 @@ func Start(cfg Config) (*Service, error) {
 		slots:    make(chan struct{}, 16),
 	}
 	service.packet.Store(uint64(time.Now().Unix()))
-	service.fileID.Store(1)
 	service.profile.Store(&localProfile{name: cfg.Name, hidden: cfg.Hidden, away: cfg.Away})
 	service.broadcast.Store(!cfg.DisableBroadcast)
 	service.tcp, err = net.Listen("tcp4", endpoint)
@@ -178,6 +176,23 @@ func (s *Service) UpdateProfile(name string, hidden, away bool) {
 		}
 		return
 	}
+	if !old.hidden && old.away != away {
+		if s.broadcast.Load() {
+			s.announce(commandAbsence)
+		} else {
+			// Manually connected contacts still need our new presence.
+			profile := s.profile.Load()
+			data := s.presencePacket(profile, s.statusCommand(commandAbsence, profile))
+			s.mu.Lock()
+			for _, state := range s.peers {
+				if state.peer.Online {
+					_ = s.sendPacket(state, data)
+				}
+			}
+			s.mu.Unlock()
+		}
+		return
+	}
 	s.announce(commandEntry)
 }
 
@@ -205,55 +220,62 @@ func (s *Service) SendText(peerID, text string) error {
 	return s.sendFileMessage(state, s.nextPacket(), text, "")
 }
 
-// OfferFile advertises one explicit local file. Only the registered path can
-// later be read by a file request, never an arbitrary path supplied remotely.
-func (s *Service) OfferFile(peerID, path, transferID, message string) (uint64, uint32, error) {
+// FileOffer identifies one attachment across receipt retries and restarts.
+type FileOffer struct {
+	Packet                 uint64
+	ID                     uint32
+	TransferID, Path, Name string
+	Size                   int64
+	Source                 os.FileInfo // handle-based metadata retained from hashing the source
+	Digest                 string
+}
+
+// RememberFile restores a verified outgoing attachment without repeating the
+// invitation. The core persists its identifiers before calling this method.
+func (s *Service) RememberFile(peer string, offer FileOffer) error {
 	if !s.FilesAvailable() {
-		return 0, 0, errors.New("IPMSG TCP file listener is unavailable")
-	}
-	state := s.peer(peerID)
-	if state == nil {
-		return 0, 0, ErrPeerOffline
-	}
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 {
-		return 0, 0, errors.New("IPMSG source file is unavailable")
-	}
-	number := s.nextPacket()
-	fileID := s.fileID.Add(1)
-	file := Attachment{ID: fileID, Name: filepath.Base(path), Size: info.Size(),
-		ModTime: info.ModTime().Unix(), Kind: fileRegular}
-	if prepare := s.cfg.Callbacks.FilePrepared; prepare != nil {
-		if err := prepare(transferID, number, fileID); err != nil {
-			return 0, 0, err
-		}
+		return errors.New("IPMSG TCP file listener is unavailable")
 	}
 	s.mu.Lock()
-	current := s.peers[peerID]
-	if current == nil || !current.peer.Online || current.addr.Port != state.addr.Port || !current.addr.IP.Equal(state.addr.IP) {
-		s.mu.Unlock()
-		return 0, 0, ErrPeerOffline
+	defer s.mu.Unlock()
+	state := s.peers[peer]
+	if state == nil || !state.peer.Online {
+		return ErrPeerOffline
 	}
-	for key, entry := range s.files {
-		if entry.transferID == transferID {
-			delete(s.files, key)
-		}
+	key := fileKey{packet: offer.Packet, file: offer.ID}
+	if old, ok := s.files[key]; ok && (old.transferID != offer.TransferID || old.peerID != peer) {
+		return errors.New("IPMSG file invitation identifiers already in use")
 	}
-	s.files[fileKey{packet: number, file: fileID}] = servingFile{
-		path: path, size: file.Size, modified: info.ModTime(),
-		recipient: state.addr.IP, peerID: peerID, transferID: transferID,
+	s.files[key] = servingFile{
+		path: offer.Path, size: offer.Size, source: offer.Source, digest: offer.Digest,
+		recipient: append(net.IP(nil), state.addr.IP...), peerID: peer, transferID: offer.TransferID,
 	}
+	return nil
+}
+
+// VerifiedFile can reuse the digest only for this same transfer, path, and
+// version of the file that was previously opened and hashed in this process.
+func (s *Service) VerifiedFile(peer string, offer FileOffer) bool {
+	s.mu.Lock()
+	entry, ok := s.files[fileKey{packet: offer.Packet, file: offer.ID}]
 	s.mu.Unlock()
-	if message == "" {
-		message = file.Name
+	return ok && entry.transferID == offer.TransferID && entry.peerID == peer && entry.path == offer.Path &&
+		entry.digest == offer.Digest && sameFileVersion(entry.source, offer.Source)
+}
+
+func sameFileVersion(a, b os.FileInfo) bool {
+	return a != nil && b != nil && a.Mode() == b.Mode() && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime()) && os.SameFile(a, b)
+}
+
+func (s *Service) SendFileOffer(ctx context.Context, peer string, offer FileOffer, caption string) error {
+	if err := s.RememberFile(peer, offer); err != nil {
+		return err
 	}
-	if err := s.sendFileMessage(state, number, message, encodeAttachments([]Attachment{file})); err != nil {
-		s.mu.Lock()
-		delete(s.files, fileKey{packet: number, file: fileID})
-		s.mu.Unlock()
-		return 0, 0, err
+	if caption == "" {
+		caption = offer.Name
 	}
-	return number, fileID, nil
+	attachment := Attachment{ID: offer.ID, Name: offer.Name, Size: offer.Size, ModTime: offer.Source.ModTime().Unix(), Kind: fileRegular}
+	return s.sendConfirmed(ctx, peer, offer.Packet, caption, encodeAttachments([]Attachment{attachment}), offer.TransferID)
 }
 
 // DownloadFile requests a visible attachment and streams its remaining bytes
@@ -401,7 +423,7 @@ func (s *Service) handleDatagram(data []byte, from *net.UDPAddr) {
 		return
 	}
 	if strings.Contains(message.Extra, goIMDiscoveryMarker) &&
-		(message.baseCommand() == commandEntry || message.baseCommand() == commandAnswer || message.baseCommand() == commandExit) {
+		(message.baseCommand() == commandEntry || message.baseCommand() == commandAnswer || message.baseCommand() == commandExit || message.baseCommand() == commandAbsence) {
 		return
 	}
 	base := message.baseCommand()
@@ -519,14 +541,7 @@ func (s *Service) answer(state *peerState) {
 	if profile.hidden {
 		return
 	}
-	command := uint32(commandAnswer | optionCapUTF8)
-	if s.FilesAvailable() {
-		command |= optionFile
-	}
-	if profile.away {
-		command |= optionAbsence
-	}
-	_ = s.sendPacket(state, s.presencePacket(profile, command))
+	_ = s.sendPacket(state, s.presencePacket(profile, s.statusCommand(commandAnswer, profile)))
 }
 
 func (s *Service) announce(command uint32) {
@@ -538,10 +553,13 @@ func (s *Service) announce(command uint32) {
 		return
 	}
 	// Some classic clients only answer an entry with no capability flags.
+	if command == commandAbsence {
+		command = s.statusCommand(command, profile)
+	}
 	packet := s.presencePacket(profile, command)
 	var withFiles []byte
 	if command == commandEntry && s.FilesAvailable() {
-		withFiles = s.presencePacket(profile, command|optionFile|optionCapUTF8)
+		withFiles = s.presencePacket(profile, s.statusCommand(command, profile))
 	}
 	for _, address := range broadcastAddresses(s.cfg.Port, s.cfg.BindIP) {
 		_, _ = s.udp.WriteToUDP(packet, address)
@@ -549,6 +567,17 @@ func (s *Service) announce(command uint32) {
 			_, _ = s.udp.WriteToUDP(withFiles, address)
 		}
 	}
+}
+
+func (s *Service) statusCommand(command uint32, profile *localProfile) uint32 {
+	command |= optionCapUTF8
+	if s.FilesAvailable() {
+		command |= optionFile
+	}
+	if profile.away {
+		command |= optionAbsence
+	}
+	return command
 }
 
 func (s *Service) presencePacket(profile *localProfile, command uint32) []byte {
@@ -733,13 +762,18 @@ func (s *Service) serveFile(conn net.Conn) {
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() != entry.size || !info.ModTime().Equal(entry.modified) {
+	if err != nil || !sameFileVersion(entry.source, info) {
 		report(offset, false, errors.New("源文件已变化，请重新发送"))
 		return
 	}
 	if _, err := file.Seek(offset, io.SeekStart); err != nil {
 		report(offset, false, errors.New("无法定位兼容传输的文件偏移"))
 		return
+	}
+	// Some clients start downloading without sending the UDP delivery receipt.
+	s.confirmFileRequest(number, entry)
+	if requested := s.cfg.Callbacks.FileRequested; requested != nil {
+		requested(entry.transferID)
 	}
 	done := offset
 	if done < entry.size {

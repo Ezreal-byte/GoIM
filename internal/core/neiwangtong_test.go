@@ -417,6 +417,7 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	folderTransfer, folderGroup, folderSource := interruptNeiwangtongGroupFolder(t, n, remote, selfID, nativeID,
 		folderTask, firstFolderBlock, releaseFolder)
 
+	unopened := nextOffer()
 	if err := remote.SendQuit(selfID); err != nil {
 		t.Fatal(err)
 	}
@@ -431,6 +432,16 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	before := n.Snapshot().ChatMessages(conv)
 	if len(before) < 2 || before[len(before)-2].Text != offlineBody || before[len(before)-2].Status != "pending" {
 		t.Fatal("text was not kept pending for the offline peer")
+	}
+	modifiedSource := filepath.Join(t.TempDir(), "离线时修改.txt")
+	if err := os.WriteFile(modifiedSource, []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.sendFile(conv, modifiedSource, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(modifiedSource, []byte("replaced"), 0600); err != nil {
+		t.Fatal(err)
 	}
 	if err := remote.Close(); err != nil {
 		t.Fatal(err)
@@ -504,6 +515,35 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 		}
 		return false
 	})
+	eventually(t, "changed queued file failed before advertising it", func() bool {
+		for _, task := range reopened.Snapshot().Transfers {
+			if task.Name == filepath.Base(modifiedSource) {
+				return task.Status == "failed" && task.Error == "源文件已变化，请重新发送" && task.RemotePacket == ""
+			}
+		}
+		return false
+	})
+	for range 2 {
+		reopened.restoreNeiwangtongFiles(nativeID)
+		if !restarted.HasFileOffer(nativeID, unopened.TaskID, unopened.FileID) ||
+			restarted.HasFileOffer(nativeID, rejected.TaskID, rejected.FileID) ||
+			restarted.HasFileOffer(nativeID, waiting.TaskID, waiting.FileID) ||
+			restarted.HasFileOffer(nativeID, offer.TaskID, offer.FileID) {
+			t.Fatal("restoration did not preserve active and terminal invitation states")
+		}
+	}
+	oldDestination := filepath.Join(t.TempDir(), "old-invitation.txt")
+	if err := again.AcceptFile(reconnect, selfID, unopened.TaskID, unopened.FileID, unopened.Size, oldDestination, nil); err != nil {
+		t.Fatalf("original direct invitation after restart: %v", err)
+	}
+	if got, err := os.ReadFile(oldDestination); err != nil || !bytes.Equal(got, outgoingBytes) {
+		t.Fatalf("original invitation bytes: %v", err)
+	}
+	select {
+	case unexpected := <-offers:
+		t.Fatalf("unexpected additional invitation after reconnect: %+v", unexpected)
+	default:
+	}
 	verifyNeiwangtongGroupFolderRetry(t, reopened, folderTransfer, folderSource, folderProgress)
 }
 

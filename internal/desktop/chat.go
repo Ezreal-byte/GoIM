@@ -96,7 +96,7 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 				Label(i18n.T("调整聊天记录和输入框高度"))
 			ui.Row(f).Grow(1).Basis(0).Children(func() {
 				if readOnlyReason != "" {
-					u.drawChatReadOnly(f, readOnlyReason)
+					u.drawChatReadOnly(f, conversation, readOnlyReason)
 				} else {
 					u.drawComposer(f)
 				}
@@ -712,6 +712,10 @@ func (u *UI) drawComposerToolbar(f ui.C) {
 		if files.Clicked() {
 			u.chooseChatFiles(f.Canvas(), false)
 		}
+		conversation := u.state.Conversation(u.selected)
+		if u.chatFolderAvailable(conversation) && u.composerActionButton(f, u.ids.chatFolder, u.iconFolder, i18n.T("发送文件夹"), "").Clicked() {
+			u.chooseChatFolder(f.Canvas(), conversation.ID)
+		}
 		shortcut, _ := u.configuredShortcut(domain.ShortcutScreenshot)
 		snip := u.composerActionButton(f, u.ids.chatScreenshot, Scissors, i18n.T("截图标注"), shortcut)
 		if snip.Clicked() && u.requestScreenshot != nil {
@@ -722,7 +726,6 @@ func (u *UI) drawComposerToolbar(f ui.C) {
 			u.chooseChatFiles(f.Canvas(), true)
 		}
 		ui.Spacer(f)
-		conversation := u.state.Conversation(u.selected)
 		if conversation.Kind == "direct" {
 			peer := u.state.Peer(conversation.PeerID)
 			call := u.composerActionButton(f, u.ids.chatHeaderCall, u.iconPhone, i18n.T("语音通话"), "").
@@ -742,7 +745,8 @@ func (u *UI) drawComposerFooter(f ui.C) {
 		hasText := u.chatEditor != nil && strings.TrimSpace(u.chatEditor.String()) != ""
 		background := u.palette.chat.Mix(u.theme.Foreground, 0.08)
 		foreground := u.theme.MutedForeground
-		send := ui.ButtonBase(f, label).Hit(u.ids.chatSend, label).Size(76, 30).Radius(radiusControl).Disabled(!hasText)
+		_, waiting := u.pendingTexts[u.selected]
+		send := ui.ButtonBase(f, label).Hit(u.ids.chatSend, label).Size(76, 30).Radius(radiusControl).Disabled(!hasText || waiting)
 		if hasText {
 			background, foreground = u.theme.Primary, u.theme.PrimaryForeground
 			send.Hover(ui.Look{}.Background(background.Mix(foreground, 0.1))).
@@ -783,9 +787,11 @@ func (u *UI) composerSendHint() string {
 	return i18n.T("Enter 发送，Shift+Enter 换行")
 }
 
-func (u *UI) drawChatReadOnly(f ui.C, reason string) {
+func (u *UI) drawChatReadOnly(f ui.C, conversation domain.Conversation, reason string) {
 	title := i18n.T("该群聊已关闭")
-	if strings.HasPrefix(reason, "等待成员") {
+	if conversation.Kind == "direct" {
+		title = i18n.T("历史会话")
+	} else if group := u.state.Group(conversation.GroupID); !group.Left && !group.Dissolved {
 		title = i18n.T("正在等待成员加入")
 	}
 	ui.Column(f).Fill().PadX(chatContentInset).
@@ -800,11 +806,36 @@ func (u *UI) drawChatReadOnly(f ui.C, reason string) {
 				ui.Text(f, title).FontSize(12.5).Weight(gfx.WeightMedium)
 				ui.Text(f, reason).FontSize(10.5).Muted().Ellipsis()
 			})
+			if conversation.Kind == "direct" {
+				peer := u.state.Peer(conversation.PeerID)
+				label := i18n.T("查看联系人")
+				if peer.CompatibilityAliasOf != "" {
+					label = i18n.T("打开当前会话")
+				}
+				if namedButton(f, u.ids.chatCurrentContact, label).Small().Outline().Clicked() {
+					f.Canvas().AfterPaint(func() { u.openArchiveTarget(peer.CompatibilityAliasOf) })
+				}
+			}
 		})
 	})
 }
 
+func (u *UI) openArchiveTarget(peerID string) {
+	if u.presentArchiveTarget != nil {
+		u.presentArchiveTarget(peerID)
+		return
+	}
+	if peerID == "" {
+		u.setSection(sectionContacts)
+		return
+	}
+	u.startDirectFromMembers(peerID)
+}
+
 func (u *UI) chatReadOnlyReason(conversation domain.Conversation) string {
+	if conversation.Kind == "direct" {
+		return i18n.T(u.state.DirectReadOnlyReason(u.state.Peer(conversation.PeerID)))
+	}
 	if conversation.Kind != "group" {
 		return ""
 	}
@@ -887,18 +918,57 @@ func (u *UI) sendChatText() {
 		u.chatReadOnlyReason(u.state.Conversation(u.selected)) != "" {
 		return
 	}
-	value := strings.TrimSpace(u.chatEditor.String())
-	if value == "" {
+	raw := u.chatEditor.String()
+	value := strings.TrimSpace(raw)
+	if _, waiting := u.pendingTexts[u.selected]; waiting || value == "" || u.backend == nil {
 		return
 	}
 	u.closeMention()
 	u.emojiOpen = false
-	u.submit(domain.Command{Kind: domain.SendText, ConversationID: u.selected, Text: value})
-	u.setChatEditorText("")
-	u.drafts[u.selected] = ""
-	u.draftSaved[u.selected] = ""
-	u.chatScrollToEnd = true
-	u.syncChatInput(true)
+	// Store the draft before submission so a rejected command or window closure cannot lose it.
+	u.persistDraft(u.selected, raw)
+	if u.pendingTexts == nil {
+		u.pendingTexts = make(map[string]pendingChatText)
+	}
+	done := make(chan bool, 1)
+	u.pendingTexts[u.selected] = pendingChatText{raw: raw, done: done}
+	u.submit(domain.Command{Kind: domain.SendText, ConversationID: u.selected, Text: value, OnResult: func(err error) {
+		done <- err == nil
+		u.invalidator.Invalidate()
+	}})
+	u.finishChatSubmissions()
+}
+
+type pendingChatText struct {
+	raw  string
+	done <-chan bool
+}
+
+// Called on the window thread, including when a native dialog or a detached chat is active.
+func (u *UI) finishChatSubmissions() {
+	for id, pending := range u.pendingTexts {
+		select {
+		case accepted := <-pending.done:
+			delete(u.pendingTexts, id)
+			if !accepted {
+				continue
+			}
+			u.draftSaved[id] = ""
+			if id == u.selected && u.chatEditor != nil {
+				if u.chatEditor.String() == pending.raw {
+					u.setChatEditorText("")
+					u.drafts[id] = ""
+				}
+				u.chatScrollToEnd = true
+				u.syncChatInput(true)
+			} else if u.drafts[id] == pending.raw {
+				u.drafts[id] = ""
+			} else {
+				u.persistDraft(id, u.drafts[id])
+			}
+		default:
+		}
+	}
 }
 
 func (u *UI) insertChatText(value string) {
@@ -922,6 +992,30 @@ func (u *UI) setChatEditorText(value string) {
 	u.syncChatInput(true)
 }
 
+func (u *UI) chatFolderAvailable(c domain.Conversation) bool {
+	return c.Kind == "direct" && u.state.Peer(c.PeerID).Transport == domain.TransportNeiwangtong ||
+		c.Kind == "group" && u.state.Group(c.GroupID).Transport == domain.TransportNeiwangtong
+}
+
+func (u *UI) chooseChatFolder(canvas *gfx.Canvas, conversationID string) {
+	canvas.AfterPaint(func() {
+		if u.filePickerOpen {
+			return
+		}
+		u.filePickerOpen = true
+		defer func() { u.filePickerOpen = false }()
+		path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: i18n.T("发送文件夹")})
+		if err != nil {
+			if !errors.Is(err, app.ErrCanceled) && !errors.Is(err, app.ErrNoDriverResponse) {
+				u.showToast(i18n.T("无法选择文件夹"), filePickerProblem(err), components.ToastError)
+			}
+			return
+		}
+		if path != "" {
+			u.submit(domain.Command{Kind: domain.SendFiles, ConversationID: conversationID, Paths: []string{path}})
+		}
+	})
+}
 func (u *UI) chooseChatFiles(canvas *gfx.Canvas, imagesOnly bool) {
 	if u.selected == "" || u.chatReadOnlyReason(u.state.Conversation(u.selected)) != "" {
 		return

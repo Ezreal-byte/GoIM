@@ -83,11 +83,10 @@ func (n *Node) newIPMSG(port int, live *atomic.Bool) (*ipmsgproto.Service, error
 				}
 				return n.receiveLegacyMessage(id, packet, text, files)
 			},
-			FilePrepared: func(id string, packet uint64, file uint32) error {
-				if !live.Load() {
-					return context.Canceled
+			FileRequested: func(id string) {
+				if live.Load() {
+					n.confirmLegacyFileRequest(id)
 				}
-				return n.prepareLegacyOffer(id, packet, file)
 			},
 			FileProgress: func(packet uint64, file uint32, done, total int64, complete bool, err error) {
 				if live.Load() {
@@ -142,7 +141,7 @@ func unboundIPMSGTransfer(t domain.Transfer) bool {
 	if id == "" {
 		id = t.PeerID
 	}
-	return ipmsgproto.UnboundPeerID(id)
+	return domain.UnboundIPMSGPeerID(id)
 }
 
 // The old host-and-address IDs do not identify a logon. Keep their history and
@@ -160,7 +159,7 @@ func retireUnboundIPMSGDeliveries(p *persisted) {
 		if wire == "" {
 			wire = d.PeerID
 		}
-		if transport != legacyIPMSG || !ipmsgproto.UnboundPeerID(wire) {
+		if transport != legacyIPMSG || !domain.UnboundIPMSGPeerID(wire) {
 			continue
 		}
 		delete(p.Outbox, id)
@@ -247,25 +246,28 @@ func (n *Node) receiveLegacyMessage(peerID string, packetNumber uint64, message 
 	return err
 }
 
-// Commit the request identifiers before the UDP offer leaves the process.
-// Some recipients start the TCP download immediately.
-func (n *Node) prepareLegacyOffer(transferID string, packetNumber uint64, fileID uint32) error {
-	prepared := false
-	err := n.change(func(s *domain.State) {
-		if i := transferIndex(s, transferID); i >= 0 {
-			t := &s.Transfers[i]
-			if t.Direction != "send" || t.Revoked || terminalTransfer(t.Status) {
-				return
-			}
-			t.RemotePacket, t.RemoteFile = fmt.Sprintf("%x", packetNumber), fmt.Sprintf("%x", fileID)
-			t.Status, t.Error, t.UpdatedAt = "offered", "", time.Now()
-			prepared = true
+// A request can arrive between receipt waits. Clear only the original offer.
+func (n *Node) confirmLegacyFileRequest(id string) {
+	n.mu.Lock()
+	queued := false
+	for _, p := range n.data.Outbox {
+		if p.WireTransport == legacyIPMSG && p.Envelope.TransferID == id && p.Envelope.Type == "file_offer" {
+			queued = true
+			break
 		}
-	})
-	if err == nil && !prepared {
-		return context.Canceled
 	}
-	return err
+	n.mu.Unlock()
+	if !queued {
+		return
+	}
+	_ = n.durableFromReader(func(data *persisted) []pending {
+		for key, p := range data.Outbox {
+			if p.WireTransport == legacyIPMSG && p.Envelope.TransferID == id && p.Envelope.Type == "file_offer" {
+				delete(data.Outbox, key)
+			}
+		}
+		return nil
+	})
 }
 
 func (n *Node) receiveLegacyProgress(packetNumber uint64, fileID uint32, done, total int64, complete bool, failure error) {
@@ -317,30 +319,13 @@ func (n *Node) legacyPending(wireID string, value pending) error {
 		// turn the next attempt into a different message on the remote client.
 		packet := uint64(max(uint32(value.Sequence), 1))
 		return service.SendTextConfirmed(n.ctx, wireID, packet, e.Message.Text)
-	case "file_offer", "file_retry":
+	case "file_offer":
+		return n.sendLegacyOffer(service, wireID, value)
+	case "file_retry":
+		// Older data may contain a native-style request from an inbound task.
 		s := n.snapshot(false)
-		index := transferIndex(&s, e.TransferID)
-		if index < 0 {
-			return nil // the local task was removed
-		}
-		t := s.Transfers[index]
-		if t.Revoked || terminalTransfer(t.Status) {
-			return nil
-		}
-		f := s.File(t.FileID)
-		if f.SourcePath == "" {
-			n.setTransfer(t.ID, "failed", t.Done, 0, "源文件不可用")
-			return nil
-		}
-		if err := n.change(func(s *domain.State) {
-			if i := transferIndex(s, t.ID); i >= 0 && !terminalTransfer(s.Transfers[i].Status) {
-				s.Transfers[i].LegacyTransport, s.Transfers[i].RemotePeerID = legacyIPMSG, wireID
-			}
-		}); err != nil {
-			return err
-		}
-		if _, _, err := service.OfferFile(wireID, f.SourcePath, t.ID, ""); err != nil && !errors.Is(err, context.Canceled) {
-			n.setTransfer(t.ID, "failed", t.Done, 0, err.Error())
+		if i := transferIndex(&s, e.TransferID); i >= 0 && s.Transfers[i].Direction == "receive" && s.Transfers[i].Status == "retry_requested" {
+			return n.retryLegacyReceive(s.Transfers[i])
 		}
 		return nil
 	default:
@@ -471,6 +456,11 @@ func (n *Node) downloadLegacy(ctx context.Context, transfer domain.Transfer, fil
 		}
 	}
 	if err != nil {
+		if errors.Is(err, io.EOF) && ctx.Err() == nil {
+			if stat, statErr := output.Stat(); statErr == nil && stat.Size() == 0 && file.Size > 0 {
+				return errors.New("对方未返回文件内容，原邀请可能已失效，请重试或让对方重新发送")
+			}
+		}
 		return err
 	}
 	if err := output.Truncate(file.Size); err != nil {

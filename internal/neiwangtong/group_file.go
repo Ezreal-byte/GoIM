@@ -20,9 +20,10 @@ const (
 // GroupFileRef names one regular file offered in a native group message.
 // Name is display metadata from the sender; it is never a filesystem path.
 type GroupFileRef struct {
-	ID, Name string
-	Size     int64
-	Folder   bool
+	ID, Name   string
+	Size       int64
+	Folder     bool
+	SourceInfo os.FileInfo // local verification only; never included in the wire message
 }
 
 type chatFileWire struct {
@@ -134,7 +135,7 @@ func (s *Service) RememberGroupFile(peer, group string, ref GroupFileRef, task, 
 		return errors.New("invalid native group file offer")
 	}
 	info, err := os.Stat(source)
-	if err != nil || !info.Mode().IsRegular() || info.Size() != ref.Size {
+	if err != nil || !info.Mode().IsRegular() || info.Size() != ref.Size || ref.SourceInfo != nil && !sameFileRevision(ref.SourceInfo, info) {
 		return errors.New("源文件已变化，请重新发送")
 	}
 	key := groupFileKey{peer, strings.ToLower(ref.ID)}
@@ -185,7 +186,7 @@ func (s *Service) onGroupFileRequest(remote netip.AddrPort, peer string, data []
 		if ok && allowed() {
 			if info, err := os.Stat(offer.source); err == nil && os.SameFile(info, offer.sourceInfo) &&
 				info.Size() == offer.sourceInfo.Size() && info.ModTime().Equal(offer.sourceInfo.ModTime()) {
-				if current, err := s.prepareFileOfferWithAccess(peer, offer.task, offer.file, info.Size(), offer.source, allowed); err == nil {
+				if current, err := s.prepareFileOfferWithAccess(peer, offer.task, offer.file, info.Size(), offer.source, FileAccess{Source: info, Allowed: allowed}); err == nil {
 					s.mu.Lock()
 					registered, live := s.groupFiles[key]
 					if current == remote && live && registered.task == offer.task && registered.source == offer.source {

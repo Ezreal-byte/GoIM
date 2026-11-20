@@ -1048,7 +1048,11 @@ func (s *Service) SendFileOffer(peerID string, taskID uint64, name string, size,
 }
 
 func (s *Service) SendFileOfferWithIDs(peerID string, taskID, fileID uint64, name string, size, lastMod int64, path string) error {
-	control, err := s.prepareFileOffer(peerID, taskID, fileID, size, path)
+	return s.SendFileOfferWithAccess(peerID, taskID, fileID, name, size, lastMod, path, FileAccess{})
+}
+
+func (s *Service) SendFileOfferWithAccess(peerID string, taskID, fileID uint64, name string, size, lastMod int64, path string, access FileAccess) error {
+	control, err := s.prepareFileOfferWithAccess(peerID, taskID, fileID, size, path, access)
 	if err != nil {
 		return err
 	}
@@ -1057,6 +1061,19 @@ func (s *Service) SendFileOfferWithIDs(peerID string, taskID, fileID uint64, nam
 		s.dropFile(taskID)
 	}
 	return err
+}
+
+// RememberFileOffer makes the original selector available without sending another invitation.
+func (s *Service) RememberFileOffer(peer string, task, file uint64, size int64, path string, access FileAccess) error {
+	_, err := s.prepareFileOfferWithAccess(peer, task, file, size, path, access)
+	return err
+}
+
+func (s *Service) HasFileOffer(peer string, task, file uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	offer, ok := s.files[task]
+	return ok && offer.peerID == peer && offer.fileID == file
 }
 
 func (s *Service) SendChatImage(ctx context.Context, peerID string, packetID uint64, id string, taskID, fileID uint64, size int64, digest [16]byte, path string) error {
@@ -1087,10 +1104,10 @@ func chatImagePart(fileID uint64, size int64, digest [16]byte) (MsgDataTxt, erro
 }
 
 func (s *Service) prepareFileOffer(peerID string, taskID, fileID uint64, size int64, path string) (netip.AddrPort, error) {
-	return s.prepareFileOfferWithAccess(peerID, taskID, fileID, size, path, nil)
+	return s.prepareFileOfferWithAccess(peerID, taskID, fileID, size, path, FileAccess{})
 }
 
-func (s *Service) prepareFileOfferWithAccess(peerID string, taskID, fileID uint64, size int64, path string, allowed func() bool) (netip.AddrPort, error) {
+func (s *Service) prepareFileOfferWithAccess(peerID string, taskID, fileID uint64, size int64, path string, access FileAccess) (netip.AddrPort, error) {
 	control, _, err := s.control(peerID)
 	if err != nil {
 		return netip.AddrPort{}, err
@@ -1107,7 +1124,7 @@ func (s *Service) prepareFileOfferWithAccess(peerID string, taskID, fileID uint6
 		s.mu.Unlock()
 		return netip.AddrPort{}, errors.New("内网通任务编号已被占用")
 	}
-	if err := s.transfer.registerFileWithAccess(fileID, taskID, path, size, control.Addr(), chunked, allowed); err != nil {
+	if err := s.transfer.registerFileWithAccess(fileID, taskID, path, size, control.Addr(), chunked, access); err != nil {
 		s.mu.Unlock()
 		return netip.AddrPort{}, err
 	}

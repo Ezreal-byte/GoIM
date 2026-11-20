@@ -21,13 +21,18 @@ type messageReceiptKey struct {
 }
 
 type messageReceipt struct {
-	address netip.AddrPort
-	done    chan struct{}
+	transferID string
+	address    netip.AddrPort
+	done       chan struct{}
 }
 
 // SendTextConfirmed waits for IPMSG_RECVMSG, not a read notification. All
 // retries carry the same packet number and bytes so the peer can deduplicate.
 func (s *Service) SendTextConfirmed(ctx context.Context, peer string, number uint64, text string) error {
+	return s.sendConfirmed(ctx, peer, number, text, "", "")
+}
+
+func (s *Service) sendConfirmed(ctx context.Context, peer string, number uint64, text, attachments, transferID string) error {
 	if number == 0 {
 		return errors.New("invalid IPMSG message number")
 	}
@@ -35,14 +40,14 @@ func (s *Service) SendTextConfirmed(ctx context.Context, peer string, number uin
 	if state == nil {
 		return ErrPeerOffline
 	}
-	data, err := s.messagePacket(state, number, text, "")
+	data, err := s.messagePacket(state, number, text, attachments)
 	if err != nil {
 		return err
 	}
 	address := state.addr.AddrPort()
 	address = netip.AddrPortFrom(address.Addr().Unmap(), address.Port())
 	key := messageReceiptKey{peer, number}
-	receipt := messageReceipt{address: address, done: make(chan struct{}, 1)}
+	receipt := messageReceipt{transferID: transferID, address: address, done: make(chan struct{}, 1)}
 	s.mu.Lock()
 	if s.ctx.Err() != nil || len(s.receipts) >= 1024 {
 		s.mu.Unlock()
@@ -65,6 +70,9 @@ func (s *Service) SendTextConfirmed(ctx context.Context, peer string, number uin
 		}
 		if err := s.ctx.Err(); err != nil {
 			return err
+		}
+		if transferID != "" && s.cfg.Callbacks.AllowFile != nil && !s.cfg.Callbacks.AllowFile(transferID) {
+			return context.Canceled
 		}
 		if err := s.sendToLogin(state, data); err != nil {
 			return err
@@ -99,6 +107,19 @@ func (s *Service) receiveMessageReceipt(message packet, from *net.UDPAddr) {
 	receipt, known := s.receipts[key]
 	s.mu.Unlock()
 	if known && receipt.address == address {
+		select {
+		case receipt.done <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// A valid TCP request acknowledges only the file invitation that registered it.
+func (s *Service) confirmFileRequest(number uint64, entry servingFile) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	receipt, found := s.receipts[messageReceiptKey{entry.peerID, number}]
+	if found && receipt.transferID == entry.transferID && entry.recipient.Equal(net.IP(receipt.address.Addr().AsSlice())) {
 		select {
 		case receipt.done <- struct{}{}:
 		default:

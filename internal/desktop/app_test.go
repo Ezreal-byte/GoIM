@@ -23,10 +23,11 @@ import (
 )
 
 type shellTestBackend struct {
-	mu       sync.Mutex
-	state    domain.State
-	commands []domain.Command
-	updates  chan struct{}
+	deferCommandResult bool
+	mu                 sync.Mutex
+	state              domain.State
+	commands           []domain.Command
+	updates            chan struct{}
 }
 
 func newShellTestBackend(state domain.State) *shellTestBackend {
@@ -80,6 +81,9 @@ func (backend *shellTestBackend) Submit(command domain.Command) {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	backend.commands = append(backend.commands, command)
+	if command.OnResult != nil && !backend.deferCommandResult {
+		command.OnResult(nil)
+	}
 }
 
 func (backend *shellTestBackend) Updates() <-chan struct{} {

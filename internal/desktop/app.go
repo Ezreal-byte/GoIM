@@ -212,7 +212,7 @@ type appIDs struct {
 	chatScreenshot                                                         gfx.ID
 	chatSend                                                               gfx.ID
 	chatImage                                                              gfx.ID
-	chatFile                                                               gfx.ID
+	chatFile, chatFolder, chatCurrentContact                               gfx.ID
 	chatEmoji                                                              gfx.ID
 	chatEditorField                                                        gfx.ID
 	mainPin                                                                gfx.ID
@@ -433,32 +433,35 @@ type UI struct {
 	contactPeer        string
 	contactGroup       string
 
-	chatEditor         *text.Editor
-	chatEditorField    ui.Field
-	requestScreenshot  func()
-	presentViewer      func()
-	pinViewer          func(bool) bool
-	saveViewer         func(string)
-	fullscreenViewer   func(bool) bool
-	dismissViewer      func()
-	presentDetached    func(string) bool
-	presentHistory     func(string) bool
-	locateMessageID    string
-	locateMessageBox   ui.Box
-	highlightMessageID string
-	activePrintID      string
-	activeVoiceRecord  domain.Message
-	openDragPreview    func(app.DragPreviewConfig) (conversationDragPreview, error)
-	chatInput          app.TextInput
-	chatLayout         components.TextareaLayout
-	drafts             map[string]string
-	draftSaved         map[string]string
-	moreOpen           bool
-	dragging           bool
-	chatScrollToEnd    bool
-	timeline           chatTimeline
-	emojiOpen          bool
-	emojiButton        ui.Box
+	chatEditor           *text.Editor
+	chatEditorField      ui.Field
+	requestScreenshot    func()
+	presentViewer        func()
+	pinViewer            func(bool) bool
+	saveViewer           func(string)
+	fullscreenViewer     func(bool) bool
+	dismissViewer        func()
+	presentDetached      func(string) bool
+	presentHistory       func(string) bool
+	presentArchiveTarget func(string)
+	locateMessageID      string
+	locateMessageBox     ui.Box
+	highlightMessageID   string
+	activePrintID        string
+	activeVoiceRecord    domain.Message
+	openDragPreview      func(app.DragPreviewConfig) (conversationDragPreview, error)
+	chatInput            app.TextInput
+	chatLayout           components.TextareaLayout
+	pendingTexts         map[string]pendingChatText
+
+	drafts          map[string]string
+	draftSaved      map[string]string
+	moreOpen        bool
+	dragging        bool
+	chatScrollToEnd bool
+	timeline        chatTimeline
+	emojiOpen       bool
+	emojiButton     ui.Box
 
 	mention       mentionState
 	mentionEditor ui.Box
@@ -909,6 +912,7 @@ func (u *UI) refresh() {
 	}
 	oldError := u.state.Error
 	u.state = u.backend.Snapshot()
+	u.finishChatSubmissions()
 	u.lanEndpoint = displayLANEndpoint(u.state)
 	i18n.SetLanguage(u.state.Settings.Language)
 	u.presentConnectionFeedback()
@@ -1174,6 +1178,8 @@ func (u *UI) initIDs() {
 	u.ids.chatSend = u.tree.ID(u.ids.chat, "send")
 	u.ids.chatImage = u.tree.ID(u.ids.chat, "send-image")
 	u.ids.chatFile = u.tree.ID(u.ids.chat, "send-file")
+	u.ids.chatFolder = u.tree.ID(u.ids.chat, "send-folder")
+	u.ids.chatCurrentContact = u.tree.ID(u.ids.chat, "current-contact")
 	u.ids.chatEmoji = u.tree.ID(u.ids.chat, "emoji")
 	u.ids.chatEditorField = u.tree.ID(u.ids.chat, "composer-editor")
 	u.ids.mainPin = u.tree.ID(u.ids.page, "main-pin")

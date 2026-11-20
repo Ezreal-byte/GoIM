@@ -77,26 +77,6 @@ func (n *Node) renameNativeGroup(g domain.Group, selfID, name string) error {
 	})
 }
 
-func (n *Node) setNativeGroupAvatar(g domain.Group, c domain.Command) error {
-	path, hash, avatarMD5, err := n.prepareGroupAvatar(c)
-	if err != nil {
-		return err
-	}
-	if g.AvatarHash == hash && g.AvatarMD5 == avatarMD5 {
-		return nil
-	}
-	return n.durable(func(p *persisted) []pending {
-		room := p.NativeGroups[g.ID]
-		room.InfoVersion++
-		p.NativeGroups[g.ID] = room
-		g.Avatar, g.AvatarHash, g.AvatarMD5 = path, hash, avatarMD5
-		g.Epoch = max(room.InfoVersion, room.MembersVersion)
-		installGroupState(&p.State, g)
-		p.State.Notice = "群头像已更新"
-		return nativeRosterDeliveries(g)
-	})
-}
-
 func (n *Node) addNativeGroupMembers(group domain.Group, state domain.State, ids []string) error {
 	previousSize := len(group.Members)
 	for _, id := range ids {
@@ -400,7 +380,7 @@ func (n *Node) canServeNativeGroupFile(wirePeer, wireGroup string) bool {
 		sender != "" && contains(group.Members, sender) && contains(group.Members, n.data.State.Self.ID)
 }
 
-func (n *Node) restoreNativeGroupFiles(peer string) {
+func (n *Node) restoreNeiwangtongFiles(peer string) {
 	n.mu.Lock()
 	service := n.neiwangtong
 	wire := wireCompatibilityID(&n.data, peer, transportNWT)
@@ -417,16 +397,17 @@ func (n *Node) restoreNativeGroupFiles(peer string) {
 			task.LegacyTransport != transportNWT || task.RemotePacket == "" {
 			continue
 		}
+		file := state.File(task.FileID)
+		if file.InlineImage || file.SourcePath == "" || task.RemotePeerID != "" && task.RemotePeerID != wire {
+			continue
+		}
 		groupID, group := strings.CutPrefix(task.ConversationID, "group:")
 		if !group {
+			n.restoreNeiwangtongDirectFile(service, wire, task, file)
 			continue
 		}
 		room, err := n.activeNativeGroup(groupID, peer)
 		if err != nil {
-			continue
-		}
-		file := state.File(task.FileID)
-		if file.InlineImage || file.SourcePath == "" {
 			continue
 		}
 		if file.Folder {
@@ -448,11 +429,12 @@ func (n *Node) restoreNativeGroupFiles(peer string) {
 		if service.HasGroupFileOffer(wire, ref.ID) {
 			continue
 		}
-		digest, err := fileHashContext(n.ctx, file.SourcePath)
-		if err != nil || digest != file.Hash {
-			n.setTransfer(task.ID, "failed", task.Done, 0, "源文件已变化，请重新发送")
+		source, err := n.verifiedNeiwangtongSource(file)
+		if err != nil {
+			n.setTransfer(task.ID, "failed", task.Done, 0, err.Error())
 			continue
 		}
+		ref.SourceInfo = source
 		id, selector := neiwangtongOutgoingIDs(task)
 		if err := service.RememberGroupFile(wire, room, ref, id, selector, file.SourcePath); err != nil {
 			n.setTransfer(task.ID, "failed", task.Done, 0, err.Error())

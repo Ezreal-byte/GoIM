@@ -230,3 +230,29 @@ func TestLoginSwitchRetiresThePreviousRoute(t *testing.T) {
 		t.Fatalf("old login could still deliver on the shared endpoint: %v", err)
 	}
 }
+
+func TestManualContactReceivesAwayAndAvailableUpdates(t *testing.T) {
+	service, remote, _ := receiptFixture(t)
+	for _, away := range []bool{true, false} {
+		service.UpdateProfile("fixture", false, away)
+		_ = remote.SetReadDeadline(time.Now().Add(2 * time.Second))
+		var data [4096]byte
+		for {
+			count, _, err := remote.ReadFromUDP(data[:])
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := parsePacket(data[:count])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.baseCommand() != commandAbsence {
+				continue
+			}
+			if p.has(optionAbsence) != away || !p.has(optionFile) {
+				t.Fatalf("presence command %#x, away=%t", p.Command, away)
+			}
+			break
+		}
+	}
+}

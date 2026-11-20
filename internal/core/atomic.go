@@ -12,16 +12,6 @@ import (
 // writes happen only after the transaction succeeds, so recovery always has an
 // outbox for every operation already shown to the user.
 func (n *Node) durable(mutator func(*persisted) []pending) error {
-	return n.durableAndDispatch(mutator, n.flushPeer)
-}
-
-// A protocol reader must commit inbound changes in receive order while
-// allowing the reader to process acknowledgements for its own replies.
-func (n *Node) durableFromReader(mutator func(*persisted) []pending) error {
-	return n.durableAndDispatch(mutator, func(peer string) { n.async(func() { n.flushPeer(peer) }) })
-}
-
-func (n *Node) durableAndDispatch(mutator func(*persisted) []pending, dispatch func(string)) error {
 	n.mu.Lock()
 	if n.closing {
 		n.mu.Unlock()
@@ -83,10 +73,15 @@ func (n *Node) durableAndDispatch(mutator func(*persisted) []pending, dispatch f
 	for _, d := range deliveries {
 		if !flushed[d.PeerID] {
 			flushed[d.PeerID] = true
-			dispatch(d.PeerID)
+			n.flushPeer(d.PeerID)
 		}
 	}
 	return nil
+}
+
+// Reader and UI transactions both queue network writes after committing.
+func (n *Node) durableFromReader(mutator func(*persisted) []pending) error {
+	return n.durable(mutator)
 }
 
 func addMessageState(s *domain.State, m domain.Message) {
