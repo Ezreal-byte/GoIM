@@ -323,7 +323,7 @@ func (n *Node) reliable(peer string, e envelope) {
 func (n *Node) replay(peer string) {
 	n.restoreNeiwangtongFiles(peer)
 	n.restoreIPMSGOffers(peer)
-	n.flushPeer(peer)
+	n.flushPeer(peer, true)
 	n.mu.Lock()
 	var resume []string
 	for _, t := range n.data.State.Transfers {
@@ -336,40 +336,60 @@ func (n *Node) replay(peer string) {
 		n.startReceive(id, "")
 	}
 }
-func (n *Node) flushPeer(peer string) {
+
+type peerDelivery struct {
+	running, queued, replay bool
+	nativeSequence          uint64
+}
+
+func (n *Node) flushPeer(peer string, replay bool) {
 	n.mu.Lock()
 	if n.closing {
 		n.mu.Unlock()
 		return
 	}
-	if _, running := n.flushing[peer]; running {
-		n.flushing[peer] = true
+	if n.flushing == nil {
+		n.flushing = make(map[string]*peerDelivery)
+	}
+	work := n.flushing[peer]
+	if work == nil {
+		work = &peerDelivery{}
+		n.flushing[peer] = work
+	}
+	work.replay = work.replay || replay
+	if work.running {
+		work.queued = true
 		n.mu.Unlock()
 		return
 	}
-	if n.flushing == nil {
-		n.flushing = make(map[string]bool)
-	}
-	n.flushing[peer] = false
+	work.running = true
 	n.workers.Add(1)
 	n.mu.Unlock()
 	go func() {
 		defer n.workers.Done()
 		for {
-			n.deliverPeerOutbox(peer)
 			n.mu.Lock()
-			if n.closing || !n.flushing[peer] {
-				delete(n.flushing, peer)
+			if work.replay {
+				work.nativeSequence = 0
+			}
+			work.queued, work.replay = false, false
+			n.mu.Unlock()
+			n.deliverPeerOutbox(peer, &work.nativeSequence)
+			n.mu.Lock()
+			if n.closing || !work.queued {
+				work.running = false
+				if work.nativeSequence == 0 || n.closing {
+					delete(n.flushing, peer)
+				}
 				n.mu.Unlock()
 				return
 			}
-			n.flushing[peer] = false
 			n.mu.Unlock()
 		}
 	}()
 }
 
-func (n *Node) deliverPeerOutbox(peer string) {
+func (n *Node) deliverPeerOutbox(peer string, nativeSequence *uint64) {
 	n.mu.Lock()
 	var list []pending
 	for _, p := range n.data.Outbox {
@@ -404,9 +424,16 @@ func (n *Node) deliverPeerOutbox(peer string) {
 		}
 		p = current
 		if transport == domain.TransportGoIM {
+			// A new local message can arrive before the receiver commits and
+			// acknowledges the previous one. Only an explicit replay needs to
+			// resend the older TLS frames, including those sent via a relay.
+			if p.Sequence != 0 && p.Sequence <= *nativeSequence {
+				continue
+			}
 			if n.send(peer, p.Envelope) != nil {
 				return
 			}
+			*nativeSequence = p.Sequence
 			continue
 		}
 		if !online {

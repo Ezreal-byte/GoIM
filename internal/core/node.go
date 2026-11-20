@@ -41,7 +41,7 @@ type Node struct {
 	dataLock              *os.File
 	mu                    sync.Mutex
 	groupMu               sync.Mutex
-	flushing              map[string]bool // present while a peer worker runs; true requests another pass
+	flushing              map[string]*peerDelivery
 	data                  persisted
 	db                    *bolt.DB
 	key                   ed25519.PrivateKey

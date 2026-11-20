@@ -1,6 +1,9 @@
 // Test fixture for the original 3.4.3055 client in a private Wine display.
 // Its skin paints custom widgets. Use the stock layout in a fresh profile
 // and require the expected process, window title and dimensions.
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600 /* QueryFullProcessImageNameW */
+#endif
 #include <windows.h>
 #include <commctrl.h>
 #include <stdio.h>

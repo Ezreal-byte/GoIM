@@ -1,6 +1,7 @@
 package core
 
 import (
+	"crypto/tls"
 	"net"
 	"strconv"
 	"strings"
@@ -10,6 +11,47 @@ import (
 	"goim/internal/domain"
 	ipmsgproto "goim/internal/ipmsg"
 )
+
+func TestNewNativeMessageWaitsForReplayBeforeResendingEarlierFrames(t *testing.T) {
+	sender, receiver := testNode(t, "sender"), testNode(t, "receiver")
+	target := receiver.Snapshot().Self
+	target.Transport = domain.TransportGoIM
+	if err := sender.change(func(s *domain.State) { s.Peers = append(s.Peers, target) }); err != nil {
+		t.Fatal(err)
+	}
+	local, remote := net.Pipe()
+	defer local.Close()
+	defer remote.Close()
+	sender.mu.Lock()
+	sender.connections[target.ID] = &peerConn{conn: tls.Client(local, sender.tls), peer: target}
+	sender.mu.Unlock()
+	wire := tls.Server(remote, receiver.tls)
+	expect := func(id string) {
+		t.Helper()
+		_ = wire.SetReadDeadline(time.Now().Add(4 * time.Second))
+		for {
+			e, err := readFrame(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if e.ID == "" {
+				continue
+			}
+			if e.ID != id {
+				t.Fatalf("got frame %s, want %s", e.ID, id)
+			}
+			return
+		}
+	}
+	for _, id := range []string{"first", "second"} {
+		sender.reliable(target.ID, envelope{Type: "message", ID: id})
+		expect(id)
+	}
+	// Neither frame was acknowledged. A reconnect must replay both in order.
+	sender.flushPeer(target.ID, true)
+	expect("first")
+	expect("second")
+}
 
 func TestUnchangedCompatibilityAnnouncementKeepsStateRevision(t *testing.T) {
 	n := testNode(t, "local")

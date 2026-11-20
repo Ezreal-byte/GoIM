@@ -197,7 +197,7 @@ func (n *Node) discoveryLoop() {
 		}
 		n.mu.Unlock()
 		for id := range queued {
-			n.flushPeer(id)
+			n.flushPeer(id, true)
 		}
 		for _, p := range s.Peers {
 			if p.Transport == domain.TransportGoIM && !p.Online && p.Address != "" {

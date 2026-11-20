@@ -168,7 +168,7 @@ func (n *Node) receivePeerRoutes(via string, peers []domain.Peer) error {
 	}
 	n.mu.Unlock()
 	for _, id := range pendingPeers {
-		n.flushPeer(id)
+		n.flushPeer(id, true)
 	}
 	return nil
 }

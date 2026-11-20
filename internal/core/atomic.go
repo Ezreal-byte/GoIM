@@ -73,7 +73,7 @@ func (n *Node) durable(mutator func(*persisted) []pending) error {
 	for _, d := range deliveries {
 		if !flushed[d.PeerID] {
 			flushed[d.PeerID] = true
-			n.flushPeer(d.PeerID)
+			n.flushPeer(d.PeerID, false)
 		}
 	}
 	return nil
