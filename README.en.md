@@ -107,7 +107,7 @@ GoIM chooses the wire protocol from the peer. There is no per-contact compatibil
 | Neiwangtong (内网通) | Native Neiwangtong protocol: UDP 9011 discovery, ENet 9012 control, TCP 9013 avatar and file streams |
 | FeiQ (飞秋) / IP Messenger | Standard IPMSG on port 2425 |
 
-The adapter state below is scoped to the original Neiwangtong 3.4.3055 client. “Verified” means the listed behavior passed the automated original-client sandbox, including result files, persisted chat records, hashes, or protocol receipts; packet captures do not count as a pass by themselves.
+These results apply to development on `main` after the `0.1.16` release. The table covers the original Neiwangtong `3.4.3055` client. Checks use received files, chat records, hashes or protocol receipts as appropriate.
 
 | Capability | Status | Automated evidence |
 | --- | --- | --- |
@@ -117,7 +117,7 @@ The adapter state below is scoped to the original Neiwangtong 3.4.3055 client. �
 | Online individual files, reject, recall and cancel | Verified in both directions | Real files compared by SHA-256 |
 | Inline PNG, JPEG and GIF messages | Verified in both directions | Original-client cache and received bytes compared exactly |
 | Directory transfer | Verified in both directions | Nested Chinese paths, empty subdirectories and zero-byte files preserved |
-| Restarting an interrupted directory transfer | Verified in both directions | A fresh offer restarted the transfer; received files matched by SHA-256 |
+| Restarting an interrupted direct-chat folder transfer | Fresh offer verified in both directions | Accepting a new offer restarted the transfer from zero. Received files matched by SHA-256. Resuming from the original offer has not passed testing |
 | Busy and away presence, avatar replacement | Original presence → GoIM and avatar replacement in both directions verified | The same contact changed presence in sequence. Both clients received two replacements; GoIM cleared its copy when the original restored its default avatar |
 | Individual file resume | Verified in both directions | Non-zero offsets and final SHA-256 checks; GoIM retries reuse the file's original task ID |
 | Offline text and file replay | Verified in both directions | Both clients restarted with isolated profiles |
@@ -126,13 +126,13 @@ The adapter state below is scoped to the original Neiwangtong 3.4.3055 client. �
 | Group dismissal and member removal | Verified against the original for GoIM-initiated actions; original commands and GoIM state also tested | The original closed the affected group window. GoIM accepts these actions only from the owner and retains local history |
 | Regular group files | Verified in both directions | Files sent and accepted in a group matched the source SHA-256 on disk |
 | Original built-in emoticons | Mapping for 84 IDs implemented; the smile verified in both directions | Neiwangtong receives its native symbol; GoIM renders its own emoji or descriptive text |
-| Files larger than 4 GiB | Original → GoIM verified | 4,295,032,849-byte file downloaded and hashed |
+| Regular files larger than 4 GiB in direct chats | Verified in both directions | Each receiver saved a 4,295,032,849-byte file with the source length and SHA-256. [Windows original-client receive test](https://github.com/Ezreal-byte/GoIM/actions/runs/44755141926) |
 
 Group folders also passed both directions against the original, preserving nested Chinese paths, empty subdirectories and zero-byte files. Group file invitations remain downloadable after GoIM restarts.
 
-Group folders resume in both directions. GoIM can resume regular group files, and the original can start them again from the same invitation. Known gaps include GoIM → original transfers of 4 GiB or more, resuming regular group files at a nonzero offset on the original, resuming folders in direct chats, fully empty root directories, group ownership transfer, custom expression packs, native shared-directory browsing and remote assistance.
+Group folders resume in both directions. GoIM can resume regular group files, and the original client can restart them from the same offer. Files sent by GoIM to other Neiwangtong versions or to Neiwangtong group chats must still be smaller than 4 GiB each. Remaining gaps include nonzero-offset resume for group files received by the original client, fully empty root directories, group ownership transfer, custom expression packs, native shared-directory browsing and remote assistance.
 
-FeiQ/IP Messenger uses standard IPMSG. Original IP Messenger `5.9.1` passed automatic discovery, Chinese messages in both directions, and real file downloads. Development after `0.1.7` adds matched delivery receipts and stable packet numbers across restarts. Specific FeiQ versions still need validation; see the [compatibility progress](docs/ipmsg-compatibility-progress.md). These later changes are not included in the `0.1.7` packages.
+Original IP Messenger `5.9.1` passed automatic discovery, two-way Chinese messaging and regular file transfers. The original Windows FeiQ 2013 (`3.0.0.2`) passed unicast discovery at an explicit loopback address, two-way Chinese messaging and two-way regular file transfers with Chinese filenames. In each direction the receiver saved a 98,321-byte file with the expected SHA-256. Broadcast discovery between machines and other FeiQ versions await testing. [Windows FeiQ acceptance run](https://github.com/Ezreal-byte/GoIM/actions/runs/44756249204) · [IPMSG compatibility progress](docs/ipmsg-compatibility-progress.md)
 
 See the detailed [Neiwangtong compatibility progress](docs/neiwangtong-compatibility-progress.md) and the [automated Neiwangtong test guide](docs/neiwangtong-testing.md). The adapters can be managed under **Settings → Network**; `--no-compatibility` starts a GoIM-only instance.
 
