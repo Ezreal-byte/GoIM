@@ -4,187 +4,149 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GoIM · 局域网聊天与文件共享</title>
-  <meta name="description" content="GoIM 是开源的局域网即时通讯工具。在同一网络里聊天、传文件、共享打印机，聊天记录保存在本机。支持 Windows、macOS 和 Linux。">
-  <meta name="theme-color" content="#fafaf8">
+  <meta name="description" content="打开 GoIM，找到同一网络里的同事。聊天、语音通话、传文件，或共用一台打印机，聊天记录保存在各自的电脑上。">
+  <meta name="theme-color" content="#1a1a1a">
   <meta property="og:type" content="website">
   <meta property="og:title" content="GoIM · 局域网聊天与文件共享">
-  <meta property="og:description" content="GoIM 是开源的局域网即时通讯工具。在同一网络里聊天、传文件、共享打印机，聊天记录保存在本机。支持 Windows、macOS 和 Linux。">
-  <meta property="og:url" content="https://ezreal-byte.github.io/GoIM/">
+  <meta property="og:description" content="打开 GoIM，找到同一网络里的同事。聊天、语音通话、传文件，或共用一台打印机，聊天记录保存在各自的电脑上。">
   <meta property="og:image" content="https://ezreal-byte.github.io/GoIM/assets/screenshots/chat-dark.png">
-  <meta property="og:image:alt" content="深色群聊中的图片、文件卡片和聊天文件侧栏">
-  <meta property="og:locale" content="zh_CN">
+  <meta property="og:url" content="https://ezreal-byte.github.io/GoIM/">
   <link rel="canonical" href="https://ezreal-byte.github.io/GoIM/">
   <link rel="alternate" hreflang="zh-CN" href="https://ezreal-byte.github.io/GoIM/">
   <link rel="alternate" hreflang="en" href="https://ezreal-byte.github.io/GoIM/en/">
-  <link rel="icon" type="image/png" href="assets/goim.png">
-  <link rel="stylesheet" href="style.css?v=2">
-  <script src="site.js?v=2" defer></script>
+  <link rel="icon" href="assets/goim.png">
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="assets/fonts/inter-latin.woff2">
+  <script>try { if (localStorage.getItem("goim-theme") === "light") document.documentElement.dataset.theme = "light" } catch {} document.documentElement.classList.add("js")</script>
+  <link rel="stylesheet" href="style.css?v=3">
+  <script defer src="site.js?v=3"></script>
 </head>
 <body>
   <a class="skip" href="#main">跳到正文</a>
-  <header class="header">
-    <div class="wrap header-inner">
-      <a class="brand" href="./" aria-label="GoIM 首页"><img src="assets/goim.png" width="31" height="31" alt="">GoIM</a>
-      <nav class="desktop-nav" aria-label="主导航">
-          <a href="#interface">界面预览</a>
-          <a href="#features">文件与打印</a>
-          <a href="#start">使用指南</a>
+  <header>
+    <div class="nav-inner">
+      <a class="brand" href="./" aria-label="GoIM 首页"><img src="assets/goim.png" width="26" height="26" alt="">GoIM</a>
+      <nav class="nav-links" aria-label="主导航">
+          <a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.md">文档</a>
+          <a href="download/">下载</a>
+          <a href="https://github.com/Ezreal-byte/GoIM/releases">更新日志</a>
+          <a href="#compatibility">兼容性</a>
       </nav>
-      <div class="header-tools">
-        <a class="lang" href="en/" hreflang="en" lang="en" aria-label="English">EN</a>
-        <a class="header-get" href="#download">下载 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-        <details class="mobile-menu">
-          <summary aria-label="菜单"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg></summary>
-          <nav aria-label="主导航">
-            <a href="#interface">界面预览</a>
-          <a href="#features">文件与打印</a>
-          <a href="#start">使用指南</a>
+      <div class="tools">
+        <button class="search-open js-only" type="button" aria-label="搜索网站"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#search"></use></svg><span>搜索</span><kbd>Ctrl K</kbd></button>
+        <button class="theme js-only" type="button" aria-label="切换主题" aria-pressed="true"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#sun"></use></svg><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#moon"></use></svg></button>
+        <details class="language"><summary aria-label="选择语言"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#languages"></use></svg></summary>
+          <div class="popover"><a hreflang="zh-CN" lang="zh-CN" href="./" aria-current="page">简体中文</a><a hreflang="en" lang="en" href="en/">English</a></div>
+        </details>
+        <a class="github" href="https://github.com/Ezreal-byte/GoIM" aria-label="GitHub 仓库"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#github"></use></svg></a>
+        <details class="mobile-menu"><summary aria-label="菜单"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#chevron-down"></use></svg></summary>
+          <nav class="popover"><a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.md">文档</a>
+          <a href="download/">下载</a>
+          <a href="https://github.com/Ezreal-byte/GoIM/releases">更新日志</a>
+          <a href="#compatibility">兼容性</a>
+            <a href="en/" lang="en">English</a>
+            <a href="https://github.com/Ezreal-byte/GoIM">GitHub</a>
+            <button class="theme js-only" type="button" aria-label="切换主题" aria-pressed="true"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#sun"></use></svg><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#moon"></use></svg></button>
           </nav>
         </details>
       </div>
     </div>
   </header>
-
   <main id="main">
-    <section class="intro wrap" aria-labelledby="hero-title">
-      <a class="release" href="https://github.com/Ezreal-byte/GoIM/releases/tag/v0.1.16"><span class="status-dot"></span>GoIM <b>v0.1.16</b><span class="divider"></span>版本说明 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M7 6h11v11"/></svg></a>
-      <h1 id="hero-title">局域网里的<wbr><span>聊天与文件共享</span></h1>
-      <p>打开 GoIM，找到同一网络里的同事。发消息、传文件、共用打印机，聊天记录留在自己的电脑上。</p>
-      <div class="actions">
-        <a class="button primary" href="#download"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg> 下载 GoIM</a>
-        <a class="button secondary" href="#start">快速开始 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></a>
-      </div>
+    <section class="hero" aria-labelledby="hero-heading">
+      <span class="badge">原生局域网通讯 · Windows · macOS · Linux</span>
+      <h1 id="hero-heading"><span>局域网里，</span><wbr><span>聊天与共享。</span></h1>
+      <p>打开 GoIM，找到同一网络里的同事。聊天、语音通话、传文件，或共用一台打印机，聊天记录保存在各自的电脑上。</p>
+      <div class="actions"><a class="button" href="#start">快速开始</a><a class="button primary" id="download" href="download/">下载</a></div>
     </section>
 
-    <section class="showcase wrap" id="interface" aria-label="界面预览">
-      <figure>
-        <figcaption class="gallery-bar">
-          <span class="gallery-title">界面预览</span>
-          <nav class="gallery-links" aria-label="界面预览">
-            <a href="assets/screenshots/chat-dark.png" data-caption="群聊 · 深色外观" data-alt="深色群聊中的图片、文件卡片和聊天文件侧栏" aria-current="true">群聊</a>
-            <a href="assets/screenshots/chat-light.png" data-caption="群聊 · 浅色外观" data-alt="浅色群聊和聊天文件侧栏">浅色外观</a>
-            <a href="assets/screenshots/contacts-light.png" data-caption="联系人与分组" data-alt="联系人分组、成员资料和在线状态">联系人</a>
-            <a href="assets/screenshots/transfers-dark.png" data-caption="文件传输" data-alt="传输队列中的进度、待接收文件和重试操作">文件传输</a>
-            <a href="assets/screenshots/shares-light.png" data-caption="桌面文件共享" data-alt="已分享的文件与文件夹、访问密码和链接操作">文件共享</a>
-          </nav>
-        </figcaption>
-        <div class="stage">
-          <a id="screen-link" href="assets/screenshots/chat-dark.png" aria-label="打开原图">
-            <img id="screen" src="assets/screenshots/chat-dark.png" alt="深色群聊中的图片、文件卡片和聊天文件侧栏" width="2340" height="1560" fetchpriority="high">
-            <span class="expand"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7m-7 0 7-7M10 21H3v-7m7 0-7 7"/></svg></span>
-          </a>
-        </div>
-      </figure>
-      <span class="sr-only" id="screen-status" role="status"></span>
-    </section>
-
-    <section class="features wrap section" id="features">
-      <div class="section-head">
-        <h2>文件和打印机，一起用</h2>
-        <p>从聊天附件到公共资料，再到办公室的打印机。</p>
-      </div>
-      <div class="feature-pair">
-        <article class="feature">
-          <a class="feature-image files" href="assets/screenshots/lan-share-directory.png" aria-label="浏览器文件共享 · 打开原图">
-            <img src="assets/screenshots/lan-share-directory.png" alt="浏览器分享目录，含面包屑、文件列表和上传入口" width="1920" height="1200" loading="lazy">
-            <span class="expand"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7m-7 0 7-7M10 21H3v-7m7 0-7 7"/></svg></span>
-          </a>
-          <div class="feature-text">
-            <p class="feature-label">浏览器文件共享</p>
-            <h3>把一个文件夹发成链接</h3>
-            <p>对方在同一局域网用浏览器打开，就能浏览目录、下载文件。开启设备主页后，也可以拖入文件上传给你。</p>
+    <section class="tour" id="interface" aria-label="界面预览">
+      <div class="stage">
+        <div class="window">
+          <div class="viewport">
+            <a class="slide" href="assets/screenshots/chat-dark.png" data-title="深色群聊" data-caption="在会话旁查看聊天文件，图片和附件都能从原消息打开。"><img src="assets/screenshots/chat-dark.png" alt="深色群聊" width="2340" height="1560" fetchpriority="high"></a>
+            <a class="slide" href="assets/screenshots/chat-light.png" data-title="浅色群聊" data-caption="同一个群聊、同一份文件列表，也可以切换到浅色外观。" aria-hidden="true" tabindex="-1"><img src="assets/screenshots/chat-light.png" alt="浅色群聊" width="2340" height="1560" loading="lazy"></a>
+            <a class="slide" href="assets/screenshots/contacts-light.png" data-title="联系人与分组" data-caption="按分组找同事，打开资料即可发起会话。" aria-hidden="true" tabindex="-1"><img src="assets/screenshots/contacts-light.png" alt="联系人与分组" width="2340" height="1560" loading="lazy"></a>
+            <a class="slide" href="assets/screenshots/transfers-dark.png" data-title="传输队列" data-caption="在同一处接收附件、查看进度和重试中断的传输。" aria-hidden="true" tabindex="-1"><img src="assets/screenshots/transfers-dark.png" alt="传输队列" width="2340" height="1560" loading="lazy"></a>
+            <a class="slide" href="assets/screenshots/shares-light.png" data-title="桌面文件共享" data-caption="管理分享项目、访问密码和浏览器链接。" aria-hidden="true" tabindex="-1"><img src="assets/screenshots/shares-light.png" alt="桌面文件共享" width="2340" height="1560" loading="lazy"></a>
           </div>
-        </article>
-        <article class="feature">
-          <a class="feature-image print" href="assets/screenshots/print-sharing.png" aria-label="打印机共享 · 打开原图">
-            <img src="assets/screenshots/print-sharing.png" alt="GoIM 中的共享打印机、纸张规格和最近打印记录" width="1920" height="1200" loading="lazy">
-            <span class="expand"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7m-7 0 7-7M10 21H3v-7m7 0-7 7"/></svg></span>
-          </a>
-          <div class="feature-text">
-            <p class="feature-label">打印机共享</p>
-            <h3>用上同事桌边的打印机</h3>
-            <p>从列表挑一台在线打印机，查看纸张、彩色和双面能力，再提交文件。打印进度和历史记录都在同一页。</p>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section class="guide-section" id="start">
-      <div class="wrap columns">
-        <div class="side-title">
-          <h2>第一次在局域网里见面</h2>
-          <p>两台电脑接入同一个可互通的局域网，各自打开 GoIM。</p>
-          <a class="text-link" href="https://github.com/Ezreal-byte/GoIM/blob/main/README.md#快速开始">阅读使用说明 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M7 6h11v11"/></svg></a>
         </div>
-        <ol class="steps">
-          <li><div><h3>找到对方</h3><p>在「联系人」中找到在线设备。自动发现受限时，可点「手动连接」输入对方的 IP。</p></div></li>
-          <li><div><h3>开始聊天</h3><p>打开会话发送文字或图片，也可以发起语音通话。</p></div></li>
-          <li><div><h3>传一份文件</h3><p>在会话里添加附件。对方可在聊天或「传输」里接收、另存并查看进度。</p></div></li>
-        </ol>
+        <div class="tour-caption js-only"><strong></strong><p></p></div>
+        <nav class="static-slides" aria-label="界面截图"><a href="assets/screenshots/chat-dark.png">深色群聊</a> · <a href="assets/screenshots/chat-light.png">浅色群聊</a> · <a href="assets/screenshots/contacts-light.png">联系人与分组</a> · <a href="assets/screenshots/transfers-dark.png">传输队列</a> · <a href="assets/screenshots/shares-light.png">桌面文件共享</a></nav>
       </div>
     </section>
 
-    <section class="faq wrap columns section" id="compatibility">
+    <section class="narrow block capabilities" id="features">
+      <h2>局域网里能做什么</h2>
+      <div class="feature-grid">
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#messages-square"></use></svg></span><h3>单聊与群聊</h3><p>发送文字、表情和图片，发起语音通话。会话和聊天记录保存在本机。</p></article>
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#users"></use></svg></span><h3>联系人发现</h3><p>同一局域网内自动发现设备。也可以输入 IP 手动连接，并按分组管理联系人。</p></article>
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#arrow-down-up"></use></svg></span><h3>文件传输</h3><p>对方确认后再接收文件。聊天和传输队列都能查看进度、另存或重试。</p></article>
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#folder-open"></use></svg></span><h3>浏览器共享</h3><p>把文件或文件夹发成链接或二维码，按需设置密码。对方用浏览器就能下载。</p></article>
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#printer"></use></svg></span><h3>打印机共享</h3><p>查看同事共享的打印机，按纸张、彩色和双面能力选择设备，提交后跟踪任务。</p></article>
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#network"></use></svg></span><h3>旧客户端互通</h3><p>GoIM 自动识别内网通、飞鸽和飞秋。已验证的版本和功能可在常见问题中查看。</p></article>
+      </div>
+    </section>
+
+    <section class="wide block screens">
+      <h2>看看实际界面</h2>
+      <article class="screen-row" id="screen-chat-dark">
+        <a class="shot" href="assets/screenshots/chat-dark.png" aria-label="聊天文件就在会话旁边 · 查看原图"><img src="assets/screenshots/chat-dark.png" alt="聊天文件就在会话旁边" width="2340" height="1560" loading="lazy"></a>
+        <div><h3>聊天文件就在会话旁边</h3><p>群里发过的方案、图片和附件集中在右侧文件栏。查看文件时，仍然能看到讨论它的那段对话。</p></div>
+      </article>
+      <article class="screen-row" id="screen-lan-share-directory">
+        <a class="shot" href="assets/screenshots/lan-share-directory.png" aria-label="把一个文件夹发成链接 · 查看原图"><img src="assets/screenshots/lan-share-directory.png" alt="把一个文件夹发成链接" width="1920" height="1200" loading="lazy"></a>
+        <div><h3>把一个文件夹发成链接</h3><p>收件人在浏览器中按目录浏览和下载。启用设备分享主页后，也可以点「上传文件」或直接把文件拖进页面。</p></div>
+      </article>
+      <article class="screen-row" id="screen-print-sharing">
+        <a class="shot" href="assets/screenshots/print-sharing.png" aria-label="用上同事桌边的打印机 · 查看原图"><img src="assets/screenshots/print-sharing.png" alt="用上同事桌边的打印机" width="1920" height="1200" loading="lazy"></a>
+        <div><h3>用上同事桌边的打印机</h3><p>先看设备是否在线、支持哪种纸张，再提交文件。在「最近打印」里就能找到刚刚的任务。</p></div>
+      </article>
+    </section>
+
+    <section class="narrow block" id="start">
+      <h2>两台电脑，开始聊天</h2>
+      <ol class="steps">
+        <li><h3>接入同一网络</h3><p>在两台电脑上安装并打开 GoIM，确认两台设备可以互访。</p></li>
+        <li><h3>找到对方</h3><p>打开「联系人」。自动发现受限时，选择「手动连接」并输入对方的 IP。</p></li>
+        <li><h3>发送第一条消息</h3><p>进入会话发送文字或添加附件，对方可以在聊天里接收。</p></li>
+      </ol>
+    </section>
+
+    <section class="about block"><h2>GoIM 是什么？</h2><p>GoIM 是用 Go 和 Viva 构建的开源桌面通讯工具。它让同一局域网里的设备直接交换消息与文件，适合办公室、机房和没有外网连接的工作环境。</p></section>
+
+    <section class="narrow block" id="compatibility">
       <h2>常见问题</h2>
-      <div class="faq-list">
-        <details>
-          <summary>需要账号或服务器吗？</summary>
-          <p>同一局域网内，两台设备打开 GoIM 即可相互发现并直接通信。聊天记录保存在各自电脑上。</p>
-        </details>
-        <details>
-          <summary>对方没安装 GoIM，怎么收文件？</summary>
-          <p>在「文件共享」里添加文件或文件夹，然后把链接或二维码发给对方。对方用浏览器打开即可下载，需要时可以给分享设置访问密码。</p>
-        </details>
-        <details>
-          <summary>可以与内网通、飞鸽或飞秋互通吗？</summary>
-          <p>GoIM 会按对端自动选择协议。不同客户端支持的操作有所区别，兼容表逐项标注了验证版本和测试结果。 <a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.md#旧版客户端兼容">查看兼容表</a></p>
-        </details>
-      </div>
-    </section>
-
-    <section class="download" id="download">
-      <div class="wrap">
-        <div class="section-head">
-          <h2>在你的电脑上安装 GoIM</h2>
-          <p>按操作系统和处理器选择安装包。</p>
-        </div>
-        <div class="platforms">
-          <article class="platform" data-os="windows">
-            <div class="os-title"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path fill="currentColor" stroke="none" d="m2 4 8-1v8H2zm10-1.3L22 1v10H12zM2 13h8v8l-8-1zm10 0h10v10l-10-1.7z"/></svg><h3>Windows</h3><span class="detected" hidden>当前系统</span></div>
-            <p>安装向导 · EXE</p>
-            <div class="packages">
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_windows_amd64-Setup.exe" aria-label="下载 Windows x64">x64 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_windows_arm64-Setup.exe" aria-label="下载 Windows ARM64">ARM64 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-            </div>
-          </article>
-          <article class="platform" data-os="macos">
-            <div class="os-title"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="17" rx="3"/><path d="M12 4 9 13h3v7M6 8v1m11-1v1M6.5 14.5c2.5 3 8 3 11 0"/></svg><h3>macOS</h3><span class="detected" hidden>当前系统</span></div>
-            <p>macOS 13 或更新版本 · DMG</p>
-            <div class="packages">
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_darwin_amd64.dmg" aria-label="下载 macOS Intel">Intel <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_darwin_arm64.dmg" aria-label="下载 macOS Apple 芯片">Apple 芯片 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-            </div>
-          </article>
-          <article class="platform" data-os="linux">
-            <div class="os-title"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="17" rx="3"/><path d="m6 8 4 4-4 4m7 0h4"/></svg><h3>Linux</h3><span class="detected" hidden>当前系统</span></div>
-            <p>X11 或 XWayland · DEB</p>
-            <div class="packages">
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_linux_amd64.deb" aria-label="下载 Linux x64">x64 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_linux_arm64.deb" aria-label="下载 Linux ARM64">ARM64 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-            </div>
-          </article>
-        </div>
-        <a class="all-releases" href="https://github.com/Ezreal-byte/GoIM/releases/latest">便携包、校验值与全部版本 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M7 6h11v11"/></svg></a>
+      <div class="faq-grid">
+        <article class="card" id="nwt"><h3>GoIM 和内网通能互通到什么程度？</h3><p>在 0.1.16 之后的 main 开发版中，原版内网通 3.4.3055 已验证自动发现，以及单聊、群聊双向收发文字、图片、文件和文件夹。超过 4 GiB 的普通文件已验证该版本单聊双向传输，群聊的单文件仍须小于 4 GiB。</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/docs/neiwangtong-compatibility-progress.md">内网通适配进度</a></article>
+        <article class="card" id="kylin"><h3>支持银河麒麟和统信 UOS 吗？</h3><p>银河麒麟和统信 UOS 桌面可使用 GoIM 的 Linux 兼容包。先用 <code>uname -m</code> 查看架构：<code>x86_64</code> 选 amd64，<code>aarch64</code> 选 arm64。使用 DEB 包管理器的系统选 .deb，也可完整解压 .tar.gz。</p><a href="download/#linux">选择 Linux 安装包</a></article>
+        <article class="card" id="linux-requirements"><h3>信创电脑需要哪些运行条件？</h3><p>桌面会话需要 X11 或 XWayland，并提供 X11、XKB、Vulkan 和 ALSA 运行库。目前发布 x64 和 ARM64 两种架构。Linux 修复在 Ubuntu/Xvfb 环境验证，麒麟和 UOS 的输入法、多屏及具体系统版本仍需按实际环境核对。</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/docs/releases/0.1.16.md">Linux 验证说明</a></article>
+        <article class="card" id="ipmsg"><h3>飞鸽、飞秋可以一起用吗？</h3><p>IP Messenger 5.9.1 已验证自动发现、双向中文消息和文件传输。Windows 飞秋 2013（3.0.0.2）已验证指定回环地址发现、双向中文消息和中文名文件。飞秋跨机器广播发现仍待验证。</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/docs/ipmsg-compatibility-progress.md">飞鸽与飞秋适配进度</a></article>
+        <article class="card" id="discovery"><h3>不同网段能找到对方吗？</h3><p>两个网段可以互访时，可手动输入对方 IP。支持 DNS 发现的版本也可由管理员配置内网 DNS 和常在线的发现入口。此功能默认关闭。</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.md#通过内网-dns-跨网段发现-goim">跨网段配置说明</a></article>
+        <article class="card" id="browser"><h3>对方只用浏览器，能收发文件吗？</h3><p>可以。在「文件共享」里添加项目，再把链接发给对方。同一局域网内可用浏览器下载；启用设备分享主页后，访问者也可以上传。</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.md#快速开始">文件分享指南</a></article>
+        <article class="card" id="offline"><h3>没有互联网，还能用吗？</h3><p>可以。两台设备能在局域网内互访，就能发现对方、聊天和传文件。聊天记录留在各自电脑上，日常使用无需注册账号。</p></article>
+        <article class="card" id="history"><h3>到哪里查聊天记录和传输进度？</h3><p>在会话中查找历史消息，用聊天文件栏找附件。「传输」页集中显示待接收、进行中和已完成的文件。</p></article>
       </div>
     </section>
   </main>
-  <footer class="wrap footer">
-    <a class="brand" href="./" aria-label="GoIM 首页"><img src="assets/goim.png" width="31" height="31" alt="">GoIM</a>
-    <nav aria-label="项目链接">
-      <a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.md">使用说明</a>
-      <a href="https://github.com/Ezreal-byte/GoIM/issues">问题反馈</a>
-      <a href="https://github.com/Ezreal-byte/GoIM">GitHub <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M7 6h11v11"/></svg></a>
-    </nav>
-  </footer>
+  <footer class="narrow"><div><span>GoIM · Windows、macOS 与 Linux</span><a href="https://github.com/Ezreal-byte/GoIM/blob/main/LICENSE">MIT 许可证</a></div></footer>
+  <dialog id="search-dialog" aria-label="搜索网站">
+    <div class="search-field"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#search"></use></svg><input type="search" aria-label="搜索网站" placeholder="搜索网站" autocomplete="off"><button type="button" aria-label="关闭搜索"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="assets/icons.svg#x"></use></svg></button></div>
+    <ul class="results">
+      <li data-keywords="安装 下载 Windows macOS Linux x64 ARM64"><a href="download/">下载 GoIM</a></li>
+      <li data-keywords="入门 联系人 手动连接"><a href="#start">快速开始</a></li>
+      <li data-keywords="3.4.3055 群聊 图片 文件夹 大文件 4 GiB"><a href="#nwt">GoIM 和内网通能互通到什么程度？</a></li>
+      <li data-keywords="麒麟 统信 UOS 银河 Kylin 信创 国产 安装包 amd64 arm64 Linux"><a href="#kylin">支持银河麒麟和统信 UOS 吗？</a></li>
+      <li data-keywords="X11 XWayland XKB Vulkan ALSA 输入法 龙芯 LoongArch 架构"><a href="#linux-requirements">信创电脑需要哪些运行条件？</a></li>
+      <li data-keywords="IPMSG 飞秋 飞鸽 中文 广播 2013"><a href="#ipmsg">飞鸽、飞秋可以一起用吗？</a></li>
+      <li data-keywords="DNS 发现 内网 路由 网段 IP"><a href="#discovery">不同网段能找到对方吗？</a></li>
+      <li data-keywords="二维码 浏览器 上传 文件夹 链接"><a href="#browser">对方只用浏览器，能收发文件吗？</a></li>
+      <li data-keywords="离线 局域网 无账号"><a href="#offline">没有互联网，还能用吗？</a></li>
+      <li data-keywords="附件 会话 历史 搜索 进度"><a href="#history">到哪里查聊天记录和传输进度？</a></li>
+      <li data-keywords="会话 文件栏"><a href="#screen-chat-dark">聊天文件就在会话旁边</a></li>
+      <li data-keywords="浏览器 共享 目录"><a href="#screen-lan-share-directory">把一个文件夹发成链接</a></li>
+      <li data-keywords="打印机 纸张 双面"><a href="#screen-print-sharing">用上同事桌边的打印机</a></li>
+    </ul>
+    <p class="empty" role="status" hidden>没有找到结果。可试试「麒麟」「内网通」或「下载」。</p>
+  </dialog>
 </body>
 </html>

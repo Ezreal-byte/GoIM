@@ -4,187 +4,149 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GoIM · LAN chat and file sharing</title>
-  <meta name="description" content="Open-source LAN chat, file sharing and shared printers for Windows, macOS and Linux. Chat history stays on your computer.">
-  <meta name="theme-color" content="#fafaf8">
+  <meta name="description" content="Find nearby teammates, make voice calls, send files and use a shared printer. Chat history stays on each computer.">
+  <meta name="theme-color" content="#1a1a1a">
   <meta property="og:type" content="website">
   <meta property="og:title" content="GoIM · LAN chat and file sharing">
-  <meta property="og:description" content="Open-source LAN chat, file sharing and shared printers for Windows, macOS and Linux. Chat history stays on your computer.">
-  <meta property="og:url" content="https://ezreal-byte.github.io/GoIM/en/">
+  <meta property="og:description" content="Find nearby teammates, make voice calls, send files and use a shared printer. Chat history stays on each computer.">
   <meta property="og:image" content="https://ezreal-byte.github.io/GoIM/assets/screenshots/chat-dark.png">
-  <meta property="og:image:alt" content="Dark group chat with images, file cards and the conversation files panel">
-  <meta property="og:locale" content="en_US">
+  <meta property="og:url" content="https://ezreal-byte.github.io/GoIM/en/">
   <link rel="canonical" href="https://ezreal-byte.github.io/GoIM/en/">
   <link rel="alternate" hreflang="zh-CN" href="https://ezreal-byte.github.io/GoIM/">
   <link rel="alternate" hreflang="en" href="https://ezreal-byte.github.io/GoIM/en/">
-  <link rel="icon" type="image/png" href="../assets/goim.png">
-  <link rel="stylesheet" href="../style.css?v=2">
-  <script src="../site.js?v=2" defer></script>
+  <link rel="icon" href="../assets/goim.png">
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../assets/fonts/inter-latin.woff2">
+  <script>try { if (localStorage.getItem("goim-theme") === "light") document.documentElement.dataset.theme = "light" } catch {} document.documentElement.classList.add("js")</script>
+  <link rel="stylesheet" href="../style.css?v=3">
+  <script defer src="../site.js?v=3"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
-  <header class="header">
-    <div class="wrap header-inner">
-      <a class="brand" href="./" aria-label="GoIM home"><img src="../assets/goim.png" width="31" height="31" alt="">GoIM</a>
-      <nav class="desktop-nav" aria-label="Main navigation">
-          <a href="#interface">Interface</a>
-          <a href="#features">Files & printers</a>
-          <a href="#start">Guide</a>
+  <header>
+    <div class="nav-inner">
+      <a class="brand" href="./" aria-label="GoIM Home"><img src="../assets/goim.png" width="26" height="26" alt="">GoIM</a>
+      <nav class="nav-links" aria-label="Navigation">
+          <a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.en.md">Documentation</a>
+          <a href="download/">Download</a>
+          <a href="https://github.com/Ezreal-byte/GoIM/releases">Changelog</a>
+          <a href="#compatibility">Compatibility</a>
       </nav>
-      <div class="header-tools">
-        <a class="lang" href="../" hreflang="zh-CN" lang="zh-CN" aria-label="简体中文">中文</a>
-        <a class="header-get" href="#download">Download <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-        <details class="mobile-menu">
-          <summary aria-label="Menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg></summary>
-          <nav aria-label="Main navigation">
-            <a href="#interface">Interface</a>
-          <a href="#features">Files & printers</a>
-          <a href="#start">Guide</a>
+      <div class="tools">
+        <button class="search-open js-only" type="button" aria-label="Search the site"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#search"></use></svg><span>Search</span><kbd>Ctrl K</kbd></button>
+        <button class="theme js-only" type="button" aria-label="Toggle theme" aria-pressed="true"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#sun"></use></svg><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#moon"></use></svg></button>
+        <details class="language"><summary aria-label="Choose language"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#languages"></use></svg></summary>
+          <div class="popover"><a hreflang="zh-CN" lang="zh-CN" href="../">简体中文</a><a hreflang="en" lang="en" href="./" aria-current="page">English</a></div>
+        </details>
+        <a class="github" href="https://github.com/Ezreal-byte/GoIM" aria-label="GitHub repository"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#github"></use></svg></a>
+        <details class="mobile-menu"><summary aria-label="Menu"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#chevron-down"></use></svg></summary>
+          <nav class="popover"><a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.en.md">Documentation</a>
+          <a href="download/">Download</a>
+          <a href="https://github.com/Ezreal-byte/GoIM/releases">Changelog</a>
+          <a href="#compatibility">Compatibility</a>
+            <a href="../" lang="zh-CN">简体中文</a>
+            <a href="https://github.com/Ezreal-byte/GoIM">GitHub</a>
+            <button class="theme js-only" type="button" aria-label="Toggle theme" aria-pressed="true"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#sun"></use></svg><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#moon"></use></svg></button>
           </nav>
         </details>
       </div>
     </div>
   </header>
-
   <main id="main">
-    <section class="intro wrap" aria-labelledby="hero-title">
-      <a class="release" href="https://github.com/Ezreal-byte/GoIM/releases/tag/v0.1.16"><span class="status-dot"></span>GoIM <b>v0.1.16</b><span class="divider"></span>Release notes <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M7 6h11v11"/></svg></a>
-      <h1 id="hero-title">Chat and share files <wbr><span>on your LAN.</span></h1>
-      <p>Find teammates on the same network. Chat, send files and share a printer, with conversation history stored on your computer.</p>
-      <div class="actions">
-        <a class="button primary" href="#download"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg> Download GoIM</a>
-        <a class="button secondary" href="#start">Quick start <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></a>
-      </div>
+    <section class="hero" aria-labelledby="hero-heading">
+      <span class="badge">Native LAN messaging · Windows · macOS · Linux</span>
+      <h1 id="hero-heading">Chat and share on your LAN.</h1>
+      <p>Find nearby teammates, make voice calls, send files and use a shared printer. Chat history stays on each computer.</p>
+      <div class="actions"><a class="button" href="#start">Quick start</a><a class="button primary" id="download" href="download/">Download</a></div>
     </section>
 
-    <section class="showcase wrap" id="interface" aria-label="Interface preview">
-      <figure>
-        <figcaption class="gallery-bar">
-          <span class="gallery-title">Interface preview</span>
-          <nav class="gallery-links" aria-label="Interface preview">
-            <a href="../assets/screenshots/chat-dark.png" data-caption="Group chat · Dark mode" data-alt="Dark group chat with images, file cards and the conversation files panel" aria-current="true">Group chat</a>
-            <a href="../assets/screenshots/chat-light.png" data-caption="Group chat · Light mode" data-alt="Light group chat with the conversation files panel">Light mode</a>
-            <a href="../assets/screenshots/contacts-light.png" data-caption="Contacts and groups" data-alt="Contact groups, a member profile and online status">Contacts</a>
-            <a href="../assets/screenshots/transfers-dark.png" data-caption="File transfers" data-alt="Transfer queue showing progress, incoming files and retry actions">Transfers</a>
-            <a href="../assets/screenshots/shares-light.png" data-caption="Desktop file shares" data-alt="Shared files and folders with passwords and link actions">File shares</a>
-          </nav>
-        </figcaption>
-        <div class="stage">
-          <a id="screen-link" href="../assets/screenshots/chat-dark.png" aria-label="Open full image">
-            <img id="screen" src="../assets/screenshots/chat-dark.png" alt="Dark group chat with images, file cards and the conversation files panel" width="2340" height="1560" fetchpriority="high">
-            <span class="expand"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7m-7 0 7-7M10 21H3v-7m7 0-7 7"/></svg></span>
-          </a>
-        </div>
-      </figure>
-      <span class="sr-only" id="screen-status" role="status"></span>
-    </section>
-
-    <section class="features wrap section" id="features">
-      <div class="section-head">
-        <h2>Share files and printers</h2>
-        <p>Pass a folder to a teammate or send a document to the office printer.</p>
-      </div>
-      <div class="feature-pair">
-        <article class="feature">
-          <a class="feature-image files" href="../assets/screenshots/lan-share-directory.png" aria-label="Browser file sharing · Open full image">
-            <img src="../assets/screenshots/lan-share-directory.png" alt="Browser directory with a breadcrumb, file listing and upload control" width="1920" height="1200" loading="lazy">
-            <span class="expand"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7m-7 0 7-7M10 21H3v-7m7 0-7 7"/></svg></span>
-          </a>
-          <div class="feature-text">
-            <p class="feature-label">Browser file sharing</p>
-            <h3>Send a folder as a link</h3>
-            <p>Anyone on your LAN can browse the directory and download files in a browser. Enable your device page to receive drag-and-drop uploads, too.</p>
+    <section class="tour" id="interface" aria-label="Interface preview">
+      <div class="stage">
+        <div class="window">
+          <div class="viewport">
+            <a class="slide" href="../assets/screenshots/chat-dark.png" data-title="Group chat in dark mode" data-caption="Open shared images and attachments alongside the conversation."><img src="../assets/screenshots/chat-dark.png" alt="Group chat in dark mode" width="2340" height="1560" fetchpriority="high"></a>
+            <a class="slide" href="../assets/screenshots/chat-light.png" data-title="Group chat in light mode" data-caption="The same conversation and file panel in the light appearance." aria-hidden="true" tabindex="-1"><img src="../assets/screenshots/chat-light.png" alt="Group chat in light mode" width="2340" height="1560" loading="lazy"></a>
+            <a class="slide" href="../assets/screenshots/contacts-light.png" data-title="Contacts and groups" data-caption="Find a teammate by group, open their profile and start a chat." aria-hidden="true" tabindex="-1"><img src="../assets/screenshots/contacts-light.png" alt="Contacts and groups" width="2340" height="1560" loading="lazy"></a>
+            <a class="slide" href="../assets/screenshots/transfers-dark.png" data-title="Transfer queue" data-caption="Accept files, check progress and retry interrupted transfers in one place." aria-hidden="true" tabindex="-1"><img src="../assets/screenshots/transfers-dark.png" alt="Transfer queue" width="2340" height="1560" loading="lazy"></a>
+            <a class="slide" href="../assets/screenshots/shares-light.png" data-title="Desktop file shares" data-caption="Manage shared items, passwords and browser links." aria-hidden="true" tabindex="-1"><img src="../assets/screenshots/shares-light.png" alt="Desktop file shares" width="2340" height="1560" loading="lazy"></a>
           </div>
-        </article>
-        <article class="feature">
-          <a class="feature-image print" href="../assets/screenshots/print-sharing.png" aria-label="Printer sharing · Open full image">
-            <img src="../assets/screenshots/print-sharing.png" alt="Shared printer list with device capabilities and recent print jobs" width="1920" height="1200" loading="lazy">
-            <span class="expand"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7m-7 0 7-7M10 21H3v-7m7 0-7 7"/></svg></span>
-          </a>
-          <div class="feature-text">
-            <p class="feature-label">Printer sharing</p>
-            <h3>Use a teammate’s printer</h3>
-            <p>Choose an online printer, check paper sizes, color and duplex support, then send a file. Track the job and past prints in the same view.</p>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section class="guide-section" id="start">
-      <div class="wrap columns">
-        <div class="side-title">
-          <h2>Meet on your local network</h2>
-          <p>Connect two computers to the same reachable LAN and open GoIM on each.</p>
-          <a class="text-link" href="https://github.com/Ezreal-byte/GoIM/blob/main/README.en.md#quick-start">Read the user guide <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M7 6h11v11"/></svg></a>
         </div>
-        <ol class="steps">
-          <li><div><h3>Find a teammate</h3><p>Look for an online device in Contacts. If automatic discovery is restricted, use Manual connection and enter the other computer’s IP address.</p></div></li>
-          <li><div><h3>Start a conversation</h3><p>Open the chat to send text or pictures, or place a voice call.</p></div></li>
-          <li><div><h3>Send a file</h3><p>Attach a file to the conversation. The recipient can accept it, choose where to save it and track progress in chat or Transfers.</p></div></li>
-        </ol>
+        <div class="tour-caption js-only"><strong></strong><p></p></div>
+        <nav class="static-slides" aria-label="Screenshots"><a href="../assets/screenshots/chat-dark.png">Group chat in dark mode</a> · <a href="../assets/screenshots/chat-light.png">Group chat in light mode</a> · <a href="../assets/screenshots/contacts-light.png">Contacts and groups</a> · <a href="../assets/screenshots/transfers-dark.png">Transfer queue</a> · <a href="../assets/screenshots/shares-light.png">Desktop file shares</a></nav>
       </div>
     </section>
 
-    <section class="faq wrap columns section" id="compatibility">
+    <section class="narrow block capabilities" id="features">
+      <h2>What you can do on your LAN</h2>
+      <div class="feature-grid">
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#messages-square"></use></svg></span><h3>Direct and group chat</h3><p>Send messages, emoji and pictures, or make a voice call. Conversations are stored locally.</p></article>
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#users"></use></svg></span><h3>Contact discovery</h3><p>Find devices on the same LAN automatically, connect by IP and organize contacts into groups.</p></article>
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#arrow-down-up"></use></svg></span><h3>File transfers</h3><p>Recipients choose which files to accept. Track progress, save a copy or retry from chat or Transfers.</p></article>
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#folder-open"></use></svg></span><h3>Browser sharing</h3><p>Share a file or folder with a link or QR code. Add a password if needed. Recipients only need a browser.</p></article>
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#printer"></use></svg></span><h3>Shared printers</h3><p>Check paper sizes, color and duplex support, choose a device and follow your print job.</p></article>
+        <article class="card"><span class="tile-icon"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#network"></use></svg></span><h3>Legacy messengers</h3><p>GoIM recognizes Neiwangtong, IP Messenger and FeiQ. The FAQ lists tested versions and capabilities.</p></article>
+      </div>
+    </section>
+
+    <section class="wide block screens">
+      <h2>Inside GoIM</h2>
+      <article class="screen-row" id="screen-chat-dark">
+        <a class="shot" href="../assets/screenshots/chat-dark.png" aria-label="Conversation files, next to the chat · View full image"><img src="../assets/screenshots/chat-dark.png" alt="Conversation files, next to the chat" width="2340" height="1560" loading="lazy"></a>
+        <div><h3>Conversation files, next to the chat</h3><p>Find shared documents, images and attachments in the file panel while keeping the surrounding conversation in view.</p></div>
+      </article>
+      <article class="screen-row" id="screen-lan-share-directory">
+        <a class="shot" href="../assets/screenshots/lan-share-directory.png" aria-label="Send a folder as a link · View full image"><img src="../assets/screenshots/lan-share-directory.png" alt="Send a folder as a link" width="1920" height="1200" loading="lazy"></a>
+        <div><h3>Send a folder as a link</h3><p>Recipients browse and download from a directory in their browser. Enable the device page to accept uploads by button or drag and drop.</p></div>
+      </article>
+      <article class="screen-row" id="screen-print-sharing">
+        <a class="shot" href="../assets/screenshots/print-sharing.png" aria-label="Use a teammate’s printer · View full image"><img src="../assets/screenshots/print-sharing.png" alt="Use a teammate’s printer" width="1920" height="1200" loading="lazy"></a>
+        <div><h3>Use a teammate’s printer</h3><p>Check availability and paper sizes before submitting a file. Recent prints keeps the job and its status in view.</p></div>
+      </article>
+    </section>
+
+    <section class="narrow block" id="start">
+      <h2>Start a chat on two computers</h2>
+      <ol class="steps">
+        <li><h3>Join the same LAN</h3><p>Install and open GoIM on two computers that can reach each other.</p></li>
+        <li><h3>Find your teammate</h3><p>Open Contacts. If discovery is restricted, choose Connect by IP and enter the other computer’s address.</p></li>
+        <li><h3>Send your first message</h3><p>Open the conversation to send text or attach a file. The recipient can accept it directly in chat.</p></li>
+      </ol>
+    </section>
+
+    <section class="about block"><h2>What is GoIM?</h2><p>GoIM is an open-source desktop messenger built with Go and Viva. Devices exchange messages and files directly on a local network, including offices and labs that operate without internet access.</p></section>
+
+    <section class="narrow block" id="compatibility">
       <h2>Frequently asked questions</h2>
-      <div class="faq-list">
-        <details>
-          <summary>Do I need an account or a server?</summary>
-          <p>Open GoIM on two devices on the same LAN. They discover each other and communicate directly. Each device keeps its own chat history.</p>
-        </details>
-        <details>
-          <summary>How do I share with someone who only has a browser?</summary>
-          <p>Add a file or folder in File sharing, then send the link or QR code. The recipient can download it in their browser. You can set a password for the share.</p>
-        </details>
-        <details>
-          <summary>Does GoIM work with older LAN messengers?</summary>
-          <p>GoIM selects the protocol for Lantong, IP Messenger or FeiQ automatically. Supported operations depend on the client. The compatibility table lists tested versions and results. <a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.en.md#legacy-compatibility">View compatibility table</a></p>
-        </details>
-      </div>
-    </section>
-
-    <section class="download" id="download">
-      <div class="wrap">
-        <div class="section-head">
-          <h2>Get GoIM for your desktop</h2>
-          <p>Choose your operating system and processor.</p>
-        </div>
-        <div class="platforms">
-          <article class="platform" data-os="windows">
-            <div class="os-title"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path fill="currentColor" stroke="none" d="m2 4 8-1v8H2zm10-1.3L22 1v10H12zM2 13h8v8l-8-1zm10 0h10v10l-10-1.7z"/></svg><h3>Windows</h3><span class="detected" hidden>Your system</span></div>
-            <p>Setup installer · EXE</p>
-            <div class="packages">
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_windows_amd64-Setup.exe" aria-label="Download Windows x64">x64 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_windows_arm64-Setup.exe" aria-label="Download Windows ARM64">ARM64 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-            </div>
-          </article>
-          <article class="platform" data-os="macos">
-            <div class="os-title"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="17" rx="3"/><path d="M12 4 9 13h3v7M6 8v1m11-1v1M6.5 14.5c2.5 3 8 3 11 0"/></svg><h3>macOS</h3><span class="detected" hidden>Your system</span></div>
-            <p>macOS 13 or later · DMG</p>
-            <div class="packages">
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_darwin_amd64.dmg" aria-label="Download macOS Intel">Intel <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_darwin_arm64.dmg" aria-label="Download macOS Apple silicon">Apple silicon <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-            </div>
-          </article>
-          <article class="platform" data-os="linux">
-            <div class="os-title"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="17" rx="3"/><path d="m6 8 4 4-4 4m7 0h4"/></svg><h3>Linux</h3><span class="detected" hidden>Your system</span></div>
-            <p>X11 or XWayland · DEB</p>
-            <div class="packages">
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_linux_amd64.deb" aria-label="Download Linux x64">x64 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-              <a href="https://github.com/Ezreal-byte/GoIM/releases/download/v0.1.16/GoIM_0.1.16_linux_arm64.deb" aria-label="Download Linux ARM64">ARM64 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></a>
-            </div>
-          </article>
-        </div>
-        <a class="all-releases" href="https://github.com/Ezreal-byte/GoIM/releases/latest">Portable packages, checksums and all releases <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M7 6h11v11"/></svg></a>
+      <div class="faq-grid">
+        <article class="card" id="nwt"><h3>What works with Neiwangtong?</h3><p>On main after 0.1.16, the original Neiwangtong 3.4.3055 client passed discovery and two-way direct and group exchanges of text, images, files and folders. Direct file transfers over 4 GiB passed in both directions with this version. Individual group files must be smaller than 4 GiB.</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/docs/neiwangtong-compatibility-progress.md">Neiwangtong compatibility</a></article>
+        <article class="card" id="kylin"><h3>Does GoIM run on Kylin and UnionTech UOS?</h3><p>Kylin and UnionTech UOS desktops can use the Linux compatibility build. Run <code>uname -m</code>: choose amd64 for <code>x86_64</code> or arm64 for <code>aarch64</code>. On DEB-based systems use the .deb, or extract the full .tar.gz archive.</p><a href="download/#linux">Choose a Linux package</a></article>
+        <article class="card" id="linux-requirements"><h3>What does the Linux desktop need?</h3><p>Use X11 or XWayland with the X11, XKB, Vulkan and ALSA runtimes. Releases cover x64 and ARM64. Linux fixes were tested on Ubuntu with Xvfb. Input methods, multi-monitor setups and individual Kylin or UOS versions still need testing on the actual system.</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/docs/releases/0.1.16.md">Linux validation notes</a></article>
+        <article class="card" id="ipmsg"><h3>Can I use IP Messenger or FeiQ?</h3><p>IP Messenger 5.9.1 passed automatic discovery, two-way Chinese messaging and file transfers. Windows FeiQ 2013 (3.0.0.2) passed discovery via an explicit loopback address and two-way transfers of Chinese messages and files with Chinese names. Cross-machine FeiQ broadcast discovery still needs verification.</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/docs/ipmsg-compatibility-progress.md">IP Messenger and FeiQ progress</a></article>
+        <article class="card" id="discovery"><h3>Can devices on different subnets find each other?</h3><p>On routed networks, connect by IP. Versions with DNS discovery can also use an internal DNS server and an always-on entry point configured by the administrator. This is off by default.</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.en.md#discover-goim-across-routed-subnets">Cross-subnet setup</a></article>
+        <article class="card" id="browser"><h3>Can someone share files with just a browser?</h3><p>Yes. Add a file or folder under File sharing and send the link. Recipients on the LAN can download it. Enable your device sharing page to accept browser uploads as well.</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.en.md#quick-start">File sharing guide</a></article>
+        <article class="card" id="offline"><h3>Does GoIM work without internet access?</h3><p>Yes. Devices that can reach each other on the local network can discover peers, chat and transfer files. Each computer keeps its own history. No account is required.</p></article>
+        <article class="card" id="history"><h3>Where can I find messages and transfer progress?</h3><p>Search history in the conversation and use the conversation files panel for attachments. The Transfers page lists incoming, active and completed files.</p></article>
       </div>
     </section>
   </main>
-  <footer class="wrap footer">
-    <a class="brand" href="./" aria-label="GoIM home"><img src="../assets/goim.png" width="31" height="31" alt="">GoIM</a>
-    <nav aria-label="Project links">
-      <a href="https://github.com/Ezreal-byte/GoIM/blob/main/README.en.md">User guide</a>
-      <a href="https://github.com/Ezreal-byte/GoIM/issues">Report an issue</a>
-      <a href="https://github.com/Ezreal-byte/GoIM">GitHub <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M7 6h11v11"/></svg></a>
-    </nav>
-  </footer>
+  <footer class="narrow"><div><span>GoIM · Windows, macOS and Linux</span><a href="https://github.com/Ezreal-byte/GoIM/blob/main/LICENSE">MIT license</a></div></footer>
+  <dialog id="search-dialog" aria-label="Search the site">
+    <div class="search-field"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#search"></use></svg><input type="search" aria-label="Search the site" placeholder="Search the site" autocomplete="off"><button type="button" aria-label="Close search"><svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="../assets/icons.svg#x"></use></svg></button></div>
+    <ul class="results">
+      <li data-keywords="install Windows macOS Linux x64 ARM64"><a href="download/">Download GoIM</a></li>
+      <li data-keywords="getting started contacts connect by IP"><a href="#start">Quick start</a></li>
+      <li data-keywords="3.4.3055 group folders transfers over 4 GiB"><a href="#nwt">What works with Neiwangtong?</a></li>
+      <li data-keywords="Kylin UnionTech UOS Linux amd64 arm64 architecture package"><a href="#kylin">Does GoIM run on Kylin and UnionTech UOS?</a></li>
+      <li data-keywords="X11 XWayland XKB Vulkan ALSA input methods distributions"><a href="#linux-requirements">What does the Linux desktop need?</a></li>
+      <li data-keywords="IPMSG FeiQ Chinese broadcast 2013"><a href="#ipmsg">Can I use IP Messenger or FeiQ?</a></li>
+      <li data-keywords="DNS entry point routed subnets IP"><a href="#discovery">Can devices on different subnets find each other?</a></li>
+      <li data-keywords="QR browser upload folder link"><a href="#browser">Can someone share files with just a browser?</a></li>
+      <li data-keywords="offline local network account"><a href="#offline">Does GoIM work without internet access?</a></li>
+      <li data-keywords="history attachments search progress"><a href="#history">Where can I find messages and transfer progress?</a></li>
+      <li data-keywords="chat files panel"><a href="#screen-chat-dark">Conversation files, next to the chat</a></li>
+      <li data-keywords="browser directory upload"><a href="#screen-lan-share-directory">Send a folder as a link</a></li>
+      <li data-keywords="printer paper duplex"><a href="#screen-print-sharing">Use a teammate’s printer</a></li>
+    </ul>
+    <p class="empty" role="status" hidden>No results. Try “Kylin”, “Neiwangtong” or “download”.</p>
+  </dialog>
 </body>
 </html>

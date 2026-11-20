@@ -41,7 +41,7 @@ jobs:
                       if name in ("href", "src") and value:
                           self.refs.append(value)
 
-          for page in (root / "index.html", root / "en" / "index.html"):
+          for page in (root / route / "index.html" for route in ("", "en", "download", "en/download")):
               if not page.is_file():
                   errors.append(f"missing page: {page.relative_to(root)}")
                   continue
