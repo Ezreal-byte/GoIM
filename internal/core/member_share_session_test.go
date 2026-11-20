@@ -30,7 +30,18 @@ func TestMemberProjectLinkRequiresCatalogFromCurrentConnection(t *testing.T) {
 	if err := n.Close(); err != nil {
 		t.Fatal(err)
 	}
-	n = testNodeAt(t, "member", dir)
+	// Drive the replacement sequence deterministically. Discovery and heartbeat
+	// workers must not send network traffic through these session stand-ins.
+	db, saved, err := openStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	n = &Node{db: db, data: saved, dir: dir, connections: make(map[string]*peerConn)}
 	wantURL := func(port uint16) {
 		t.Helper()
 		got := n.Snapshot().File(id)
@@ -49,7 +60,6 @@ func TestMemberProjectLinkRequiresCatalogFromCurrentConnection(t *testing.T) {
 	n.connections[peer.ID] = current
 	n.data.State.Peers[0].Online = true
 	n.mu.Unlock()
-	defer func() { n.mu.Lock(); delete(n.connections, peer.ID); n.mu.Unlock() }()
 	receive := func(source *peerConn, revision uint64, port uint16) {
 		t.Helper()
 		if err := n.receiveFrom(peer.ID, catalog(revision, port), source); err != nil {
