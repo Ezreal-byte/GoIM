@@ -117,7 +117,7 @@
     <section class="narrow block" id="compatibility">
       <h2>常见问题</h2>
       <div class="faq-grid">
-        <article class="card" id="nwt"><h3>GoIM 和内网通能互通到什么程度？</h3><p>在 0.1.16 之后的 main 开发版中，原版内网通 3.4.3055 已验证自动发现，以及单聊、群聊双向收发文字、图片、文件和文件夹。超过 4 GiB 的普通文件已验证该版本单聊双向传输，群聊的单文件仍须小于 4 GiB。</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/docs/neiwangtong-compatibility-progress.md">内网通适配进度</a></article>
+        <article class="card" id="nwt"><h3>GoIM 和内网通能互通到什么程度？</h3><p>GoIM 0.1.17 已与原版内网通 3.4.3055 验证自动发现，以及单聊、群聊双向收发文字、图片、文件和文件夹。超过 4 GiB 的普通文件已验证该版本单聊双向传输，群聊的单文件仍须小于 4 GiB。</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/docs/neiwangtong-compatibility-progress.md">内网通适配进度</a></article>
         <article class="card" id="kylin"><h3>支持银河麒麟和统信 UOS 吗？</h3><p>银河麒麟和统信 UOS 桌面可使用 GoIM 的 Linux 兼容包。先用 <code>uname -m</code> 查看架构：<code>x86_64</code> 选 amd64，<code>aarch64</code> 选 arm64。使用 DEB 包管理器的系统选 .deb，也可完整解压 .tar.gz。</p><a href="download/#linux">选择 Linux 安装包</a></article>
         <article class="card" id="linux-requirements"><h3>信创电脑需要哪些运行条件？</h3><p>桌面会话需要 X11 或 XWayland，并提供 X11、XKB、Vulkan 和 ALSA 运行库。目前发布 x64 和 ARM64 两种架构。Linux 修复在 Ubuntu/Xvfb 环境验证，麒麟和 UOS 的输入法、多屏及具体系统版本仍需按实际环境核对。</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/docs/releases/0.1.16.md">Linux 验证说明</a></article>
         <article class="card" id="ipmsg"><h3>飞鸽、飞秋可以一起用吗？</h3><p>IP Messenger 5.9.1 已验证自动发现、双向中文消息和文件传输。Windows 飞秋 2013（3.0.0.2）已验证指定回环地址发现、双向中文消息和中文名文件。飞秋跨机器广播发现仍待验证。</p><a href="https://github.com/Ezreal-byte/GoIM/blob/main/docs/ipmsg-compatibility-progress.md">飞鸽与飞秋适配进度</a></article>

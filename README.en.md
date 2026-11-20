@@ -115,7 +115,7 @@ GoIM receives only the verification result and never reads, stores, or transmits
 
 ## Legacy compatibility
 
-GoIM selects the protocol for each peer automatically. These results were verified with the original clients on `main` after the `0.1.16` release.
+GoIM selects the protocol for each peer automatically. The interoperability features below ship in `0.1.17` and have been verified with the original clients.
 
 | Client | Verified behavior | Details |
 | --- | --- | --- |
