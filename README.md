@@ -10,11 +10,9 @@
     <a href="#旧版客户端兼容">兼容进度</a>
   </p>
   <p>
-    <sub>Motty 社区</sub><br />
-    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=1131573299"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-qq.svg" alt="QQ 群 1131573299" /></a>
-    <a href="https://docs.qq.com/doc/DVXBGYnFFdm9UWkVP"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-wechat.svg" alt="微信群" /></a>
-    <a href="https://discord.gg/6s5tn9H4p2"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-discord.svg" alt="Discord" /></a>
-    <a href="https://linux.do/t/topic/3086528/1"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-linuxdo.svg" alt="LINUX DO 讨论帖" /></a>
+    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=1084364974"><img src="docs/assets/community/qq.svg" alt="QQ 群 1084364974" /></a>
+    <a href="https://www.kdocs.cn/l/cdcdb0XI3TTt"><img src="docs/assets/community/wechat.svg" alt="微信群" /></a>
+    <a href="https://linux.do/"><img src="docs/assets/community/linuxdo.svg" alt="LINUX DO 首页" /></a>
   </p>
   <a href="website/assets/screenshots/chat-dark.png">
     <img src="website/assets/screenshots/chat-dark.png" alt="暗色外观下的 GoIM 群聊、图片消息与聊天文件" width="100%" />

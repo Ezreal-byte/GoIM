@@ -10,11 +10,9 @@
     <a href="#legacy-compatibility">Compatibility</a>
   </p>
   <p>
-    <sub>Motty community</sub><br />
-    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=1131573299"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-qq.svg" alt="QQ group 1131573299" /></a>
-    <a href="https://docs.qq.com/doc/DVXBGYnFFdm9UWkVP"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-wechat.svg" alt="WeChat group" /></a>
-    <a href="https://discord.gg/6s5tn9H4p2"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-discord.svg" alt="Discord" /></a>
-    <a href="https://linux.do/t/topic/3086528/1"><img src="https://raw.githubusercontent.com/t8y2/motty/5d90a52c1a7ed618bef129e66e436a650230b6ef/assets/badge-linuxdo.svg" alt="LINUX DO discussion" /></a>
+    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=1084364974"><img src="docs/assets/community/qq.svg" alt="QQ group 1084364974" /></a>
+    <a href="https://www.kdocs.cn/l/cdcdb0XI3TTt"><img src="docs/assets/community/wechat.svg" alt="WeChat group" /></a>
+    <a href="https://linux.do/"><img src="docs/assets/community/linuxdo.svg" alt="LINUX DO homepage" /></a>
   </p>
   <a href="website/assets/screenshots/chat-dark.png">
     <img src="website/assets/screenshots/chat-dark.png" alt="GoIM group chat in dark mode with an inline image and the chat files panel" width="100%" />
