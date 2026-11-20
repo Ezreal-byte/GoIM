@@ -339,29 +339,29 @@ func TestStalePrintOfferIsRejectedAndFailsSenderJob(t *testing.T) {
 }
 
 func TestPrinterCatalogRejectsCrossOwnerIDCollision(t *testing.T) {
-	sender := testPrintNode(t, "Sender", t.TempDir(), &printTestBackend{})
-	owner := testPrintNode(t, "Owner", t.TempDir(), &printTestBackend{})
-	other := testPrintNode(t, "Other", t.TempDir(), &printTestBackend{})
-	connectNodes(t, sender, owner)
-	connectNodes(t, sender, other)
+	receiver := testPrintNode(t, "Receiver", t.TempDir(), &printTestBackend{})
+	owner := domain.Peer{ID: newID(), Name: "Owner", Transport: domain.TransportGoIM, PrintSupported: true}
+	other := domain.Peer{ID: newID(), Name: "Other", Transport: domain.TransportGoIM, PrintSupported: true}
+	if err := receiver.change(func(s *domain.State) {
+		s.Peers = append(s.Peers, owner, other)
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	collision := domain.PrinterShare{
-		ID: "00112233445566778899aabbccddeeff", Name: "Collision",
+	share := domain.PrinterShare{
+		ID: "00112233445566778899aabbccddeeff", Name: "Shared printer",
 		Available: true, Capabilities: printing.DefaultCapabilities(),
 	}
-	printerRevision := sender.Snapshot().Revision + 1
-	if err := sender.receivePrinterCatalog(owner.Snapshot().Self.ID, envelope{
-		Printers: []domain.PrinterShare{collision}, PrinterRevision: printerRevision,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := sender.receivePrinterCatalog(other.Snapshot().Self.ID, envelope{
-		Printers: []domain.PrinterShare{collision}, PrinterRevision: printerRevision + 1,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	s := sender.Snapshot()
-	if len(s.Printers) != 1 || s.Printers[0].OwnerID != owner.Snapshot().Self.ID {
-		t.Fatalf("printer catalog accepted a cross-owner ID collision: %+v", s.Printers)
+	// Each peer advertises its first catalog using its own revision counter.
+	for _, peer := range []domain.Peer{owner, other} {
+		if err := receiver.receivePrinterCatalog(peer.ID, envelope{
+			Printers: []domain.PrinterShare{share}, PrinterRevision: 1,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		printers := receiver.Snapshot().Printers
+		if len(printers) != 1 || printers[0].ID != share.ID || printers[0].OwnerID != owner.ID {
+			t.Fatalf("catalog from %s: expected original printer and owner, got %+v", peer.Name, printers)
+		}
 	}
 }
