@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	CmdGroupInfo    uint32 = 3002
 	CmdGroupRoster  uint32 = 3003
 	CmdGroupDismiss uint32 = 3008
 	CmdGroupExit    uint32 = 3009
@@ -87,23 +88,33 @@ func parseGroupDeparture(data []byte, kind uint32) (string, error) {
 }
 
 type groupRosterWire struct {
-	XMLName xml.Name `xml:"X_QGROUP_PUSH_USER"`
-	DocVer  string   `xml:"docver,attr"`
-	Info    struct {
-		ID             string `xml:"QGROUP_ID"`
-		Name           string `xml:"QGROUP_NAME"`
-		OwnerID        string `xml:"QGROUP_MASTER"`
-		Intro          string `xml:"QGROUP_INTR"`
-		Announcement   string `xml:"QGROUP_ANN"`
-		InfoVersion    uint64 `xml:"QGROUP_INFO_VER"`
-		MembersVersion uint64 `xml:"QGROUP_USER_VER"`
-		AllowInvite    int    `xml:"QGROUP_ALLOW_OTHER_ADD"`
-		PhotoMD5       string `xml:"QGROUP_PHOTO_MD5"`
-	} `xml:"INFO"`
+	XMLName xml.Name      `xml:"X_QGROUP_PUSH_USER"`
+	DocVer  string        `xml:"docver,attr"`
+	Info    groupInfoWire `xml:"INFO"`
 	Members []GroupMember `xml:"USER>ID"`
 }
 
+type groupInfoWire struct {
+	ID             string `xml:"QGROUP_ID"`
+	Name           string `xml:"QGROUP_NAME"`
+	OwnerID        string `xml:"QGROUP_MASTER"`
+	Intro          string `xml:"QGROUP_INTR"`
+	Announcement   string `xml:"QGROUP_ANN"`
+	InfoVersion    uint64 `xml:"QGROUP_INFO_VER"`
+	MembersVersion uint64 `xml:"QGROUP_USER_VER"`
+	AllowInvite    int    `xml:"QGROUP_ALLOW_OTHER_ADD"`
+	PhotoMD5       string `xml:"QGROUP_PHOTO_MD5"`
+}
+
 func (s *Service) SendGroupRoster(peerID string, roster GroupRoster) error {
+	return s.sendGroupInfo(peerID, roster, CmdGroupRoster)
+}
+
+func (s *Service) SendGroupPhoto(peerID string, roster GroupRoster) error {
+	return s.sendGroupInfo(peerID, roster, CmdGroupInfo)
+}
+
+func (s *Service) sendGroupInfo(peerID string, roster GroupRoster, kind uint32) error {
 	if roster.OwnerID != s.selfID {
 		return errors.New("cannot announce another device's native group")
 	}
@@ -121,7 +132,15 @@ func (s *Service) SendGroupRoster(peerID string, roster GroupRoster) error {
 	wire.Info.ID, wire.Info.Name, wire.Info.OwnerID = roster.ID, roster.Name, roster.OwnerID
 	wire.Info.InfoVersion, wire.Info.MembersVersion = roster.InfoVersion, roster.MembersVersion
 	wire.Info.PhotoMD5 = roster.PhotoMD5
-	data, err := xml.Marshal(wire)
+	var payload any = wire
+	if kind == CmdGroupInfo {
+		payload = struct {
+			XMLName xml.Name      `xml:"X_QGROUP_PUSH_INFO"`
+			DocVer  string        `xml:"docver,attr"`
+			Info    groupInfoWire `xml:"INFO"`
+		}{DocVer: "1", Info: wire.Info}
+	}
+	data, err := xml.Marshal(payload)
 	if err != nil {
 		return err
 	}
@@ -129,7 +148,7 @@ func (s *Service) SendGroupRoster(peerID string, roster GroupRoster) error {
 	if err != nil {
 		return err
 	}
-	return s.enet.SendAppCommand(control, CmdGroupRoster, data)
+	return s.enet.SendAppCommand(control, kind, data)
 }
 
 func ParseGroupMessage(data []byte) (GroupMessage, error) {

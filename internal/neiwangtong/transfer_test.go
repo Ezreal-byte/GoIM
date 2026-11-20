@@ -202,7 +202,7 @@ func TestNativeUploadReportsDroppedSocketAndKeepsOffer(t *testing.T) {
 			close(paused)
 			<-resume
 		}
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

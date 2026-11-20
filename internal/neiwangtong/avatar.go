@@ -147,6 +147,10 @@ func fetchOfferedAvatar(ctx context.Context, bind netip.Addr, target netip.AddrP
 }
 
 func fetchMedia(ctx context.Context, bind netip.Addr, target netip.AddrPort, selector, limit uint32, timeout time.Duration) ([]byte, error) {
+	return fetchMediaRequest(ctx, bind, target, selector, limit, timeout, transferOpenRequest(selector))
+}
+
+func fetchMediaRequest(ctx context.Context, bind netip.Addr, target netip.AddrPort, selector, limit uint32, timeout time.Duration, open []byte) ([]byte, error) {
 	if !validUnicast(target) || bind.IsValid() && !bind.Is4() {
 		return nil, errors.New("native image requires IPv4 endpoints")
 	}
@@ -165,7 +169,7 @@ func fetchMedia(ctx context.Context, bind netip.Addr, target netip.AddrPort, sel
 	_ = conn.SetDeadline(deadline)
 	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
 	defer stop()
-	if _, err := io.Copy(conn, bytes.NewReader(transferOpenRequest(selector))); err != nil {
+	if _, err := io.Copy(conn, bytes.NewReader(open)); err != nil {
 		return nil, err
 	}
 	reader := bufio.NewReader(conn)

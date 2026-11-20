@@ -104,17 +104,14 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 		}
 		return errors.New("首期仅支持文件，请先将文件夹打包")
 	}
-	if !shared && info.Size() >= neiwangtongSendLimit {
-		// This limit belongs to the receiving client. Report it even when
-		// the contact is offline, before hashing a multi-gigabyte file.
+	if !shared && info.Size() >= neiwangtongLargeFileSize {
+		// Use the last observed client version even when the contact is offline,
+		// before reading a multi-gigabyte file that the route cannot deliver.
 		n.mu.Lock()
-		state := &n.data.State
-		conv := state.Conversation(convID)
-		native := conv.Kind == "direct" && state.Peer(conv.PeerID).Transport == transportNWT ||
-			conv.Kind == "group" && n.data.NativeGroups[conv.GroupID].WireID != ""
+		sizeErr := n.data.neiwangtongAttachmentSizeError(n.data.State.Conversation(convID), info.Size())
 		n.mu.Unlock()
-		if native {
-			return errors.New(neiwangtongFileSizeMessage)
+		if sizeErr != nil {
+			return sizeErr
 		}
 	}
 	hash, err := fileHashContext(n.ctx, path)
@@ -139,6 +136,9 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 			c := s.Conversation(convID)
 			targets, denied = attachmentRecipients(*s, c, target)
 			if denied != nil {
+				return nil
+			}
+			if denied = p.neiwangtongAttachmentSizeError(c, f.Size); denied != nil {
 				return nil
 			}
 			nativeGroup := p.NativeGroups[c.GroupID].WireID != ""

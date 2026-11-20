@@ -68,8 +68,8 @@ func TestNeiwangtongFolderPickerAndGroupAvatarCapabilities(t *testing.T) {
 	}
 	h.clickID(h.ui.ids.chatHeaderMembers)
 	h.settle()
-	if h.hasHit(h.ui.ids.memberAvatar) {
-		t.Fatal("unsupported group avatar edit is visible")
+	if !h.hasHit(h.ui.ids.memberAvatar) {
+		t.Fatal("native group owner cannot edit the group avatar")
 	}
 	h.ui.closeDrawer()
 	h.ui.selectConversation("conv-alice")

@@ -72,6 +72,7 @@ type TransferServer struct {
 	reverseMu     sync.Mutex
 	reverseWait   map[reverseKey]*incomingReverse
 	avatarAllowed func(netip.Addr) bool
+	groupAvatar   func(netip.Addr, string) []byte
 	active        sync.Map
 	slots         chan struct{}
 }
@@ -91,10 +92,10 @@ func StartTransferServer(bind netip.Addr, port int, onProgress func(taskID uint6
 		if onProgress != nil && failure == nil {
 			onProgress(taskID, done, total)
 		}
-	}, nil)
+	}, nil, nil)
 }
 
-func startTransferServer(bind netip.Addr, port int, onProgress func(taskID uint64, done, total int64, failure error), avatarAllowed func(netip.Addr) bool) (*TransferServer, error) {
+func startTransferServer(bind netip.Addr, port int, onProgress func(taskID uint64, done, total int64, failure error), avatarAllowed func(netip.Addr) bool, groupAvatar func(netip.Addr, string) []byte) (*TransferServer, error) {
 	bindStr := fmt.Sprintf(":%d", port)
 	if bind.IsValid() && bind.Is4() {
 		bindStr = fmt.Sprintf("%s:%d", bind.String(), port)
@@ -122,6 +123,7 @@ func startTransferServer(bind netip.Addr, port int, onProgress func(taskID uint6
 		onProgress:    onProgress,
 		reverseWait:   make(map[reverseKey]*incomingReverse),
 		avatarAllowed: avatarAllowed,
+		groupAvatar:   groupAvatar,
 		slots:         make(chan struct{}, 16),
 	}
 	go s.acceptLoop()
@@ -284,7 +286,11 @@ func (s *TransferServer) handleConnection(conn net.Conn) {
 		// reconnecting.
 		switch cmd {
 		case 1:
-			if selector == avatarSelector {
+			if selector == 0 {
+				if !s.serveGroupAvatar(conn, frame) {
+					return
+				}
+			} else if selector == avatarSelector {
 				if addr, ok := conn.RemoteAddr().(*net.TCPAddr); !ok || s.avatarAllowed != nil && !s.avatarAllowed(addr.AddrPort().Addr().Unmap()) {
 					return
 				}

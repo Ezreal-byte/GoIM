@@ -15,7 +15,7 @@ import (
 )
 
 func testGoIMCreatedNeiwangtongGroup(t *testing.T, node *Node, remote *neiwangtong.Service, selfID, peerID string,
-	rosters <-chan neiwangtong.GroupRoster, messages <-chan neiwangtong.GroupMessage) {
+	rosters <-chan neiwangtong.GroupRoster, messages <-chan neiwangtong.GroupMessage, photos <-chan string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
@@ -38,8 +38,29 @@ func testGoIMCreatedNeiwangtongGroup(t *testing.T, node *Node, remote *neiwangto
 		t.Fatalf("native and local group identities did not match: %+v", room)
 	}
 	if err := node.execute(domain.Command{Kind: domain.SetGroupAvatar, GroupID: room.ID,
-		AvatarSize: 2, AvatarBGRA: make([]byte, 16)}); err == nil {
-		t.Fatal("reported a synchronized native group avatar without a group image transfer protocol")
+		AvatarSize: 2, AvatarBGRA: make([]byte, 16)}); err != nil {
+		t.Fatal(err)
+	}
+	photo := node.Snapshot().Group(room.ID)
+	select {
+	case digest := <-photos:
+		if digest != photo.AvatarMD5 || digest == "" {
+			t.Fatal("member received the wrong group photo revision")
+		}
+	case <-ctx.Done():
+		t.Fatal("missing group photo announcement")
+	}
+	// Only the digest persists across a restart. The server must resolve
+	// the cached PNG without relying on a desktop snapshot hydrating it.
+	if err := node.change(func(s *domain.State) { s.Groups[groupIndex(s, room.ID)].Avatar = "" }); err != nil {
+		t.Fatal(err)
+	}
+	data, err := remote.FetchGroupAvatar(ctx, selfID, photo.AvatarMD5)
+	if err != nil || !bytes.Equal(data, groupAvatarBytes(photo)) {
+		t.Fatalf("member could not retrieve the current owner photo: %v", err)
+	}
+	if got := node.serveNativeGroupAvatar("other-peer", photo.AvatarMD5); len(got) != 0 {
+		t.Fatal("non-member received the photo")
 	}
 	conversation := "group:" + room.ID
 	if err := node.sendText(conversation, "GoIM → 原版"); err != nil {
@@ -67,6 +88,46 @@ func testGoIMCreatedNeiwangtongGroup(t *testing.T, node *Node, remote *neiwangto
 	eventually(t, "native voluntary exit removes the member", func() bool {
 		return !contains(node.Snapshot().Group(room.ID).Members, peerID)
 	})
+	if got := node.serveNativeGroupAvatar(peerID, photo.AvatarMD5); len(got) != 0 {
+		t.Fatal("former member retained access")
+	}
+}
+
+func testReceivedNativeGroupPhoto(t *testing.T, n *Node, remote *neiwangtong.Service, self, owner, digest string, data []byte) {
+	t.Helper()
+	roster := neiwangtong.GroupRoster{ID: newID(), OwnerID: owner, Name: "群头像", PhotoMD5: digest,
+		InfoVersion: 2, MembersVersion: 2, Members: []neiwangtong.GroupMember{{ID: owner, Name: "群主"}, {ID: self, Name: "GoIM"}}}
+	if err := remote.SendGroupRoster(self, roster); err != nil {
+		t.Fatal(err)
+	}
+	id := nativeGroupID(roster.ID)
+	eventually(t, "original owner photo cached", func() bool {
+		g := n.Snapshot().Group(id)
+		return g.AvatarMD5 == digest && g.Avatar != "" && len(groupAvatarBytes(g)) > 0
+	})
+	if err := n.execute(domain.Command{Kind: domain.SetGroupAvatar, GroupID: id, RemoveAvatar: true}); err == nil {
+		t.Fatal("member could edit original-owned group")
+	}
+	n.receiveNativeGroupPhoto("other-peer", roster.ID, "", 5)
+	if n.Snapshot().Group(id).Avatar == "" {
+		t.Fatal("non-owner cleared the photo")
+	}
+	roster.InfoVersion, roster.PhotoMD5 = 3, ""
+	if err := remote.SendGroupPhoto(self, roster); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "owner clear restores default", func() bool {
+		g := n.Snapshot().Group(id)
+		return g.Avatar == "" && g.AvatarMD5 == "" && g.AvatarHash == ""
+	})
+	n.mu.Lock()
+	service := n.neiwangtong
+	n.mu.Unlock()
+	n.receiveNativeGroupPhoto(owner, roster.ID, digest, 2)
+	n.cacheNativeGroupPhoto(nativeAvatarFetch{service, owner, id, digest}, data)
+	if g := n.Snapshot().Group(id); g.Avatar != "" || g.AvatarMD5 != "" {
+		t.Fatal("late response resurrected the cleared photo")
+	}
 }
 
 const nativeFolderTestBlock = 32 << 10

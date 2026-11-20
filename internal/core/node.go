@@ -42,6 +42,7 @@ type Node struct {
 	mu                    sync.Mutex
 	groupMu               sync.Mutex
 	flushing              map[string]*peerDelivery
+	nativeAvatarFetches   map[string]*nativeAvatarDownload
 	data                  persisted
 	db                    *bolt.DB
 	key                   ed25519.PrivateKey
@@ -161,6 +162,7 @@ func New(opts Options) (*Node, error) {
 		printPollLimit: 30 * time.Minute, printPolls: make(map[string]bool),
 		printSubmitTokens: make(chan struct{}, 2),
 	}
+	n.hydrateGroupAvatars(&n.data.State)
 	newSettings := n.data.State.Settings.Theme == ""
 	if newSettings {
 		downloads := filepath.Join(opts.DataDir, "downloads")

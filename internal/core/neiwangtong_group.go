@@ -14,12 +14,14 @@ import (
 type nativeGroup struct {
 	WireID, Owner               string
 	InfoVersion, MembersVersion uint64
+	PhotoVersion                uint64 `json:",omitempty"`
 	SelfLeft                    bool   `json:",omitempty"`
 	KickedAtMembersVersion      uint64 `json:",omitempty"`
 }
 
 const (
 	nativeGroupRosterDelivery  = "native_group_roster"
+	nativeGroupPhotoDelivery   = "native_group_photo"
 	nativeGroupExitDelivery    = "native_group_exit"
 	nativeGroupDismissDelivery = "native_group_dismiss"
 	nativeGroupKickDelivery    = "native_group_kick"
@@ -51,10 +53,14 @@ func (n *Node) createNativeGroup(s domain.State, name string, targets []string) 
 }
 
 func nativeRosterDeliveries(group domain.Group) []pending {
+	return nativeGroupDeliveries(group, nativeGroupRosterDelivery)
+}
+
+func nativeGroupDeliveries(group domain.Group, kind string) []pending {
 	var out []pending
 	for _, peer := range group.Members {
 		if peer != group.OwnerID {
-			out = append(out, pending{PeerID: peer, Envelope: envelope{Type: nativeGroupRosterDelivery, Target: group.ID}})
+			out = append(out, pending{PeerID: peer, Envelope: envelope{Type: kind, Target: group.ID}})
 		}
 	}
 	return out
@@ -135,7 +141,7 @@ func (n *Node) receiveNeiwangtongGroupRoster(peerID string, roster neiwangtong.G
 	if roster.OwnerID != peerID {
 		return
 	}
-	_ = n.durableFromReader(func(p *persisted) []pending {
+	err := n.durableFromReader(func(p *persisted) []pending {
 		s := &p.State
 		owner := n.compatibilitySenderLocked(transportNWT, peerID)
 		if owner.ID == "" {
@@ -188,19 +194,25 @@ func (n *Node) receiveNeiwangtongGroupRoster(peerID string, roster neiwangtong.G
 			kickedAt = 0
 		}
 		notMember := !found || current.SelfLeft || kickedAt != 0
-		p.NativeGroups[id] = nativeGroup{WireID: roster.ID, Owner: roster.OwnerID,
+		room := nativeGroup{WireID: roster.ID, Owner: roster.OwnerID,
 			InfoVersion: roster.InfoVersion, MembersVersion: roster.MembersVersion,
 			SelfLeft: current.SelfLeft && found, KickedAtMembersVersion: kickedAt}
+		photo := roster.PhotoMD5
+		room.PhotoVersion = max(current.PhotoVersion, roster.InfoVersion)
+		if current.PhotoVersion != 0 && current.PhotoVersion >= roster.InfoVersion {
+			photo = currentGroup.AvatarMD5
+		}
+		p.NativeGroups[id] = room
 		if notMember {
 			members = without(members, s.Self.ID)
 		}
 		avatarHash, avatarPath := "", ""
-		if roster.PhotoMD5 != "" && roster.PhotoMD5 == currentGroup.AvatarMD5 {
+		if photo != "" && photo == currentGroup.AvatarMD5 {
 			avatarHash, avatarPath = currentGroup.AvatarHash, currentGroup.Avatar
 		}
 		g := domain.Group{ID: id, Name: roster.Name, OwnerID: owner.ID, Transport: transportNWT, Members: members,
 			Epoch: max(roster.InfoVersion, roster.MembersVersion), Left: notMember,
-			AvatarHash: avatarHash, AvatarMD5: roster.PhotoMD5, Avatar: avatarPath}
+			AvatarHash: avatarHash, AvatarMD5: photo, Avatar: avatarPath}
 		if i < 0 {
 			s.Groups = append(s.Groups, g)
 		} else {
@@ -209,6 +221,9 @@ func (n *Node) receiveNeiwangtongGroupRoster(peerID string, roster neiwangtong.G
 		ensureGroup(s, g)
 		return n.cancelInvalidGroup(p, g)
 	})
+	if err == nil {
+		n.fetchNativeGroupAvatar(peerID, nativeGroupID(roster.ID))
+	}
 }
 
 func (n *Node) departNativeGroup(groupID string, dismiss bool) error {
@@ -392,6 +407,11 @@ func (n *Node) restoreNeiwangtongFiles(peer string) {
 	if state.Peer(peer).Transport != transportNWT {
 		return
 	}
+	for _, group := range state.Groups {
+		if group.OwnerID == peer && group.Transport == transportNWT && group.AvatarMD5 != "" && group.Avatar == "" {
+			n.fetchNativeGroupAvatar(wire, group.ID)
+		}
+	}
 	for _, task := range state.Transfers {
 		if task.PeerID != peer || task.Direction != "send" || task.Revoked || terminalTransfer(task.Status) ||
 			task.LegacyTransport != transportNWT || task.RemotePacket == "" {
@@ -399,6 +419,12 @@ func (n *Node) restoreNeiwangtongFiles(peer string) {
 		}
 		file := state.File(task.FileID)
 		if file.InlineImage || file.SourcePath == "" || task.RemotePeerID != "" && task.RemotePeerID != wire {
+			continue
+		}
+		if err := neiwangtongTransferSizeError(&state, task, file); err != nil {
+			if task.Status != "failed" || task.Error != err.Error() {
+				n.setTransfer(task.ID, "failed", task.Done, 0, err.Error())
+			}
 			continue
 		}
 		groupID, group := strings.CutPrefix(task.ConversationID, "group:")

@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -167,6 +168,9 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	folders := make(chan neiwangtong.FolderOffer, 2)
 	groupChat := make(chan neiwangtong.GroupMessage, 2)
 	groupRosters := make(chan neiwangtong.GroupRoster, 2)
+	groupPhotos := make(chan string, 4)
+	remotePhoto := nativeTestAvatar(t, 145)
+	remoteDigest := fmt.Sprintf("%x", md5.Sum(remotePhoto))
 	withdrawals := make(chan uint64, 2)
 	const folderTask = "1234567890abcdef1234567890abcdef"
 	firstFolderBlock := make(chan struct{}, 1)
@@ -185,6 +189,13 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 				return nil
 			},
 			GroupRoster: func(_ string, roster neiwangtong.GroupRoster) { groupRosters <- roster },
+			GroupPhoto:  func(_, _, digest string, _ uint64) { groupPhotos <- digest },
+			GroupAvatar: func(_, digest string) []byte {
+				if digest == remoteDigest {
+					return remotePhoto
+				}
+				return nil
+			},
 			Folders: func(_ string, offer neiwangtong.FolderOffer) {
 				folders <- offer
 			},
@@ -225,7 +236,8 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	eventually(t, "first avatar", func() bool { return n.Snapshot().Peer(nativeID).Avatar != "" })
 	first := n.Snapshot().Peer(nativeID).Avatar
 	selfID := keyIDFromNative(nativeIDForGoIM(n.Snapshot().Self.ID))
-	testGoIMCreatedNeiwangtongGroup(t, n, remote, selfID, nativeID, groupRosters, groupChat)
+	testGoIMCreatedNeiwangtongGroup(t, n, remote, selfID, nativeID, groupRosters, groupChat, groupPhotos)
+	testReceivedNativeGroupPhoto(t, n, remote, selfID, nativeID, remoteDigest, remotePhoto)
 	if err := remote.SendText(selfID, "原生文本 & 😀"); err != nil {
 		t.Fatal(err)
 	}

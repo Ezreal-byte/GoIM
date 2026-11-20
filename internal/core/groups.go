@@ -143,7 +143,7 @@ func deliveryGroup(p *persisted, delivery pending) string {
 		if index := transferIndex(&p.State, e.TransferID); index >= 0 {
 			conversation = p.State.Transfers[index].ConversationID
 		}
-	case nativeGroupRosterDelivery:
+	case nativeGroupRosterDelivery, nativeGroupPhotoDelivery:
 		return e.Target
 	case "group_nickname":
 		return e.Group.ID
@@ -375,7 +375,7 @@ func (n *Node) manageGroup(c domain.Command) error {
 			if g.OwnerID != s.Self.ID {
 				return errors.New("只有群主可以执行此操作")
 			}
-			return errors.New("当前内网通协议不支持同步群头像")
+			return n.setNativeGroupAvatar(g.ID, c)
 		}
 		return errors.New("内网通群不支持这个管理操作")
 	}

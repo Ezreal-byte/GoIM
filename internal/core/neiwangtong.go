@@ -21,10 +21,43 @@ import (
 
 const transportNWT = domain.TransportNeiwangtong
 
-// The stock client reliably sends files larger than 4 GiB to us. Its
-// receiver has yet to complete the corresponding large-file fixture.
-const neiwangtongSendLimit = 1 << 32
-const neiwangtongFileSizeMessage = "发给内网通的单个文件需小于 4 GiB，请拆分后重发"
+const neiwangtongLargeFileSize = 1 << 32
+
+func (p *persisted) neiwangtongAttachmentSizeError(conv domain.Conversation, size int64) error {
+	if size < neiwangtongLargeFileSize {
+		return nil
+	}
+	if conv.Kind == "direct" {
+		peer := p.State.Peer(conv.PeerID)
+		if peer.Transport == transportNWT {
+			return neiwangtongLargeFileError(peer, true)
+		}
+	}
+	if conv.Kind == "group" && p.NativeGroups[conv.GroupID].WireID != "" {
+		return neiwangtongLargeFileError(domain.Peer{}, false)
+	}
+	return nil
+}
+
+func neiwangtongLargeFileError(peer domain.Peer, directFile bool) error {
+	if !directFile {
+		return errors.New("内网通仅支持在单聊中发送 4 GiB 及以上的普通文件，请拆分后重发")
+	}
+	if peer.Transport != transportNWT || peer.Version != "3.4.3055" {
+		return errors.New("当前内网通版本的单个文件需小于 4 GiB，请拆分后重发")
+	}
+	return nil
+}
+
+func neiwangtongTransferSizeError(state *domain.State, t domain.Transfer, file domain.File) error {
+	if file.Size < neiwangtongLargeFileSize || file.Folder {
+		return nil // the directory protocol checks each entry separately
+	}
+	conv := state.Conversation(t.ConversationID)
+	directFile := conv.Kind == "direct" && conv.PeerID == t.PeerID &&
+		!t.FromShare && !file.Shared && !file.ShareFolder && !file.InlineImage
+	return neiwangtongLargeFileError(state.Peer(t.PeerID), directFile)
+}
 
 var errNeedsGoIMConnection = errors.New("已发现 GoIM 设备，但尚未建立 GoIM 连接")
 
@@ -101,6 +134,17 @@ func (n *Node) newNeiwangtong(port int, live *atomic.Bool) (*neiwangtong.Service
 			return name
 		},
 		Callbacks: neiwangtong.Callbacks{
+			GroupAvatar: func(peer, digest string) []byte {
+				if !live.Load() {
+					return nil
+				}
+				return n.serveNativeGroupAvatar(peer, digest)
+			},
+			GroupPhoto: func(peer, room, digest string, version uint64) {
+				if live.Load() {
+					n.receiveNativeGroupPhoto(peer, room, digest, version)
+				}
+			},
 			Peer: func(p neiwangtong.Peer) {
 				if live.Load() {
 					n.receiveNeiwangtongPeer(p)
@@ -399,10 +443,13 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 			return service.SendGroupTextRecall(peer, room, nativeMessagePacket(value), e.ID, e.Message.ID)
 		}
 		return service.SendTextRecall(n.ctx, peer, nativeMessagePacket(value), e.ID, e.Message.ID)
-	case nativeGroupRosterDelivery:
+	case nativeGroupRosterDelivery, nativeGroupPhotoDelivery:
 		roster, err := n.nativeRosterForDelivery(e.Target, value.PeerID)
 		if err != nil {
 			return err
+		}
+		if e.Type == nativeGroupPhotoDelivery {
+			return service.SendGroupPhoto(peer, roster)
 		}
 		return service.SendGroupRoster(peer, roster)
 	case "message":
@@ -436,8 +483,8 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 		if f.Folder {
 			return n.neiwangtongDirectoryPending(service, peer, value, t, f)
 		}
-		if f.Size >= neiwangtongSendLimit {
-			n.setTransfer(t.ID, "failed", t.Done, 0, neiwangtongFileSizeMessage)
+		if err := neiwangtongTransferSizeError(&s, t, f); err != nil {
+			n.setTransfer(t.ID, "failed", t.Done, 0, err.Error())
 			return nil
 		}
 		var source os.FileInfo
@@ -579,7 +626,7 @@ func (n *Node) neiwangtongFileAccess(service *neiwangtong.Service, peer, id stri
 }
 
 func (n *Node) restoreNeiwangtongDirectFile(service *neiwangtong.Service, peer string, t domain.Transfer, file domain.File) {
-	if file.Folder || file.Size >= neiwangtongSendLimit || t.RemoteFile == "" {
+	if file.Folder || t.RemoteFile == "" {
 		return
 	}
 	// Restore the selectors the recipient already holds, including historical

@@ -513,7 +513,7 @@ func (n *Node) pendingRouteLocked(p pending) (transport, wireID string, online b
 		if id, ok := strings.CutPrefix(p.Envelope.Message.ConversationID, "group:"); ok && n.data.NativeGroups[id].WireID != "" {
 			transport = transportNWT
 		}
-		if p.Envelope.Type == nativeGroupRosterDelivery {
+		if p.Envelope.Type == nativeGroupRosterDelivery || p.Envelope.Type == nativeGroupPhotoDelivery {
 			transport = transportNWT
 		}
 	}

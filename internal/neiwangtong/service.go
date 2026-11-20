@@ -30,8 +30,12 @@ type Callbacks struct {
 	Peer func(Peer)
 	Text func(peerID string, packetID uint64, text string)
 	// Message commits received chat content before the application receipt.
-	Message        func(peerID string, message DirectMessage) error
-	GroupRoster    func(peerID string, roster GroupRoster)
+	Message     func(peerID string, message DirectMessage) error
+	GroupRoster func(peerID string, roster GroupRoster)
+	GroupPhoto  func(peerID, groupID, photoMD5 string, version uint64)
+	// GroupAvatar returns the current PNG only for a member of a group that
+	// the local owner is announcing with this exact digest.
+	GroupAvatar    func(peerID, photoMD5 string) []byte
 	GroupDeparture func(peerID, groupID string, kind uint32)
 	GroupText      func(peerID string, message GroupMessage) error
 	// TextAcknowledged reports the application's receipt from an established peer.
@@ -181,7 +185,7 @@ func Start(cfg Config) (*Service, error) {
 	}
 	s.local = localWireProfile(profile, cfg.AvatarPNG)
 	var err error
-	s.transfer, err = startTransferServer(cfg.BindIP, cfg.TransferPort, s.onFileStream, s.avatarAllowed)
+	s.transfer, err = startTransferServer(cfg.BindIP, cfg.TransferPort, s.onFileStream, s.avatarAllowed, s.groupAvatarForPeer)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("内网通 TCP 文件端口: %w", err)
@@ -690,6 +694,12 @@ func (s *Service) onENetCommand(remote netip.AddrPort, kind uint32, plain []byte
 	case CmdGroupRoster:
 		if roster, err := ParseGroupRoster(plain); err == nil && s.cfg.Callbacks.GroupRoster != nil {
 			s.cfg.Callbacks.GroupRoster(id, roster)
+		}
+	case CmdGroupInfo:
+		if s.cfg.Callbacks.GroupPhoto != nil {
+			if info, ok := parseGroupPhoto(plain, id); ok {
+				s.cfg.Callbacks.GroupPhoto(id, info.ID, *info.PhotoMD5, info.InfoVersion)
+			}
 		}
 	case CmdGroupExit, CmdGroupDismiss, CmdGroupKick:
 		if group, err := parseGroupDeparture(plain, kind); err == nil && s.cfg.Callbacks.GroupDeparture != nil {
