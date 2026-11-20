@@ -25,7 +25,7 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/shares-light.png"><img src="website/assets/screenshots/shares-light.png" alt="桌面端的文件分享列表及密码保护状态" /></a><strong>桌面端文件共享</strong></td>
-    <td width="50%"><a href="website/assets/screenshots/web-file-sharing.png"><img src="website/assets/screenshots/web-file-sharing.png" alt="局域网分享目录按名称、类型和大小列出文件与文件夹，右上角提供上传按钮" /></a><strong>局域网 Web 文件分享</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/lan-share-directory.png"><img src="website/assets/screenshots/lan-share-directory.png" alt="局域网分享目录按名称、类型和大小列出文件与文件夹，右上角提供上传按钮" /></a><strong>局域网 Web 文件分享</strong></td>
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/print-sharing.png"><img src="website/assets/screenshots/print-sharing.png" alt="三台共享打印机的可用状态、纸张规格、彩色与双面能力，以及最近打印记录" /></a><strong>打印机共享</strong></td>

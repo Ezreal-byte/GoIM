@@ -25,7 +25,7 @@ GoIM is a desktop messenger built with Go and [Viva](https://github.com/vivaui/v
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/shares-light.png"><img src="website/assets/screenshots/shares-light.png" alt="File shares and password protection in the desktop app" /></a><strong>Desktop file sharing</strong></td>
-    <td width="50%"><a href="website/assets/screenshots/web-file-sharing.png"><img src="website/assets/screenshots/web-file-sharing.png" alt="LAN share directory showing file names, types and sizes, with an upload button at the top right" /></a><strong>LAN file sharing in a browser</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/lan-share-directory.png"><img src="website/assets/screenshots/lan-share-directory.png" alt="LAN share directory showing file names, types and sizes, with an upload button at the top right" /></a><strong>LAN file sharing in a browser</strong></td>
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/print-sharing.png"><img src="website/assets/screenshots/print-sharing.png" alt="Three shared printers with availability, paper sizes, color and duplex options, followed by recent jobs" /></a><strong>Printer sharing</strong></td>
