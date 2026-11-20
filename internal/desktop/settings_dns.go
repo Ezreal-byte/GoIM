@@ -35,14 +35,14 @@ func (p *Panels) drawDNSDiscovery(f ui.C, theme ui.Theme, state domain.State, su
 	case status == "":
 		status = "正在查询 DNS 服务记录"
 	}
-	panelSection(f, i18n.T("跨网段发现"), i18n.T("通过内网 DNS 查找 GoIM 入口。各网段之间需要能够直连。"), func() {
+	panelSection(f, i18n.T("跨网段发现"), i18n.T("各网段需能互访。在入口和每台客户端开启「自动发现联系人」，填写内网 DNS 和相同的发现域名，再点击「保存」。"), func() {
 		var save bool
 		p.settingsRow(f, theme, i18n.T("DNS 服务器"), i18n.T("仅供 GoIM 使用，清空并保存可关闭。"), func() {
 			p.settingsControl(f, 260, func() {
 				save = ui.TextFieldID(f, editor.serverID, &editor.server, i18n.T("DNS 服务器"), "10.0.0.53").FillWidth().Submitted()
 			})
 		})
-		p.settingsRow(f, theme, i18n.T("发现域名"), i18n.T("使用管理员配置了 _goim._tcp 服务记录的域。"), func() {
+		p.settingsRow(f, theme, i18n.T("发现域名"), i18n.T("请管理员将该域的 _goim._tcp SRV 记录指向一台常在线的 GoIM，作为发现入口。"), func() {
 			p.settingsControl(f, 260, func() {
 				if ui.TextFieldID(f, editor.domainID, &editor.zone, i18n.T("发现域名"), domain.DefaultDiscoveryDomain).FillWidth().Submitted() {
 					save = true
