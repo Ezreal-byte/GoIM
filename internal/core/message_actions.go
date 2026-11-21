@@ -254,6 +254,7 @@ func applyMessageRecall(p *persisted, m domain.Message) []string {
 				continue
 			}
 			t.Status, t.Error, t.Speed = "cancelled", "文件消息已撤回", 0
+			p.queuePartialCleanup(*t)
 			t.UpdatedAt = time.Now()
 			p.TransferTombstones[t.PeerID+":"+t.ID] = "cancelled"
 			cancelled = append(cancelled, t.ID)

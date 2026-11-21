@@ -473,7 +473,7 @@ func (n *Node) downloadLegacy(ctx context.Context, transfer domain.Transfer, fil
 	}
 	if file.InlineImage && inlineImageType(partial, file.Size) != file.MIME {
 		_ = os.Truncate(partial, 0)
-		return errors.New("对方发送的内容不是受支持的聊天图片")
+		return errInvalidLegacyImage
 	}
 	return n.publishReceivedFile(ctx, transfer.ID, partial, destination, file.Size, "")
 }

@@ -39,7 +39,41 @@ func (r receiveReader) Read(buffer []byte) (int, error) {
 	return r.in.Read(buffer)
 }
 
-func stageReceiveFile(ctx context.Context, destination string, in io.Reader, size int64, expected string) (receivePublication, error) {
+// receiveScratch records work that must start from zero after an interruption.
+type receiveScratch struct {
+	Stage, Destination string
+	Directory          bool
+}
+
+func (p *persisted) rememberReceiveScratch(id string, scratch receiveScratch) {
+	if p.ReceiveScratch == nil {
+		p.ReceiveScratch = make(map[string]receiveScratch)
+	}
+	p.ReceiveScratch[id] = scratch
+}
+
+func (s receiveScratch) remove(id string) error {
+	prefix := ".goim-receive-"
+	if s.Directory {
+		prefix = directoryStagePrefix
+	}
+	suffix, ok := strings.CutPrefix(filepath.Base(s.Stage), prefix+id+"-")
+	if !validFileName(id) || !filepath.IsLocal(id) || !filepath.IsAbs(s.Stage) || !ok || suffix == "" || filepath.Dir(s.Stage) != filepath.Dir(s.Destination) {
+		return errors.New("接收暂存位置无效")
+	}
+	if err := checkReceiveDestination(s.Stage, s.Destination, s.Directory); err != nil {
+		return err
+	}
+	if s.Directory {
+		return os.RemoveAll(s.Stage)
+	}
+	if err := os.Remove(s.Stage); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (n *Node) stageReceiveFile(ctx context.Context, id, destination string, in io.Reader, size int64, expected string) (receivePublication, error) {
 	destination, err := filepath.Abs(destination)
 	if err != nil {
 		return receivePublication{}, err
@@ -48,7 +82,7 @@ func stageReceiveFile(ctx context.Context, destination string, in io.Reader, siz
 	if err := os.MkdirAll(parent, 0700); err != nil {
 		return receivePublication{}, err
 	}
-	file, err := os.CreateTemp(parent, ".goim-receive-*")
+	file, err := os.CreateTemp(parent, ".goim-receive-"+id+"-*")
 	if err != nil {
 		return receivePublication{}, err
 	}
@@ -60,6 +94,19 @@ func stageReceiveFile(ctx context.Context, destination string, in io.Reader, siz
 			_ = os.Remove(stage)
 		}
 	}()
+	registered := false
+	if err := n.durable(func(p *persisted) []pending {
+		if i := transferIndex(&p.State, id); i >= 0 && ctx.Err() == nil && canPublishReceive(p, p.State.Transfers[i]) {
+			p.rememberReceiveScratch(id, receiveScratch{Stage: stage, Destination: destination})
+			registered = true
+		}
+		return nil
+	}); err != nil {
+		return receivePublication{}, err
+	}
+	if !registered {
+		return receivePublication{}, context.Canceled
+	}
 	hash := sha256.New()
 	written, err := io.Copy(io.MultiWriter(file, hash), receiveReader{ctx, in})
 	if err != nil {
@@ -67,7 +114,7 @@ func stageReceiveFile(ctx context.Context, destination string, in io.Reader, siz
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
 	if written != size || expected != "" && digest != expected {
-		return receivePublication{}, errors.New("接收文件在发布前未通过完整性校验")
+		return receivePublication{}, errStagedIntegrity
 	}
 	if err := errors.Join(file.Sync(), file.Close()); err != nil {
 		return receivePublication{}, err
@@ -169,16 +216,12 @@ func (n *Node) publishReceivedFile(ctx context.Context, id, partial, destination
 	if err != nil {
 		return err
 	}
-	publication, err := stageReceiveFile(ctx, destination, file, size, expected)
+	publication, err := n.stageReceiveFile(ctx, id, destination, file, size, expected)
 	_ = file.Close()
 	if err != nil {
 		return err
 	}
-	if err := n.publishReceive(ctx, id, publication); err != nil {
-		return err
-	}
-	_ = os.Remove(partial)
-	return nil
+	return n.publishReceive(ctx, id, publication)
 }
 
 func (n *Node) publishReceive(ctx context.Context, id string, publication receivePublication) error {
@@ -289,7 +332,7 @@ func recordPublishedReceive(p *persisted, index int, publication receivePublicat
 	task.Size = publication.Size
 	task.ShareStage = ""
 	task.FileStage = ""
-	return completeReceiveState(task, publication.Destination)
+	return p.completeReceiveState(task, publication.Destination)
 }
 
 func removeReceiveStage(publication receivePublication, id string) {
@@ -303,9 +346,10 @@ func removeReceiveStage(publication receivePublication, id string) {
 	}
 }
 
-func completeReceiveState(t *domain.Transfer, path string) []pending {
+func (p *persisted) completeReceiveState(t *domain.Transfer, path string) []pending {
 	t.Status, t.Path, t.Error = "completed", path, ""
 	t.Done, t.Speed, t.UpdatedAt = t.Size, 0, time.Now()
+	p.queuePartialCleanup(*t)
 	if t.ShareProject != "" || t.RemoteImageMD5 != "" {
 		return nil
 	}

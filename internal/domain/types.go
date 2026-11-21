@@ -303,10 +303,6 @@ type Transfer struct {
 	PrintJobID        string `json:",omitempty"` // local print task served by this transfer
 }
 
-func (t Transfer) CanClearPartial() bool {
-	return t.WebSender == "" && t.ShareProject == "" && !t.ShareRequest && t.Direction == "receive" && t.PrintJobID == "" && (t.Status == "failed" || t.Status == "waiting" || t.Status == "cancelled" || t.Status == "rejected")
-}
-
 func (t Transfer) CanRelocateFailedReceive() bool {
 	return t.Direction == "receive" && t.Status == "failed" && t.LegacyTransport == TransportNeiwangtong &&
 		!t.Revoked && t.PrintJobID == "" && t.RemoteImageMD5 == ""
@@ -468,6 +464,7 @@ type Settings struct {
 	AutoAccept                bool
 	Network                   string
 	PendingNetwork            string
+	HideTitleGitHub           bool `json:",omitempty"`
 	CloseToTray               bool
 	SendKey                   string
 	Shortcuts                 []Shortcut
@@ -624,6 +621,7 @@ func (s *Settings) EnsureDefaultShortcuts() {
 }
 
 type State struct {
+	ContactRefresh     ContactRefresh      `json:"-"`
 	IPMSGStatus        CompatibilityStatus `json:"-"`
 	NeiwangtongStatus  CompatibilityStatus `json:"-"`
 	Self               Peer
@@ -663,6 +661,11 @@ type State struct {
 type LockResult struct {
 	Request uint64
 	Error   string
+}
+
+type ContactRefresh struct {
+	Sequence uint64
+	Pending  bool
 }
 
 type ConnectionFeedback struct {
@@ -772,7 +775,6 @@ const (
 	AcceptTransfer       CommandKind = "accept_transfer"
 	RejectTransfer       CommandKind = "reject_transfer"
 	CancelTransfer       CommandKind = "cancel_transfer"
-	ClearTransferPartial CommandKind = "clear_transfer_partial"
 	RetryTransfer        CommandKind = "retry_transfer"
 	CreateGroup          CommandKind = "create_group"
 	InviteMembers        CommandKind = "invite_members"

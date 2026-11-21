@@ -53,6 +53,13 @@ func (n *Node) durable(mutator func(*persisted) []pending) error {
 		n.data = restored
 		n.data.State.Error = "保存失败: " + err.Error()
 	}
+	if err == nil && n.discardIdleReceivePartialsLocked() {
+		// The primary transaction already committed. If this housekeeping write
+		// fails, startup replays its durable cleanup entries.
+		if saveErr := saveStore(n.db, &n.data); saveErr != nil {
+			n.data.State.Error = "保存失败: " + saveErr.Error()
+		}
+	}
 	n.mu.Unlock()
 	if err == nil && network != previousNetwork && n.listener != nil {
 		if bound, ok := n.listener.Addr().(*net.TCPAddr); ok {

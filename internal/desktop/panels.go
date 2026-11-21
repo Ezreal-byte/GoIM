@@ -83,6 +83,8 @@ type panelIDs struct {
 	settingsSound         gfx.ID
 	settingsAutoAccept    gfx.ID
 	settingsCloseToTray   gfx.ID
+	settingsShowGitHub    gfx.ID
+	settingsSearch        gfx.ID
 	settingsLaunchAtLogin gfx.ID
 	settingsChooseDir     gfx.ID
 	settingsOpenDir       gfx.ID
@@ -278,6 +280,7 @@ type Panels struct {
 
 	module string
 
+	search         settingsSearch
 	settingsTab    panelSettingsTab
 	settingsScroll [panelSettingsCount]float32
 	settingsExtra  panelSettingsExtra
@@ -392,6 +395,8 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.settingsNotification = tree.ID(settings, "desktop-notifications")
 	p.ids.settingsSound = tree.ID(settings, "sound")
 	p.ids.settingsAutoAccept = tree.ID(settings, "auto-accept")
+	p.ids.settingsShowGitHub = tree.ID(settings, "show-title-github")
+	p.ids.settingsSearch = tree.ID(settings, "search")
 	p.ids.settingsCloseToTray = tree.ID(settings, "close-to-tray")
 	p.ids.settingsLaunchAtLogin = tree.ID(settings, "launch-at-login")
 	p.ids.settingsChooseDir = tree.ID(settings, "choose-download-directory")
@@ -531,6 +536,7 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 		p.print.resetInteractions()
 	}
 	p.module = module
+	p.search.anchor = ui.Box{}
 	p.shareAnchor = ui.Box{}
 	p.transferAnchor = ui.Box{}
 	p.transferMenuEntry = nil
@@ -565,6 +571,12 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 		p.drawTransferMenu(canvas, theme, bounds, submit)
 	}
 	if settingsScroll.Valid() {
+		if p.search.anchor.Valid() {
+			off := settingsScroll.ScrollState().Offset + p.search.anchor.Rect().Y - settingsScroll.Rect().Y
+			settingsScroll.ScrollState().ScrollTo(max(0, off))
+			canvas.RequestFrame()
+		}
+		p.search.target = ""
 		p.settingsScroll[p.settingsTab] = settingsScroll.ScrollState().Offset
 	}
 	canvas.Unclip()
@@ -695,6 +707,10 @@ func (p *Panels) Key(event gfx.KeyEvent) gfx.EventResult {
 		return gfx.EventResult{}
 	}
 	if p.module == panelModuleSettings {
+		if event.Target == p.ids.settingsSearch && event.Key == gfx.KeyEscape && p.search.field.Text() != "" {
+			p.search.field.SetText("")
+			return gfx.EventResult{Handled: true, Repaint: true}
+		}
 		if p.settingsExtra.interfaceFont.open {
 			if result, handled := p.settingsExtra.interfaceFont.key(event, p.confirmInterfaceFont); handled {
 				return result
@@ -1380,6 +1396,8 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 			return settings.Sound == pending.boolean
 		case "auto_accept":
 			return settings.AutoAccept == pending.boolean
+		case "show_title_github":
+			return !settings.HideTitleGitHub == pending.boolean
 		case "close_to_tray":
 			return settings.CloseToTray == pending.boolean
 		case "hide_notification_text":

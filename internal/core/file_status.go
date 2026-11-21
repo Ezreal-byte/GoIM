@@ -10,7 +10,7 @@ import (
 func (n *Node) completeReceive(t domain.Transfer, path string) error {
 	return n.durable(func(p *persisted) []pending {
 		if i := transferIndex(&p.State, t.ID); i >= 0 && canPublishReceive(p, p.State.Transfers[i]) {
-			return completeReceiveState(&p.State.Transfers[i], path)
+			return p.completeReceiveState(&p.State.Transfers[i], path)
 		}
 		return nil
 	})
@@ -64,6 +64,7 @@ func (n *Node) receiveFileStatus(peer string, e envelope) error {
 				p.State.PrintJobs[j].UpdatedAt = time.Now()
 			}
 		}
+		p.queuePartialCleanup(*t)
 		t.Speed = 0
 		t.UpdatedAt = time.Now()
 		return nil

@@ -110,7 +110,10 @@ func TestInterruptedNativeStageCleanup(t *testing.T) {
 			err = n.execute(domain.Command{Kind: domain.CancelTransfer, TransferID: task.ID})
 		} else {
 			n.setTransfer(task.ID, "failed", 0, 0, "interrupted")
-			err = n.clearTransferPartial(task.ID)
+			if _, err := os.Stat(stage); err != nil || n.Snapshot().Transfers[0].FileStage != stage {
+				t.Fatal("network interruption lost resumable file", err)
+			}
+			n.setTransfer(task.ID, "failed", 0, 0, errInvalidPrefix.Error())
 		}
 		if err != nil {
 			t.Fatal(err)

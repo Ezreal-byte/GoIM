@@ -97,6 +97,16 @@ func fixtureReceivePublication(t *testing.T, n *Node, directory bool) (string, r
 	destination := filepath.Join(parent, "received")
 	publication := receivePublication{Destination: destination, Directory: directory}
 	var err error
+	if err := n.change(func(s *domain.State) {
+		s.Transfers = append(s.Transfers, domain.Transfer{ID: id, FileID: id, Direction: "receive", PeerID: "offline", Path: destination, Size: int64(len(contents)), Status: "verifying"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, finish, ok := n.transferContext(id)
+	if !ok {
+		t.Fatal("could not start receive")
+	}
+	defer finish()
 	if directory {
 		publication.Stage, err = os.MkdirTemp(parent, directoryStagePrefix+id+"-")
 		if err != nil {
@@ -111,7 +121,7 @@ func fixtureReceivePublication(t *testing.T, n *Node, directory bool) (string, r
 		}
 		publication.Digest, publication.Size, err = receiveDirectoryDigest(t.Context(), publication.Stage)
 	} else {
-		publication, err = stageReceiveFile(t.Context(), destination, strings.NewReader(contents), int64(len(contents)), "")
+		publication, err = n.stageReceiveFile(ctx, id, destination, strings.NewReader(contents), int64(len(contents)), "")
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -119,8 +129,6 @@ func fixtureReceivePublication(t *testing.T, n *Node, directory bool) (string, r
 	if err := n.durable(func(p *persisted) []pending {
 		p.ReceivePublications = map[string]receivePublication{id: publication}
 		p.State.Files = append(p.State.Files, domain.File{ID: id, Name: "received", Folder: directory, Size: publication.Size})
-		p.State.Transfers = append(p.State.Transfers, domain.Transfer{ID: id, FileID: id, Direction: "receive", PeerID: "offline",
-			Path: destination, Size: publication.Size, Status: "verifying"})
 		return nil
 	}); err != nil {
 		t.Fatal(err)

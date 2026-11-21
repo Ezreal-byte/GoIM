@@ -30,34 +30,6 @@ func nativeGroupFolderStage(task domain.Transfer) string {
 	return stage
 }
 
-func (n *Node) removeFinishedNativeStage(id string) {
-	var task domain.Transfer
-	n.mu.Lock()
-	if i := transferIndex(&n.data.State, id); i >= 0 && n.transfers[id] == nil {
-		task = n.data.State.Transfers[i]
-	}
-	n.mu.Unlock()
-	if !terminalTransfer(task.Status) {
-		return
-	}
-	if stage := nativeFileStage(task); stage != "" {
-		if err := os.Remove(stage); err != nil && !os.IsNotExist(err) {
-			return
-		}
-	} else if folder := nativeGroupFolderStage(task); folder != "" {
-		if os.RemoveAll(folder) != nil {
-			return
-		}
-	} else {
-		return
-	}
-	_ = n.change(func(s *domain.State) {
-		if i := transferIndex(s, id); i >= 0 && s.Transfers[i].FileStage == task.FileStage && s.Transfers[i].FolderStage == task.FolderStage && terminalTransfer(s.Transfers[i].Status) {
-			s.Transfers[i].FileStage, s.Transfers[i].FolderStage = "", ""
-		}
-	})
-}
-
 func (n *Node) sendNeiwangtongDirectory(conversationID, path, target string) error {
 	dir, err := neiwangtong.InspectDirectory(path)
 	if err != nil {
@@ -268,7 +240,8 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 		}()
 	}
 	ready := false
-	if err := n.change(func(st *domain.State) {
+	if err := n.durable(func(p *persisted) []pending {
+		st := &p.State
 		if i := transferIndex(st, t.ID); i >= 0 {
 			transfer := &st.Transfers[i]
 			if !terminalTransfer(transfer.Status) && ctx.Err() == nil {
@@ -276,10 +249,13 @@ func (n *Node) downloadNeiwangtongDirectory(ctx context.Context, service *neiwan
 				transfer.Done, transfer.Speed, transfer.UpdatedAt = 0, 0, time.Now()
 				if groupFolder {
 					transfer.FolderStage = stage
+				} else {
+					p.rememberReceiveScratch(t.ID, receiveScratch{Stage: stage, Destination: destination, Directory: true})
 				}
 				ready = true
 			}
 		}
+		return nil
 	}); err != nil {
 		return err
 	}

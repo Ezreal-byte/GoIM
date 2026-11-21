@@ -395,8 +395,7 @@ func (n *Node) receiveNeiwangtongCancel(peerID string, taskID uint64) {
 }
 
 func (n *Node) receiveNeiwangtongTaskCancel(peerID, remoteTask string) {
-	var partials []string
-	err := n.durableFromReader(func(p *persisted) []pending {
+	_ = n.durableFromReader(func(p *persisted) []pending {
 		s := &p.State
 		for i := range s.Transfers {
 			t := &s.Transfers[i]
@@ -416,17 +415,10 @@ func (n *Node) receiveNeiwangtongTaskCancel(peerID, remoteTask string) {
 			t.Status, t.Error = "cancelled", neiwangtong.ErrFileCancelled.Error()
 			t.Speed = 0
 			t.UpdatedAt = time.Now()
-			partials = append(partials, t.ID)
+			p.queuePartialCleanup(*t)
 		}
 		return nil
 	})
-	if err != nil {
-		return
-	}
-	for _, id := range partials {
-		_ = os.Remove(n.nativePartialPath(id))
-		n.removeFinishedNativeStage(id)
-	}
 }
 
 func (n *Node) receiveNeiwangtongProgress(peerID string, taskID uint64, done, total int64, complete bool, failure error) {

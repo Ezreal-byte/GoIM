@@ -245,7 +245,7 @@ func (n *Node) downloadNeiwangtongImage(ctx context.Context, service *neiwangton
 			return nil
 		})
 	}
-	publication, err := stageReceiveFile(ctx, destination, bytes.NewReader(data), int64(len(data)), digest)
+	publication, err := n.stageReceiveFile(ctx, t.ID, destination, bytes.NewReader(data), int64(len(data)), digest)
 	if err != nil {
 		return err
 	}

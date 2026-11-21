@@ -63,11 +63,15 @@ func (p *Panels) drawSettings(f ui.C, theme ui.Theme, state domain.State, submit
 	contentTheme := theme.WithControlHeight(panelSettingsControlH)
 	var scroll ui.Box
 	ui.Row(f).Fill().Children(func() {
-		p.drawSettingsCategories(f, theme)
+		p.drawSettingsCategories(f, theme, state)
 		ui.Divider(f).FillHeight()
 		ui.Column(f).Grow(1).FillHeight().PadSides(24, 32, 10, 32).
 			Items(ui.Center).Children(func() {
 			ui.Column(f).FillWidth().MaxWidth(panelSettingsContentMax).FillHeight().Gap(14).Children(func() {
+				if p.search.query != "" {
+					p.drawSettingResults(f, state)
+					return
+				}
 				p.drawSettingsHeader(f, contentTheme)
 				p.panelFeedback(f, contentTheme, state, submit, p.ids.settingsDismissLocal, p.ids.settingsClearError)
 				scroll = ui.Scroll(f.KeyInt(int(p.settingsTab)))
@@ -75,8 +79,8 @@ func (p *Panels) drawSettings(f ui.C, theme ui.Theme, state domain.State, submit
 					scroll.ScrollState().ScrollTo(p.settingsScroll[p.settingsTab])
 					p.scrollTab, p.scrollTabSet = p.settingsTab, true
 				}
-				scroll.Grow(1).FillWidth().Children(func() {
-					ui.Column(f).FillWidth().PadSides(0, 0, 22, 0).Children(func() {
+				scroll.Grow(1).FillWidth().Scrollbars().Children(func() {
+					ui.Column(f).FillWidth().PadSides(0, 8, 22, 0).Children(func() {
 						switch p.settingsTab {
 						case panelSettingsGeneral:
 							p.drawSettingsGeneral(f, contentTheme, state, submit)
@@ -120,21 +124,23 @@ func (p *Panels) settingsRow(f ui.C, theme ui.Theme, title, description string, 
 			}
 		})
 	}
+	var row ui.Box
 	if p.settingsNarrow {
-		ui.Column(f).FillWidth().Gap(9).PadY(13).Children(func() {
+		row = ui.Column(f).FillWidth().Gap(9).PadY(13).Children(func() {
 			ui.Column(f).FillWidth().Children(labels)
 			if control != nil {
 				ui.Row(f).FillWidth().Justify(ui.End).Children(control)
 			}
 		})
 	} else {
-		ui.Row(f).FillWidth().Gap(24).PadY(13).Items(ui.Center).Children(func() {
+		row = ui.Row(f).FillWidth().Gap(24).PadY(13).Items(ui.Center).Children(func() {
 			ui.Column(f).Grow(1).Children(labels)
 			if control != nil {
 				control()
 			}
 		})
 	}
+	p.settingAnchor(title, row)
 	ui.Divider(f).FillWidth()
 }
 
@@ -145,68 +151,61 @@ func (p *Panels) settingsControl(f ui.C, width float32, body func()) {
 	ui.Column(f).Width(width).Shrink(0).Items(ui.End).Justify(ui.Center).Children(body)
 }
 
-func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme) {
+func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme, state domain.State) {
 	ui.Column(f).Width(panelSettingsWidth).FillHeight().PadSides(22, 20, 14, 20).Gap(3).Children(func() {
 		ui.Text(f, i18n.T("设置")).FontSize(26).Weight(gfx.WeightSemibold)
-		ui.Slot(f).Height(18)
-		for _, tab := range panelSettingsOrder {
-			label := i18n.T(panelSettingsLabels[tab])
-			id := p.ids.settingsCategories.At(int(tab))
-			active := p.settingsTab == tab
-			icon := panelIconGeneral
-			switch tab {
-			case panelSettingsProfile:
-				icon = Users
-			case panelSettingsNotifications:
-				icon = panelSettingsBellIcon
-			case panelSettingsVoice:
-				icon = Phone
-			case panelSettingsNetwork:
-				icon = Wifi
-			case panelSettingsTransfers:
-				icon = ArrowRightLeft
-			case panelSettingsShortcuts:
-				icon = panelIconKeyboard
-			case panelSettingsAbout:
-				icon = panelIconInfo
-			case panelSettingsSecurity:
-				icon = panelSettingsLockIcon
-			}
-			foreground := theme.Foreground
-			if active {
-				foreground = panelAccentText(theme)
-			}
-			row := ui.Row(f).FillWidth().Height(44).PadX(12).Gap(12).Radius(theme.Metrics.RadiusControl).
-				Items(ui.Center).HitWith(id, label, gfx.HitOptions{Role: gfx.RoleTab, Selected: active})
-			if active {
-				row = row.Background(panelAccentSurface(theme)).
-					Hover(ui.Look{}.Background(theme.Background.Mix(panelAccentText(theme), 0.12)))
-			} else {
-				row = row.Hover(ui.Look{}.Background(theme.Hover))
-			}
-			if f.Canvas().FocusVisible() == id {
-				row = row.Stroke(1.5, theme.Ring)
-			}
-			if row.Children(func() {
-				ui.Icon(f, icon).Size(18, 18).Color(foreground)
-				ui.Text(f, label).FontSize(15).Weight(gfx.WeightMedium).Color(foreground)
-			}).Clicked() {
-				if p.settingsTab != tab {
-					p.cancelShortcutEdit()
-					p.aboutLicense = false
-					p.resetShortcuts = false
-					p.localError = ""
-					p.settingsExtra.resetSecrets()
-				}
-				p.settingsTab = tab
-				if tab == panelSettingsVoice && !p.settingsExtra.voiceDevices.known {
-					s := &p.settingsExtra.voiceDevices
-					s.refreshing = true
-					f.After(p.refreshVoiceDevices)
-				}
-			}
+		field := ui.TextFieldID(f, p.ids.settingsSearch, &p.search.field, i18n.T("搜索设置"), i18n.T("搜索设置")).FillWidth().Height(34).Icon(Search)
+		p.search.update(state)
+		if field.Submitted() && len(p.search.results) > 0 && p.search.query != "" {
+			p.openSettingResult(f, p.search.results[0], state)
 		}
-		ui.Spacer(f)
+		ui.Scroll(f.Part("settings-sections")).FillWidth().Grow(1).Scrollbars().Gap(3).Children(func() {
+			for _, tab := range panelSettingsOrder {
+				label := i18n.T(panelSettingsLabels[tab])
+				id := p.ids.settingsCategories.At(int(tab))
+				active := p.search.query == "" && p.settingsTab == tab
+				icon := panelIconGeneral
+				switch tab {
+				case panelSettingsProfile:
+					icon = Users
+				case panelSettingsNotifications:
+					icon = panelSettingsBellIcon
+				case panelSettingsVoice:
+					icon = Phone
+				case panelSettingsNetwork:
+					icon = Wifi
+				case panelSettingsTransfers:
+					icon = ArrowRightLeft
+				case panelSettingsShortcuts:
+					icon = panelIconKeyboard
+				case panelSettingsAbout:
+					icon = panelIconInfo
+				case panelSettingsSecurity:
+					icon = panelSettingsLockIcon
+				}
+				foreground := theme.Foreground
+				if active {
+					foreground = panelAccentText(theme)
+				}
+				row := ui.Row(f).FillWidth().Height(44).PadX(12).Gap(12).Radius(theme.Metrics.RadiusControl).
+					Items(ui.Center).HitWith(id, label, gfx.HitOptions{Role: gfx.RoleTab, Selected: active})
+				if active {
+					row = row.Background(panelAccentSurface(theme)).
+						Hover(ui.Look{}.Background(theme.Background.Mix(panelAccentText(theme), 0.12)))
+				} else {
+					row = row.Hover(ui.Look{}.Background(theme.Hover))
+				}
+				if f.Canvas().FocusVisible() == id {
+					row = row.Stroke(1.5, theme.Ring)
+				}
+				if row.Children(func() {
+					ui.Icon(f, icon).Size(18, 18).Color(foreground)
+					ui.Text(f, label).FontSize(15).Weight(gfx.WeightMedium).Color(foreground)
+				}).Clicked() {
+					p.selectSettingsTab(f, tab)
+				}
+			}
+		})
 	})
 }
 
@@ -260,6 +259,15 @@ func (p *Panels) drawSettingsGeneral(f ui.C, theme ui.Theme, state domain.State,
 					p.submitString(submit, state, "theme", theme)
 				}
 			})
+		})
+	})
+	p.settingsRow(f, theme, i18n.T("显示 GitHub 图标"), i18n.T("在主窗口顶栏显示作者的 GitHub 主页入口"), func() {
+		p.settingsControl(f, 84, func() {
+			visible := ui.State[bool](f, "show-title-github")
+			*visible = !settings.HideTitleGitHub
+			if ui.Switch(f, visible, "").Hit(p.ids.settingsShowGitHub, i18n.T("显示 GitHub 图标")).Changed() {
+				p.submitBool(submit, state, "show_title_github", *visible)
+			}
 		})
 	})
 	p.settingsRow(f, theme, i18n.T("界面语言"), i18n.T("立即切换 GoIM 的界面语言"), func() {
@@ -552,7 +560,7 @@ func (p *Panels) drawSettingsShortcuts(f ui.C, theme ui.Theme, state domain.Stat
 			if !inGroup(shortcut, groupIndex) {
 				continue
 			}
-			ui.Column(f).FillWidth().PadY(11).Gap(7).Children(func() {
+			row := ui.Column(f).FillWidth().PadY(11).Gap(7).Children(func() {
 				if p.settingsNarrow {
 					ui.Column(f).FillWidth().Gap(2).Children(func() {
 						ui.Text(f, i18n.T(shortcut.Action)).FontSize(fontToken(theme, theme.Metrics.FontSizeM)).Weight(gfx.WeightMedium)
@@ -575,6 +583,7 @@ func (p *Panels) drawSettingsShortcuts(f ui.C, theme ui.Theme, state domain.Stat
 					})
 				}
 			})
+			p.settingAnchor(i18n.T(shortcut.Action), row)
 			ui.Divider(f).FillWidth()
 		}
 	}

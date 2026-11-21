@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"fmt"
 	"net"
 	"net/netip"
 	"time"
@@ -97,4 +98,33 @@ func (u *UI) drawToasts(c *gfx.Canvas, viewport gfx.Rect) {
 	components.PaintSonner(c, u.theme, viewport, stack[:n], components.SonnerOptions{
 		Layer: 100, Position: components.ToastTopRight, Expanded: true,
 	})
+}
+
+func (u *UI) presentContactRefresh() {
+	seq := u.state.ContactRefresh.Sequence
+	if seq == u.contactRefreshSequence {
+		return
+	}
+	u.contactRefreshSequence = seq
+	if !u.contactRefreshRequested || u.detachedWindow {
+		return
+	}
+	if u.state.ContactRefresh.Pending {
+		u.showToast(i18n.T("正在刷新局域网联系人"), "", components.ToastInfo)
+		u.contactRefreshToast = u.toasts[0]
+		return
+	}
+	u.contactRefreshRequested = false
+	for i, t := range u.toasts {
+		if t.id == u.contactRefreshToast.id && t.message.Title == u.contactRefreshToast.message.Title {
+			u.toasts[i] = shellNotice{}
+		}
+	}
+	online := 0
+	for _, peer := range u.state.Peers {
+		if peer.ID != u.state.Self.ID && peer.ListedContact() && !peer.ContactHidden && peer.VisibleOnline() {
+			online++
+		}
+	}
+	u.showToast(i18n.T("联系人刷新完成"), fmt.Sprintf(i18n.T("当前有 %d 位在线联系人"), online), components.ToastSuccess)
 }

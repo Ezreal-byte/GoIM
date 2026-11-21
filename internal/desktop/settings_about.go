@@ -303,6 +303,7 @@ func (p *Panels) aboutFactCard(f ui.C, theme ui.Theme, id gfx.ID, fact aboutFact
 		HitWith(id, fact.label+"："+fact.value, gfx.HitOptions{
 			Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Hint: i18n.T("复制构建信息"),
 		})
+	p.settingAnchor(fact.label, card)
 	card.Children(func() {
 		ui.Text(f, fact.label).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
 		ui.Paragraph(f, fact.value, 2).FontSize(theme.Metrics.FontSizeS + 2).Weight(gfx.WeightMedium)
@@ -387,6 +388,7 @@ func (p *Panels) aboutLinkCard(f ui.C, theme ui.Theme, item aboutLinkItem) {
 		HitWith(id, item.name+"："+item.desc, gfx.HitOptions{
 			Role: role, Cursor: gfx.PointerCursorHand, Hint: hint,
 		})
+	p.settingAnchor(item.name, card)
 	card.Children(func() {
 		if item.mark == nil {
 			ui.Stack(f).Size(34, 34).Radius(radiusControl).Clip().Children(func() {

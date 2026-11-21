@@ -65,6 +65,8 @@ type Node struct {
 	transfers             map[string]context.CancelFunc
 	discovery             bool
 	discoveryWake         chan struct{}
+	manualDiscovery       chan struct{}
+	contactRefresh        domain.ContactRefresh
 	dnsDirectory          *dnsDirectory
 	relayRoutes           map[string]map[string]bool
 	webServer             *http.Server
@@ -164,7 +166,7 @@ func New(opts Options) (*Node, error) {
 		incoming: make(map[*tls.Conn]struct{}),
 		commands: make(chan domain.Command, 256), updates: make(chan struct{}, 1),
 		transfers: make(map[string]context.CancelFunc), discovery: !opts.DisableDiscovery,
-		discoveryWake: make(chan struct{}, 1), relayRoutes: make(map[string]map[string]bool),
+		manualDiscovery: make(chan struct{}, 1), discoveryWake: make(chan struct{}, 1), relayRoutes: make(map[string]map[string]bool),
 		printBackend: printBackend, printPollDelay: 900 * time.Millisecond,
 		printPollLimit: 30 * time.Minute, printPolls: make(map[string]bool),
 		printSubmitTokens: make(chan struct{}, 2),
@@ -232,6 +234,10 @@ func New(opts Options) (*Node, error) {
 	for i := range n.data.State.Peers {
 		n.data.State.Peers[i].Online = false
 	}
+	migratePartials := n.data.PartialCleanup == nil
+	if migratePartials {
+		n.data.PartialCleanup = make(map[string]bool)
+	}
 	for i := range n.data.State.Transfers {
 		t := &n.data.State.Transfers[i]
 		if t.WebSender != "" {
@@ -244,11 +250,15 @@ func New(opts Options) (*Node, error) {
 			}
 			continue
 		}
+		if migratePartials {
+			n.data.queuePartialCleanup(*t)
+		}
 		if t.Status == "transferring" || t.Status == "verifying" {
 			t.Status = "waiting"
 			t.Speed = 0
 		}
 	}
+	n.discardIdleReceivePartialsLocked()
 	if err = saveStore(n.db, &n.data); err != nil {
 		listener.Close()
 		cancel()
@@ -268,10 +278,6 @@ func New(opts Options) (*Node, error) {
 	for _, t := range n.snapshot(false).Transfers {
 		if _, pending := n.receivePublication(t.ID); pending {
 			n.startReceive(t.ID, "")
-			continue
-		}
-		if terminalTransfer(t.Status) && (t.FileStage != "" || t.FolderStage != "") {
-			n.removeFinishedNativeStage(t.ID)
 			continue
 		}
 		if t.FolderStage != "" {
@@ -312,6 +318,7 @@ func (n *Node) snapshot(urls bool) domain.State {
 		peer.ContactHidden = n.data.ContactVisibility[id] == contactHidden
 		peer.ContactDeleted = n.data.ContactVisibility[id] == contactDeleted
 	}
+	s.ContactRefresh = n.contactRefresh
 	s.LockResult = n.lockResult
 	s.ConnectionFeedback = n.connectionFeedback
 	if n.dnsActiveLocked() {

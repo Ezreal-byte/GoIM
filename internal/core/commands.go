@@ -26,10 +26,17 @@ func (n *Node) execute(c domain.Command) error {
 	}
 	switch c.Kind {
 	case domain.RefreshContacts:
-		select {
-		case n.discoveryWake <- struct{}{}:
-		default:
+		n.mu.Lock()
+		if !n.contactRefresh.Pending {
+			n.contactRefresh.Pending = true
+			n.contactRefresh.Sequence++
+			select {
+			case n.manualDiscovery <- struct{}{}:
+			default:
+			}
 		}
+		n.mu.Unlock()
+		n.signal()
 		return nil
 	case domain.Connect:
 		return n.connectManual(c)
@@ -109,8 +116,6 @@ func (n *Node) execute(c domain.Command) error {
 			path = c.Paths[0]
 		}
 		n.startReceive(c.TransferID, path)
-	case domain.ClearTransferPartial:
-		return n.clearTransferPartial(c.TransferID)
 	case domain.RetryTransfer:
 		s := n.snapshot(false)
 		i := transferIndex(&s, c.TransferID)
@@ -152,6 +157,7 @@ func (n *Node) execute(c domain.Command) error {
 				return nil
 			}
 			v.Status = status
+			p.queuePartialCleanup(*v)
 			cancelled = true
 			v.Speed = 0
 			v.UpdatedAt = time.Now()
@@ -184,10 +190,6 @@ func (n *Node) execute(c domain.Command) error {
 		}
 		if err == nil && cancelled && t.PrintJobID != "" {
 			n.failPrintTransfer(t.ID, "打印任务已取消")
-		}
-		if err == nil && cancelled && t.LegacyTransport == transportNWT && t.Direction == "receive" {
-			_ = os.Remove(n.nativePartialPath(t.ID))
-			n.removeFinishedNativeStage(t.ID)
 		}
 		return err
 	case domain.SetSetting:
@@ -611,6 +613,8 @@ func (n *Node) setting(c domain.Command) error {
 		}
 	case "auto_accept":
 		settings.AutoAccept = c.Bool
+	case "show_title_github":
+		settings.HideTitleGitHub = !c.Bool
 	case "close_to_tray":
 		settings.CloseToTray = c.Bool
 	case "download_dir":

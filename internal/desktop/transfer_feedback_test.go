@@ -32,7 +32,7 @@ func TestTransferListUsesAttachmentMetadataForIcons(t *testing.T) {
 	}
 }
 
-func TestTransferRateAndPartialCleanupInTable(t *testing.T) {
+func TestTransferRateAndInterruptedMenu(t *testing.T) {
 	state := panelTestDefaultState(t)
 	state.Transfers = []domain.Transfer{
 		{ID: "live", Name: "active.bin", Direction: "receive", Status: "transferring", Size: 10000, Done: 1000, Speed: 2048},
@@ -45,8 +45,7 @@ func TestTransferRateAndPartialCleanupInTable(t *testing.T) {
 	h.clickLabelRole(h.panels.transferLabels[panelTransferFinished], gfx.RoleTab)
 	entry := h.panels.transferFinished[0]
 	h.click(entry.ids.more)
-	h.click(entry.ids.clearPartial)
-	if cmd := h.requireLastCommand(); cmd.Kind != domain.ClearTransferPartial || cmd.TransferID != "stopped" {
-		t.Fatalf("cleanup dispatched %+v", cmd)
+	if h.hasText("清理传输临时文件") || !h.hasText("复制文件名") {
+		t.Fatal("interrupted transfer menu still exposes manual cleanup or did not open")
 	}
 }

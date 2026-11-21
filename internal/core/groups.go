@@ -173,6 +173,7 @@ func (n *Node) cancelInvalidGroup(p *persisted, g domain.Group) []pending {
 				cancel()
 			}
 			t.Status = "cancelled"
+			p.queuePartialCleanup(*t)
 			t.Error = "群成员权限已变更"
 			t.Speed = 0
 			t.Revoked = true

@@ -24,6 +24,7 @@ import (
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 
+	"goim/internal/buildinfo"
 	"goim/internal/domain"
 	"goim/internal/i18n"
 )
@@ -263,6 +264,7 @@ type appIDs struct {
 
 	connectScope         gfx.ID
 	titleLAN             gfx.ID
+	titleGitHub          gfx.ID
 	toastScope           gfx.Scope
 	connectDismiss       gfx.ID
 	connectClose         gfx.ID
@@ -447,6 +449,10 @@ type UI struct {
 	acceptContactDrop  func(gfx.ID, gfx.ID) bool
 	moveDroppedContact func(gfx.ID, gfx.ID)
 	contactGroup       string
+
+	contactRefreshSequence  uint64
+	contactRefreshRequested bool
+	contactRefreshToast     shellNotice
 
 	chatEditor           *text.Editor
 	chatEditorField      ui.Field
@@ -937,6 +943,7 @@ func (u *UI) refresh() {
 	u.finishChatSubmissions()
 	u.lanEndpoint = displayLANEndpoint(u.state)
 	i18n.SetLanguage(u.state.Settings.Language)
+	u.presentContactRefresh()
 	u.presentConnectionFeedback()
 	u.presentStateNotice()
 	u.panels.OnWake(u.state)
@@ -1162,6 +1169,7 @@ func (u *UI) initIDs() {
 	u.ids.chat = u.tree.Sub(u.ids.page, u.tree.Name("chat"))
 	u.ids.dialog = u.tree.Sub(u.ids.page, u.tree.Name("dialogs"))
 	u.ids.menu = u.tree.Sub(u.ids.page, u.tree.Name("menus"))
+	u.ids.titleGitHub = u.tree.ID(u.ids.page, "title-github")
 	u.ids.titleLAN = u.tree.ID(u.ids.page, "lan-status")
 	u.ids.toastScope = u.tree.Sub(u.ids.page, u.tree.Name("notices"))
 	u.updateIDs.init(&u.tree, u.ids.page)
@@ -1424,6 +1432,7 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	}
 	canvas.Fill(bounds, u.palette.rail)
 	var brand, status, pin ui.Box
+	var githubClicked bool
 	u.titlePage.Draw(canvas, bounds, func(f ui.C) {
 		ui.Row(f).Fill().MovesWindow().
 			PadSides(0, u.titleTrailing+14, 0, u.titleLeading+20).
@@ -1442,10 +1451,20 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 			if u.mainPinned {
 				pin = pin.Background(u.palette.selected)
 			}
+			if !u.state.Settings.HideTitleGitHub {
+				githubClicked = u.iconButton(f, u.ids.titleGitHub, AboutGithub, i18n.T("作者的 GitHub 主页"), 30).Clicked()
+			}
 		})
 	})
 	paintGoIMMark(canvas, brand.Rect(), titleMark)
 	u.lanAnchor = status.Rect()
+	if githubClicked {
+		canvas.AfterPaint(func() {
+			if err := app.OpenURL(buildinfo.AuthorGitHubURL); err != nil {
+				u.showToast(i18n.T("无法打开链接"), err.Error(), components.ToastError)
+			}
+		})
+	}
 	if pin.Clicked() {
 		u.toggleMainPinned()
 	}
@@ -1650,9 +1669,9 @@ func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	if create {
 		u.openCompose("create", "")
 	}
-	if refresh {
+	if refresh && !u.state.ContactRefresh.Pending {
+		u.contactRefreshRequested = true
 		u.submit(domain.Command{Kind: domain.RefreshContacts})
-		u.showToast(i18n.T("正在刷新局域网联系人"), "", components.ToastInfo)
 	}
 	if event, ok := canvas.PointerOn(u.ids.sidebarSurface); ok &&
 		event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {

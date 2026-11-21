@@ -348,6 +348,7 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 			if v.FileID == f.ID && v.PeerID == peer && v.Direction == "receive" && v.Status == "retry_requested" {
 				v.Status = "cancelled"
 				v.Error = "已重新发起接收"
+				p.queuePartialCleanup(*v)
 				requested = true
 			}
 		}
@@ -444,16 +445,19 @@ func pendingPrintBytes(s *domain.State) int64 {
 }
 
 func (n *Node) setTransfer(id, status string, done int64, speed float64, problem string) {
-	n.change(func(s *domain.State) {
+	n.durable(func(p *persisted) []pending {
+		s := &p.State
 		if i := transferIndex(s, id); i >= 0 {
 			t := &s.Transfers[i]
 			// Control acknowledgements and data-stream completion run independently.
 			// A late progress update must not undo a terminal task state.
 			if terminalTransfer(t.Status) {
-				return
+				return nil
 			}
 			updateTransferProgress(t, status, done, speed, problem)
+			p.queuePartialCleanup(*t)
 		}
+		return nil
 	})
 }
 
@@ -482,6 +486,10 @@ func (n *Node) transferContext(id string) (context.Context, func(), bool) {
 		return nil, nil, false
 	}
 	_, recovering := n.data.ReceivePublications[id]
+	_, scratch := n.data.ReceiveScratch[id]
+	if !recovering && (n.data.PartialCleanup[id] || scratch) {
+		return nil, nil, false
+	}
 	if index := transferIndex(&n.data.State, id); !recovering && index >= 0 && n.data.fileMessageRecalled(n.data.State.Transfers[index]) {
 		return nil, nil, false
 	}
@@ -491,7 +499,18 @@ func (n *Node) transferContext(id string) (context.Context, func(), bool) {
 		cancel()
 		n.mu.Lock()
 		delete(n.transfers, id)
+		_, scratch := n.data.ReceiveScratch[id]
+		cleaned := (n.data.PartialCleanup[id] || scratch) && n.discardIdleReceivePartialsLocked()
+		if cleaned {
+			n.data.State.Revision++
+			if err := saveStore(n.db, &n.data); err != nil {
+				n.data.State.Error = err.Error()
+			}
+		}
 		n.mu.Unlock()
+		if cleaned {
+			n.signal()
+		}
 		n.kickCompatibility()
 	}, true
 }
@@ -520,10 +539,7 @@ func (n *Node) startReceive(id, destination string) {
 		return
 	}
 	if !n.async(func() {
-		defer func() {
-			finish()
-			n.removeFinishedNativeStage(id)
-		}()
+		defer finish()
 		if err := n.download(ctx, id, destination); err != nil {
 			if ctx.Err() != nil {
 				return
@@ -678,7 +694,7 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 		return err
 	}
 	if ready.Type != "file_ready" || ready.File.Hash != f.Hash || ready.Offset != offset {
-		return errors.New("源文件已变化或传输权限失效")
+		return errSourceChanged
 	}
 	buffer := make([]byte, 256<<10)
 	done := offset
@@ -722,11 +738,11 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 	}
 	if hash != f.Hash {
 		_ = file.Truncate(0)
-		return errors.New("完整性校验失败，请重试")
+		return errInvalidPrefix
 	}
 	if f.InlineImage && inlineImageType(partial, f.Size) != f.MIME {
 		_ = file.Truncate(0)
-		return errors.New("发送内容不是受支持的聊天图片")
+		return errInvalidInlineImage
 	}
 	if err = file.Close(); err != nil {
 		return err

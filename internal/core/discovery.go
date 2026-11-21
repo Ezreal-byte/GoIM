@@ -239,12 +239,33 @@ func (n *Node) discoveryLoop() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	announce(false)
+	// Multicast replies arrive asynchronously. Only a user-initiated round opens a response window.
+	var responses <-chan time.Time
+	var refreshDeadline time.Time
 	for {
 		select {
 		case <-ticker.C:
 			n.expireWebUploads(time.Now())
 			n.scheduleShareCheck()
 			announce(false)
+		case <-n.manualDiscovery:
+			networkName = "__initial__"
+			announce(true)
+			refreshDeadline = time.Now().Add(8 * time.Second)
+			responses = time.After(2 * time.Second)
+		case <-responses:
+			responses = nil
+			n.mu.Lock()
+			// Known peers and DNS lookups can take longer than the multicast response window.
+			if (len(n.dialing) > 0 || n.dnsDirectory != nil && n.dnsDirectory.lookingUp) && time.Now().Before(refreshDeadline) {
+				n.mu.Unlock()
+				responses = time.After(250 * time.Millisecond)
+				continue
+			}
+			n.contactRefresh.Pending = false
+			n.contactRefresh.Sequence++
+			n.mu.Unlock()
+			n.signal()
 		case <-n.discoveryWake:
 			networkName = "__initial__"
 			announce(true)

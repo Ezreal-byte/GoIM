@@ -38,14 +38,11 @@ func drawPanelPageHeading(f ui.C, width float32, title, description string) {
 }
 
 type transferActionIDs struct {
-	more, accept, saveAs, reject, cancel, retry, open, reveal, clearPartial gfx.ID
+	more, accept, saveAs, reject, cancel, retry, open, reveal gfx.ID
 }
 
 func newTransferActionIDs(tree *gfx.Tree, scope gfx.Scope, entry panelTransferEntry) (ids transferActionIDs) {
 	ids.more = tree.ID(scope, "more")
-	if entry.transfer.CanClearPartial() {
-		ids.clearPartial = tree.ID(scope, "clear-partial")
-	}
 	if entry.accept {
 		ids.accept = tree.ID(scope, "accept")
 		ids.reject = tree.ID(scope, "reject")
@@ -372,9 +369,6 @@ func (p *Panels) drawTransferMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rec
 		return
 	}
 	height := float32(44)
-	if entry.transfer.CanClearPartial() {
-		height += 41
-	}
 	if entry.reveal {
 		height += 32
 	}
@@ -401,14 +395,8 @@ func (p *Panels) drawTransferMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rec
 		menu.AddSeparator()
 		menu.AddItem(components.ContextMenuItem{ID: entry.ids.reject, Label: i18n.T("拒绝"), Icon: X, Variant: components.ContextMenuItemDestructive})
 	}
-	if entry.transfer.CanClearPartial() {
-		menu.AddSeparator()
-		menu.AddItem(components.ContextMenuItem{ID: entry.ids.clearPartial, Label: i18n.T("清理传输临时文件"), Icon: X})
-	}
 	menu.End()
 	switch {
-	case entry.transfer.CanClearPartial() && c.Clicked(entry.ids.clearPartial):
-		submit(domain.Command{Kind: domain.ClearTransferPartial, TransferID: entry.transfer.ID})
 	case c.Clicked(p.ids.transferMenuCopy):
 		name := entry.name
 		c.AfterPaint(func() {

@@ -26,6 +26,8 @@ type ownershipOffer struct {
 	CreatedAt time.Time
 }
 type persisted struct {
+	PartialCleanup          map[string]bool              // a missing journal identifies stores predating automatic cleanup
+	ReceiveScratch          map[string]receiveScratch    `json:",omitempty"`
 	ContactVisibility       map[string]contactVisibility `json:",omitempty"`
 	PeerRemarks             map[string]string            `json:",omitempty"`
 	MessageTargets          map[string][]string
