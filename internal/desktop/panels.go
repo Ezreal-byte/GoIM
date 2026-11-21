@@ -1365,6 +1365,8 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 		switch pending.setting {
 		case "language":
 			return settings.Language == pending.value
+		case "color_scheme":
+			return settings.ColorScheme == pending.value
 		case "theme":
 			return settings.Theme == pending.value
 		case "download_dir":

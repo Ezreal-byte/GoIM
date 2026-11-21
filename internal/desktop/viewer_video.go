@@ -76,7 +76,7 @@ func (u *UI) drawViewerVideo(c *gfx.Canvas, stage ui.Rect, theme ui.Theme, muted
 func (u *UI) drawVideoControls(c *gfx.Canvas, stage ui.Rect, theme ui.Theme) {
 	s := &u.surface.viewer
 	ids := u.surface.ids
-	colors := paletteFor(theme)
+	colors := paletteFor(theme, u.state.Settings.ColorScheme)
 	bar := ui.Rect{X: stage.X, Y: stage.Bottom() - 44, Width: stage.Width, Height: 44}
 	c.Fill(bar, colors.rail)
 	controlsX := bar.X + 12

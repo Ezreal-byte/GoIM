@@ -558,6 +558,11 @@ func (n *Node) setting(c domain.Command) error {
 			return errors.New("仅支持简体中文和英语")
 		}
 		settings.Language = c.Value
+	case "color_scheme":
+		if !domain.ValidColorScheme(c.Value) {
+			return errors.New("无效的主题配色")
+		}
+		settings.ColorScheme = c.Value
 	case "theme":
 		if c.Value != "light" && c.Value != "dark" {
 			return errors.New("仅支持明亮和暗黑主题")
@@ -689,7 +694,7 @@ func (n *Node) setting(c domain.Command) error {
 		settings.CompatibilityConfigured = s.Settings.CompatibilityConfigured
 		settings.CompatibilityDefaultsVersion = s.Settings.CompatibilityDefaultsVersion
 		s.Settings = settings
-		if c.Setting == "theme" || c.Setting == "last_section" {
+		if c.Setting == "theme" || c.Setting == "color_scheme" || c.Setting == "last_section" {
 			s.Notice = ""
 		} else {
 			s.Notice = "已保存"

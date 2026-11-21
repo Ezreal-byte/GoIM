@@ -126,7 +126,7 @@ func (view *UI) refreshVoice() {
 	previous := view.state
 	view.state = view.backend.Snapshot()
 	view.theme = themeForSettings(view.state.Settings)
-	view.palette = paletteFor(view.theme)
+	view.palette = paletteFor(view.theme, view.state.Settings.ColorScheme)
 	_, path := voicePeerPresentation(view.state)
 	if view.voiceInvitation && (view.voiceConcealed || view.state.Locked) {
 		path = ""

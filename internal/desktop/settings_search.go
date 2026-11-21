@@ -21,6 +21,7 @@ type settingSearchItem struct {
 var searchableSettings = []settingSearchItem{
 	{panelSettingsProfile, "编辑资料", "昵称 头像 签名 nickname avatar profile"},
 	{panelSettingsProfile, "隐藏离线联系人", "offline"},
+	{panelSettingsGeneral, "主题配色", "经典 松青 陶土 鸢尾 palette classic pine clay iris"},
 	{panelSettingsGeneral, "主题", "外观 明亮 暗黑 dark light"},
 	{panelSettingsGeneral, "显示 GitHub 图标", "顶栏 作者 主页 title bar author"},
 	{panelSettingsGeneral, "界面语言", "language English 简体中文"},

@@ -85,7 +85,7 @@ func newPrintWindowView(backend domain.Backend, shareID string) *printWindowView
 		pageMode: "all",
 	}
 	v.theme = ui.LightTheme()
-	v.palette = paletteFor(v.theme)
+	v.palette = paletteFor(v.theme, v.state.Settings.ColorScheme)
 	v.copies.SetText("1")
 	v.password.Secure = true
 	v.initIDs()
@@ -115,7 +115,7 @@ func (v *printWindowView) refresh() {
 	v.state = v.backend.Snapshot()
 	i18n.SetLanguage(v.state.Settings.Language)
 	v.theme = themeForSettings(v.state.Settings)
-	v.palette = paletteFor(v.theme)
+	v.palette = paletteFor(v.theme, v.state.Settings.ColorScheme)
 	v.normalizeOptions()
 	if v.pendingPrint {
 		result := v.state.PrinterAuth[v.shareID]

@@ -252,11 +252,23 @@ func (p *Panels) settingsFooterText() string {
 func (p *Panels) drawSettingsGeneral(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
 	settings := state.Settings
 	panelSection(f, i18n.T("外观"), "", func() {
-		p.settingsRow(f, theme, i18n.T("主题"), i18n.T("仅提供明亮与暗黑两种外观"), func() {
+		p.settingsRow(f, theme, i18n.T("主题"), i18n.T("切换明暗时保留当前配色"), func() {
 			p.settingsControl(f, 260, func() {
 				theme := settings.Theme
 				if ui.Choice(f.Part("theme"), &theme, panelThemes[:], panelThemeLabel).FillWidth().Changed() {
 					p.submitString(submit, state, "theme", theme)
+				}
+			})
+		})
+		p.settingsRow(f, theme, i18n.T("主题配色"), "", func() {
+			p.settingsControl(f, 260, func() {
+				scheme := settings.ColorScheme
+				if scheme == "" {
+					scheme = "classic"
+				}
+				options := domain.ColorSchemes()
+				if ui.Select(f.Part("color-scheme"), &scheme, options[:], schemeLabel).FillWidth().Label(i18n.T("主题配色")).Changed() {
+					p.submitString(submit, state, "color_scheme", scheme)
 				}
 			})
 		})

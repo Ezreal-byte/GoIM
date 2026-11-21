@@ -53,7 +53,7 @@ type historyWindowView struct {
 func newHistoryWindowView(backend domain.Backend, conversationID string) *historyWindowView {
 	v := &historyWindowView{backend: backend, conversationID: conversationID, tab: "all", date: "all", sender: "", focus: true, now: time.Now, keys: make(map[string]int)}
 	v.theme = ui.LightTheme()
-	v.palette = paletteFor(v.theme)
+	v.palette = paletteFor(v.theme, v.state.Settings.ColorScheme)
 	scope := v.tree.Feature("chat-history-window")
 	v.searchID = v.tree.ID(scope, "search")
 	v.locateID = v.tree.ID(scope, "locate-message")
@@ -123,7 +123,7 @@ func (v *historyWindowView) refresh() {
 	unchanged := v.ready && next.Revision == v.state.Revision && next.Locked == v.state.Locked && day == v.refreshDay
 	v.state = next
 	v.theme = themeForSettings(v.state.Settings)
-	v.palette = paletteFor(v.theme)
+	v.palette = paletteFor(v.theme, v.state.Settings.ColorScheme)
 	if unchanged {
 		return
 	}

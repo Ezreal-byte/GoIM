@@ -794,7 +794,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.drawTextSelection = u.paintMessageSelection
 	u.chatFind.field.Bind(u.ensureChatSearchEditor())
 	u.windowVisible.Store(true)
-	u.palette = paletteFor(u.theme)
+	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
 	u.titleLeading, u.titleTrailing = app.TitlebarInsets()
 	u.media = newMediaWorker(func() { u.invalidator.Invalidate() })
 	u.voiceAudio = newVoiceAudioRuntime(backend, u.submit, u.invalidator.Invalidate)
@@ -1375,7 +1375,7 @@ func (u *UI) initIDs() {
 
 func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	u.theme = themeForSettings(u.state.Settings)
-	u.palette = paletteFor(u.theme)
+	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, u.palette.sidebar)
 	u.focusedID = canvas.Focused()
@@ -2238,7 +2238,7 @@ func (u *UI) conversationCard(conversation domain.Conversation) conversationCard
 func (u *UI) rebuildPresentation(oldError string) {
 	u.ensureStateIDs()
 	u.theme = themeForSettings(u.state.Settings)
-	u.palette = paletteFor(u.theme)
+	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
 
 	u.conversations = u.conversations[:0]
 	for _, conversation := range u.state.Conversations {
@@ -2652,7 +2652,7 @@ func (u *UI) toggleTheme() {
 	}
 	u.state.Settings.Theme = next
 	u.theme = themeForSettings(u.state.Settings)
-	u.palette = paletteFor(u.theme)
+	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
 	u.submit(domain.Command{Kind: domain.SetSetting, Setting: "theme", Value: next})
 }
 
@@ -3590,12 +3590,22 @@ func themeForName(name string) ui.Theme {
 
 func themeForSettings(settings domain.Settings) ui.Theme {
 	theme := themeForName(settings.Theme)
+	if pair, ok := schemeColors[settings.ColorScheme]; ok {
+		colors := pair.light
+		if settings.Theme == "dark" {
+			colors = pair.dark
+		}
+		colors.apply(&theme)
+	}
 	theme.Metrics.RadiusSurface = radiusCard
 	return theme.WithRadius(radiusControl).
 		WithTextScale(float32(domain.NormalizeInterfaceFontSize(settings.InterfaceFontSize)) / domain.InterfaceFontSizeDefault)
 }
 
-func paletteFor(theme ui.Theme) palette {
+func paletteFor(theme ui.Theme, scheme string) palette {
+	if _, ok := schemeColors[scheme]; ok {
+		return colorSchemePalette(theme)
+	}
 	dark := theme.Background.Red < 0.5
 	if dark {
 		return palette{

@@ -128,7 +128,7 @@ func chatSurfaceConfig(shell *UI) app.Config {
 	config := shell.Config()
 	config.Paint = func(canvas *gfx.Canvas, size ui.Size) {
 		shell.theme = themeForName(shell.state.Settings.Theme)
-		shell.palette = paletteFor(shell.theme)
+		shell.palette = paletteFor(shell.theme, shell.state.Settings.ColorScheme)
 		bounds := ui.Rect{Width: size.Width, Height: size.Height}
 		canvas.Fill(bounds, shell.palette.sidebar)
 		shell.focusedID = canvas.Focused()

@@ -431,6 +431,7 @@ type Settings struct {
 	LastSection                  string   `json:",omitempty"`
 	Language                     string
 	Theme                        string
+	ColorScheme                  string
 	InterfaceFont                string
 	InterfaceFontSize            int
 	Nickname                     string
@@ -592,7 +593,7 @@ func DefaultSettings(downloadDir string) Settings {
 		IPMSG:       CompatibilityConfig{Enabled: true, Port: IPMSGPort},
 		Neiwangtong: CompatibilityConfig{Enabled: true, Port: NeiwangtongDiscoveryPort},
 		LastSection: "contacts",
-		Language:    "zh-CN", Theme: "light", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
+		Language:    "zh-CN", Theme: "light", ColorScheme: "classic", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
 		BackgroundTransparency: 60,
 		InterfaceFontSize:      InterfaceFontSizeDefault,
 		VoiceMicrophoneVolume:  VoiceVolumeDefault, VoiceSpeakerVolume: VoiceVolumeDefault,

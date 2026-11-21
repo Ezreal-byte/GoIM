@@ -32,14 +32,14 @@ func newViewerMenuIDs(tree *gfx.Tree, dialog gfx.Scope) viewerMenuIDs {
 
 func (u *UI) imageViewerConfig() app.Config {
 	theme := themeForSettings(u.state.Settings)
-	colors := paletteFor(theme)
+	colors := paletteFor(theme, u.state.Settings.ColorScheme)
 	return app.Config{
 		Tree: &u.tree, Title: i18n.T("GoIM · 媒体查看"), Class: "GoIM.Desktop", Icon: windowIcon(),
 		Width: 920, Height: 680, MinWidth: 640, MinHeight: 310,
 		WindowMode: app.WindowCustomTitlebar, TitlebarHeight: viewerTitlebarHeight,
 		ClearColor: colorToApp(colors.chat),
 		WindowControls: func() app.WindowControlsStyle {
-			return windowControlsFor(paletteFor(themeForSettings(u.state.Settings)))
+			return windowControlsFor(paletteFor(themeForSettings(u.state.Settings), u.state.Settings.ColorScheme))
 		},
 		Paint: func(c *gfx.Canvas, size ui.Size) {
 			u.drawImageViewer(c, ui.Rect{Width: size.Width, Height: size.Height}, true)
@@ -51,7 +51,7 @@ func (u *UI) imageViewerConfig() app.Config {
 
 func (u *UI) drawViewerTitlebar(c *gfx.Canvas, bar, viewport ui.Rect, theme ui.Theme, ids chatSurfaceIDs,
 	state *imageViewerState, index, total int, path string) {
-	colors := paletteFor(theme)
+	colors := paletteFor(theme, u.state.Settings.ColorScheme)
 	c.Fill(bar, colors.rail)
 	c.Fill(ui.Rect{X: bar.X, Y: bar.Bottom() - 1, Width: bar.Width, Height: 1}, colors.border)
 

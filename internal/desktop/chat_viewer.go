@@ -372,7 +372,7 @@ func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool
 	topHeight, bottomHeight := float32(58), float32(82)
 	if detached {
 		theme = themeForSettings(u.state.Settings)
-		colors := paletteFor(theme)
+		colors := paletteFor(theme, u.state.Settings.ColorScheme)
 		background, muted = colors.chat, colors.secondaryText
 		topHeight, bottomHeight = viewerTitlebarHeight, 26
 	} else {
