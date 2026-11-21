@@ -29,20 +29,26 @@ import (
 )
 
 type browserShare struct {
-	Token    string
-	Password credential
-	Entries  []shareFolderEntry
+	Token       string
+	Password    credential
+	Modified    time.Time
+	LastID      int
+	Version     uint64
+	MemberKey   string
+	Unavailable bool
+	Entries     []shareFolderEntry
 }
 
 type shareLink struct {
 	URL     string
 	QR      []byte
+	version uint64
 	entries int
 	size    int64
 }
 
 func publicSharedFile(p *persisted, f domain.File) bool {
-	return f.Shared && !f.ShareFolder && f.SenderID == p.State.Self.ID && !p.BrowserShares[f.ID].Password.set()
+	return f.Shared && !p.BrowserShares[f.ID].Unavailable && !f.ShareFolder && f.SenderID == p.State.Self.ID && !p.BrowserShares[f.ID].Password.set()
 }
 
 //go:embed share_page.html
@@ -117,6 +123,7 @@ func (n *Node) updateSharePassword(id, password string) error {
 		if record.Token == "" {
 			record.Token = token
 		}
+		record.Version++
 		record.Password = next
 		if p.BrowserShares == nil {
 			p.BrowserShares = make(map[string]browserShare)
@@ -161,20 +168,23 @@ func (n *Node) attachShareLinks(s *domain.State, urls bool) {
 		if !ok || !f.Shared || f.SenderID != s.Self.ID {
 			continue
 		}
+		f.ShareUnavailable = record.Unavailable
 		f.ShareProtected = record.Password.set()
-		if !urls || n.webAddress == "" {
+		if !urls || n.webAddress == "" || record.Token == "" || record.Unavailable {
 			continue
 		}
 		url := "http://" + n.webAddress + "/s/" + record.Token
 		link := n.webLinks[f.ID]
-		if link.URL != url {
+		newURL := link.URL != url
+		if newURL {
 			link = shareLink{URL: url}
 			link.QR, _ = qrcode.Encode(url, qrcode.Medium, 224)
-			if f.ShareFolder {
-				link.entries = len(record.Entries)
-				for _, entry := range record.Entries {
-					link.size += entry.Size
-				}
+		}
+		if newURL || link.version != record.Version {
+			link.version = record.Version
+			link.entries, link.size = len(record.Entries), 0
+			for _, entry := range record.Entries {
+				link.size += entry.Size
 			}
 			n.webLinks[f.ID] = link
 		}
@@ -279,6 +289,8 @@ func (n *Node) startShareServer() error {
 	}
 	n.webAddress = listener.Addr().String()
 	_, n.data.BrowserPort, _ = net.SplitHostPort(n.webAddress)
+	// A browser left open across restarts must re-read the device catalog.
+	n.webCatalogVersion = uint64(time.Now().UnixNano())
 	rand.Read(n.webKey[:])
 	n.webSlots = make(chan struct{}, 8)
 	n.webUploads = make(chan struct{}, 2)
@@ -324,7 +336,7 @@ func (n *Node) shareHandler(local net.IP, address string, membersOnly bool) http
 			http.NotFound(w, r)
 			return
 		}
-		if membersOnly && (!(strings.HasPrefix(r.URL.Path, "/m/") || strings.HasPrefix(r.URL.Path, "/s/")) || !n.hasMemberOnInterface(local, host)) {
+		if membersOnly && (!(strings.HasPrefix(r.URL.Path, "/m/") || strings.HasPrefix(r.URL.Path, "/s/") || r.URL.Path == "/assets/share-live.js") || !n.hasMemberOnInterface(local, host)) {
 			http.NotFound(w, r)
 			return
 		}
@@ -335,6 +347,10 @@ func (n *Node) shareHandler(local net.IP, address string, membersOnly bool) http
 func (n *Node) lookupShare(token string) (domain.File, browserShare, bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	return n.lookupShareLocked(token)
+}
+
+func (n *Node) lookupShareLocked(token string) (domain.File, browserShare, bool) {
 	for id, record := range n.data.BrowserShares {
 		if record.Token != token {
 			continue
@@ -369,7 +385,7 @@ func (n *Node) hasShareSession(r *http.Request, record browserShare) bool {
 
 type sharePageData struct {
 	Title, Path, ReturnURL, Error, Sender, Date string
-	Current, ParentURL, Count                   string
+	Current, ParentURL, Count, LiveVersion      string
 	Folder, Locked, Ready                       bool
 	Crumbs                                      []shareCrumb
 	Items                                       []sharePageItem
@@ -439,7 +455,7 @@ func renderShare(w http.ResponseWriter, r *http.Request, status int, data shareP
 }
 
 func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 	// Keep cross-origin requests free of the bearer URL without making a
 	// browser's same-origin form POST serialize its Origin as "null".
 	w.Header().Set("Referrer-Policy", "same-origin")
@@ -449,8 +465,11 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/m/"):
 		n.openMemberProject(w, r)
 		return
+	case r.URL.Path == "/assets/share-live.js":
+		serveShareScript(w, r, shareLiveScript)
+		return
 	case r.URL.Path == "/assets/share-upload.js":
-		serveShareUploadScript(w, r)
+		serveShareScript(w, r, shareUploadScript)
 		return
 	case strings.HasPrefix(r.URL.Path, "/d/"):
 		n.handleDeviceShare(w, r)
@@ -460,12 +479,31 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token, tail, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/s/"), "/")
+	if len(token) == 32 && tail == "events" {
+		n.watchShare(w, r, token, false)
+		return
+	}
 	if len(token) != 32 || (tail != "" && tail != "download") {
 		http.NotFound(w, r)
 		return
 	}
 	f, record, ok := n.lookupShare(token)
-	if !ok {
+	if ok {
+		view := checkShareRoot
+		if f.ShareFolder && tail == "" && (!record.Password.set() || n.hasShareSession(r, record)) {
+			dir, _ := strconv.Atoi(r.URL.Query().Get("dir"))
+			if dir >= 0 {
+				view = dir
+			}
+		}
+		n.refreshShareSources([]string{f.ID}, view)
+		f, record, ok = n.lookupShare(token)
+	}
+	if ok && record.Unavailable {
+		renderShare(w, r, http.StatusGone, sharePageData{Error: "分享不可用"})
+		return
+	}
+	if !ok || !f.ShareFolder && (r.URL.Query().Has("file") || r.URL.Query().Has("dir")) {
 		renderShare(w, r, http.StatusNotFound, sharePageData{Error: "此分享已撤回或链接无效。"})
 		return
 	}
@@ -515,6 +553,7 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page.Locked, page.Title, page.Folder = false, f.Name, f.ShareFolder
+	page.LiveVersion = projectVersion(f.ID, record)
 	if !f.CreatedAt.IsZero() {
 		page.Date = f.CreatedAt.Local().Format("2006-01-02")
 	}
@@ -551,11 +590,11 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 	defer source.Close()
 	stat, err := source.Stat()
 	if err != nil || !stat.Mode().IsRegular() || stat.Size() != f.Size || !verifyWebFile(r, source, f) {
-		renderShare(w, r, http.StatusGone, sharePageData{Error: "源文件已变化，请让发送方重新分享。"})
+		renderShare(w, r, http.StatusGone, sharePageData{Error: "源文件已变化，分享者可以在「我的分享」中修改共享源。"})
 		return
 	}
-	_, current, ok := n.lookupShare(token)
-	if !ok || current.Password.set() && !n.hasShareSession(r, current) {
+	activeFile, current, ok := n.lookupShare(token)
+	if !ok || activeFile.ID != f.ID || current.Unavailable || current.Password.set() && !n.hasShareSession(r, current) {
 		http.NotFound(w, r)
 		return
 	}

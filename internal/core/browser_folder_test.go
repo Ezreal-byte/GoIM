@@ -49,7 +49,7 @@ func TestBrowserFolderShareNavigationAndDownload(t *testing.T) {
 	if err := n.offerShared("peer", shared.ID, ""); err == nil {
 		t.Fatal("a browser-only directory could be offered as a chat file")
 	}
-	write(filepath.Join(folder, "新增文件.txt"), "not shared")
+	write(filepath.Join(folder, "新增文件.txt"), "live entry")
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 5 * time.Second}
 	request := func(r *http.Request, expected int) (string, http.Header) {
@@ -106,7 +106,7 @@ func TestBrowserFolderShareNavigationAndDownload(t *testing.T) {
 	}
 	nestedURL := link(page, "打开文件夹：设计稿")
 	nested := get(nestedURL, 200)
-	if strings.Contains(nested, "新增文件.txt") || !strings.Contains(nested, "返回上一级") || !strings.Contains(nested, "交付资料") {
+	if !strings.Contains(nested, "新增文件.txt") || !strings.Contains(nested, "返回上一级") || !strings.Contains(nested, "交付资料") {
 		t.Fatal("nested page did not preserve the share scope and parent navigation")
 	}
 	download := link(nested, "下载文件："+name)

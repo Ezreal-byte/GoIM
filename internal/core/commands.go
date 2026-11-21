@@ -202,6 +202,11 @@ func (n *Node) execute(c domain.Command) error {
 		n.mu.Unlock()
 		n.signal()
 		return nil
+	case domain.ReplaceShareSource:
+		if len(c.Paths) != 1 || c.Paths[0] == "" {
+			return errors.New("请选择文件或文件夹")
+		}
+		n.async(func() { n.finishShareCommand("共享源已更新", n.replaceShareSource(c.FileID, c.Paths[0])) })
 	case domain.SetSharePassword:
 		n.finishShareCommand("分享设置已更新", n.updateSharePassword(c.FileID, c.Text))
 	case domain.DeleteConversation:
@@ -281,6 +286,7 @@ func (n *Node) execute(c domain.Command) error {
 		}
 		n.broadcastCatalog()
 	case domain.RefreshShares:
+		n.scheduleShareCheck()
 		s := n.snapshot(false)
 		for _, p := range s.Peers {
 			if p.Online {

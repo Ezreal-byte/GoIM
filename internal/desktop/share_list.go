@@ -67,7 +67,7 @@ func measureShareColumns(width float32) shareColumns {
 func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.State, submit func(domain.Command)) {
 	if p.memberProject != nil {
 		if entry, ok := p.shareEntry(p.memberProject.id); ok && entry.online && entry.file.MemberURL == p.memberProject.address {
-			p.drawMemberProject(f, theme, bounds, submit)
+			p.drawMemberProject(f, theme, bounds, entry.file, submit)
 			return
 		}
 		p.closeMemberProject()
@@ -273,7 +273,9 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 		ui.Text(f, entry.meta).Width(columns.size).FontSize(13).Ellipsis()
 		ui.Row(f).Width(columns.access).Gap(7).Items(ui.Center).Children(func() {
 			icon, color := Users, theme.MutedForeground
-			if entry.file.ShareProtected {
+			if entry.file.ShareUnavailable {
+				icon, color = X, theme.Danger
+			} else if entry.file.ShareProtected {
 				icon, color = Lock, theme.Foreground
 			} else if entry.file.ShareURL != "" {
 				icon, color = Link, theme.Success
@@ -292,6 +294,10 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 				}
 				if panelActionIcon(f, theme, entry.downloadID, Download, i18n.T("下载"), false, disabled).Clicked() && !disabled {
 					p.downloadProjects([]domain.File{entry.file}, submit)
+				}
+			} else if entry.own && entry.file.ShareUnavailable {
+				if ui.Button(f.Key(entry.file.ID).Part("replace"), i18n.T("修改共享源")).Small().Outline().Clicked() {
+					p.toggleShareMenu(shareMenuProject, entry.file.ID)
 				}
 			} else if entry.own && entry.file.ShareURL != "" {
 				if panelActionIcon(f, theme, entry.copyID, Copy, i18n.T("复制链接"), false, false).Clicked() {
@@ -387,7 +393,10 @@ func (p *Panels) drawShareMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rect, 
 		if entry.own && len(file.ShareQR) != 0 {
 			add(p.ids.shareMenuQR, "查看二维码", shareQRIcon, func() { p.openShareQR(file) })
 		}
-		if entry.own {
+		if entry.own && file.ShareUnavailable {
+			add(p.ids.shareMenuReplaceFile, "重新选择文件…", File, func() { p.chooseShareSource(c, false, file.ID, submit) })
+			add(p.ids.shareMenuReplaceFolder, "重新选择文件夹…", Folder, func() { p.chooseShareSource(c, true, file.ID, submit) })
+		} else if entry.own {
 			if file.ShareURL == "" {
 				add(p.ids.shareMenuEnableLink, "生成项目链接", Link, func() { submit(domain.Command{Kind: domain.SetSharePassword, FileID: file.ID}) })
 			}
@@ -403,7 +412,7 @@ func (p *Panels) drawShareMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rect, 
 		} else {
 			add(p.ids.shareMenuGet, "获取文件", Download, func() { p.downloadProjects([]domain.File{file}, submit) })
 		}
-		if entry.path != "" && (entry.available || file.ShareFolder) {
+		if !file.ShareUnavailable && entry.path != "" && (entry.available || file.ShareFolder) {
 			if !file.ShareFolder {
 				add(p.ids.shareMenuOpen, "打开本地项目", FolderOpen, func() { p.requestLocalAction(entry.path, false, false) })
 			}
@@ -479,28 +488,44 @@ func (p *Panels) shareEntry(id string) (panelShareEntry, bool) {
 }
 
 func (p *Panels) pickShare(c *gfx.Canvas, folder bool) {
+	p.chooseShareSource(c, folder, "", nil)
+}
+func (p *Panels) chooseShareSource(c *gfx.Canvas, folder bool, replace string, submit func(domain.Command)) {
 	if p.sharePickerOpen {
 		return
 	}
 	p.sharePickerOpen = true
 	c.AfterPaint(func() {
 		defer func() { p.sharePickerOpen = false; c.RequestFrame() }()
+		title := i18n.T("选择要分享的文件")
+		if folder {
+			title = i18n.T("选择要分享的文件夹")
+		}
+		if replace != "" {
+			title = i18n.T("更换共享源（保留原链接和访问密码）")
+		}
 		var paths []string
 		var err error
 		if folder {
 			var path string
-			path, err = app.OpenDirectory(app.OpenDirectoryOptions{Title: i18n.T("选择要分享的文件夹")})
+			path, err = app.OpenDirectory(app.OpenDirectoryOptions{Title: title})
 			if path != "" {
 				paths = []string{path}
 			}
 		} else {
-			paths, err = app.OpenFiles(app.OpenFileOptions{Title: i18n.T("选择要分享的文件"), AllowMultiple: true})
+			paths, err = app.OpenFiles(app.OpenFileOptions{Title: title, AllowMultiple: replace == ""})
 		}
 		if errors.Is(err, app.ErrCanceled) || p.module != panelModuleShares {
 			return
 		}
 		if err != nil {
 			p.setShareToast("无法打开系统选择器", filePickerProblem(err), components.ToastError)
+			return
+		}
+		if replace != "" {
+			if len(paths) == 1 {
+				submit(domain.Command{Kind: domain.ReplaceShareSource, FileID: replace, Paths: paths})
+			}
 			return
 		}
 		p.openShareDialogFor(paths, folder)

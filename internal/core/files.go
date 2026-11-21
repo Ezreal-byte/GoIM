@@ -166,6 +166,7 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 			if p.BrowserShares == nil {
 				p.BrowserShares = make(map[string]browserShare)
 			}
+			link.Modified = info.ModTime()
 			p.BrowserShares[f.ID] = link
 		}
 		s.Files = append(s.Files, f)
@@ -841,6 +842,7 @@ func (n *Node) sendCatalog(peer string) {
 	}
 }
 func (n *Node) broadcastCatalog() {
+	n.notifyBrowserCatalog()
 	s := n.snapshot(false)
 	for _, p := range s.Peers {
 		if p.Online {

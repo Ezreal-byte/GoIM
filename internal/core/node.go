@@ -72,6 +72,9 @@ type Node struct {
 	webAddress            string
 	webKey                [32]byte
 	webSlots              chan struct{}
+	webCatalogVersion     uint64
+	webCatalogChange      chan struct{}
+	shareScanMu           sync.Mutex
 	webLinks              map[string]shareLink
 	webHomeLink           shareLink
 	webUploads            chan struct{}
@@ -274,6 +277,7 @@ func New(opts Options) (*Node, error) {
 		}
 	}
 	n.resumePrintJobs()
+	n.scheduleShareCheck()
 	retainedLock = true
 	return n, nil
 }

@@ -16,6 +16,7 @@ type memberProject struct {
 	Key       string
 	Name      string `json:",omitempty"`
 	Size      int64  `json:",omitempty"`
+	Version   uint64 `json:",omitempty"`
 	Entries   int    `json:",omitempty"`
 	Protected bool   `json:",omitempty"`
 }
@@ -31,6 +32,13 @@ func memberProjectKey(token string) string {
 	return hex.EncodeToString(digest[:16])
 }
 
+func (r browserShare) memberKey() string {
+	if r.MemberKey != "" {
+		return r.MemberKey
+	}
+	return memberProjectKey(r.Token)
+}
+
 // Caller holds n.mu so files, access settings and revision describe one catalog.
 func (n *Node) shareCatalog() envelope {
 	s := &n.data.State
@@ -42,6 +50,9 @@ func (n *Node) shareCatalog() envelope {
 			continue
 		}
 		record := n.data.BrowserShares[f.ID]
+		if record.Unavailable {
+			continue
+		}
 		if !f.ShareFolder && !record.Password.set() {
 			e.Files = append(e.Files, publicFile(f))
 			continue
@@ -49,7 +60,7 @@ func (n *Node) shareCatalog() envelope {
 		if number == 0 || record.Token == "" {
 			continue
 		}
-		project := memberProject{Key: memberProjectKey(record.Token), Protected: record.Password.set()}
+		project := memberProject{Key: record.memberKey(), Version: record.Version, Protected: record.Password.set()}
 		if !project.Protected {
 			project.Name = f.Name
 			project.Entries = len(record.Entries)
@@ -78,7 +89,7 @@ func (p *persisted) updateMemberProjects(peer string, incoming *memberCatalog) {
 			continue
 		}
 		if item.Protected {
-			item = memberProject{Key: item.Key, Protected: true}
+			item = memberProject{Key: item.Key, Version: item.Version, Protected: true}
 		} else if !validFileName(item.Name) || item.Size < 0 || item.Entries < 0 {
 			continue
 		}
@@ -110,7 +121,7 @@ func (n *Node) attachMemberProjects(s *domain.State) {
 		for _, project := range catalog.Projects {
 			f := domain.File{
 				ID: "member:" + peer.ID + ":" + project.Key, SenderID: peer.ID, Shared: true,
-				Name: project.Name, Size: project.Size, ShareEntryCount: project.Entries,
+				Name: project.Name, Size: project.Size, ShareEntryCount: project.Entries, ShareVersion: project.Version,
 				ShareFolder: !project.Protected, ShareProtected: project.Protected,
 			}
 			if project.Protected {
@@ -172,7 +183,7 @@ func (n *Node) openMemberProject(w http.ResponseWriter, r *http.Request) {
 	n.mu.Lock()
 	token := ""
 	for id, record := range n.data.BrowserShares {
-		if memberProjectKey(record.Token) != key {
+		if record.Unavailable || record.memberKey() != key {
 			continue
 		}
 		f := n.data.State.File(id)

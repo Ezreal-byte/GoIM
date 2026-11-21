@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -18,9 +19,9 @@ import (
 	"goim/internal/domain"
 )
 
-// The URL contains indices into this manifest, never local paths. Index zero
-// refers to the share's root; stored entries are numbered starting at one.
+// URLs contain stable entry IDs. ID zero refers to the shared root.
 type shareFolderEntry struct {
+	ID       int `json:",omitempty"`
 	Path     string
 	Parent   int
 	Folder   bool
@@ -28,66 +29,111 @@ type shareFolderEntry struct {
 	Modified time.Time
 }
 
-func (n *Node) shareFolder(source string, record browserShare) error {
-	absolute, err := filepath.Abs(source)
-	if err != nil {
-		return err
+// Entry IDs are stable across rescans. Older manifests used their slice
+// position as the ID; the first rescan preserves all existing bookmarks.
+func (r browserShare) entryID(i int) int {
+	if id := r.Entries[i].ID; id != 0 {
+		return id
 	}
-	absolute, err = filepath.EvalSymlinks(absolute)
+	return i + 1
+}
+func (r browserShare) entry(id int) (shareFolderEntry, bool) {
+	for i, e := range r.Entries {
+		if r.entryID(i) == id {
+			return e, true
+		}
+	}
+	return shareFolderEntry{}, false
+}
+
+func prepareFolder(ctx context.Context, source string, record browserShare) (domain.File, browserShare, error) {
+	var file domain.File
+	absolute, err := filepath.Abs(source)
+	if err == nil {
+		absolute, err = filepath.EvalSymlinks(absolute)
+	}
 	if err != nil {
-		return err
+		return file, record, err
 	}
 	if filepath.Dir(absolute) == absolute {
-		return errors.New("请选择一个具体文件夹，不能共享整个磁盘")
+		return file, record, errors.New("请选择一个具体文件夹，不能共享整个磁盘")
 	}
-	root, err := os.OpenRoot(absolute)
+	root, err := openSharedRoot(absolute)
 	if err != nil {
-		return err
+		return file, record, err
 	}
 	defer root.Close()
+	record, err = scanFolder(ctx, root, record)
+	file = domain.File{ID: newID(), Name: filepath.Base(absolute), SourcePath: absolute, Shared: true, ShareFolder: true, CreatedAt: time.Now()}
+	return file, record, err
+}
 
+func scanFolder(ctx context.Context, root *os.Root, old browserShare) (browserShare, error) {
+	next := old
+	next.Entries = nil
+	next.LastID = max(old.LastID, len(old.Entries))
+	prior := make(map[string]shareFolderEntry, len(old.Entries))
+	for i, e := range old.Entries {
+		e.ID = old.entryID(i)
+		prior[e.Path] = e
+	}
 	dirs := map[string]int{".": 0}
-	err = fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, err error) error {
+	err := fs.WalkDir(root.FS(), ".", func(name string, de fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if err := n.ctx.Err(); err != nil {
+		if err = ctx.Err(); err != nil {
 			return err
 		}
-		if name == "." {
-			return nil
-		}
-		if strings.HasPrefix(entry.Name(), ".") {
-			if entry.IsDir() {
+		if name != "." && strings.HasPrefix(de.Name(), ".") {
+			if de.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
 		}
-		if !entry.IsDir() && !entry.Type().IsRegular() {
+		if !de.IsDir() && !de.Type().IsRegular() {
 			return nil
 		}
-		if len(record.Entries) >= 4000 || strings.Count(name, "/") >= 32 {
+		info, err := de.Info()
+		if err != nil {
+			return err
+		}
+		if name == "." {
+			next.Modified = info.ModTime()
+			return nil
+		}
+		if len(next.Entries) >= 4000 || strings.Count(name, "/") >= 32 {
 			return errors.New("文件夹内容过多，请缩小分享范围后重试")
 		}
-		item := shareFolderEntry{Path: name, Parent: dirs[path.Dir(name)], Folder: entry.IsDir()}
-		if item.Folder {
-			dirs[name] = len(record.Entries) + 1
-		} else {
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
+		e := shareFolderEntry{Path: name, Parent: dirs[path.Dir(name)], Folder: info.IsDir(), Modified: info.ModTime()}
+		if !e.Folder {
 			if !info.Mode().IsRegular() {
 				return nil
 			}
-			item.Size, item.Modified = info.Size(), info.ModTime()
+			e.Size = info.Size()
 		}
-		record.Entries = append(record.Entries, item)
+		p, exists := prior[name]
+		if exists && p.Folder == e.Folder && (e.Folder || p.Size == e.Size && p.Modified.Equal(e.Modified)) {
+			e.ID = p.ID
+		} else {
+			next.LastID++
+			e.ID = next.LastID
+		}
+		if e.Folder {
+			dirs[name] = e.ID
+		}
+		next.Entries = append(next.Entries, e)
 		return nil
 	})
+	return next, err
+}
+
+func (n *Node) shareFolder(source string, record browserShare) error {
+	f, record, err := prepareFolder(n.ctx, source, record)
 	if err != nil {
 		return err
 	}
+	absolute := f.SourcePath
 	duplicate := false
 	err = n.durable(func(p *persisted) []pending {
 		s := &p.State
@@ -98,8 +144,7 @@ func (n *Node) shareFolder(source string, record browserShare) error {
 				return nil
 			}
 		}
-		f := domain.File{ID: newID(), Name: filepath.Base(absolute), SourcePath: absolute,
-			SenderID: s.Self.ID, Shared: true, ShareFolder: true, CreatedAt: time.Now()}
+		f.SenderID = s.Self.ID
 		if p.BrowserShares == nil {
 			p.BrowserShares = make(map[string]browserShare)
 		}
@@ -111,11 +156,6 @@ func (n *Node) shareFolder(source string, record browserShare) error {
 		err = errors.New("这个文件夹已在共享中，请从项目菜单管理链接或密码")
 	}
 	return err
-}
-
-func shareEntryID(value string, count int) (int, bool) {
-	id, err := strconv.Atoi(value)
-	return id, err == nil && id > 0 && id <= count
 }
 
 func folderPageURL(base string, id int) string {
@@ -131,19 +171,23 @@ func (n *Node) renderFolderShare(w http.ResponseWriter, r *http.Request, file do
 	page.Crumbs = []shareCrumb{{Name: file.Name, URL: page.Path}}
 	dir := "."
 	if value := r.URL.Query().Get("dir"); value != "" {
-		var ok bool
-		id, ok = shareEntryID(value, len(record.Entries))
-		if !ok || !record.Entries[id-1].Folder {
+		id, _ = strconv.Atoi(value)
+		entry, ok := record.entry(id)
+		if !ok || !entry.Folder {
 			page.Error = "这个文件夹不在分享范围内。"
 			renderShare(w, r, http.StatusNotFound, page)
 			return
 		}
-		entry := record.Entries[id-1]
 		dir, page.Current = entry.Path, path.Base(entry.Path)
 		page.ParentURL = folderPageURL(page.Path, entry.Parent)
 		var ancestors []shareCrumb
-		for parent := id; parent > 0; parent = record.Entries[parent-1].Parent {
-			a := record.Entries[parent-1]
+		for parent := id; parent > 0; {
+			a, ok := record.entry(parent)
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			parent = a.Parent
 			ancestors = append(ancestors, shareCrumb{path.Base(a.Path), folderPageURL(page.Path, parent)})
 		}
 		slices.Reverse(ancestors)
@@ -172,10 +216,10 @@ func (n *Node) renderFolderShare(w http.ResponseWriter, r *http.Request, file do
 		name := path.Base(entry.Path)
 		if entry.Folder {
 			folders++
-			page.Items = append(page.Items, sharePageItem{Name: name, Folder: true, Style: "folder", URL: folderPageURL(page.Path, index+1)})
+			page.Items = append(page.Items, sharePageItem{Name: name, Folder: true, Style: "folder", URL: folderPageURL(page.Path, record.entryID(index))})
 		} else {
 			files++
-			url := page.Path + "/download?file=" + strconv.Itoa(index+1)
+			url := page.Path + "/download?file=" + strconv.Itoa(record.entryID(index))
 			page.Items = append(page.Items, webFileItem(name, "", entry.Size, entry.Modified, url))
 		}
 	}
@@ -201,12 +245,12 @@ func (n *Node) renderFolderShare(w http.ResponseWriter, r *http.Request, file do
 }
 
 func (n *Node) downloadFolderFile(w http.ResponseWriter, r *http.Request, file domain.File, record browserShare, base string) {
-	id, ok := shareEntryID(r.URL.Query().Get("file"), len(record.Entries))
-	if !ok || record.Entries[id-1].Folder {
+	id, _ := strconv.Atoi(r.URL.Query().Get("file"))
+	entry, ok := record.entry(id)
+	if !ok || entry.Folder {
 		renderShare(w, r, http.StatusNotFound, sharePageData{Path: base, Error: "这个文件不在分享范围内。"})
 		return
 	}
-	entry := record.Entries[id-1]
 	root, err := openSharedRoot(file.SourcePath)
 	if err == nil {
 		defer root.Close()
@@ -214,8 +258,8 @@ func (n *Node) downloadFolderFile(w http.ResponseWriter, r *http.Request, file d
 		input, err = openSharedFolderEntry(root, entry)
 		if err == nil {
 			defer input.Close()
-			_, current, active := n.lookupShare(record.Token)
-			if !active || current.Password.set() && !n.hasShareSession(r, current) {
+			source, current, active := n.lookupShare(record.Token)
+			if !active || source.ID != file.ID || current.Unavailable || current.Password.set() && !n.hasShareSession(r, current) {
 				http.NotFound(w, r)
 				return
 			}
@@ -226,7 +270,7 @@ func (n *Node) downloadFolderFile(w http.ResponseWriter, r *http.Request, file d
 			return
 		}
 	}
-	renderShare(w, r, http.StatusGone, sharePageData{Path: base, Error: "文件已移动或修改，请让分享人重新分享。"})
+	renderShare(w, r, http.StatusGone, sharePageData{Path: base, Error: "文件已移动或修改，请返回共享目录查看最新内容。"})
 }
 
 func openSharedFolderEntry(root *os.Root, entry shareFolderEntry) (*os.File, error) {
@@ -255,6 +299,12 @@ func openSharedFolderEntry(root *os.Root, entry shareFolderEntry) (*os.File, err
 }
 
 func openSharedRoot(source string) (*os.Root, error) {
+	// Sources are canonicalized when chosen. Reject a subsequently redirected
+	// ancestor as well as a link in place of the shared directory itself.
+	canonical, err := filepath.EvalSymlinks(source)
+	if err != nil || canonical != source && !(runtime.GOOS == "windows" && strings.EqualFold(canonical, source)) {
+		return nil, fs.ErrNotExist
+	}
 	before, err := os.Lstat(source)
 	if err != nil || !before.IsDir() {
 		return nil, fs.ErrNotExist

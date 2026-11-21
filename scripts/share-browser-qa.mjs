@@ -1,10 +1,10 @@
 // Responsive browser QA for the smoke test's ephemeral, localhost-only share.
 import { spawn } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-const [chrome, profile, url, output, folderURL] = process.argv.slice(2);
+const [chrome, profile, url, output, folderURL, sharedDirectory] = process.argv.slice(2);
 if (!chrome || !profile || !output || !/^http:\/\/127\.0\.0\.1:\d+\/s\/[\w-]+$/.test(url ?? "")) {
   throw new Error("Expected Chrome path, isolated profile, loopback share URL, and output directory");
 }
@@ -67,6 +67,18 @@ try {
   })()`);
   if (metrics.width>1040 || metrics.height>44 || metrics.gutter<32 || !metrics.icon.includes('svg')) {
     throw new Error("Directory geometry or file icon regression: "+JSON.stringify(metrics));
+  }
+  if (sharedDirectory) {
+    const liveName = 'live-browser-' + process.pid + '.txt';
+    const testFile = join(sharedDirectory, liveName);
+    const listed = () => evaluate("Array.from(document.querySelectorAll('.filename'), e => e.textContent).includes(" + JSON.stringify(liveName) + ")");
+    await writeFile(testFile, 'browser live update', {flag:'wx'});
+    try {
+      await eventually(listed);
+    } finally {
+      await unlink(testFile);
+    }
+    await eventually(async () => (await evaluate("!!document.querySelector('.directory')")) && !(await listed()));
   }
   const {data}=await call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
   await writeFile(join(output,"browser-share-directory.png"),Buffer.from(data,"base64"));

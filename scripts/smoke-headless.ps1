@@ -389,7 +389,7 @@ try {
     if($BrowserScreenshots){
         $nodeOptions=@()
         if([int](node -p "process.versions.node.split('.')[0]") -eq 20){$nodeOptions+='--experimental-websocket'}
-        node @nodeOptions scripts/share-browser-qa.mjs $taskChrome $taskBrowserProfile $taskURL $OutputDir $taskFolderURL
+        node @nodeOptions scripts/share-browser-qa.mjs $taskChrome $taskBrowserProfile $taskURL $OutputDir $taskFolderURL $taskFolderShare
         if($LASTEXITCODE -ne 0){throw 'Responsive browser screenshot check failed'}
     }
     $taskRootPage=Invoke-WebRequest -UseBasicParsing -Uri $taskFolderURL -TimeoutSec 8
@@ -435,7 +435,32 @@ try {
     if($taskClosedHome.StatusCode -ne 404){throw 'Disabled device page did not return 404'}
     $taskProject=Invoke-WebRequest -UseBasicParsing -Uri $taskFolderURL -TimeoutSec 8
     if($taskProject.Content -notmatch '界面设计'){throw 'Closing the device homepage revoked a direct project link'}
-    Send-Command $taskAlice 'rightclick "交付资料"'
+    Send-Command $taskBob 'click "button:文件共享"'
+    Send-Command $taskBob 'click "交付资料"'
+    Send-Command $taskBob 'expect exists "checkbox:选择 清单.txt" within 15000'
+    $taskLiveFile=Join-Path $taskFolderShare '实时新增.txt'
+    Copy-Item -LiteralPath $taskSamplePath -Destination $taskLiveFile
+    Send-Command $taskBob 'expect exists "checkbox:选择 实时新增.txt" within 15000'
+    Remove-Item -LiteralPath $taskLiveFile
+    Send-Command $taskBob 'expect absent "checkbox:选择 实时新增.txt" within 15000'
+    $taskMovedShare=Join-Path $taskRunDir '迁移后的交付资料'
+    foreach($testPath in @($taskMovedShare,$taskFolderShare)){
+        if([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($testPath)) -ne [IO.Path]::GetFullPath($taskRunDir)){throw 'Unexpected test folder location'}
+    }
+    Rename-Item -LiteralPath $taskFolderShare -NewName '迁移后的交付资料'
+    Send-Command $taskAlice 'waitfor "分享不可用" 15000'
+    Send-Command $taskBob 'expect absent "button:返回成员共享" within 15000'
+    Send-Command $taskBob 'expect absent "checkbox:选择 交付资料"'
+    $taskMissingShare=Invoke-WebRequest -UseBasicParsing -Uri $taskFolderURL -SkipHttpErrorCheck -TimeoutSec 8
+    if($taskMissingShare.StatusCode -ne 410){throw 'Missing folder still accessible'}
+    Send-Command $taskAlice ('opendirectory "'+$taskMovedShare.Replace('\','/')+'"')
+    Send-Command $taskAlice 'click "修改共享源"'
+    Send-Command $taskAlice 'click "重新选择文件夹…"'
+    Send-Command $taskAlice 'waitfor "共享源已更新" 15000'
+    Send-Command $taskBob 'expect exists "checkbox:选择 迁移后的交付资料" within 15000'
+    $taskRepairedShare=Invoke-WebRequest -UseBasicParsing -Uri $taskFolderURL -TimeoutSec 8
+    if($taskRepairedShare.Content -notmatch '迁移后的交付资料' -or $taskRepairedShare.Content -notmatch '界面设计'){throw 'Repaired share failed to preserve its link'}
+    Send-Command $taskAlice 'rightclick "迁移后的交付资料"'
     Send-Command $taskAlice 'click "取消分享"'
     Send-Command $taskAlice 'waitfor "已取消分享" 10000'
     $taskRevokedProject=Invoke-WebRequest -UseBasicParsing -Uri $taskFolderURL -SkipHttpErrorCheck -TimeoutSec 8

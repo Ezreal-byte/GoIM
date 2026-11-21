@@ -149,17 +149,18 @@ type panelIDs struct {
 	shareMore                            gfx.Scope
 	shareRow                             gfx.Scope
 
-	shareMenuScope     gfx.ID
-	shareMenuDismiss   gfx.ID
-	shareMenuOpen      gfx.ID
-	shareMenuFolder    gfx.ID
-	shareMenuGet       gfx.ID
-	shareMenuVisit     gfx.ID
-	shareMenuCopy      gfx.ID
-	shareMenuQR        gfx.ID
-	shareMenuPassword  gfx.ID
-	shareMenuClearPass gfx.ID
-	shareMenuUnshare   gfx.ID
+	shareMenuScope                               gfx.ID
+	shareMenuDismiss                             gfx.ID
+	shareMenuOpen                                gfx.ID
+	shareMenuFolder                              gfx.ID
+	shareMenuGet                                 gfx.ID
+	shareMenuVisit                               gfx.ID
+	shareMenuCopy                                gfx.ID
+	shareMenuQR                                  gfx.ID
+	shareMenuPassword                            gfx.ID
+	shareMenuClearPass                           gfx.ID
+	shareMenuReplaceFile, shareMenuReplaceFolder gfx.ID
+	shareMenuUnshare                             gfx.ID
 
 	shareDialogScope    gfx.ID
 	shareDialogDismiss  gfx.ID
@@ -471,6 +472,8 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.shareMenuQR = tree.ID(shares, "share-menu-qr")
 	p.ids.shareMenuPassword = tree.ID(shares, "share-menu-password")
 	p.ids.shareMenuClearPass = tree.ID(shares, "share-menu-clear-password")
+	p.ids.shareMenuReplaceFile = tree.ID(shares, "replace-file")
+	p.ids.shareMenuReplaceFolder = tree.ID(shares, "replace-folder")
 	p.ids.shareMenuUnshare = tree.ID(shares, "share-menu-unshare")
 
 	p.ids.shareDialogScope = tree.ID(shares, "share-dialog-scope")
@@ -1083,6 +1086,8 @@ func (p *Panels) rebuildShares(state domain.State) {
 			entry.compactMeta += " · " + entry.date
 		}
 		switch {
+		case own && file.ShareUnavailable:
+			entry.access = i18n.T("分享不可用")
 		case file.ShareProtected:
 			entry.access = i18n.T("密码访问")
 		case file.ShareURL != "":
@@ -1098,6 +1103,8 @@ func (p *Panels) rebuildShares(state domain.State) {
 		}
 		entry.moreID = p.tree.ID(p.ids.shareMore, file.ID)
 		switch {
+		case own && file.ShareUnavailable:
+			entry.state = i18n.T("分享不可用")
 		case file.ShareFolder:
 			entry.state = i18n.T("通过链接浏览")
 		case entry.available:

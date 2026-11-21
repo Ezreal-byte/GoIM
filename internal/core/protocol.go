@@ -305,6 +305,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 	n.async(func() {
 		n.exchangePeerRoutes()
 		n.replay(pc.peer.ID)
+		n.refreshShareSources(n.ownedShareIDs(), checkShareRoot)
 		n.sendCatalog(pc.peer.ID)
 		if pc.peer.PrintSupported {
 			n.sendPrinterCatalog(pc.peer.ID)
@@ -681,6 +682,7 @@ func (n *Node) receiveFrom(peer string, e envelope, source *peerConn) error {
 			n.mu.Unlock()
 		}
 	case "catalog_request":
+		n.refreshShareSources(n.ownedShareIDs(), checkShareTree)
 		n.sendCatalog(peer)
 		if n.snapshot(false).Peer(peer).PrintSupported {
 			n.sendPrinterCatalog(peer)

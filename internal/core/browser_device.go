@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -51,7 +52,7 @@ func (n *Node) setDeviceShare(enabled bool) error {
 			return err
 		}
 	}
-	return n.durable(func(p *persisted) []pending {
+	err := n.durable(func(p *persisted) []pending {
 		if enabled && p.BrowserHomeToken == "" {
 			p.BrowserHomeToken = randomToken()
 		}
@@ -60,6 +61,10 @@ func (n *Node) setDeviceShare(enabled bool) error {
 		}
 		return nil
 	})
+	if err == nil {
+		n.notifyBrowserCatalog()
+	}
+	return err
 }
 
 func deviceSharePath(token string) string { return "/d/" + token }
@@ -104,10 +109,10 @@ func (n *Node) deviceSharePage(token string) (sharePageData, string, bool) {
 	}
 	s := &n.data.State
 	device := s.Self.Name + "的电脑"
-	page := sharePageData{Device: device, Title: device, Path: deviceSharePath(token)}
+	page := sharePageData{Device: device, Title: device, Path: deviceSharePath(token), LiveVersion: strconv.FormatUint(n.webCatalogVersion, 10)}
 	for _, file := range s.Files {
 		record, exists := n.data.BrowserShares[file.ID]
-		if !exists || !file.Shared || file.SenderID != s.Self.ID || record.Token == "" {
+		if !exists || record.Unavailable || !file.Shared || file.SenderID != s.Self.ID || record.Token == "" {
 			continue
 		}
 		href := "/s/" + record.Token
@@ -125,9 +130,19 @@ func (n *Node) deviceSharePage(token string) (sharePageData, string, bool) {
 
 func (n *Node) handleDeviceShare(w http.ResponseWriter, r *http.Request) {
 	token, tail, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/d/"), "/")
+	if len(token) == 32 && tail == "events" {
+		n.watchShare(w, r, token, true)
+		return
+	}
 	if len(token) != 32 || tail != "" && tail != "upload" {
 		http.NotFound(w, r)
 		return
+	}
+	n.mu.Lock()
+	validToken := subtle.ConstantTimeCompare([]byte(n.data.BrowserHomeToken), []byte(token)) == 1
+	n.mu.Unlock()
+	if validToken {
+		n.refreshShareSources(n.ownedShareIDs(), checkShareRoot)
 	}
 	page, downloadDir, ok := n.deviceSharePage(token)
 	if !ok {
@@ -322,12 +337,12 @@ func webUploadFilename(name string, index int) string {
 	return base + suffix
 }
 
-func serveShareUploadScript(w http.ResponseWriter, r *http.Request) {
+func serveShareScript(w http.ResponseWriter, r *http.Request, script string) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "此操作不可用", http.StatusMethodNotAllowed)
 		return
 	}
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	_, _ = io.WriteString(w, shareUploadScript)
+	_, _ = io.WriteString(w, script)
 }

@@ -193,7 +193,7 @@ func (p *Panels) drawShareSendDialog(f ui.C, theme ui.Theme, submit func(domain.
 	description := fmt.Sprintf(i18n.T("成员可在 GoIM 中直接获取这 %d 个文件。设置密码后，成员需在共享页面输入密码。"), count)
 	if p.shareDialog.folder {
 		title = i18n.T("分享文件夹")
-		description = i18n.T("成员可在共享页面浏览此文件夹的现有内容。新增文件和符号链接不会加入分享。")
+		description = i18n.T("文件夹中新增和删除的内容会自动同步到分享。以点开头的项目和符号链接会被跳过。")
 	}
 	dialog := p.dialog(f, ui.DialogSpec{
 		Title: title, Description: description, Width: 460,

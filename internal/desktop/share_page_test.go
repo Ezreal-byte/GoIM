@@ -16,6 +16,29 @@ import (
 	"goim/internal/domain"
 )
 
+func BenchmarkSharePagePaint(b *testing.B) {
+	state := transferDesignState(b.TempDir())
+	state.Files = append(state.Files, domain.File{ID: "missing-share", Name: "reports", SenderID: state.Self.ID, Shared: true, ShareFolder: true, ShareUnavailable: true})
+	shell := New(newShellTestBackend(state))
+	defer shell.Close()
+	shell.section = sectionShares
+	shell.panels.shareFilter = panelSharesMine
+	cfg := shell.Config()
+	cfg.Width, cfg.Height = 1536, 1024
+	driver, err := app.NewDriver(cfg, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer driver.Close()
+	b.ReportAllocs()
+	for b.Loop() {
+		shell.invalidator.Invalidate()
+		if err := driver.Pump(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func TestShareListUsesNativePickersAndKeepsPasswordOptional(t *testing.T) {
 	state := panelTestDefaultState(t)
 	h := panelTestNewHarness(t, panelModuleShares, state)

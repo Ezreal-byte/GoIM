@@ -242,6 +242,7 @@ func (n *Node) discoveryLoop() {
 	for {
 		select {
 		case <-ticker.C:
+			n.scheduleShareCheck()
 			announce(false)
 		case <-n.discoveryWake:
 			networkName = "__initial__"

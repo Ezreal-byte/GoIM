@@ -229,30 +229,32 @@ type GroupNickname struct {
 }
 
 type File struct {
-	ID              string
-	Name            string
-	Size            int64
-	Hash            string
-	MIME            string
-	InlineImage     bool `json:",omitempty"` // bounded image attachment delivered as a chat message
-	Folder          bool `json:",omitempty"` // native peer directory, distinct from browser sharing
-	SenderID        string
-	ConversationID  string
-	SourcePath      string // local only, never sent over the wire
-	Shared          bool
-	ShareFolder     bool `json:",omitempty"` // browser-only directory share
-	CreatedAt       time.Time
-	MemberURL       string `json:"-"` // snapshot only, for a member directory or password prompt
-	ShareURL        string `json:"-"` // snapshot only, never sent to peers
-	ShareProtected  bool   `json:"-"`
-	ShareQR         []byte `json:"-"`
-	ShareEntryCount int    `json:"-"`
+	ID               string
+	Name             string
+	Size             int64
+	Hash             string
+	MIME             string
+	InlineImage      bool `json:",omitempty"` // bounded image attachment delivered as a chat message
+	Folder           bool `json:",omitempty"` // native peer directory, distinct from browser sharing
+	SenderID         string
+	ConversationID   string
+	SourcePath       string // local only, never sent over the wire
+	Shared           bool
+	ShareFolder      bool `json:",omitempty"` // browser-only directory share
+	CreatedAt        time.Time
+	ShareUnavailable bool   `json:"-"`
+	ShareVersion     uint64 `json:"-"`
+	MemberURL        string `json:"-"` // snapshot only, for a member directory or password prompt
+	ShareURL         string `json:"-"` // snapshot only, never sent to peers
+	ShareProtected   bool   `json:"-"`
+	ShareQR          []byte `json:"-"`
+	ShareEntryCount  int    `json:"-"`
 }
 
 // ShareSession carries an unlocked member session only between local commands.
 type ShareSession struct{ Address, Project, Token string }
 
-// ShareDownload identifies an item in the peer's immutable member catalog.
+// ShareDownload identifies an item in the peer's member catalog by its stable entry ID.
 type ShareDownload struct {
 	ProjectID, Name string
 	Index           int
@@ -784,6 +786,7 @@ const (
 	TogglePin            CommandKind = "toggle_pin"
 	ToggleMute           CommandKind = "toggle_mute"
 	DeleteConversation   CommandKind = "delete_conversation"
+	ReplaceShareSource   CommandKind = "replace_share_source"
 	SetSharePassword     CommandKind = "set_share_password"
 	SetLockPassword      CommandKind = "set_lock_password"
 	SetSystemUnlock      CommandKind = "set_system_unlock"
