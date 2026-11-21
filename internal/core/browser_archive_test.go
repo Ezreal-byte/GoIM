@@ -18,6 +18,25 @@ import (
 	"goim/internal/domain"
 )
 
+func TestArchiveStopsWithinRevokedFile(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "large")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	const size = 10 << 20
+	if err := file.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+	checks := 0
+	active := func() bool { checks++; return checks == 1 }
+	err = writeArchiveFile(zip.NewWriter(io.Discard), "large", time.Time{}, file, size, active)
+	offset, seekErr := file.Seek(0, io.SeekCurrent)
+	if err != os.ErrPermission || seekErr != nil || offset <= 0 || offset >= size {
+		t.Fatalf("revoked file offset %d of %d, error %v, seek %v", offset, size, err, seekErr)
+	}
+}
+
 func TestBrowserBatchDownload(t *testing.T) {
 	files := t.TempDir()
 	n, err := New(Options{DataDir: t.TempDir(), DownloadDir: t.TempDir(), Listen: "127.0.0.1:0", DisableDiscovery: true, DisableCompatibility: true})

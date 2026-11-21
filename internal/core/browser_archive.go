@@ -210,7 +210,7 @@ func (p archiveProject) writeArchive(r *http.Request, z *zip.Writer, names archi
 		if err != nil || !stat.Mode().IsRegular() || stat.Size() != p.file.Size || !verifyWebFile(r, file, p.file) || !active() {
 			return os.ErrInvalid
 		}
-		return writeArchiveFile(z, names.next("", p.file.Name), stat.ModTime(), file, p.file.Size)
+		return writeArchiveFile(z, names.next("", p.file.Name), stat.ModTime(), file, p.file.Size, active)
 	}
 	root, err := openSharedRoot(p.file.SourcePath)
 	if err != nil {
@@ -247,7 +247,7 @@ func (p archiveProject) writeArchive(r *http.Request, z *zip.Writer, names archi
 		if err != nil {
 			return err
 		}
-		err = writeArchiveFile(z, name, e.Modified, file, e.Size)
+		err = writeArchiveFile(z, name, e.Modified, file, e.Size, active)
 		file.Close()
 		if err != nil {
 			return err
@@ -256,11 +256,25 @@ func (p archiveProject) writeArchive(r *http.Request, z *zip.Writer, names archi
 	return nil
 }
 
-func writeArchiveFile(z *zip.Writer, name string, modified time.Time, file *os.File, size int64) error {
+func writeArchiveFile(z *zip.Writer, name string, modified time.Time, file *os.File, size int64, active func() bool) error {
 	entry, err := z.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store, Modified: modified})
 	if err != nil {
 		return err
 	}
-	_, err = io.CopyN(entry, file, size)
-	return err
+	// Recheck revocation and request cancellation during a large entry, even
+	// when it is the only file in the ZIP. Never finalize a revoked archive.
+	for size > 0 {
+		if !active() {
+			return os.ErrPermission
+		}
+		n, err := io.CopyN(entry, file, min(size, 4<<20))
+		if err != nil {
+			return err
+		}
+		size -= n
+	}
+	if !active() {
+		return os.ErrPermission
+	}
+	return nil
 }
