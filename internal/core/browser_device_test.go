@@ -17,6 +17,36 @@ import (
 	"goim/internal/domain"
 )
 
+func TestWebInboxAcceptsConfiguredDirectoryAlias(t *testing.T) {
+	base := t.TempDir()
+	downloads := filepath.Join(base, "downloads")
+	alias := filepath.Join(base, "selected")
+	if err := os.Mkdir(downloads, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(downloads, alias); err != nil {
+		t.Skipf("directory links unavailable: %v", err)
+	}
+	inbox, err := openWebInbox(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inbox.Close()
+
+	// The selected parent may be an alias, but the inbox itself may not be redirected.
+	leaf := filepath.Join(downloads, domain.WebReceiveFolder)
+	if err := os.Remove(leaf); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(base, leaf); err != nil {
+		t.Fatal(err)
+	}
+	if redirected, err := openWebInbox(alias); err == nil {
+		redirected.Close()
+		t.Fatal("accepted a redirected web inbox")
+	}
+}
+
 func TestDeviceHomeRoutesAndUpload(t *testing.T) {
 	dir := t.TempDir()
 	openNode := func() *Node {

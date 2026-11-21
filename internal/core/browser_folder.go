@@ -50,7 +50,7 @@ func prepareFolder(ctx context.Context, source string, record browserShare) (dom
 	var file domain.File
 	absolute, err := filepath.Abs(source)
 	if err == nil {
-		absolute, err = filepath.EvalSymlinks(absolute)
+		absolute, err = canonicalSharePath(absolute)
 	}
 	if err != nil {
 		return file, record, err
@@ -301,10 +301,15 @@ func openSharedFolderEntry(root *os.Root, entry shareFolderEntry) (*os.File, err
 func openSharedRoot(source string) (*os.Root, error) {
 	// Sources are canonicalized when chosen. Reject a subsequently redirected
 	// ancestor as well as a link in place of the shared directory itself.
-	canonical, err := filepath.EvalSymlinks(source)
+	canonical, err := canonicalSharePath(source)
 	if err != nil || canonical != source && !(runtime.GOOS == "windows" && strings.EqualFold(canonical, source)) {
 		return nil, fs.ErrNotExist
 	}
+	return openRealDirectory(source)
+}
+
+// The final component must be a real directory and match the opened handle.
+func openRealDirectory(source string) (*os.Root, error) {
 	before, err := os.Lstat(source)
 	if err != nil || !before.IsDir() {
 		return nil, fs.ErrNotExist

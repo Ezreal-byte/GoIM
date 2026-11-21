@@ -89,7 +89,7 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 		return err
 	}
 	if link.Token != "" {
-		path, err = filepath.EvalSymlinks(path)
+		path, err = canonicalSharePath(path)
 		if err != nil {
 			return err
 		}

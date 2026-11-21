@@ -200,7 +200,9 @@ func openWebInbox(downloadDir string) (*os.Root, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	return openSharedRoot(dir)
+	// Users may select a redirected Downloads folder or a Windows drive alias.
+	// Only the inbox beneath that configured location must be a real directory.
+	return openRealDirectory(dir)
 }
 
 func (n *Node) receiveWebFile(w http.ResponseWriter, r *http.Request, token, downloadDir string) (string, int, error) {

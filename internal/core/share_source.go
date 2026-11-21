@@ -239,7 +239,7 @@ func (n *Node) replaceShareSource(id, source string) error {
 	if err != nil {
 		return err
 	}
-	absolute, err = filepath.EvalSymlinks(absolute)
+	absolute, err = canonicalSharePath(absolute)
 	if err != nil {
 		return err
 	}
