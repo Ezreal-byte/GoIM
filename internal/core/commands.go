@@ -524,12 +524,12 @@ func (n *Node) setting(c domain.Command) error {
 			return err
 		}
 		settings.Background = path
-	case "background_shade":
-		shade, err := strconv.Atoi(c.Value)
-		if err != nil || shade < 0 || shade > 100 {
-			return errors.New("背景深浅须在 0 到 100 之间")
+	case "background_transparency":
+		percent, err := strconv.Atoi(c.Value)
+		if err != nil || percent < 0 || percent > 100 {
+			return errors.New("背景透明度须在 0 到 100 之间")
 		}
-		settings.BackgroundShade = shade
+		settings.BackgroundTransparency = percent
 	case "lock_on_startup":
 		if c.Bool && !settings.HasLockPassword {
 			return errors.New("请先设置锁定密码")

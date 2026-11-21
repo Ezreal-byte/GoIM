@@ -20,8 +20,8 @@ type panelSettingsExtra struct {
 	background, clearBackground, notificationPrivacy, offline, discovery, acceptImages                  gfx.ID
 	profile, connect, connectAddress, lockStartup, lockSystem, passwordOld, passwordNew, passwordRepeat gfx.ID
 	passwordSave                                                                                        gfx.ID
-	shade                                                                                               ui.SliderState
-	shadeDirty                                                                                          bool
+	transparency                                                                                        ui.SliderState
+	transparencyDirty                                                                                   bool
 	connectRoute                                                                                        connectionRoute
 	compat                                                                                              [2]compatibilityEditor
 	address, old, password, repeat                                                                      ui.Field
@@ -207,7 +207,7 @@ func (p *Panels) drawBackgroundSettings(f ui.C, theme ui.Theme, state domain.Sta
 	p.settingsRow(f, theme, i18n.T("自定义背景"), i18n.T("用于聊天区域，图片仅保存在本机"), func() {
 		p.settingsControl(f, 240, func() {
 			ui.Row(f).Gap(8).Items(ui.Center).Children(func() {
-				if namedButton(f, s.background, i18n.T("选择图片…")).Small().Outline().Clicked() {
+				if namedButton(f, s.background, i18n.T("选择图片")).Small().Outline().Clicked() {
 					if s.chooseBackground != nil {
 						s.chooseBackground(f.Canvas())
 					}
@@ -218,22 +218,22 @@ func (p *Panels) drawBackgroundSettings(f ui.C, theme ui.Theme, state domain.Sta
 			})
 		})
 	})
-	p.settingsRow(f, theme, i18n.T("背景深浅"), i18n.T("调整图片上的底色，保持聊天文字清晰"), func() {
+	p.settingsRow(f, theme, i18n.T("背景透明度"), i18n.T("数值越高，聊天背景图越淡。"), func() {
 		p.settingsControl(f, 240, func() {
-			if !s.shade.Dragging() && !s.shadeDirty && (p.pending == nil || p.pending.setting != "background_shade") {
-				s.shade.Value = float32(settings.BackgroundShade)
+			if !s.transparency.Dragging() && !s.transparencyDirty && (p.pending == nil || p.pending.setting != "background_transparency") {
+				s.transparency.Value = float32(settings.BackgroundTransparency)
 			}
 			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-				slider := ui.Slider(f, &s.shade).Step(5).Grow(1).
-					Label(i18n.T("背景深浅")).Disabled(settings.Background == "")
+				slider := ui.Slider(f, &s.transparency).Step(1).Grow(1).
+					Label(i18n.T("背景透明度")).Disabled(settings.Background == "")
 				if slider.Changed() {
-					s.shadeDirty = true
+					s.transparencyDirty = true
 				}
-				if s.shadeDirty && !s.shade.Dragging() {
-					p.submitString(submit, state, "background_shade", strconv.Itoa(int(s.shade.Value)))
-					s.shadeDirty = false
+				if s.transparencyDirty && !s.transparency.Dragging() {
+					p.submitString(submit, state, "background_transparency", strconv.Itoa(int(s.transparency.Value)))
+					s.transparencyDirty = false
 				}
-				ui.Text(f, strconv.Itoa(int(s.shade.Value))+"%").FontSize(12).Muted().Width(40)
+				ui.Text(f, strconv.Itoa(int(s.transparency.Value))+"%").FontSize(12).Muted().Width(40)
 			})
 		})
 	})

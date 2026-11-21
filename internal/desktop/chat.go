@@ -61,7 +61,7 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 		// message cards, and controls above the wallpaper as one surface.
 		canvas.PushLayer(1)
 		defer canvas.PopLayer()
-		canvas.Fill(bounds, u.chatBackgroundTint())
+		canvas.Fill(bounds, u.palette.chat.WithAlpha(float32(u.state.Settings.BackgroundTransparency)/100))
 	}
 	if conversation.ID == "" {
 		u.timeline = chatTimeline{}
@@ -720,7 +720,7 @@ func (u *UI) drawPrintMessage(f ui.C, conversation domain.Conversation, message 
 }
 
 func (u *UI) drawComposer(f ui.C) {
-	u.composerBox = ui.Column(f).Fill().Background(u.palette.chat).Children(func() {
+	u.composerBox = ui.Column(f).Fill().Children(func() {
 		u.drawComposerToolbar(f)
 		u.mentionEditor = ui.TextAreaID(f, u.ids.chatEditorField, &u.chatEditorField, i18n.T("消息输入框"), "").
 			FillWidth().Grow(1).Basis(0).MinHeight(chatEditorMinHeight).
@@ -826,7 +826,7 @@ func (u *UI) drawChatReadOnly(f ui.C, conversation domain.Conversation, reason s
 		title = i18n.T("正在等待成员加入")
 	}
 	ui.Column(f).Fill().PadX(chatContentInset).
-		Background(u.palette.chat).Justify(ui.Center).Children(func() {
+		Justify(ui.Center).Children(func() {
 		ui.Row(f).FillWidth().PadSides(10, 14, 10, 14).Radius(radiusControl).Background(u.palette.incoming).
 			Items(ui.Center).Gap(10).Children(func() {
 			ui.Row(f).Size(30, 30).Radius(8).Items(ui.Center).Justify(ui.Center).

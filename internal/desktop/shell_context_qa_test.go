@@ -86,7 +86,7 @@ func TestShellContextScreenshotQA(t *testing.T) {
 	state.Self.Avatar = writeShellTestPNG(t, "self-avatar.png", 300, 200)
 	state.Settings.Avatar = state.Self.Avatar
 	state.Settings.Background = background
-	state.Settings.BackgroundShade = 35
+	state.Settings.BackgroundTransparency = 35
 	state.NeiwangtongStatus = domain.CompatibilityStatus{Unavailable: true, Problem: "内网通原生文字、文件和头像尚未完成真机验收"}
 	shell, session := openShellQA(t, state, 1440, 960)
 
@@ -135,7 +135,7 @@ func TestShellContextScreenshotQA(t *testing.T) {
 	darkState := shellTestState(t)
 	darkState.Settings.Theme = "dark"
 	darkState.Settings.Background = background
-	darkState.Settings.BackgroundShade = 55
+	darkState.Settings.BackgroundTransparency = 55
 	darkShell, darkSession := openShellQA(t, darkState, 1440, 960)
 	shellQAClick(t, darkSession, darkShell.ids.navContacts)
 	shellQAClick(t, darkSession, darkShell.peerRowIDs["peer-a"])

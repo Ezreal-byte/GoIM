@@ -27,7 +27,7 @@ var searchableSettings = []settingSearchItem{
 	{panelSettingsGeneral, "界面字号", "字体 大小 font size"},
 	{panelSettingsGeneral, "界面字体", "font family"},
 	{panelSettingsGeneral, "自定义背景", "聊天 壁纸 wallpaper"},
-	{panelSettingsGeneral, "背景深浅", "透明度 opacity"},
+	{panelSettingsGeneral, "背景透明度", "背景深浅 opacity transparency"},
 	{panelSettingsGeneral, "发送消息", "Enter Ctrl+Enter Shift+Enter 换行"},
 	{panelSettingsGeneral, "开机自启", "启动 autostart launch"},
 	{panelSettingsGeneral, "关闭主窗口", "托盘 tray"},

@@ -290,7 +290,7 @@ func (u *UI) lockKey(event gfx.KeyEvent) gfx.EventResult {
 
 func (u *UI) drawChatBackground(canvas *gfx.Canvas, bounds ui.Rect) bool {
 	path := u.state.Settings.Background
-	if path == "" || bounds.Width <= 0 || bounds.Height <= 0 {
+	if path == "" || u.state.Settings.BackgroundTransparency >= 100 || bounds.Width <= 0 || bounds.Height <= 0 {
 		return false
 	}
 	bitmap := u.fileBitmap(path)
@@ -309,17 +309,4 @@ func (u *UI) drawChatBackground(canvas *gfx.Canvas, bounds ui.Rect) bool {
 	}
 	canvas.DrawBitmapRegion(bitmap, crop, bounds)
 	return true
-}
-
-func (u *UI) chatBackgroundTint() ui.Color {
-	shade := float32(u.state.Settings.BackgroundShade) / 100
-	tint := u.palette.chat
-	if u.isDark() {
-		tint.Alpha = 0.63 + 0.32*shade
-	} else {
-		// Maintain readable labels in both themes even at the least shaded value.
-		tint = tint.Mix(ui.RGB(111, 120, 140), 0.46*shade)
-		tint.Alpha = 0.60 + 0.11*shade
-	}
-	return tint
 }

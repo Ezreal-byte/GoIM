@@ -439,7 +439,7 @@ type Settings struct {
 	ProfileDetails               ProfileDetails `json:",omitzero"`
 	Presence                     Presence
 	Background                   string
-	BackgroundShade              int
+	BackgroundTransparency       int
 	HasLockPassword              bool
 	LockOnStartup                bool
 	SystemUnlock                 bool
@@ -593,8 +593,9 @@ func DefaultSettings(downloadDir string) Settings {
 		Neiwangtong: CompatibilityConfig{Enabled: true, Port: NeiwangtongDiscoveryPort},
 		LastSection: "contacts",
 		Language:    "zh-CN", Theme: "light", Nickname: "我", DesktopNotifications: true, DownloadDir: downloadDir,
-		InterfaceFontSize:     InterfaceFontSizeDefault,
-		VoiceMicrophoneVolume: VoiceVolumeDefault, VoiceSpeakerVolume: VoiceVolumeDefault,
+		BackgroundTransparency: 60,
+		InterfaceFontSize:      InterfaceFontSizeDefault,
+		VoiceMicrophoneVolume:  VoiceVolumeDefault, VoiceSpeakerVolume: VoiceVolumeDefault,
 		VoiceAudioDefaultsVersion: VoiceAudioDefaultsVersion,
 		DuplicatePolicy:           "rename", CloseToTray: true, SendKey: "Enter", Shortcuts: []Shortcut{
 			{Action: "会话内搜索", Keys: "Ctrl+F", Scope: "应用内"},
