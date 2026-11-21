@@ -377,6 +377,12 @@ func (p *Panels) drawShareMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rect, 
 				p.openShareQR(domain.File{ID: "device-home", Name: i18n.T("设备分享主页"), ShareURL: device.URL, ShareQR: device.QR})
 			})
 			add(p.ids.deviceShareInbox, "接收目录", FolderOpen, func() { p.requestLocalAction(device.ReceiveDir, true, true) })
+			label := "临时免确认（10 分钟）"
+			automatic := !device.AutoAcceptUntil.IsZero()
+			if automatic {
+				label = "恢复网页接收确认"
+			}
+			add(p.ids.deviceShareApproval, label, shareHomeIcon, func() { submit(domain.Command{Kind: domain.SetWebUploadApproval, Bool: automatic}) })
 			addDanger(p.ids.deviceShareStop, "关闭主页", X, func() { submit(domain.Command{Kind: domain.SetDeviceShare}) })
 		}
 	case shareMenuProject:

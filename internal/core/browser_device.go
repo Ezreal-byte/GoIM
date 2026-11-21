@@ -58,6 +58,8 @@ func (n *Node) setDeviceShare(enabled bool) error {
 		}
 		if !enabled {
 			p.BrowserHomeToken = ""
+			n.data.WebAutoUntil = time.Time{}
+			n.closeWebUploads(&p.State)
 		}
 		return nil
 	})
@@ -83,7 +85,7 @@ func (n *Node) attachDeviceShare(s *domain.State) {
 		n.webHomeLink.QR, _ = qrcode.Encode(url, qrcode.Medium, 224)
 	}
 	s.DeviceShare = domain.DeviceShare{
-		URL: url, ReceiveDir: filepath.Join(s.Settings.DownloadDir, domain.WebReceiveFolder),
+		AutoAcceptUntil: n.data.WebAutoUntil, URL: url, ReceiveDir: filepath.Join(s.Settings.DownloadDir, domain.WebReceiveFolder),
 		QR: append([]byte(nil), n.webHomeLink.QR...),
 	}
 }
@@ -134,6 +136,10 @@ func (n *Node) handleDeviceShare(w http.ResponseWriter, r *http.Request) {
 		n.watchShare(w, r, token, true)
 		return
 	}
+	if len(token) == 32 && strings.HasPrefix(tail, "upload/") {
+		n.handleUploadTicket(w, r, token, strings.TrimPrefix(tail, "upload/"))
+		return
+	}
 	if len(token) != 32 || tail != "" && tail != "upload" {
 		http.NotFound(w, r)
 		return
@@ -144,7 +150,7 @@ func (n *Node) handleDeviceShare(w http.ResponseWriter, r *http.Request) {
 	if validToken {
 		n.refreshShareSources(n.ownedShareIDs(), checkShareRoot)
 	}
-	page, downloadDir, ok := n.deviceSharePage(token)
+	page, _, ok := n.deviceSharePage(token)
 	if !ok {
 		renderShare(w, r, http.StatusNotFound, sharePageData{Error: "设备主页已关闭或链接无效。"})
 		return
@@ -175,15 +181,15 @@ func (n *Node) handleDeviceShare(w http.ResponseWriter, r *http.Request) {
 		page.UploadError = message
 		renderShare(w, r, status, page)
 	}
-	select {
-	case n.webUploads <- struct{}{}:
-		defer func() { <-n.webUploads }()
-	default:
-		fail(http.StatusTooManyRequests, "设备正在接收其他文件，请稍后重试。")
+	n.mu.Lock()
+	auto := time.Now().Before(n.data.WebAutoUntil)
+	n.mu.Unlock()
+	if !auto {
+		fail(http.StatusForbidden, "请通过上传弹窗发送接收请求，并等待 GoIM 同意。")
 		return
 	}
-	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(10 * time.Minute))
-	name, status, err := n.receiveWebFile(w, r, token, downloadDir)
+	name, status, err := n.receiveWebFile(w, r, token)
+
 	if err != nil {
 		fail(status, err.Error())
 		return
@@ -205,89 +211,42 @@ func openWebInbox(downloadDir string) (*os.Root, error) {
 	return openRealDirectory(dir)
 }
 
-func (n *Node) receiveWebFile(w http.ResponseWriter, r *http.Request, token, downloadDir string) (string, int, error) {
-	const maxBody = webUploadLimit + (64 << 10)
-	tooLarge := errors.New("文件超过 256 MB，无法上传。")
-	invalid := errors.New("请选择一个有效的文件后重试。")
-	unavailable := errors.New("无法写入设备的接收目录，请联系设备使用者。")
-	if r.ContentLength > maxBody {
-		return "", http.StatusRequestEntityTooLarge, tooLarge
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+// Older, single-file forms can upload directly during the explicit automatic window.
+func (n *Node) receiveWebFile(w http.ResponseWriter, r *http.Request, token string) (string, int, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, webUploadLimit+(64<<10))
 	reader, err := r.MultipartReader()
 	if err != nil {
-		return "", http.StatusBadRequest, invalid
+		return "", 400, errUploadInput
 	}
 	part, err := reader.NextPart()
 	if err != nil {
-		return "", http.StatusBadRequest, invalid
+		return "", 400, errUploadInput
 	}
-	_, parameters, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
-	name := parameters["filename"]
-	if err != nil || part.FormName() != "file" || !validFileName(name) || strings.HasPrefix(name, ".") {
-		return "", http.StatusBadRequest, invalid
+	_, params, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+	if err != nil || part.FormName() != "file" {
+		return "", 400, errUploadInput
 	}
-	root, err := openWebInbox(downloadDir)
-	if err != nil {
-		return "", http.StatusServiceUnavailable, unavailable
-	}
-	defer root.Close()
-	temp := ".goim-upload-" + randomToken()
-	file, err := root.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return "", http.StatusServiceUnavailable, unavailable
-	}
-	defer root.Remove(temp)
-	defer file.Close()
-	size, err := io.Copy(file, io.LimitReader(part, webUploadLimit+1))
-	var sizeError *http.MaxBytesError
-	if size > webUploadLimit || errors.As(err, &sizeError) {
-		return "", http.StatusRequestEntityTooLarge, tooLarge
-	}
-	if err != nil {
-		var pathError *os.PathError
-		if errors.As(err, &pathError) {
-			return "", http.StatusServiceUnavailable, unavailable
-		}
-		return "", http.StatusBadRequest, errors.New("上传中断，请重新选择文件。")
-	}
-	if _, err := reader.NextPart(); err != io.EOF {
-		if errors.As(err, &sizeError) {
-			return "", http.StatusRequestEntityTooLarge, tooLarge
-		}
-		return "", http.StatusBadRequest, invalid
-	}
-	if err := file.Sync(); err != nil {
-		return "", http.StatusServiceUnavailable, unavailable
-	}
-	if err := file.Close(); err != nil {
-		return "", http.StatusServiceUnavailable, unavailable
-	}
-	n.webUploadMu.Lock()
-	defer n.webUploadMu.Unlock()
-	room, err := webInboxHasRoom(root, size)
-	if err != nil {
-		return "", http.StatusServiceUnavailable, unavailable
-	}
-	if !room {
-		return "", http.StatusInsufficientStorage, errors.New("设备的网页接收目录已满，请联系设备使用者。")
-	}
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.closing || n.data.BrowserHomeToken != token || n.data.State.Settings.DownloadDir != downloadDir || r.Context().Err() != nil {
-		return "", http.StatusGone, errors.New("设备主页或接收位置已变化，请重新打开链接。")
-	}
-	for index := range 1000 {
-		candidate := webUploadFilename(name, index)
-		err := root.Link(temp, candidate)
-		switch {
-		case err == nil:
-			return candidate, http.StatusOK, nil
-		case !errors.Is(err, os.ErrExist):
-			return "", http.StatusServiceUnavailable, unavailable
+	t, err := n.offerWebUpload(token, webSender(r), params["filename"], 0, true)
+	var name string
+	if err == nil {
+		name, err = n.saveWebUpload(w, r, token, t, part, func() error {
+			if _, err := reader.NextPart(); err != io.EOF {
+				return errUploadInput
+			}
+			return nil
+		})
+		if err != nil {
+			n.setTransfer(t.ID, "failed", 0, 0, "网页上传失败")
 		}
 	}
-	return "", http.StatusConflict, errors.New("同名文件过多，请更改文件名后重试。")
+	if err != nil {
+		var problem uploadProblem
+		if errors.As(err, &problem) {
+			return "", problem.code, problem
+		}
+		return "", 503, errUploadStorage
+	}
+	return name, 200, nil
 }
 
 func webInboxHasRoom(root *os.Root, size int64) (bool, error) {

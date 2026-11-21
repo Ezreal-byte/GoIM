@@ -101,6 +101,9 @@ func (n *Node) execute(c domain.Command) error {
 	case domain.SetGroupNickname:
 		return n.setGroupNickname(c.GroupID, c.Value)
 	case domain.AcceptTransfer:
+		if n.isWebUpload(c.TransferID) {
+			return n.approveWebUpload(c.TransferID)
+		}
 		path := ""
 		if len(c.Paths) > 0 {
 			path = c.Paths[0]
@@ -115,6 +118,9 @@ func (n *Node) execute(c domain.Command) error {
 			return errors.New("找不到传输任务")
 		}
 		t := s.Transfers[i]
+		if t.WebSender != "" {
+			return errors.New("请从网页重新上传")
+		}
 		if t.PrintJobID != "" {
 			return errors.New("打印任务已结束；请从打印共享重新发起")
 		}
@@ -162,7 +168,7 @@ func (n *Node) execute(c domain.Command) error {
 					}
 				}
 			}
-			if t.ShareProject != "" || t.ShareRequest {
+			if t.WebSender != "" || t.ShareProject != "" || t.ShareRequest {
 				return nil
 			}
 			p.TransferTombstones[t.PeerID+":"+t.ID] = status
@@ -259,6 +265,8 @@ func (n *Node) execute(c domain.Command) error {
 				n.emitShareFeedback("分享已创建", "", false)
 			}
 		})
+	case domain.SetWebUploadApproval:
+		return n.setWebApproval(c.Bool)
 	case domain.SetDeviceShare:
 		title := "设备主页已关闭"
 		if c.Bool {

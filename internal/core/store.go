@@ -48,6 +48,7 @@ type persisted struct {
 	OwnerOffers             map[string]ownershipOffer
 	BrowserShares           map[string]browserShare
 	BrowserPort             string
+	WebAutoUntil            time.Time `json:",omitzero"`
 	BrowserHomeToken        string
 	LockCredential          credential
 }

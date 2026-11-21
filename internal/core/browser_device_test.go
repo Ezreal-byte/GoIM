@@ -175,6 +175,10 @@ func TestDeviceHomeRoutesAndUpload(t *testing.T) {
 	}
 	upload(unlocked.ShareURL+"/upload", "", 404, "unexpected.txt")
 	upload(device.URL+"/upload", "https://another-origin.example", 403, "blocked.txt")
+	upload(device.URL+"/upload", "", 403, "needs-approval.txt")
+	if err := n.setWebApproval(false); err != nil {
+		t.Fatal(err)
+	}
 	upload(device.URL+"/upload", "", 400, "../escape.txt")
 	upload(device.URL+"/upload", "", 400, "first.txt", "second.txt")
 	if html := upload(device.URL+"/upload", "", 200, "补充资料.txt"); !strings.Contains(html, "上传完成") {

@@ -404,6 +404,13 @@ func (p *Panels) drawSettingsTransfers(f ui.C, theme ui.Theme, state domain.Stat
 				}
 			})
 		})
+		p.settingsRow(f, theme, i18n.T("网页上传需要确认"), i18n.T("在传入列表逐个确认。临时关闭 10 分钟后自动恢复。"), func() {
+			enabled := ui.State[bool](f, "web-upload-approval")
+			*enabled = state.DeviceShare.AutoAcceptUntil.IsZero()
+			if ui.Switch(f.Part("web-upload-approval"), enabled, i18n.T("网页上传需要确认")).Disabled(state.DeviceShare.URL == "").Changed() {
+				submit(domain.Command{Kind: domain.SetWebUploadApproval, Bool: *enabled})
+			}
+		})
 		p.settingsRow(f, theme, i18n.T("自动接收聊天视频"), i18n.T("小于 500 MiB 的视频自动保存，较大的视频需手动接收"), func() {
 			enabled := ui.State[bool](f, "auto-receive-videos")
 			*enabled = !settings.ManualVideoReceive

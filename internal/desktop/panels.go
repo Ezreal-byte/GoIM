@@ -140,6 +140,7 @@ type panelIDs struct {
 	sharePickFiles, sharePickFolder      gfx.ID
 	deviceShareMenu, shareMenuEnableLink gfx.ID
 	shareToastScope, shareToastDismiss   gfx.ID
+	deviceShareApproval                  gfx.ID
 	deviceShareStart                     gfx.ID
 	deviceShareCopy                      gfx.ID
 	deviceShareQR                        gfx.ID
@@ -452,6 +453,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.shareMenuEnableLink = tree.ID(shares, "share-menu-enable-link")
 	p.ids.shareToastScope = tree.ID(shares, "toast")
 	p.ids.shareToastDismiss = tree.ID(shares, "toast-dismiss")
+	p.ids.deviceShareApproval = tree.ID(shares, "device-upload-approval")
 	p.ids.deviceShareStart = tree.ID(shares, "device-start")
 	p.ids.deviceShareCopy = tree.ID(shares, "device-copy")
 	p.ids.deviceShareQR = tree.ID(shares, "device-qr")
@@ -875,6 +877,9 @@ func (p *Panels) refreshTransferRows() {
 func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domain.File) panelTransferEntry {
 	peer := state.Peer(transfer.PeerID)
 	name := peer.Name
+	if transfer.WebSender != "" {
+		name = transfer.WebSender
+	}
 	if strings.TrimSpace(name) == "" {
 		name = i18n.T("未知联系人")
 	}
@@ -896,6 +901,9 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domai
 	}
 	if transfer.PrintJobID != "" {
 		entry.source = i18n.T("打印共享")
+	}
+	if transfer.WebSender != "" {
+		entry.source = i18n.T("网页接收")
 	}
 	entry.path = transfer.Path
 	if transfer.ShareFolder {
@@ -939,14 +947,14 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domai
 	switch transfer.Status {
 	case "offered":
 		if transfer.Direction == "receive" {
-			entry.accept, entry.saveAs, entry.reject = true, true, true
+			entry.accept, entry.saveAs, entry.reject = true, transfer.WebSender == "", true
 		} else {
 			entry.cancel = true
 		}
 	case "transferring", "verifying", "waiting", "retry_requested", "requesting", "queued":
 		entry.cancel = true
 	case "failed", "cancelled", "rejected":
-		entry.retry = true
+		entry.retry = transfer.WebSender == ""
 		if transfer.Direction == "send" && transfer.FromShare {
 			entry.retry = !transfer.Revoked && file.Shared && !file.ShareProtected
 		}

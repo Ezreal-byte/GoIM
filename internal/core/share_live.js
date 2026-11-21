@@ -24,9 +24,13 @@
         else location.reload();
       };
       // Keep the user's selected upload until the dialog is closed.
-      const dialog = document.querySelector('dialog[open]');
-      if (dialog) dialog.addEventListener('close', refresh, {once: true});
-      else refresh();
+      const dialog = document.querySelector('#upload-dialog');
+      function whenIdle() {
+        if (dialog?.open) dialog.addEventListener('close', whenIdle, {once:true});
+        else if (dialog?.dataset.uploadActive === 'true') dialog.addEventListener('uploadidle', whenIdle, {once:true});
+        else refresh();
+      }
+      whenIdle();
     });
   }
 

@@ -103,8 +103,18 @@ h1 { font-size:clamp(22px,2vw,28px); font-weight:650; line-height:1.23; letter-s
 .gate form { margin-top:24px }
 .gate input { display:block; width:100%; min-height:44px; border:1px solid var(--muted); border-radius:5px; padding:8px 12px; background:var(--paper); color:var(--ink) }
 .gate .primary { margin-top:16px }
-.gate .error,.upload-error,.upload-live { color:var(--error) }
+.gate .error,.upload-error { color:var(--error) }
+.upload-live { color:var(--muted) }
 .upload-dialog { position:fixed; inset:0; margin:auto; width:min(440px,calc(100% - 32px)); max-height:calc(100% - 32px); padding:24px; color:var(--ink); background:var(--paper); border:1px solid var(--line); border-radius:10px; box-shadow:0 12px 48px #0002 }
+.upload-dialog { overflow:auto }
+#upload-target { border:1px dashed var(--line); border-radius:6px; padding:12px }
+#upload-target.dragging { border-color:var(--accent); background:var(--hover) }
+#upload-list { list-style:none; margin:0; padding:0; max-height:35vh; overflow:auto }
+#upload-list li { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 8px; padding:8px 0; border-block-end:1px solid var(--line) }
+#upload-list .file-name { overflow-wrap:anywhere }
+#upload-list .file-status { color:var(--muted); font-size:13px }
+#upload-list progress { width:100%; height:6px; grid-column:1/-1; accent-color:var(--accent) }
+#upload-list .failed { color:var(--error) }
 .upload-dialog::backdrop { background:#14182152 }
 .dialog-title { margin-bottom:20px }
 .icon-button { display:inline-grid; flex:none; place-items:center; width:44px; height:44px; border:0; color:var(--muted); background:transparent; border-radius:4px }
@@ -171,12 +181,13 @@ h1 { font-size:clamp(22px,2vw,28px); font-weight:650; line-height:1.23; letter-s
     </div>
     {{if .UploadError}}<p class="upload-error" role="alert">{{.UploadError}}</p>{{end}}
     <form method="post" enctype="multipart/form-data" action="{{.Path}}/upload" id="upload-form" data-limit="{{uploadLimit}}">
-      <div class="upload-choice">
-        <label class="pick-file"><span class="pick-caption" aria-hidden="true">选择文件</span><input id="upload-file" name="file" type="file" aria-label="选择文件" aria-describedby="upload-help" required></label>
-        <span class="upload-selection" id="upload-selection"></span>
-        <button class="icon-button" id="clear-upload" aria-label="移除所选文件" type="button" hidden><span class="glyph g-close" aria-hidden="true"></span></button>
+      <div class="upload-choice" id="upload-target">
+        <label class="pick-file"><span class="pick-caption" aria-hidden="true">选择文件</span><input id="upload-file" name="file" type="file" multiple aria-label="选择文件" aria-describedby="upload-help" required></label>
+        <span class="upload-selection" id="upload-selection">或将文件拖到这里</span>
+        <button class="icon-button" id="clear-upload" aria-label="清除待发送和已结束的文件" title="清除待发送和已结束的文件" type="button" hidden><span class="glyph g-close" aria-hidden="true"></span></button>
       </div>
-      <p id="upload-help" class="upload-help">单文件最大 256 MB。文件将保存到设备接收目录。</p>
+      <p id="upload-help" class="upload-help">支持多选，每个文件最大 256 MB。需要确认时，GoIM 会先询问接收方。</p>
+      <ul id="upload-list" aria-label="上传队列"></ul>
       <div class="upload-live" id="upload-status" role="status"></div>
       <button class="primary" type="submit">开始上传</button>
     </form>

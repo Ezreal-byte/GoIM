@@ -225,6 +225,8 @@ func New(opts Options) (*Node, error) {
 	if bound, ok := listener.Addr().(*net.TCPAddr); ok {
 		n.localIP = browserIP(bound, n.data.State.Settings.Network).String()
 	}
+	// Unattended browser uploads are always disabled on startup.
+	n.data.WebAutoUntil = time.Time{}
 	n.data.State.ListenAddress = listener.Addr().String()
 	n.data.State.Version = opts.Version
 	for i := range n.data.State.Peers {
@@ -232,6 +234,10 @@ func New(opts Options) (*Node, error) {
 	}
 	for i := range n.data.State.Transfers {
 		t := &n.data.State.Transfers[i]
+		if t.WebSender != "" {
+			recoverWebUpload(t)
+			continue
+		}
 		if t.ShareProject != "" {
 			if _, ok := n.data.ReceivePublications[t.ID]; !ok {
 				resetShareDownload(t)

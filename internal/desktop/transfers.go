@@ -220,7 +220,7 @@ func (p *Panels) drawIncomingTransfers(f ui.C, theme ui.Theme, bounds ui.Rect, s
 						if bounds.Width < 760 {
 							width = 68
 						}
-						if namedButton(f, entry.ids.saveAs, i18n.T("另存为…")).Outline().FontSize(15).Height(38).MinWidth(width + 8).Disabled(p.transferPickerOpen).Clicked() {
+						if entry.saveAs && namedButton(f, entry.ids.saveAs, i18n.T("另存为…")).Outline().FontSize(15).Height(38).MinWidth(width+8).Disabled(p.transferPickerOpen).Clicked() {
 							p.saveTransferAs(f.Canvas(), submit, entry.transfer)
 						}
 						if namedButton(f, entry.ids.accept, i18n.T("接收")).FontSize(15).Height(38).MinWidth(width).Clicked() {

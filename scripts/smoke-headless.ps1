@@ -386,12 +386,6 @@ try {
     Send-Command $taskAlice 'click "复制项目链接"'
     $taskFolderURL=[regex]::Match((Send-Command $taskAlice 'clip'),'http://127\.0\.0\.1:\d+/s/[a-zA-Z0-9_-]+').Value
     if(!$taskFolderURL -or $taskFolderURL -eq $taskURL){throw 'No distinct browser folder share URL was copied'}
-    if($BrowserScreenshots){
-        $nodeOptions=@()
-        if([int](node -p "process.versions.node.split('.')[0]") -eq 20){$nodeOptions+='--experimental-websocket'}
-        node @nodeOptions scripts/share-browser-qa.mjs $taskChrome $taskBrowserProfile $taskURL $OutputDir $taskFolderURL $taskFolderShare
-        if($LASTEXITCODE -ne 0){throw 'Responsive browser screenshot check failed'}
-    }
     $taskRootPage=Invoke-WebRequest -UseBasicParsing -Uri $taskFolderURL -TimeoutSec 8
     $taskNestedHref=[regex]::Match($taskRootPage.Content,'href="([^"]+\?dir=\d+)" aria-label="打开文件夹：界面设计"').Groups[1].Value
     if(!$taskNestedHref){throw 'Shared folder is missing its subfolder link'}
@@ -412,19 +406,38 @@ try {
     $taskDeviceHome=Invoke-WebRequest -UseBasicParsing -Uri $taskDeviceURL -TimeoutSec 8
     if($taskDeviceHome.Content -notmatch '交付资料' -or $taskDeviceHome.Content -notmatch '真实文件.txt' -or $taskDeviceHome.Content -notmatch '需密码'){throw 'Device page did not list both active shares'}
     $taskUploadExpectedHash=(Get-FileHash -LiteralPath $taskSamplePath).Hash
-    $taskUploadBody=[Net.Http.MultipartFormDataContent]::new()
-    $taskUploadSource=[IO.File]::OpenRead($taskSamplePath)
-    try {
-        $taskUploadBody.Add([Net.Http.StreamContent]::new($taskUploadSource), 'file', [IO.Path]::GetFileName($taskSamplePath))
-        $taskDeviceUpload=Invoke-WebRequest -UseBasicParsing -Uri ($taskDeviceURL+'/upload') -Method Post -Body $taskUploadBody -TimeoutSec 8
-    } finally {
-        $taskUploadBody.Dispose()
-        $taskUploadSource.Dispose()
-    }
-    if($taskDeviceUpload.Content -notmatch '上传完成'){throw 'Browser upload was not confirmed'}
+    $taskFileInfo=Get-Item -LiteralPath $taskSamplePath
+    $taskOffer=Invoke-RestMethod -Uri ($taskDeviceURL+'/upload/request') -Method Post -ContentType 'application/json; charset=utf-8' -Body (@{name=$taskFileInfo.Name; size=$taskFileInfo.Length}|ConvertTo-Json)
+    if($taskOffer.status -ne 'offered'){throw 'Web upload bypassed confirmation'}
+    Send-Command $taskAlice 'click "button:传输"'
+    Send-Command $taskAlice 'waitfor "待接收 1" 10000'
+    Send-Command $taskAlice 'click "button:接收"'
+    $taskUploadURL=$taskDeviceURL+'/upload/'+$taskOffer.id
+    if((Invoke-RestMethod -Uri $taskUploadURL).status -ne 'waiting'){throw 'Client did not approve web upload'}
+    $taskResult=Invoke-WebRequest -Uri $taskUploadURL -Method Put -InFile $taskSamplePath -TimeoutSec 8
+    if($taskResult.StatusCode -ne 204){throw 'Upload failed'}
+    Send-Command $taskAlice 'waitfor "网页接收" 10000'
+    Send-Command $taskAlice 'click "button:文件共享"'
     $taskInboxFile=Join-Path (Join-Path $taskRunDir '我-downloads/网页接收') '真实文件.txt'
     if((Get-FileHash -LiteralPath $taskInboxFile).Hash -ne $taskUploadExpectedHash){throw 'Browser upload SHA256 differs'}
-    Send-Command $taskAlice 'waitfor "网页已接收文件" 10000'
+    if($BrowserScreenshots){
+        Send-Command $taskAlice 'click "设备分享主页"'
+        Send-Command $taskAlice 'click "临时免确认（10 分钟）"'
+    }
+    if($BrowserScreenshots){
+        $nodeOptions=@()
+        if([int](node -p "process.versions.node.split('.')[0]") -eq 20){$nodeOptions+='--experimental-websocket'}
+        node @nodeOptions scripts/share-browser-qa.mjs $taskChrome $taskBrowserProfile $taskURL $OutputDir $taskFolderURL $taskFolderShare $taskDeviceURL
+        if($LASTEXITCODE -ne 0){throw 'Responsive browser screenshot check failed'}
+        foreach($taskWebName in @('browser-first.txt','browser-second.txt')){
+            $taskWebPath=Join-Path (Split-Path $taskInboxFile) $taskWebName
+            if([IO.File]::ReadAllText($taskWebPath) -cne $taskWebName){throw 'Dropped file contents differ'}
+        }
+    }
+    if($BrowserScreenshots){
+        Send-Command $taskAlice 'click "设备分享主页"'
+        Send-Command $taskAlice 'click "恢复网页接收确认"'
+    }
     Send-Command $taskAlice 'wait 300'
     Send-Command $taskAlice 'expect layout clean'
     Save-Screenshot $taskAlice 'device-share-toolbar.png'

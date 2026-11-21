@@ -263,6 +263,9 @@ type ShareDownload struct {
 }
 
 type Transfer struct {
+	WebSender         string `json:",omitempty"` // Browser address, without its ephemeral port.
+	WebAuto           bool   `json:",omitempty"` // Approved under the temporary unattended window.
+	WebInbox          string `json:",omitempty"` // Pinned inbox for this upload.
 	ShareProject      string `json:",omitempty"` // member catalog project, for HTTP downloads
 	ShareIndex        int    `json:",omitempty"`
 	ShareFolder       bool   `json:",omitempty"`
@@ -298,7 +301,7 @@ type Transfer struct {
 }
 
 func (t Transfer) CanClearPartial() bool {
-	return t.ShareProject == "" && !t.ShareRequest && t.Direction == "receive" && t.PrintJobID == "" && (t.Status == "failed" || t.Status == "waiting" || t.Status == "cancelled" || t.Status == "rejected")
+	return t.WebSender == "" && t.ShareProject == "" && !t.ShareRequest && t.Direction == "receive" && t.PrintJobID == "" && (t.Status == "failed" || t.Status == "waiting" || t.Status == "cancelled" || t.Status == "rejected")
 }
 
 // PrintCapabilities is the portable subset of printer options both sides can
@@ -664,6 +667,7 @@ type ConnectionFeedback struct {
 const WebReceiveFolder = "网页接收"
 
 type DeviceShare struct {
+	AutoAcceptUntil time.Time
 	URL, ReceiveDir string
 	QR              []byte
 }
@@ -796,6 +800,7 @@ const (
 	MarkRead             CommandKind = "mark_read"
 	SaveDraft            CommandKind = "save_draft"
 	ShareFiles           CommandKind = "share_files"
+	SetWebUploadApproval CommandKind = "set_web_upload_approval"
 	SetDeviceShare       CommandKind = "set_device_share"
 	RemoveShare          CommandKind = "remove_share"
 	RefreshShares        CommandKind = "refresh_shares"

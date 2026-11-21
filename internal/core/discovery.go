@@ -242,6 +242,7 @@ func (n *Node) discoveryLoop() {
 	for {
 		select {
 		case <-ticker.C:
+			n.expireWebUploads(time.Now())
 			n.scheduleShareCheck()
 			announce(false)
 		case <-n.discoveryWake:

@@ -4,7 +4,7 @@ import { readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-const [chrome, profile, url, output, folderURL, sharedDirectory] = process.argv.slice(2);
+const [chrome, profile, url, output, folderURL, sharedDirectory, deviceURL] = process.argv.slice(2);
 if (!chrome || !profile || !output || !/^http:\/\/127\.0\.0\.1:\d+\/s\/[\w-]+$/.test(url ?? "")) {
   throw new Error("Expected Chrome path, isolated profile, loopback share URL, and output directory");
 }
@@ -82,6 +82,16 @@ try {
   }
   const {data}=await call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
   await writeFile(join(output,"browser-share-directory.png"),Buffer.from(data,"base64"));
+  if (deviceURL) {
+    await call("Page.navigate",{url:deviceURL});
+    await eventually(() => evaluate("Boolean(document.querySelector('[data-open-upload]'))"));
+    await evaluate("document.querySelector('[data-open-upload]').click(); true");
+    // Drop inside the modal (the background directory is inert while it is open).
+    await evaluate("(() => {const d = new DataTransfer(); for (const name of ['browser-first.txt','browser-second.txt']) d.items.add(new File([name],name));document.querySelector('#upload-target').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:d}));document.querySelector('#upload-form').requestSubmit();return true;})()");
+    await eventually(() => evaluate("Array.from(document.querySelectorAll('#upload-list .file-status')).filter(e => e.textContent==='已接收').length===2"));
+    const upload = await call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+    await writeFile(join(output,"browser-web-uploads.png"),Buffer.from(upload.data,"base64"));
+  }
 } finally {
   socket?.close();
   browser.kill();
