@@ -155,7 +155,7 @@ func TestPromoScreenshots(t *testing.T) {
 	shot("contacts-light")
 
 	click(shell.ids.navTransfers)
-	for _, label := range []string{"文件传输", "待接收 2", "北岭计划 · 交付资料.zip", "品牌字体授权包.zip"} {
+	for _, label := range []string{"文件传输", "待接收 2", "来源", "网页接收", "北岭计划 · 交付资料", "品牌字体授权包.zip"} {
 		waitText(label)
 		if err := session.Expect("text", label); err != nil {
 			t.Fatal(err)
@@ -164,7 +164,7 @@ func TestPromoScreenshots(t *testing.T) {
 	shot("transfers-light")
 
 	click(shell.ids.navShares)
-	for _, label := range []string{"文件共享", "设备分享主页", "北岭计划 · 交付资料", "设计归档", "密码访问"} {
+	for _, label := range []string{"文件共享", "设备分享主页", "北岭计划 · 交付资料", "北岭评审会议记录.pdf", "密码访问"} {
 		waitText(label)
 		if err := session.Expect("text", label); err != nil {
 			t.Fatal(err)
@@ -172,6 +172,12 @@ func TestPromoScreenshots(t *testing.T) {
 	}
 	shot("shares-light")
 
+	click(shell.ids.navPrint)
+	for _, label := range []string{"打印共享", "共享人", "打印能力", "最近打印", "北岭评审议程.pdf"} {
+		waitText(label)
+	}
+	shot("print-sharing")
+	click(shell.ids.navShares)
 	setTheme("dark")
 	shot("shares-dark")
 	click(shell.ids.navTransfers)
@@ -305,12 +311,14 @@ func promoState(t *testing.T) domain.State {
 	state.Files = append(state.Files,
 		domain.File{
 			ID: "delivery", Name: "北岭计划 · 交付资料", Size: 1717986918, ShareFolder: true,
-			ShareEntryCount: 32, SenderID: "self", Shared: true, CreatedAt: at(2),
-			ShareURL: "http://192.168.50.18:47842/s/delivery",
+			ShareEntryCount: 32, SenderID: "lin", Shared: true, CreatedAt: at(2),
+			MemberURL: "http://192.168.50.21:47842/s/delivery",
+			ShareURL:  "http://192.168.50.18:47842/s/delivery",
 		},
 		domain.File{
 			ID: "archive", Name: "设计归档", Size: 3650722201, ShareFolder: true,
-			ShareEntryCount: 128, SenderID: "self", Shared: true, ShareProtected: true,
+			ShareEntryCount: 128, SenderID: "xu", Shared: true, ShareProtected: true,
+			MemberURL: "http://192.168.50.22:47842/s/archive",
 			CreatedAt: at(-1080), ShareURL: "http://192.168.50.18:47842/s/archive",
 		},
 		domain.File{
@@ -350,14 +358,18 @@ func promoState(t *testing.T) domain.State {
 			Size: 25395, UpdatedAt: at(-1),
 		},
 		domain.Transfer{
-			ID: "incoming-archive", FileID: "archive-offer", ConversationID: "north", PeerID: "xia",
-			Direction: "receive", Status: "transferring", Name: "北岭计划 · 交付资料.zip",
+			ID: "incoming-archive", FileID: "delivery", FromShare: true, ShareProject: "delivery", ShareFolder: true, PeerID: "lin",
+			Direction: "receive", Status: "transferring", Name: "北岭计划 · 交付资料",
 			Size: 1717986918, Done: 1170000000, Speed: 25794970, UpdatedAt: at(0),
 		},
 		domain.Transfer{
 			ID: "incoming-fonts", FileID: "font-offer", ConversationID: "north", PeerID: "su",
 			Direction: "receive", Status: "offered", Name: "品牌字体授权包.zip",
 			Size: 586 * 1024 * 1024, UpdatedAt: at(-9),
+		},
+		domain.Transfer{
+			ID: "web-receive", FileID: "web-file", WebSender: "192.168.50.28", Direction: "receive",
+			Status: "completed", Name: "会场平面图.pdf", Size: 482734, Done: 482734, UpdatedAt: at(-2),
 		},
 		domain.Transfer{
 			ID: "failed-render", FileID: "render-file", ConversationID: "north", PeerID: "xu",
@@ -381,6 +393,27 @@ func promoState(t *testing.T) domain.State {
 			ID: fmt.Sprintf("north-%d", i), ConversationID: "north", SenderID: m.sender, Kind: m.kind,
 			Text: m.text, FileID: m.file, Status: "delivered", CreatedAt: at(m.minutes),
 		})
+	}
+	capabilities := domain.PrintCapabilities{
+		Papers: []string{"A4", "A3"}, ColorModes: []string{domain.PrintColorMonochrome, domain.PrintColorColor},
+		DuplexModes: []string{domain.PrintDuplexSimplex, domain.PrintDuplexLongEdge},
+	}
+	state.Printers = []domain.PrinterShare{
+		{ID: "studio", OwnerID: "lin", OwnerName: "林晚", Name: "设计室 · 彩色打印机", Capabilities: capabilities, Available: true},
+		{ID: "meeting", OwnerID: "xu", OwnerName: "许知远", Name: "会议室 · 双面打印机", Available: true,
+			Capabilities: domain.PrintCapabilities{Papers: []string{"A4"}, DuplexModes: []string{domain.PrintDuplexLongEdge}}},
+		{ID: "front", OwnerID: "xia", OwnerName: "夏岚", Name: "前台 · 文档打印机", Capabilities: domain.PrintCapabilities{Papers: []string{"A4"}}},
+	}
+	for i, name := range []string{"北岭评审议程.pdf", "主视觉校样.pdf", "场地布置清单.pdf"} {
+		printer := state.Printers[i%2]
+		status := domain.PrintStatusCompleted
+		if i == 0 {
+			status = domain.PrintStatusQueued
+		}
+		state.PrintJobs = append(state.PrintJobs, domain.PrintJob{ID: fmt.Sprintf("print-%d", i),
+			PrinterID: printer.ID, PrinterName: printer.Name, PrinterOwnerID: printer.OwnerID, PrinterOwnerName: printer.OwnerName,
+			SenderID: state.Self.ID, SenderName: state.Self.Name, FileName: name, Status: status,
+			Options: domain.PrintOptions{Paper: "A4", Copies: 1}, CreatedAt: at(-12 - i*15), UpdatedAt: at(-10 - i*15)})
 	}
 	return state
 }

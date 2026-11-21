@@ -439,6 +439,9 @@ try {
         Send-Command $taskAlice 'click "临时免确认（10 分钟）"'
     }
     if($BrowserScreenshots){
+        Copy-Item -LiteralPath 'website/assets/goim.png' -Destination (Join-Path $taskFolderShare '项目标识.png')
+        Set-Content -LiteralPath (Join-Path $taskFolderShare '验收计划.csv') -Value @('阶段,交付物', '设计,界面设计', '验收,交付清单') -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $taskFolderShare '交付说明.md') -Value '# 交付说明' -Encoding utf8
         $nodeOptions=@()
         if([int](node -p "process.versions.node.split('.')[0]") -eq 20){$nodeOptions+='--experimental-websocket'}
         node @nodeOptions scripts/share-browser-qa.mjs $taskChrome $taskBrowserProfile $taskURL $OutputDir $taskFolderURL $taskFolderShare $taskDeviceURL

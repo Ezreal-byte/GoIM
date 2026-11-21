@@ -6,7 +6,7 @@ on:
     inputs:
       version:
         description: Package version
-        default: 0.1.18
+        default: 0.1.19
         required: true
         type: string
 permissions:
@@ -98,6 +98,7 @@ jobs:
         run: |
           test "$(go env GOARCH)" = '${{ matrix.arch }}'
           go mod download
+          test "$(go list -m -f '{{with .Replace}}{{.Path}}{{end}}' github.com/vivaui/viva)" = 'github.com/Ezreal-byte/viva'
           git diff --exit-code -- go.mod go.sum
       - name: Format, vet and full tests
         run: |
