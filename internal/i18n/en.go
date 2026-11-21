@@ -88,8 +88,9 @@ var en = map[string]string{
 	"源文件不可用":      "Source file unavailable",
 	"接收新文件，并跟进发送和接收进度。":   "Accept new files and track incoming and outgoing transfers.",
 	"接收上方文件后，可在这里查看传输进度。": "Accept a file above to see its progress here.",
-	"等待对方接收":           "Waiting for recipient",
-	"取消传输":             "Cancel transfer",
+	"等待对方接收": "Waiting for recipient",
+	"取消传输":   "Cancel transfer",
+
 	"传输仍在处理中，请稍后重试":    "Transfer is still in progress. Try again shortly.",
 	"无效的传输任务":          "Invalid transfer",
 	"临时文件与接收目标相同，无法清理": "The partial file is the download destination and cannot be cleared.",

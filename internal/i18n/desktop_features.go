@@ -4,16 +4,16 @@ package i18n
 // settings layout catalog, keeping the main locale table easy to scan.
 func init() {
 	for label, english := range map[string]string{
-		"显示 GitHub 图标":            "Show GitHub icon",
 		"在主窗口顶栏显示作者的 GitHub 主页入口": "Link to the author’s GitHub profile from the title bar",
-		"作者的 GitHub 主页":           "Author’s GitHub profile",
-		"无法打开链接":                  "Could not open link",
-		"正在刷新局域网联系人":              "Refreshing LAN contacts",
-		"联系人刷新完成":                 "Contact refresh complete",
-		"当前有 %d 位在线联系人":           "Online contacts: %d",
-		"搜索设置":                    "Search settings",
-		"搜索结果":                    "Search results",
-		"没有匹配的设置":                 "No matching settings",
+		"显示 GitHub 图标":  "Show GitHub icon",
+		"作者的 GitHub 主页": "Author’s GitHub profile",
+		"无法打开链接":        "Could not open link",
+		"正在刷新局域网联系人":    "Refreshing LAN contacts",
+		"联系人刷新完成":       "Contact refresh complete",
+		"当前有 %d 位在线联系人": "Online contacts: %d",
+		"搜索设置":          "Search settings",
+		"搜索结果":          "Search results",
+		"没有匹配的设置":       "No matching settings",
 
 		"打印能力":       "Capabilities",
 		"点击升序排列":     "Sort ascending",
