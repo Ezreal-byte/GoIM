@@ -48,7 +48,7 @@ func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation do
 	u.drawerPage.Draw(canvas, body, func(f ui.C) {
 		ui.Column(f).Fill().Gap(11).Children(func() {
 			ui.Row(f).FillWidth().Height(38).Items(ui.Center).Children(func() {
-				ui.Text(f, i18n.T("群聊信息")).FontSize(16).Weight(gfx.WeightSemibold).Grow(1)
+				ui.Text(f, i18n.T("群聊信息")).FontSize(textSize(f, 16)).Weight(gfx.WeightSemibold).Grow(1)
 				if u.iconButton(f, u.ids.memberClose, u.iconX, i18n.T("关闭详情"), 32).Clicked() {
 					u.requestCloseDrawer()
 				}
@@ -70,7 +70,7 @@ func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation do
 					avatarClicked = true
 				}
 				ui.Column(f).Grow(1).Gap(3).Children(func() {
-					ui.Text(f, group.Name).FontSize(17).Weight(gfx.WeightSemibold).Ellipsis()
+					ui.Text(f, group.Name).FontSize(textSize(f, 17)).Weight(gfx.WeightSemibold).Ellipsis()
 					note := i18n.T("群主可修改群名")
 					if !owner {
 						note = i18n.T("群成员可查看成员信息")
@@ -78,7 +78,7 @@ func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation do
 					if native {
 						note = i18n.T("内网通群聊")
 					}
-					ui.Text(f, note).FontSize(11).Muted()
+					ui.Text(f, note).FontSize(textSize(f, 11)).Muted()
 				})
 				if owner && !u.renameOpen {
 					edit := u.iconButton(f, u.ids.memberStartRename, u.iconPencil, i18n.T("修改群名"), 30)
@@ -104,7 +104,7 @@ func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation do
 			}
 			ui.Row(f).Height(26).Items(ui.Center).Children(func() {
 				total, _ := u.groupCounts(group)
-				ui.Text(f, i18n.T("成员 (")+intString(total)+")").FontSize(14).
+				ui.Text(f, i18n.T("成员 (")+intString(total)+")").FontSize(textSize(f, 14)).
 					Weight(gfx.WeightSemibold)
 				ui.Spacer(f)
 				if owner {
@@ -150,11 +150,11 @@ func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation do
 						u.avatarStatus(f, name, peer.Avatar, 36, peerOnline(u, peer.ID))
 						ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
 							ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
-								ui.Text(f, name).FontSize(13.5).Weight(gfx.WeightMedium).Ellipsis()
+								ui.Text(f, name).FontSize(textSize(f, 13.5)).Weight(gfx.WeightMedium).Ellipsis()
 								if peer.ID == group.OwnerID {
 									ui.Row(f).PadSides(2, 7, 2, 7).Radius(8).
 										Background(u.palette.mutedAvatar).Children(func() {
-										ui.Text(f, i18n.T("群主")).FontSize(9.5).Muted()
+										ui.Text(f, i18n.T("群主")).FontSize(textSize(f, 9.5)).Muted()
 									})
 								}
 							})
@@ -162,7 +162,7 @@ func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation do
 							if peerOnline(u, peer.ID) {
 								status = i18n.T("在线")
 							}
-							ui.Text(f, status).FontSize(10.5).Muted()
+							ui.Text(f, status).FontSize(textSize(f, 10.5)).Muted()
 						})
 						if peer.ID != u.state.Self.ID {
 							ui.Icon(f, u.iconMore).Size(17, 17).Color(u.palette.secondaryText)
@@ -183,7 +183,7 @@ func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation do
 				u.drawGroupNicknameEditor(f, group)
 			}
 			ui.Row(f).Height(36).Items(ui.Center).Children(func() {
-				ui.Text(f, i18n.T("消息免打扰")).FontSize(13).Grow(1)
+				ui.Text(f, i18n.T("消息免打扰")).FontSize(textSize(f, 13)).Grow(1)
 				muted := ui.State[bool](f, "muted")
 				*muted = conversation.Muted
 				if ui.Switch(f, muted, "").Hit(u.ids.memberMuteToggle, i18n.T("消息免打扰")).Changed() {
@@ -191,7 +191,7 @@ func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation do
 				}
 			})
 			ui.Row(f).Height(36).Items(ui.Center).Children(func() {
-				ui.Text(f, i18n.T("置顶聊天")).FontSize(13).Grow(1)
+				ui.Text(f, i18n.T("置顶聊天")).FontSize(textSize(f, 13)).Grow(1)
 				pinned := ui.State[bool](f, "pinned")
 				*pinned = conversation.Pinned
 				if ui.Switch(f, pinned, "").Hit(u.ids.memberPinToggle, i18n.T("置顶聊天")).Changed() {
@@ -786,7 +786,7 @@ func (u *UI) drawChatFilesPane(canvas *gfx.Canvas, viewport ui.Rect) {
 	u.drawerPage.Draw(canvas, viewport, func(f ui.C) {
 		ui.Column(f).Fill().Children(func() {
 			ui.Row(f).FillWidth().Height(u.textExtent(60, 32)).PadX(20).Items(ui.Center).Gap(12).Children(func() {
-				ui.Text(f, title).FontSize(16).Weight(gfx.WeightSemibold).Grow(1)
+				ui.Text(f, title).FontSize(textSize(f, 16)).Weight(gfx.WeightSemibold).Grow(1)
 				if u.iconButton(f, u.ids.fileClose, u.iconX, i18n.T("关闭详情"), 36).Clicked() {
 					u.closeDrawer()
 					u.activePrintID = ""
@@ -835,7 +835,7 @@ func (u *UI) drawFileList(f ui.C) {
 						if active {
 							foreground = u.palette.selectedText
 						}
-						ui.Text(f, item.label).FontSize(11.5).Weight(gfx.WeightMedium).Color(foreground)
+						ui.Text(f, item.label).FontSize(textSize(f, 11.5)).Weight(gfx.WeightMedium).Color(foreground)
 					})
 				if filter.Clicked() {
 					u.fileFilter = item.value
@@ -860,14 +860,14 @@ func (u *UI) drawFileList(f ui.C) {
 					Children(func() {
 						drawFileIcon(f, u.theme, fileTypeIcon(file), 36, 19)
 						ui.Column(f).Grow(1).Gap(3).Justify(ui.Center).Children(func() {
-							ui.Text(f, file.Name).FontSize(13).Weight(gfx.WeightMedium).Ellipsis()
+							ui.Text(f, file.Name).FontSize(textSize(f, 13)).Weight(gfx.WeightMedium).Ellipsis()
 							sender := i18n.T("我")
 							if file.SenderID != "" && file.SenderID != u.state.Self.ID {
 								sender = u.state.Peer(file.SenderID).Name
 							}
 							ui.Text(f, sender+" · "+shortFileDate(file.CreatedAt)+" · "+formatBytes(file.Size)).
-								FontSize(10.5).Muted().Ellipsis()
-							ui.Text(f, fileAvailability(u, file)).FontSize(10.5).
+								FontSize(textSize(f, 10.5)).Muted().Ellipsis()
+							ui.Text(f, fileAvailability(u, file)).FontSize(textSize(f, 10.5)).
 								Color(u.availabilityColor(file)).Ellipsis()
 						})
 						ui.Icon(f, u.iconChevronRight).Size(15, 15).Color(u.palette.secondaryText)
@@ -887,7 +887,7 @@ func (u *UI) drawFileList(f ui.C) {
 			if refresh.Clicked() {
 				u.submit(domain.Command{Kind: domain.RefreshShares})
 			}
-			ui.Text(f, i18n.T("文件来源为发送方或本机已接收副本")).FontSize(10).Muted().Ellipsis()
+			ui.Text(f, i18n.T("文件来源为发送方或本机已接收副本")).FontSize(textSize(f, 10)).Muted().Ellipsis()
 		})
 	})
 }
@@ -903,8 +903,8 @@ func (u *UI) drawFileDetail(f ui.C, file domain.File) {
 		ui.Row(f).Items(ui.Center).Gap(13).Children(func() {
 			drawFileIcon(f, u.theme, fileTypeIcon(file), 52, 25)
 			ui.Column(f).Grow(1).Gap(4).Children(func() {
-				ui.Wrap(f, file.Name).FontSize(17).Weight(gfx.WeightSemibold)
-				ui.Text(f, formatBytes(file.Size)+fileTypeSuffix(file)).FontSize(12).Muted()
+				ui.Wrap(f, file.Name).FontSize(textSize(f, 17)).Weight(gfx.WeightSemibold)
+				ui.Text(f, formatBytes(file.Size)+fileTypeSuffix(file)).FontSize(textSize(f, 12)).Muted()
 			})
 		})
 		if fileIsImage(file) {
@@ -924,12 +924,12 @@ func (u *UI) drawFileDetail(f ui.C, file domain.File) {
 			u.fileInfoRow(f, i18n.T("本地路径"), path)
 		}
 		ui.Divider(f)
-		ui.Text(f, i18n.T("传输状态")).FontSize(13).Weight(gfx.WeightSemibold)
+		ui.Text(f, i18n.T("传输状态")).FontSize(textSize(f, 13)).Weight(gfx.WeightSemibold)
 		ui.Column(f).FillWidth().Gap(10).Children(func() {
 			transfers := u.transfersFor[file.ID]
 			if len(transfers) == 0 {
 				ui.Row(f).PadSides(10, 8, 10, 8).Children(func() {
-					ui.Text(f, fileAvailability(u, file)).FontSize(11.5).Muted()
+					ui.Text(f, fileAvailability(u, file)).FontSize(textSize(f, 11.5)).Muted()
 				})
 			}
 			for _, entry := range transfers {
@@ -946,13 +946,13 @@ func (u *UI) drawTransferRow(f ui.C, transfer domain.Transfer) {
 		ui.Row(f).FillWidth().Items(ui.Center).Gap(10).Children(func() {
 			u.avatarStatus(f, peer.Name, peer.Avatar, 32, peerOnline(u, peer.ID))
 			ui.Column(f).Grow(1).MinWidth(0).Gap(5).Children(func() {
-				ui.Text(f, transferPeerLabel(u, transfer)).FontSize(13).Weight(gfx.WeightMedium).Ellipsis()
-				ui.Wrap(f, transferStatusText(transfer)).FontSize(13).Muted()
+				ui.Text(f, transferPeerLabel(u, transfer)).FontSize(textSize(f, 13)).Weight(gfx.WeightMedium).Ellipsis()
+				ui.Wrap(f, transferStatusText(transfer)).FontSize(textSize(f, 13)).Muted()
 			})
 		})
 		if transfer.Status == "transferring" || transfer.Status == "verifying" {
 			ui.Progress(f, transferFraction(transfer)).FillWidth().Height(5)
-			ui.Text(f, u.transferProgressLabel(transfer)).FontSize(11).Muted().Ellipsis()
+			ui.Text(f, u.transferProgressLabel(transfer)).FontSize(textSize(f, 11)).Muted().Ellipsis()
 		}
 		ui.Flow(f).FillWidth().Gap(8).Items(ui.Center).Children(func() { u.drawTransferRowActions(f, transfer) })
 	})
@@ -964,21 +964,21 @@ func (u *UI) drawTransferRowActions(f ui.C, transfer domain.Transfer) {
 	}
 	switch {
 	case transfer.Direction == "receive" && (transfer.Status == "offered" || transfer.Status == "waiting"):
-		if namedButton(f, u.fileAcceptIDs[transfer.ID], i18n.T("接收文件")).Height(u.textExtent(40, 18)).FontSize(14).Clicked() {
+		if namedButton(f, u.fileAcceptIDs[transfer.ID], i18n.T("接收文件")).Height(u.textExtent(40, 18)).FontSize(textSize(f, 14)).Clicked() {
 			u.submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: transfer.ID})
 		}
-		if namedButton(f, u.fileSaveIDs[transfer.ID], i18n.T("另存为")).Height(u.textExtent(40, 18)).FontSize(14).Outline().Clicked() {
+		if namedButton(f, u.fileSaveIDs[transfer.ID], i18n.T("另存为")).Height(u.textExtent(40, 18)).FontSize(textSize(f, 14)).Outline().Clicked() {
 			u.chooseTransferDestination(f.Canvas(), transfer)
 		}
-		if namedButton(f, u.fileRejectIDs[transfer.ID], i18n.T("拒绝")).Height(u.textExtent(40, 18)).FontSize(14).Ghost().Clicked() {
+		if namedButton(f, u.fileRejectIDs[transfer.ID], i18n.T("拒绝")).Height(u.textExtent(40, 18)).FontSize(textSize(f, 14)).Ghost().Clicked() {
 			u.submit(domain.Command{Kind: domain.RejectTransfer, TransferID: transfer.ID})
 		}
 	case transfer.Direction == "receive" && transferNeedsAttention(transfer):
-		if namedButton(f, u.fileCancelIDs[transfer.ID], i18n.T("取消接收")).Height(u.textExtent(36, 16)).FontSize(13).Outline().Clicked() {
+		if namedButton(f, u.fileCancelIDs[transfer.ID], i18n.T("取消接收")).Height(u.textExtent(36, 16)).FontSize(textSize(f, 13)).Outline().Clicked() {
 			u.submit(domain.Command{Kind: domain.CancelTransfer, TransferID: transfer.ID})
 		}
 	case transfer.Direction != "receive" && transferNeedsAttention(transfer):
-		if namedButton(f, u.fileCancelIDs[transfer.ID], i18n.T("取消发送")).Height(u.textExtent(36, 16)).FontSize(13).Outline().Clicked() {
+		if namedButton(f, u.fileCancelIDs[transfer.ID], i18n.T("取消发送")).Height(u.textExtent(36, 16)).FontSize(textSize(f, 13)).Outline().Clicked() {
 			u.submit(domain.Command{Kind: domain.CancelTransfer, TransferID: transfer.ID})
 		}
 	case transfer.Status == "failed" || transfer.Status == "cancelled" || transfer.Status == "rejected":
@@ -986,10 +986,10 @@ func (u *UI) drawTransferRowActions(f ui.C, transfer domain.Transfer) {
 		if transfer.Direction == "receive" {
 			label = i18n.T("重试接收")
 		}
-		if namedButton(f, u.fileRetryIDs[transfer.ID], label).Height(u.textExtent(36, 16)).FontSize(13).Clicked() {
+		if namedButton(f, u.fileRetryIDs[transfer.ID], label).Height(u.textExtent(36, 16)).FontSize(textSize(f, 13)).Clicked() {
 			u.submit(domain.Command{Kind: domain.RetryTransfer, TransferID: transfer.ID})
 		}
-		if transfer.CanRelocateFailedReceive() && namedButton(f, u.fileSaveIDs[transfer.ID], i18n.T("另存为")).Height(u.textExtent(36, 16)).FontSize(13).Outline().Clicked() {
+		if transfer.CanRelocateFailedReceive() && namedButton(f, u.fileSaveIDs[transfer.ID], i18n.T("另存为")).Height(u.textExtent(36, 16)).FontSize(textSize(f, 13)).Outline().Clicked() {
 			u.chooseTransferDestination(f.Canvas(), transfer)
 		}
 	}
@@ -1000,16 +1000,16 @@ func (u *UI) drawFileActions(f ui.C, file domain.File) {
 	localAvailable := u.fileAvailable[file.ID]
 	ui.Row(f).MinHeight(u.textExtent(36, 16)).Gap(8).Items(ui.Center).Children(func() {
 		if localPath != "" && localAvailable {
-			if namedButton(f, u.ids.fileOpen, i18n.T("打开文件")).Height(u.textExtent(36, 16)).FontSize(13).Clicked() {
+			if namedButton(f, u.ids.fileOpen, i18n.T("打开文件")).Height(u.textExtent(36, 16)).FontSize(textSize(f, 13)).Clicked() {
 				_ = app.OpenPath(localPath)
 			}
-			if namedButton(f, u.ids.fileReveal, i18n.T("打开文件夹")).Height(u.textExtent(36, 16)).FontSize(13).Outline().Clicked() {
+			if namedButton(f, u.ids.fileReveal, i18n.T("打开文件夹")).Height(u.textExtent(36, 16)).FontSize(textSize(f, 13)).Outline().Clicked() {
 				_ = app.RevealPath(localPath)
 			}
 		}
 		if cancellable := u.fileCancelCount(file.ID); cancellable > 1 {
 			label := i18n.T("取消全部（") + intString(cancellable) + "）…"
-			if namedButton(f, u.ids.fileBatchCancel, label).Height(u.textExtent(36, 16)).FontSize(13).Outline().Clicked() {
+			if namedButton(f, u.ids.fileBatchCancel, label).Height(u.textExtent(36, 16)).FontSize(textSize(f, 13)).Outline().Clicked() {
 				u.requestBatchCancel(file)
 			}
 		}
@@ -1085,8 +1085,8 @@ func (u *UI) chooseTransferDestination(canvas *gfx.Canvas, transfer domain.Trans
 
 func (u *UI) fileInfoRow(f ui.C, label, value string) {
 	ui.Row(f).MinHeight(30).Items(ui.Center).Gap(12).Children(func() {
-		ui.Text(f, label).Width(u.textExtent(86, 60)).Shrink(0).FontSize(13).Muted()
-		ui.Wrap(f, value).FontSize(13).Grow(1).Basis(0).MinWidth(0)
+		ui.Text(f, label).Width(u.textExtent(86, 60)).Shrink(0).FontSize(textSize(f, 13)).Muted()
+		ui.Wrap(f, value).FontSize(textSize(f, 13)).Grow(1).Basis(0).MinWidth(0)
 	})
 }
 
@@ -1375,7 +1375,7 @@ func (u *UI) drawComposeBody(f ui.C, create bool, group domain.Group) {
 	ui.Column(f).Fill().Gap(10).Children(func() {
 		if create {
 			ui.Row(f).Height(36).Items(ui.Center).Gap(12).Children(func() {
-				ui.Text(f, i18n.T("群名称（可选）")).Width(96).FontSize(12).Weight(gfx.WeightMedium)
+				ui.Text(f, i18n.T("群名称（可选）")).Width(96).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium)
 				ui.TextFieldID(f, u.ids.composeName, &u.compose.name, i18n.T("群名称"), i18n.T("留空将按成员昵称生成")).
 					Height(36).Grow(1)
 			})
@@ -1385,7 +1385,7 @@ func (u *UI) drawComposeBody(f ui.C, create bool, group domain.Group) {
 		ui.Divider(f)
 		ui.Row(f).Grow(1).Gap(18).Children(func() {
 			ui.Column(f).Grow(1).Gap(6).Children(func() {
-				ui.Text(f, i18n.T("可邀请联系人")).FontSize(12).Weight(gfx.WeightSemibold)
+				ui.Text(f, i18n.T("可邀请联系人")).FontSize(textSize(f, 12)).Weight(gfx.WeightSemibold)
 				ui.Scroll(f.Part("candidate-members")).Grow(1).Gap(2).Children(func() {
 					u.drawComposeCandidates(f, create, group)
 				})
@@ -1394,22 +1394,22 @@ func (u *UI) drawComposeBody(f ui.C, create bool, group domain.Group) {
 			ui.Column(f).Width(236).Gap(7).Children(func() {
 				selected := u.selectedPeersForCompose()
 				ui.Row(f).Height(24).Items(ui.Center).Children(func() {
-					ui.Text(f, i18n.T("已选择 ")+intString(len(selected))+i18n.T(" 人")).FontSize(12).
+					ui.Text(f, i18n.T("已选择 ")+intString(len(selected))+i18n.T(" 人")).FontSize(textSize(f, 12)).
 						Weight(gfx.WeightSemibold)
 					ui.Spacer(f)
 				})
 				ui.Scroll(f.Part("selected-members")).Grow(1).Gap(4).Children(func() {
 					if len(selected) == 0 {
 						ui.Column(f).PadSides(10, 12, 8, 12).Gap(5).Children(func() {
-							ui.Text(f, i18n.T("尚未选择联系人")).FontSize(12).Weight(gfx.WeightMedium)
-							ui.Text(f, i18n.T("勾选左侧在线联系人。")).FontSize(10.5).Muted()
+							ui.Text(f, i18n.T("尚未选择联系人")).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium)
+							ui.Text(f, i18n.T("勾选左侧在线联系人。")).FontSize(textSize(f, 10.5)).Muted()
 						})
 					}
 					for _, id := range selected {
 						peer := u.state.Peer(id)
 						ui.Row(f).Height(38).Items(ui.Center).Gap(8).Children(func() {
 							u.avatarStatus(f, peer.Name, peer.Avatar, 26, true)
-							ui.Text(f, peer.Name).FontSize(12).Grow(1).Ellipsis()
+							ui.Text(f, peer.Name).FontSize(textSize(f, 12)).Grow(1).Ellipsis()
 							remove := ui.Row(f).Size(24, 24).Radius(radiusControl).Items(ui.Center).
 								Justify(ui.Center).Hover(ui.Look{}.Background(u.palette.hover)).
 								HitWith(u.groupRemoveIDs[peer.ID], i18n.T("移除 ")+peer.Name,
@@ -1423,15 +1423,15 @@ func (u *UI) drawComposeBody(f ui.C, create bool, group domain.Group) {
 						})
 					}
 				})
-				ui.Text(f, i18n.T("你将自动加入群聊。")).FontSize(10.5).Muted()
+				ui.Text(f, i18n.T("你将自动加入群聊。")).FontSize(textSize(f, 10.5)).Muted()
 				if u.compose.pending {
 					ui.Row(f).Height(26).Items(ui.Center).Gap(8).Children(func() {
 						ui.Spinner(f)
-						ui.Text(f, i18n.T("正在提交…")).FontSize(11).Muted()
+						ui.Text(f, i18n.T("正在提交…")).FontSize(textSize(f, 11)).Muted()
 					})
 				}
 				if u.compose.err != "" {
-					ui.Text(f, u.compose.err).FontSize(10.5).Color(u.palette.danger).MaxLines(3)
+					ui.Text(f, u.compose.err).FontSize(textSize(f, 10.5)).Color(u.palette.danger).MaxLines(3)
 				}
 			})
 		})
@@ -1442,7 +1442,7 @@ func (u *UI) drawComposeBody(f ui.C, create bool, group domain.Group) {
 			} else if group.Transport == domain.TransportNeiwangtong {
 				note = i18n.T("新成员会在内网通看到这个群聊。")
 			}
-			ui.Text(f, note).FontSize(10.5).Muted().Ellipsis()
+			ui.Text(f, note).FontSize(textSize(f, 10.5)).Muted().Ellipsis()
 		})
 	})
 }
@@ -1490,9 +1490,9 @@ func (u *UI) drawComposeCandidates(f ui.C, create bool, group domain.Group) {
 					icon = u.iconChevronRight
 				}
 				ui.Icon(f, icon).Size(14, 14).Color(u.palette.secondaryText)
-				ui.Text(f, contactGroup.Name).FontSize(12).Weight(gfx.WeightSemibold).Ellipsis()
+				ui.Text(f, contactGroup.Name).FontSize(textSize(f, 12)).Weight(gfx.WeightSemibold).Ellipsis()
 				ui.Spacer(f)
-				ui.Text(f, intString(len(peers))).FontSize(10.5).Muted()
+				ui.Text(f, intString(len(peers))).FontSize(textSize(f, 10.5)).Muted()
 			})
 		if header.Clicked() {
 			u.collapsed[contactGroup.Name] = !collapsed
@@ -1520,7 +1520,7 @@ func (u *UI) drawComposeCandidates(f ui.C, create bool, group domain.Group) {
 			row.Children(func() {
 				u.avatarStatus(f, peer.Name, peer.Avatar, 30, peer.Online)
 				ui.Column(f).Grow(1).Gap(2).Justify(ui.Center).Children(func() {
-					ui.Text(f, peer.Name).FontSize(12.5).Weight(gfx.WeightMedium).Ellipsis()
+					ui.Text(f, peer.Name).FontSize(textSize(f, 12.5)).Weight(gfx.WeightMedium).Ellipsis()
 					status := i18n.T("在线")
 					if !peer.Online {
 						status = i18n.T("离线 · 上线后可邀请")
@@ -1533,7 +1533,7 @@ func (u *UI) drawComposeCandidates(f ui.C, create bool, group domain.Group) {
 					} else if peer.Transport == domain.TransportNeiwangtong {
 						status = i18n.T("内网通")
 					}
-					ui.Text(f, status).FontSize(10.5).Muted().Ellipsis()
+					ui.Text(f, status).FontSize(textSize(f, 10.5)).Muted().Ellipsis()
 				})
 				checked := ui.State[bool](f, "selected")
 				*checked = selected

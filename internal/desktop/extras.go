@@ -153,7 +153,7 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 					chooseClicked = true
 				}
 				ui.Column(f).Grow(1).Gap(6).Children(func() {
-					ui.Text(f, i18n.T("头像")).FontSize(12).Weight(gfx.WeightMedium)
+					ui.Text(f, i18n.T("头像")).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium)
 					ui.Row(f).Gap(6).Children(func() {
 						if u.profile.avatar != "" && namedButton(f, u.ids.profileRemoveImage, i18n.T("移除头像")).XSmall().Ghost().Clicked() {
 							u.profile.avatar = ""
@@ -162,7 +162,7 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 							u.profile.err = ""
 						}
 					})
-					ui.Text(f, i18n.T("点击头像更换；支持 PNG、JPEG 和 GIF。")).FontSize(10.5).Muted()
+					ui.Text(f, i18n.T("点击头像更换；支持 PNG、JPEG 和 GIF。")).FontSize(textSize(f, 10.5)).Muted()
 				})
 			})
 			ui.Row(f).FillWidth().Gap(16).Children(func() {
@@ -176,8 +176,8 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 				})
 			})
 			ui.Row(f).Items(ui.Center).Gap(8).Children(func() {
-				ui.Text(f, i18n.T("状态")).FontSize(12).Weight(gfx.WeightMedium)
-				ui.Text(f, i18n.T(profilePresenceName(u.profile.presence))).FontSize(11).Muted()
+				ui.Text(f, i18n.T("状态")).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium)
+				ui.Text(f, i18n.T(profilePresenceName(u.profile.presence))).FontSize(textSize(f, 11)).Muted()
 			})
 			ui.Row(f).FillWidth().Gap(8).Children(func() {
 				for index, presence := range profilePresences {
@@ -204,13 +204,13 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			})
 			u.drawProfileDetails(f)
 			ui.Row(f).FillWidth().Gap(16).Children(func() {
-				ui.Text(f, i18n.T("版本")+"  "+defaultIfEmpty(u.state.Self.Version, "—")).FontSize(11).Muted().Grow(1).Ellipsis()
-				ui.Text(f, "IP  "+defaultIfEmpty(u.state.LocalIP, "—")).FontSize(11).Muted().Grow(1).Ellipsis()
+				ui.Text(f, i18n.T("版本")+"  "+defaultIfEmpty(u.state.Self.Version, "—")).FontSize(textSize(f, 11)).Muted().Grow(1).Ellipsis()
+				ui.Text(f, "IP  "+defaultIfEmpty(u.state.LocalIP, "—")).FontSize(textSize(f, 11)).Muted().Grow(1).Ellipsis()
 			})
 			if u.profile.err != "" {
-				ui.Text(f, u.profile.err).FontSize(11).Color(u.palette.danger).MaxLines(2)
+				ui.Text(f, u.profile.err).FontSize(textSize(f, 11)).Color(u.palette.danger).MaxLines(2)
 			} else {
-				ui.Text(f, i18n.T("隐身时不广播上线，已连接的会话仍可收发。")).FontSize(10.5).Muted()
+				ui.Text(f, i18n.T("隐身时不广播上线，已连接的会话仍可收发。")).FontSize(textSize(f, 10.5)).Muted()
 			}
 		})
 	})
@@ -371,7 +371,7 @@ func profileDetailValues(details domain.ProfileDetails) [5]string {
 
 func profileFormColumn(f ui.C, label string, control func()) {
 	ui.Column(f).Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
-		ui.Text(f, label).FontSize(12).Weight(gfx.WeightMedium)
+		ui.Text(f, label).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium)
 		control()
 	})
 }
@@ -614,8 +614,8 @@ func (u *UI) drawMentionPicker(canvas *gfx.Canvas, viewport ui.Rect) {
 						gfx.HitOptions{Role: gfx.RoleButton, Selected: index == u.mention.selected}).
 					Children(func() {
 						u.avatarStatus(f, candidate.name, candidate.avatar, 26, candidate.online)
-						ui.Text(f, candidate.name).FontSize(12.5).Weight(gfx.WeightMedium).Grow(1).Ellipsis()
-						ui.Text(f, "@"+candidate.name).FontSize(10.5).Muted().Ellipsis()
+						ui.Text(f, candidate.name).FontSize(textSize(f, 12.5)).Weight(gfx.WeightMedium).Grow(1).Ellipsis()
+						ui.Text(f, "@"+candidate.name).FontSize(textSize(f, 10.5)).Muted().Ellipsis()
 					})
 				if row.Clicked() {
 					u.mention.selected = index
@@ -723,8 +723,8 @@ func (u *UI) drawGroupNicknameEditor(f ui.C, group domain.Group) {
 	if !u.nicknameOpen {
 		ui.Row(f).Height(40).Items(ui.Center).Gap(10).Children(func() {
 			ui.Column(f).Grow(1).Gap(2).Children(func() {
-				ui.Text(f, i18n.T("我在群里的昵称")).FontSize(13)
-				ui.Text(f, display).FontSize(10.5).Muted().Ellipsis()
+				ui.Text(f, i18n.T("我在群里的昵称")).FontSize(textSize(f, 13))
+				ui.Text(f, display).FontSize(textSize(f, 10.5)).Muted().Ellipsis()
 			})
 			edit := u.iconButton(f, u.ids.memberStartNickname, u.iconPencil, i18n.T("修改我的群昵称"), 28)
 			if edit.Clicked() {
@@ -746,7 +746,7 @@ func (u *UI) drawGroupNicknameEditor(f ui.C, group domain.Group) {
 			}
 		})
 		if u.nicknameErr != "" {
-			ui.Text(f, u.nicknameErr).FontSize(10.5).Color(u.palette.danger)
+			ui.Text(f, u.nicknameErr).FontSize(textSize(f, 10.5)).Color(u.palette.danger)
 		}
 	})
 }
@@ -805,7 +805,7 @@ func (u *UI) drawGroupInvitations(f ui.C, group domain.Group, owner bool) {
 	}
 	if pending > 0 {
 		ui.Row(f).Height(30).Items(ui.Center).Gap(8).Children(func() {
-			ui.Text(f, i18n.T("待确认邀请")).FontSize(12).Weight(gfx.WeightSemibold)
+			ui.Text(f, i18n.T("待确认邀请")).FontSize(textSize(f, 12)).Weight(gfx.WeightSemibold)
 			u.badgeText(f, intString(pending), false)
 		})
 		for _, peerID := range group.Pending {
@@ -845,7 +845,7 @@ func (u *UI) drawGroupInvitations(f ui.C, group domain.Group, owner bool) {
 	}
 	if failed > 0 {
 		ui.Row(f).Height(30).Items(ui.Center).Gap(8).Children(func() {
-			ui.Text(f, i18n.T("发送失败的邀请")).FontSize(12).Weight(gfx.WeightSemibold)
+			ui.Text(f, i18n.T("发送失败的邀请")).FontSize(textSize(f, 12)).Weight(gfx.WeightSemibold)
 			u.badgeText(f, intString(failed), false)
 		})
 		for _, peerID := range group.Pending {
@@ -875,7 +875,7 @@ func (u *UI) drawGroupInvitations(f ui.C, group domain.Group, owner bool) {
 	}
 	if rejected > 0 {
 		ui.Row(f).Height(30).Items(ui.Center).Gap(8).Children(func() {
-			ui.Text(f, i18n.T("已拒绝邀请")).FontSize(12).Weight(gfx.WeightSemibold)
+			ui.Text(f, i18n.T("已拒绝邀请")).FontSize(textSize(f, 12)).Weight(gfx.WeightSemibold)
 			u.badgeText(f, intString(rejected), false)
 		})
 		for _, invitation := range u.outgoingInvites {
@@ -901,7 +901,7 @@ func (u *UI) drawOutgoingOwnershipInvites(f ui.C, group domain.Group, owner bool
 		return
 	}
 	ui.Row(f).Height(30).Items(ui.Center).Gap(8).Children(func() {
-		ui.Text(f, i18n.T("群主转让")).FontSize(12).Weight(gfx.WeightSemibold)
+		ui.Text(f, i18n.T("群主转让")).FontSize(textSize(f, 12)).Weight(gfx.WeightSemibold)
 		u.badgeText(f, intString(count), false)
 	})
 	for _, invitation := range u.ownershipInvites {
@@ -925,8 +925,8 @@ func (u *UI) drawOutgoingOwnershipInvites(f ui.C, group domain.Group, owner bool
 		ui.Row(f).FillWidth().MinHeight(42).PadX(8).Items(ui.Center).Gap(9).Children(func() {
 			u.avatarStatus(f, peer.Name, peer.Avatar, 26, peerOnline(u, peer.ID))
 			ui.Column(f).Grow(1).Gap(2).Children(func() {
-				ui.Text(f, i18n.T("群主转让给 ")+peer.Name).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
-				ui.Text(f, status).FontSize(10.5).Muted().Ellipsis()
+				ui.Text(f, i18n.T("群主转让给 ")+peer.Name).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium).Ellipsis()
+				ui.Text(f, status).FontSize(textSize(f, 10.5)).Muted().Ellipsis()
 			})
 		})
 	}
@@ -939,8 +939,8 @@ func (u *UI) drawOutgoingInviteRow(f ui.C, group domain.Group, peerID string,
 	ui.Row(f).Height(42).PadX(8).Items(ui.Center).Gap(9).Children(func() {
 		u.avatarStatus(f, peer.Name, peer.Avatar, 26, peerOnline(u, peer.ID))
 		ui.Column(f).Grow(1).Gap(2).Children(func() {
-			ui.Text(f, peer.Name).FontSize(12).Weight(gfx.WeightMedium).Ellipsis()
-			ui.Text(f, status).FontSize(10.5).Muted().Ellipsis()
+			ui.Text(f, peer.Name).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium).Ellipsis()
+			ui.Text(f, status).FontSize(textSize(f, 10.5)).Muted().Ellipsis()
 		})
 		if !owner {
 			return

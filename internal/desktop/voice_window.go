@@ -168,7 +168,7 @@ func (view *UI) voiceConfig() app.Config {
 				leading, trailing := app.TitlebarInsets()
 				ui.Row(f).Fill().MovesWindow().PadSides(8, trailing+12, 8, leading+12).Items(ui.Center).Gap(8).Children(func() {
 					ui.Icon(f, Phone).Size(18, 18).Color(view.palette.icon)
-					ui.Text(f, i18n.T("语音通话")+" · GoIM").FontSize(13).Ellipsis()
+					ui.Text(f, i18n.T("语音通话")+" · GoIM").FontSize(textSize(f, 13)).Ellipsis()
 				})
 			})
 			view.drawVoiceCall(canvas, ui.Rect{Y: title.Height, Width: size.Width, Height: max(size.Height-title.Height, 0)})

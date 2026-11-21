@@ -39,15 +39,15 @@ func (s *panelTableSort) header(f ui.C, label string, width float32, apply func(
 		box.Stroke(1, theme.Ring)
 	}
 	box.Children(func() {
-		ui.Text(f, title).FontSize(13).Muted().MinWidth(0).Ellipsis()
+		ui.Text(f, title).FontSize(textSize(f, 13)).Muted().MinWidth(0).Ellipsis()
 		if active {
 			arrow := "↑"
 			if s.descending {
 				arrow = "↓"
 			}
-			ui.Text(f, arrow).FontSize(12).Color(theme.Primary)
+			ui.Text(f, arrow).FontSize(textSize(f, 12)).Color(theme.Primary)
 		} else {
-			ui.Text(f, "↕").FontSize(11).Color(theme.MutedForeground)
+			ui.Text(f, "↕").FontSize(textSize(f, 11)).Color(theme.MutedForeground)
 		}
 	})
 	if box.Clicked() {

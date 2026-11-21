@@ -1439,7 +1439,7 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 			Items(ui.Center).Children(func() {
 			brand = ui.Slot(f).Size(24, 24)
 			ui.Row(f).Width(9).Height(1)
-			ui.Text(f, "GoIM").FontSize(16).Weight(gfx.WeightSemibold)
+			ui.Text(f, "GoIM").FontSize(textSize(f, 16)).Weight(gfx.WeightSemibold)
 			ui.Spacer(f)
 			u.drawUpdateTitlebar(f, bounds.Width >= 650)
 			status = u.drawLANStatus(f, bounds.Width >= 480)
@@ -1503,7 +1503,7 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	if bounds.Height < 660 {
 		itemHeight, itemGap, railPadding, avatarSize, avatarGap = 48, 2, 8, 36, 4
 	}
-	itemHeight = max(itemHeight, 37+11*u.theme.Metrics.EffectiveTextScale())
+	itemHeight = max(itemHeight, 37+u.theme.Metrics.ScaledText(11))
 	unreadBadge, unreadHint := "", ""
 	if unread := u.unreadTotal(); unread > 0 {
 		unreadBadge = compactCount(unread)
@@ -1608,7 +1608,7 @@ func (u *UI) railItemBadged(f ui.C, id gfx.ID, icon gfx.Icon, label string,
 		Background(background).Hover(ui.Look{}.Background(hover)).
 		HitWith(id, accessible, gfx.HitOptions{Role: gfx.RoleButton, Selected: active, Hint: accessible}).
 		Children(func() {
-			badgeHeight := max(float32(16), 9*u.theme.Metrics.EffectiveTextScale()+7)
+			badgeHeight := max(float32(16), u.theme.Metrics.ScaledText(9)+7)
 			ui.Stack(f).Width(max(36, badgeHeight+20)).Height(max(24, badgeHeight)).Children(func() {
 				ui.Stack(f).Size(21, 21).Absolute().Left(7).Top(2).Children(func() {
 					ui.Icon(f, icon).Size(21, 21).Color(foreground)
@@ -1617,12 +1617,12 @@ func (u *UI) railItemBadged(f ui.C, id gfx.ID, icon gfx.Icon, label string,
 					ui.Row(f).MinWidth(badgeHeight).Height(badgeHeight).PadX(4).Radius(badgeHeight / 2).Absolute().Right(0).Top(0).
 						Background(u.theme.Primary).Items(ui.Center).Justify(ui.Center).
 						Children(func() {
-							ui.Text(f, badge).FontSize(9).Weight(gfx.WeightSemibold).
+							ui.Text(f, badge).FontSize(textSize(f, 9)).Weight(gfx.WeightSemibold).
 								Color(u.theme.PrimaryForeground).TextCenter()
 						})
 				}
 			})
-			ui.Text(f, visual).FontSize(11).Weight(gfx.WeightMedium).Color(foreground)
+			ui.Text(f, visual).FontSize(textSize(f, 11)).Weight(gfx.WeightMedium).Color(foreground)
 		})
 	return box
 }
@@ -1651,7 +1651,7 @@ func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 					}
 				})
 			ui.Divider(f).FillWidth()
-			ui.Row(f).FillWidth().PadSides(max(8, 8*u.theme.Metrics.EffectiveTextScale()), 0, 4, 0).Items(ui.Center).Gap(4).Children(func() {
+			ui.Row(f).FillWidth().PadSides(max(8, u.theme.Metrics.ScaledText(8)), 0, 4, 0).Items(ui.Center).Gap(4).Children(func() {
 				connect = u.iconButton(f, u.ids.sidebarConnect, u.iconUserPlus, i18n.T("手动连接"), 36).Clicked()
 				create = u.iconButton(f, u.ids.sidebarCreate, u.iconPlus, i18n.T("创建群聊"), 36).Clicked()
 				if u.section == sectionContacts {
@@ -1741,7 +1741,7 @@ func (u *UI) drawContactFilters(f ui.C) {
 				Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
 				HitWith(item.id, item.label, gfx.HitOptions{Role: gfx.RoleButton, Selected: active}).
 				Children(func() {
-					ui.Text(f, label).FontSize(12).Weight(gfx.WeightMedium).Color(foreground)
+					ui.Text(f, label).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium).Color(foreground)
 				})
 			if box.Clicked() {
 				u.sidebarFilter = item.value
@@ -1808,10 +1808,10 @@ func (u *UI) selfContactRow(f ui.C) {
 			u.avatarStatus(f, name, u.selfAvatarPath(), 34, true)
 			ui.Column(f).Grow(1).Basis(0).MinWidth(0).Gap(2).Justify(ui.Center).Children(func() {
 				ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
-					ui.Text(f, name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
+					ui.Text(f, name).FontSize(textSize(f, 14)).Weight(gfx.WeightMedium).Ellipsis()
 					ui.Stack(f).Size(6, 6).Radius(3).Background(u.palette.success)
 				})
-				ui.Text(f, i18n.T("个人资料 · 本机")).FontSize(11).Muted().Ellipsis()
+				ui.Text(f, i18n.T("个人资料 · 本机")).FontSize(textSize(f, 11)).Muted().Ellipsis()
 			})
 		})
 	if event, ok := f.Canvas().PointerOn(u.ids.selfRow); ok &&
@@ -1843,7 +1843,7 @@ func (u *UI) drawInvitations(f ui.C) {
 	ui.Row(f).Height(8)
 	if joinCount > 0 {
 		ui.Row(f).Height(24).Items(ui.Center).Children(func() {
-			ui.Text(f, i18n.T("群聊邀请")).FontSize(12).Weight(gfx.WeightSemibold)
+			ui.Text(f, i18n.T("群聊邀请")).FontSize(textSize(f, 12)).Weight(gfx.WeightSemibold)
 			ui.Row(f).Width(6)
 			u.badgeText(f, intString(joinCount), false)
 		})
@@ -1858,7 +1858,7 @@ func (u *UI) drawInvitations(f ui.C) {
 			ui.Row(f).Height(4)
 		}
 		ui.Row(f).Height(24).Items(ui.Center).Children(func() {
-			ui.Text(f, i18n.T("群主转让")).FontSize(12).Weight(gfx.WeightSemibold)
+			ui.Text(f, i18n.T("群主转让")).FontSize(textSize(f, 12)).Weight(gfx.WeightSemibold)
 			ui.Row(f).Width(6)
 			u.badgeText(f, intString(transferCount), false)
 		})
@@ -1881,7 +1881,7 @@ func (u *UI) invitationCard(f ui.C, invitation domain.Invitation, ownership bool
 				if name == "" {
 					name = i18n.T("群聊")
 				}
-				ui.Text(f, name).FontSize(13).Weight(gfx.WeightMedium).Ellipsis()
+				ui.Text(f, name).FontSize(textSize(f, 13)).Weight(gfx.WeightMedium).Ellipsis()
 				from := invitation.FromName
 				if from == "" {
 					from = u.state.Peer(invitation.FromID).Name
@@ -1890,9 +1890,9 @@ func (u *UI) invitationCard(f ui.C, invitation domain.Invitation, ownership bool
 				if ownership {
 					description = from + i18n.T(" 提议将群主转让给你")
 				}
-				ui.Text(f, description).FontSize(11).Muted().Ellipsis()
+				ui.Text(f, description).FontSize(textSize(f, 11)).Muted().Ellipsis()
 				if !ownership {
-					ui.Text(f, u.invitationMemberLine(invitation)).FontSize(10.5).Muted().MaxLines(2)
+					ui.Text(f, u.invitationMemberLine(invitation)).FontSize(textSize(f, 10.5)).Muted().MaxLines(2)
 				}
 			})
 		})
@@ -1965,9 +1965,9 @@ func (u *UI) contactGroupHeader(f ui.C, group contactGroupView, collapsed bool) 
 		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Expanded: !collapsed}).
 		Children(func() {
 			ui.Icon(f, icon).Size(15, 15).Color(u.palette.secondaryText)
-			ui.Text(f, label).FontSize(13).Weight(gfx.WeightSemibold).Ellipsis()
+			ui.Text(f, label).FontSize(textSize(f, 13)).Weight(gfx.WeightSemibold).Ellipsis()
 			ui.Spacer(f)
-			ui.Text(f, intString(group.Online)+"/"+intString(group.Total)).FontSize(11).Muted()
+			ui.Text(f, intString(group.Online)+"/"+intString(group.Total)).FontSize(textSize(f, 11)).Muted()
 		})
 	if !hidden {
 		u.contactDropTarget(header, id)
@@ -2009,7 +2009,7 @@ func (u *UI) contactRow(f ui.C, peer domain.Peer) {
 				} else if peer.VisibleOnline() && peer.Address != "" {
 					subtitle += " · " + peer.Address
 				}
-				ui.Text(f, subtitle).FontSize(11).Muted().Ellipsis()
+				ui.Text(f, subtitle).FontSize(textSize(f, 11)).Muted().Ellipsis()
 			})
 		})
 	if event, ok := f.Canvas().PointerOn(id); ok &&
@@ -2034,9 +2034,9 @@ func (u *UI) drawGroupChats(f ui.C) {
 	ui.Row(f).Height(6)
 	ui.Row(f).Height(u.textExtent(32, 10)).Items(ui.Center).Gap(6).Children(func() {
 		ui.Icon(f, u.iconChevronDown).Size(15, 15).Color(u.palette.secondaryText)
-		ui.Text(f, i18n.T("我的群聊")).FontSize(13).Weight(gfx.WeightSemibold)
+		ui.Text(f, i18n.T("我的群聊")).FontSize(textSize(f, 13)).Weight(gfx.WeightSemibold)
 		ui.Spacer(f)
-		ui.Text(f, intString(len(u.groupChats))).FontSize(11).Muted()
+		ui.Text(f, intString(len(u.groupChats))).FontSize(textSize(f, 11)).Muted()
 	})
 	for _, conversation := range u.groupChats {
 		if q := strings.TrimSpace(u.sidebarSearch.Text()); q == "" || containsFold(u.conversationTitle(conversation), q) {
@@ -2116,11 +2116,11 @@ func (u *UI) conversationCardBody(f ui.C, card conversationCardData) {
 				ui.Icon(f, u.iconBellOff).Size(12, 12).Color(u.palette.secondaryText)
 			}
 			if !card.updatedAt.IsZero() {
-				ui.Text(f, shortTime(card.updatedAt)).FontSize(10).Muted()
+				ui.Text(f, shortTime(card.updatedAt)).FontSize(textSize(f, 10)).Muted()
 			}
 		})
 		ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
-			ui.Text(f, card.preview).FontSize(11.5).Muted().Ellipsis()
+			ui.Text(f, card.preview).FontSize(textSize(f, 11.5)).Muted().Ellipsis()
 			ui.Spacer(f)
 			if card.unread > 0 {
 				u.badgeText(f, intString(card.unread), true)
@@ -2135,14 +2135,14 @@ func (u *UI) emptySidebar(f ui.C, title, description string, actions bool) {
 			Children(func() {
 				ui.Icon(f, u.iconUsers).Size(22, 22).Color(u.palette.secondaryText)
 			})
-		ui.Paragraph(f, title, 3).FillWidth().FontSize(13).Weight(gfx.WeightSemibold).TextCenter()
-		ui.Paragraph(f, description, 5).FillWidth().FontSize(12).Muted().TextCenter().LineHeight(18)
+		ui.Paragraph(f, title, 3).FillWidth().FontSize(textSize(f, 13)).Weight(gfx.WeightSemibold).TextCenter()
+		ui.Paragraph(f, description, 5).FillWidth().FontSize(textSize(f, 12)).Muted().TextCenter().LineHeight(textSize(f, 18))
 		if actions {
 			ui.Column(f).FillWidth().Gap(8).Children(func() {
-				if namedButton(f, u.ids.emptyConnect, i18n.T("手动连接")).FillWidth().Small().FontSize(12).PadX(8).Outline().Clicked() {
+				if namedButton(f, u.ids.emptyConnect, i18n.T("手动连接")).FillWidth().Small().FontSize(textSize(f, 12)).PadX(8).Outline().Clicked() {
 					u.openConnect()
 				}
-				if namedButton(f, u.ids.emptyCompose, i18n.T("创建群聊")).FillWidth().Small().FontSize(12).PadX(8).Clicked() {
+				if namedButton(f, u.ids.emptyCompose, i18n.T("创建群聊")).FillWidth().Small().FontSize(textSize(f, 12)).PadX(8).Clicked() {
 					u.openCompose("create", "")
 				}
 			})
@@ -2152,8 +2152,8 @@ func (u *UI) emptySidebar(f ui.C, title, description string, actions bool) {
 
 func (u *UI) emptyListMessage(f ui.C, title, body string) {
 	ui.Column(f).PadSides(24, 22, 18, 22).Gap(5).Children(func() {
-		ui.Text(f, title).FontSize(13).Weight(gfx.WeightMedium).TextCenter()
-		ui.Text(f, body).FontSize(11).Muted().TextCenter()
+		ui.Text(f, title).FontSize(textSize(f, 13)).Weight(gfx.WeightMedium).TextCenter()
+		ui.Text(f, body).FontSize(textSize(f, 11)).Muted().TextCenter()
 	})
 }
 
@@ -2167,7 +2167,7 @@ func (u *UI) initialsAvatar(f ui.C, name string, size float32) {
 
 func (u *UI) avatarInitial(f ui.C, name string, size float32) {
 	ui.Text(f, initialOf(name)).
-		FontSize(fontToken(u.theme, min(max(11, size*0.36)*u.theme.Metrics.EffectiveTextScale(), size*0.42))).
+		FontSize(min(u.theme.Metrics.ScaledText(max(11, size*0.36)), size*0.42)).
 		Weight(gfx.WeightSemibold).
 		Color(u.palette.avatarText).
 		TextCenter()
@@ -2180,10 +2180,10 @@ func (u *UI) badgeText(f ui.C, label string, primary bool) {
 		background = u.theme.Primary
 		foreground = u.theme.PrimaryForeground
 	}
-	scale := u.theme.Metrics.EffectiveTextScale()
+	scale := u.theme.Metrics.ScaledText(1)
 	width := max(21, float32(len([]rune(label)))*7*scale+12)
 	ui.Stack(f).Width(width).Height(max(20, 10.5*scale+7)).Radius(radiusControl).Background(background).Children(func() {
-		ui.Text(f, label).FontSize(10.5).Weight(gfx.WeightSemibold).Color(foreground).TextCenter()
+		ui.Text(f, label).FontSize(textSize(f, 10.5)).Weight(gfx.WeightSemibold).Color(foreground).TextCenter()
 	})
 }
 

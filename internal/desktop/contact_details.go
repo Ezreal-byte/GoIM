@@ -41,8 +41,8 @@ func (u *UI) contactGroupRow(f ui.C, c domain.Conversation) {
 		Children(func() {
 			u.avatarWithPresence(f, group.Name, group.Avatar, 34, false, false, ui.Color{})
 			ui.Column(f).Grow(1).Gap(2).Children(func() {
-				ui.Text(f, group.Name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
-				ui.Text(f, intString(len(group.Members))+" "+i18n.T("位成员")).FontSize(11).Muted()
+				ui.Text(f, group.Name).FontSize(textSize(f, 14)).Weight(gfx.WeightMedium).Ellipsis()
+				ui.Text(f, intString(len(group.Members))+" "+i18n.T("位成员")).FontSize(textSize(f, 11)).Muted()
 			})
 		})
 	if row.Clicked() {
@@ -75,7 +75,7 @@ func (u *UI) drawContactDetails(canvas *gfx.Canvas, bounds ui.Rect) {
 		ui.Scroll(f.Part("contact-details").Key(selection)).Fill().Children(func() {
 			ui.Row(f).FillWidth().Justify(ui.Center).PadSides(28, 18, 24, 18).Children(func() {
 				ui.Column(f).FillWidth().MaxWidth(620).Gap(12).Children(func() {
-					ui.Text(f, title).FontSize(16).Weight(gfx.WeightSemibold)
+					ui.Text(f, title).FontSize(textSize(f, 16)).Weight(gfx.WeightSemibold)
 					ui.Column(f).FillWidth().Pad(20).Gap(16).Radius(radiusControl).
 						Border(1, u.palette.border).Background(surface).Children(func() {
 						if isGroup {
@@ -100,9 +100,9 @@ func (u *UI) drawContactEmpty(f ui.C) {
 			Children(func() {
 				ui.Icon(f, u.iconUsers).Size(28, 28).Color(u.palette.secondaryText)
 			})
-		ui.Text(f, i18n.T("选择联系人或群聊")).FontSize(16).Weight(gfx.WeightMedium)
+		ui.Text(f, i18n.T("选择联系人或群聊")).FontSize(textSize(f, 16)).Weight(gfx.WeightMedium)
 		ui.Paragraph(f, i18n.T("从左侧选择一项，查看资料或开始聊天。"), 2).
-			MaxWidth(340).FontSize(13).Muted().TextCenter().LineHeight(20)
+			MaxWidth(340).FontSize(textSize(f, 13)).Muted().TextCenter().LineHeight(textSize(f, 20))
 	})
 }
 
@@ -148,14 +148,14 @@ func (u *UI) contactIdentity(f ui.C, peer domain.Peer, name string, avatarSize f
 			u.peerNameLine(f, name, remarkUsername(peer), 22)
 			ui.Row(f).Gap(8).Items(ui.Center).Children(func() {
 				ui.Row(f).Size(7, 7).Radius(3.5).Background(statusColor)
-				ui.Text(f, peerPresenceLabel(peer)).FontSize(12).Muted()
+				ui.Text(f, peerPresenceLabel(peer)).FontSize(textSize(f, 12)).Muted()
 				ui.Row(f).Height(21).PadX(7).Items(ui.Center).Radius(6).
 					Background(u.palette.selected).Children(func() {
-					ui.Text(f, contactClientLabel(peer)).FontSize(11).Color(u.palette.selectedText)
+					ui.Text(f, contactClientLabel(peer)).FontSize(textSize(f, 11)).Color(u.palette.selectedText)
 				})
 			})
 			if peer.Signature != "" {
-				ui.Paragraph(f, peer.Signature, 2).FillWidth().FontSize(13).Muted().LineHeight(19)
+				ui.Paragraph(f, peer.Signature, 2).FillWidth().FontSize(textSize(f, 13)).Muted().LineHeight(textSize(f, 19))
 			}
 		})
 		if action {
@@ -178,8 +178,8 @@ func (u *UI) contactFact(f ui.C, label, value string) {
 		return
 	}
 	ui.Row(f).FillWidth().MinHeight(28).Gap(12).Items(ui.Center).Children(func() {
-		ui.Text(f, i18n.T(label)).Width(83).FontSize(12).Muted()
-		ui.Text(f, value).FontSize(13).Grow(1).Ellipsis()
+		ui.Text(f, i18n.T(label)).Width(83).FontSize(textSize(f, 12)).Muted()
+		ui.Text(f, value).FontSize(textSize(f, 13)).Grow(1).Ellipsis()
 	})
 }
 
@@ -209,8 +209,8 @@ func (u *UI) contactValues(f ui.C, fields []contactValue, wide bool) {
 			for _, field := range [2]contactValue{left, right} {
 				ui.Column(f).Grow(1).Basis(0).Gap(3).Children(func() {
 					if field.value != "" {
-						ui.Text(f, i18n.T(field.label)).FontSize(12).Muted().Ellipsis()
-						ui.Text(f, field.value).FontSize(13).Ellipsis()
+						ui.Text(f, i18n.T(field.label)).FontSize(textSize(f, 12)).Muted().Ellipsis()
+						ui.Text(f, field.value).FontSize(textSize(f, 13)).Ellipsis()
 					}
 				})
 			}
@@ -229,7 +229,7 @@ func (u *UI) contactProfileFacts(f ui.C, peer domain.Peer, group domain.Group, a
 	if hasDetails {
 		ui.Divider(f)
 		ui.Column(f).FillWidth().Gap(8).Children(func() {
-			ui.Text(f, i18n.T("联系资料")).FontSize(14).Weight(gfx.WeightSemibold)
+			ui.Text(f, i18n.T("联系资料")).FontSize(textSize(f, 14)).Weight(gfx.WeightSemibold)
 			var facts [9]contactValue
 			count := 0
 			if inGroup {
@@ -257,7 +257,7 @@ func (u *UI) contactProfileFacts(f ui.C, peer domain.Peer, group domain.Group, a
 		ui.Divider(f)
 		ui.Column(f).FillWidth().Gap(8).Children(func() {
 			ui.Row(f).FillWidth().MinHeight(26).Gap(8).Items(ui.Center).Children(func() {
-				ui.Text(f, i18n.T("设备信息")).FontSize(14).Weight(gfx.WeightSemibold).Grow(1)
+				ui.Text(f, i18n.T("设备信息")).FontSize(textSize(f, 14)).Weight(gfx.WeightSemibold).Grow(1)
 				if refresh && namedButton(f, u.ids.contactRefreshAvatar, i18n.T("刷新头像")).Small().Outline().Clicked() {
 					u.submit(domain.Command{Kind: domain.RefreshPeerAvatar, PeerID: peer.ID})
 				}
@@ -271,8 +271,8 @@ func (u *UI) drawContactGroupProfile(f ui.C, group domain.Group, compact bool) {
 	ui.Row(f).FillWidth().Items(ui.Center).Gap(13).Children(func() {
 		u.avatarWithPresence(f, group.Name, group.Avatar, 62, false, false, ui.Color{})
 		ui.Column(f).Grow(1).Gap(5).Children(func() {
-			ui.Text(f, group.Name).FontSize(22).Weight(gfx.WeightSemibold).Ellipsis()
-			ui.Text(f, intString(len(group.Members))+" "+i18n.T("位成员")).FontSize(12).Muted()
+			ui.Text(f, group.Name).FontSize(textSize(f, 22)).Weight(gfx.WeightSemibold).Ellipsis()
+			ui.Text(f, intString(len(group.Members))+" "+i18n.T("位成员")).FontSize(textSize(f, 12)).Muted()
 		})
 		if !compact {
 			u.contactGroupAction(f, group.ID)
@@ -292,7 +292,7 @@ func (u *UI) drawContactGroupProfile(f ui.C, group domain.Group, compact bool) {
 	})
 	ui.Divider(f)
 	ui.Column(f).FillWidth().Gap(4).Children(func() {
-		ui.Text(f, i18n.T("群成员")).FontSize(14).Weight(gfx.WeightSemibold)
+		ui.Text(f, i18n.T("群成员")).FontSize(textSize(f, 14)).Weight(gfx.WeightSemibold)
 		for _, id := range group.Members {
 			peer := u.state.Peer(id)
 			name := u.groupMemberName(group.ID, id)

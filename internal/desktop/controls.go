@@ -19,17 +19,17 @@ func namedButton(c ui.C, id gfx.ID, label string) ui.Box {
 	return ui.Button(c, label).Hit(id, label)
 }
 
-func fontToken(theme gfx.Theme, size float32) float32 {
-	return size / theme.Metrics.EffectiveTextScale()
+func textSize(c ui.C, designSize float32) float32 {
+	return c.Theme().Metrics.ScaledText(designSize)
 }
 
 func (u *UI) railExtent() float32 {
 	// Labels scale with the interface font; the outer control inset stays fixed.
-	return max(railWidth, 12+56*u.theme.Metrics.EffectiveTextScale())
+	return max(railWidth, 12+u.theme.Metrics.ScaledText(56))
 }
 
 func (u *UI) textExtent(base, extra float32) float32 {
-	return base + extra*max(u.theme.Metrics.EffectiveTextScale()-1, 0)
+	return base + extra*max(u.theme.Metrics.ScaledText(1)-1, 0)
 }
 
 func dialogActionButton(c ui.C, id gfx.ID, label string) ui.Box {

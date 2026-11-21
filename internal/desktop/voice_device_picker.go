@@ -111,7 +111,7 @@ func (u *UI) drawCallDevicePicker(canvas *gfx.Canvas, viewport ui.Rect) {
 	}
 	u.dialogPage.Draw(canvas, viewport, func(f ui.C) {
 		ui.Column(f).Fill().Pad(24).Gap(14).Children(func() {
-			ui.Text(f, i18n.T(p.kind)).FontSize(20).Weight(gfx.WeightSemibold)
+			ui.Text(f, i18n.T(p.kind)).FontSize(textSize(f, 20)).Weight(gfx.WeightSemibold)
 			ui.Text(f, i18n.T("仅用于本次通话")).Muted()
 			choice := p.choices[p.selected]
 			if ui.Select(f.Part("call-device"), &choice, p.choices, panelVoiceChoice.title).

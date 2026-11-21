@@ -19,7 +19,6 @@ const (
 	interfaceFontRowStep        = float32(34)
 	interfaceFontVisibleRows    = 8
 	interfaceFontListHeight     = interfaceFontRowStep * interfaceFontVisibleRows
-	interfaceFontPreviewHeight  = float32(66)
 	interfaceFontDialogListGap  = float32(10)
 	interfaceFontDialogSidePad  = float32(4)
 	interfaceFontPickerLoadKind = 1
@@ -47,6 +46,7 @@ type panelInterfaceFontPicker struct {
 	filtered     []int
 	selected     int
 	scroll       float32
+	rowStep      float32
 	scrollManual bool
 	built        bool
 	builtRaw     string
@@ -59,6 +59,7 @@ type panelInterfaceFontPicker struct {
 }
 
 func (f *panelInterfaceFontPicker) init(tree *gfx.Tree, scope gfx.Scope) {
+	f.rowStep = interfaceFontRowStep
 	f.trigger = tree.ID(scope, "interface-font")
 	f.scope = tree.ID(scope, "interface-font-dialog")
 	f.dismiss = tree.ID(scope, "interface-font-dismiss")
@@ -164,7 +165,7 @@ func (f *panelInterfaceFontPicker) selectFamily(family string) {
 	for row, index := range f.filtered {
 		if f.entries[index].family == family {
 			f.selected = row
-			f.scroll = min(max(float32(max(row-interfaceFontVisibleRows/2, 0))*interfaceFontRowStep, 0), f.maxScroll())
+			f.scroll = min(float32(max(row-f.visibleRows()/2, 0))*f.rowStep, f.maxScroll())
 			f.scrollManual = true
 			return
 		}
@@ -179,14 +180,18 @@ func (f *panelInterfaceFontPicker) move(delta int) {
 		return
 	}
 	f.selected = min(max(f.selected+delta, 0), len(f.filtered)-1)
-	top := float32(f.selected) * interfaceFontRowStep
-	f.scroll = min(max(f.scroll, top+interfaceFontRowStep-interfaceFontListHeight), top)
+	top := float32(f.selected) * f.rowStep
+	f.scroll = min(max(f.scroll, top+f.rowStep-interfaceFontListHeight), top)
 	f.scroll = min(max(f.scroll, 0), f.maxScroll())
 	f.scrollManual = true
 }
 
 func (f *panelInterfaceFontPicker) contentHeight() float32 {
-	return max(0, float32(len(f.filtered))*interfaceFontRowStep-2)
+	return max(0, float32(len(f.filtered))*f.rowStep-2)
+}
+
+func (f *panelInterfaceFontPicker) visibleRows() int {
+	return max(1, int(interfaceFontListHeight/f.rowStep))
 }
 
 func (f *panelInterfaceFontPicker) maxScroll() float32 {
@@ -208,10 +213,10 @@ func (f *panelInterfaceFontPicker) key(event gfx.KeyEvent, confirm func()) (gfx.
 		f.move(1)
 		return handled, true
 	case gfx.KeyPageUp:
-		f.move(-interfaceFontVisibleRows)
+		f.move(-f.visibleRows())
 		return handled, true
 	case gfx.KeyPageDown:
-		f.move(interfaceFontVisibleRows)
+		f.move(f.visibleRows())
 		return handled, true
 	case gfx.KeyEnter:
 		_, onList := event.Target.In(f.list)
@@ -232,6 +237,7 @@ func (p *Panels) drawInterfaceFontPicker(f ui.C, theme ui.Theme, state domain.St
 		return
 	}
 	font.state, font.submit, font.settings = state, submit, state.Settings
+	font.rowStep = max(interfaceFontRowStep, theme.Metrics.ScaledText(20)+8)
 
 	if load := font.load; load != nil {
 		ui.Effect(f, load, interfaceFontPickerLoadKind)
@@ -281,13 +287,13 @@ func (p *Panels) drawInterfaceFontPicker(f ui.C, theme ui.Theme, state domain.St
 			ui.Column(f).Height(interfaceFontListHeight).Shrink(0).Children(func() {
 				switch {
 				case font.loading:
-					ui.Text(f, i18n.T("正在读取已安装的字体…")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).
+					ui.Text(f, i18n.T("正在读取已安装的字体…")).Muted().FontSize(theme.Metrics.FontSizeS + 1).
 						TextCenter().PadY(24)
 				case len(font.filtered) == 0 && font.known && len(font.families) == 0:
-					ui.Text(f, i18n.T("当前平台没有可枚举的系统字体。")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).
+					ui.Text(f, i18n.T("当前平台没有可枚举的系统字体。")).Muted().FontSize(theme.Metrics.FontSizeS + 1).
 						TextCenter().PadY(24)
 				case len(font.filtered) == 0:
-					ui.Text(f, i18n.T("未找到匹配的字体。")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).
+					ui.Text(f, i18n.T("未找到匹配的字体。")).Muted().FontSize(theme.Metrics.FontSizeS + 1).
 						TextCenter().PadY(24)
 				default:
 					p.drawInterfaceFontRows(f, theme, font)
@@ -319,17 +325,17 @@ func (p *Panels) drawInterfaceFontRows(f ui.C, theme ui.Theme, font *panelInterf
 		font.scrollManual = false
 	}
 	font.scroll = area.ScrollState().Offset
-	first := int(font.scroll / interfaceFontRowStep)
-	last := min(len(font.filtered), first+interfaceFontVisibleRows+1)
+	first := int(font.scroll / font.rowStep)
+	last := min(len(font.filtered), first+font.visibleRows()+2)
 	area.Fill().Children(func() {
-		if top := float32(first) * interfaceFontRowStep; top > 0 {
+		if top := float32(first) * font.rowStep; top > 0 {
 			ui.Slot(f).Height(top)
 		}
 		for row := first; row < last; row++ {
 			entry := font.entries[font.filtered[row]]
 			selected := row == font.selected
 			color := theme.Foreground
-			line := ui.Row(f).Height(interfaceFontRowStep-2).Shrink(0).PadSides(interfaceFontDialogSidePad, 12, 0, 10).
+			line := ui.Row(f).Height(font.rowStep-2).Shrink(0).PadSides(interfaceFontDialogSidePad, 12, 0, 10).
 				Items(ui.Center).Radius(theme.Metrics.RadiusControl).
 				HitWith(font.list.At(row), entry.label, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected})
 			if selected {
@@ -342,14 +348,14 @@ func (p *Panels) drawInterfaceFontRows(f ui.C, theme ui.Theme, font *panelInterf
 				font.selected = row
 			}
 			line.Children(func() {
-				ui.Text(f, entry.label).FontSize(fontToken(theme, theme.Metrics.FontSizeM+1)).Weight(gfx.WeightMedium).
-					Color(color).LineHeight(20).Grow(1).Ellipsis()
+				ui.Text(f, entry.label).FontSize(theme.Metrics.FontSizeM + 1).Weight(gfx.WeightMedium).
+					Color(color).LineHeight(textSize(f, 20)).Grow(1).Ellipsis()
 				if font.entries[font.filtered[row]].family == strings.TrimSpace(font.settings.InterfaceFont) {
-					ui.Text(f, i18n.T("当前")).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
+					ui.Text(f, i18n.T("当前")).Muted().FontSize(theme.Metrics.FontSizeS)
 				}
 			})
 		}
-		if rest := font.contentHeight() - float32(last)*interfaceFontRowStep; rest > 0 {
+		if rest := font.contentHeight() - float32(last)*font.rowStep; rest > 0 {
 			ui.Slot(f).Height(rest)
 		}
 	})
@@ -358,12 +364,13 @@ func (p *Panels) drawInterfaceFontRows(f ui.C, theme ui.Theme, font *panelInterf
 
 func (p *Panels) drawInterfaceFontPreview(f ui.C, theme ui.Theme, font *panelInterfaceFontPicker) {
 	entry := font.entries[font.filtered[font.selected]]
-	ui.Column(f).Height(interfaceFontPreviewHeight).Shrink(0).PadSides(12, 12, 8, 8).
+	lineHeight := theme.Metrics.ScaledText(22)
+	ui.Column(f).Height(max(66, 2*lineHeight+20)).Shrink(0).PadSides(12, 12, 8, 8).
 		Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl).Children(func() {
-		first := ui.Text(f, interfaceFontSample).FontSize(fontToken(theme, theme.Metrics.FontSizeM)).
-			Color(theme.Foreground).LineHeight(22).Height(22)
-		second := ui.Text(f, interfaceFontSampleSymbols).FontSize(fontToken(theme, theme.Metrics.FontSizeM)).
-			Color(theme.MutedForeground).LineHeight(22).Height(22)
+		first := ui.Text(f, interfaceFontSample).FontSize(theme.Metrics.FontSizeM).
+			Color(theme.Foreground).LineHeight(lineHeight).Height(lineHeight).Ellipsis()
+		second := ui.Text(f, interfaceFontSampleSymbols).FontSize(theme.Metrics.FontSizeM).
+			Color(theme.MutedForeground).LineHeight(lineHeight).Height(lineHeight).Ellipsis()
 		if entry.family != "" {
 			face := gfx.MonoFamily(entry.family)
 			first.MonoFace(face)

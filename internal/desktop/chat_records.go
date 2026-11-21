@@ -40,8 +40,8 @@ func (u *UI) drawVoiceRecord(f ui.C, message domain.Message) {
 			HitWith(u.messageIDs[message.ID], i18n.T("查看通话记录"), gfx.HitOptions{Role: gfx.RoleButton}).
 			Background(u.palette.incoming).Children(func() {
 			ui.Icon(f, icon).Size(18, 18).Color(color)
-			ui.Wrap(f, voiceRecordLabel(message)).FontSize(13).Color(color)
-			ui.Text(f, shortTime(message.CreatedAt)).FontSize(11).Muted()
+			ui.Wrap(f, voiceRecordLabel(message)).FontSize(textSize(f, 13)).Color(color)
+			ui.Text(f, shortTime(message.CreatedAt)).FontSize(textSize(f, 11)).Muted()
 			ui.Icon(f, u.iconChevronRight).Size(14, 14).Color(u.palette.secondaryText)
 		})
 		if card.Clicked() {
@@ -56,7 +56,7 @@ func (u *UI) drawVoiceRecordDetail(f ui.C, message domain.Message) {
 	ui.Scroll(f.Part("call-record-detail")).Fill().Scrollbars().Gap(16).Children(func() {
 		ui.Row(f).Gap(12).Items(ui.Center).Children(func() {
 			ui.Icon(f, u.iconPhone).Size(32, 32).Color(u.theme.Primary)
-			ui.Text(f, i18n.T("语音通话")).FontSize(17).Weight(gfx.WeightSemibold)
+			ui.Text(f, i18n.T("语音通话")).FontSize(textSize(f, 17)).Weight(gfx.WeightSemibold)
 		})
 		ui.Divider(f)
 		u.fileInfoRow(f, i18n.T("所在会话"), u.conversationTitle(u.state.Conversation(message.ConversationID)))
@@ -77,7 +77,7 @@ func (u *UI) drawPrintDetail(f ui.C, job domain.PrintJob) {
 	ui.Scroll(f.Part("print-record-detail")).Fill().Scrollbars().Gap(16).Children(func() {
 		ui.Row(f).Gap(12).Items(ui.Center).Children(func() {
 			ui.Icon(f, panelPrintIcon).Size(36, 36).Color(u.theme.Primary)
-			ui.Wrap(f, job.FileName).Grow(1).FontSize(17).Weight(gfx.WeightSemibold)
+			ui.Wrap(f, job.FileName).Grow(1).FontSize(textSize(f, 17)).Weight(gfx.WeightSemibold)
 		})
 		ui.Divider(f)
 		status, _ := printStatusPresentation(job.Status)
@@ -85,8 +85,8 @@ func (u *UI) drawPrintDetail(f ui.C, job domain.PrintJob) {
 		u.fileInfoRow(f, i18n.T("打印机"), job.PrinterName)
 		u.fileInfoRow(f, i18n.T("打印设置"), printOptionSummary(job.Options))
 		if job.Error != "" {
-			ui.Wrap(f, job.Error).FontSize(13).Color(u.palette.danger)
+			ui.Wrap(f, job.Error).FontSize(textSize(f, 13)).Color(u.palette.danger)
 		}
-		ui.Wrap(f, i18n.T("这是历史打印记录。打印任务的最新状态可在打印共享中查看。")).FontSize(12).Muted()
+		ui.Wrap(f, i18n.T("这是历史打印记录。打印任务的最新状态可在打印共享中查看。")).FontSize(textSize(f, 12)).Muted()
 	})
 }

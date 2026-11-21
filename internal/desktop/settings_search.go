@@ -174,7 +174,7 @@ func (p *Panels) drawSettingResults(f ui.C, state domain.State) {
 			}
 			row.Children(func() {
 				ui.Text(f, label).Grow(1).Ellipsis()
-				ui.Text(f, category).Muted().FontSize(12)
+				ui.Text(f, category).Muted().FontSize(textSize(f, 12))
 			})
 			if row.Clicked() {
 				p.openSettingResult(f, item, state)

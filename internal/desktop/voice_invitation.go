@@ -12,7 +12,7 @@ import (
 )
 
 func (u *UI) voiceInvitationSize() (int, int) {
-	scale := max(float32(1), u.theme.Metrics.EffectiveTextScale())
+	scale := max(float32(1), u.theme.Metrics.ScaledText(1))
 	return int(math.Ceil(float64(368 * scale))), int(math.Ceil(float64(92 * scale)))
 }
 
@@ -43,8 +43,8 @@ func (u *UI) drawVoiceInvitation(canvas *gfx.Canvas, card ui.Rect, id string) {
 			Pad(16).Gap(12).Items(ui.Center).Children(func() {
 			u.avatarWithPresence(f, name, path, 48, false, false, u.theme.Background)
 			ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
-				ui.Text(f, name).FillWidth().Weight(gfx.WeightSemibold).FontSize(16).Ellipsis()
-				ui.Text(f, body).FillWidth().Muted().FontSize(13).Ellipsis()
+				ui.Text(f, name).FillWidth().Weight(gfx.WeightSemibold).FontSize(textSize(f, 16)).Ellipsis()
+				ui.Text(f, body).FillWidth().Muted().FontSize(textSize(f, 13)).Ellipsis()
 			})
 			if invitationButton(f, u.ids.voiceReject, i18n.T("拒绝"), ui.RGB(211, 55, 65), 3*math.Pi/4).Clicked() {
 				u.respondToInvitation(id, false)

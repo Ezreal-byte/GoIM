@@ -482,7 +482,7 @@ func printRecordTime(at time.Time) string {
 }
 
 func printControlHeight(theme ui.Theme) float32 {
-	return 36 + 20*max(theme.Metrics.EffectiveTextScale()-1, 0)
+	return 36 + 20*max(theme.Metrics.ScaledText(1)-1, 0)
 }
 
 func (t *printPanel) tabLabel(tab printTab) string {
@@ -507,7 +507,7 @@ func (p *Panels) drawPrint(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.
 		p.drawPrintToolbar(f, theme, bounds.Width-2*pad, state, submit)
 		ui.Row(f).FillWidth().PadSides(18, 0, 0, 0).Children(func() {
 			if ui.Tabs(f.Part("print-filter"), &p.print.tab, printTabs[:], p.print.tabLabel).
-				Line().FontSize(panelTabFontSize).Changed() {
+				Line().FontSize(textSize(f, panelTabFontSize)).Changed() {
 				p.print.shareOpen = false
 			}
 		})
@@ -529,7 +529,7 @@ func (p *Panels) drawPrint(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.
 }
 
 func (p *Panels) drawPrintToolbar(f ui.C, theme ui.Theme, width float32, state domain.State, submit func(domain.Command)) {
-	compact := width < 620*theme.Metrics.EffectiveTextScale()
+	compact := width < theme.Metrics.ScaledText(620)
 	var container ui.Box
 	if compact {
 		container = ui.Column(f).FillWidth().Gap(14)
@@ -549,7 +549,7 @@ func (p *Panels) drawPrintToolbar(f ui.C, theme ui.Theme, width float32, state d
 			button.Children(func() {
 				ui.Icon(f, Plus).Size(17, 17).Color(theme.PrimaryForeground)
 				ui.Text(f, i18n.T("分享打印机")).Color(theme.PrimaryForeground).
-					FontSize(14).Weight(gfx.WeightSemibold)
+					FontSize(textSize(f, 14)).Weight(gfx.WeightSemibold)
 			})
 			if button.Clicked() {
 				p.print.openShareDialog(state)
@@ -583,7 +583,7 @@ func (p *Panels) drawPrintTab(f ui.C, theme ui.Theme, width float32, state domai
 		p.drawPrinterTable(f, theme, width, p.print.lanCards, false, submit)
 		if len(p.print.records) > 0 {
 			ui.Column(f).FillWidth().PadSides(14, 0, 0, 0).Children(func() {
-				ui.Text(f, i18n.T("最近打印")).FontSize(17).Weight(gfx.WeightSemibold)
+				ui.Text(f, i18n.T("最近打印")).FontSize(textSize(f, 17)).Weight(gfx.WeightSemibold)
 				p.drawPrintRecords(f, theme, width, p.print.recent, false)
 			})
 		}
@@ -592,7 +592,7 @@ func (p *Panels) drawPrintTab(f ui.C, theme ui.Theme, width float32, state domai
 
 func (p *Panels) drawPrinterTable(f ui.C, theme ui.Theme, width float32, cards []panelPrintCard,
 	mine bool, submit func(domain.Command)) {
-	scale := theme.Metrics.EffectiveTextScale()
+	scale := theme.Metrics.ScaledText(1)
 	wide := width >= 780*scale
 	owner, capability, status := 145*scale, 160*scale, 72*scale
 	actions := 116 * scale
@@ -618,9 +618,9 @@ func (p *Panels) drawPrinterTable(f ui.C, theme ui.Theme, width float32, cards [
 				ui.Row(f).Grow(1).MinWidth(0).Gap(10).Items(ui.Center).Children(func() {
 					p.drawPrintAvatar(f, card, theme, 32)
 					ui.Column(f).Grow(1).MinWidth(0).Children(func() {
-						ui.Text(f, card.printer.Name).FontSize(15).Weight(gfx.WeightMedium).Ellipsis()
+						ui.Text(f, card.printer.Name).FontSize(textSize(f, 15)).Weight(gfx.WeightMedium).Ellipsis()
 						if !wide {
-							ui.Text(f, i18n.T("共享人 ")+card.ownerName+" · "+card.capability).FontSize(12).Muted().Ellipsis()
+							ui.Text(f, i18n.T("共享人 ")+card.ownerName+" · "+card.capability).FontSize(textSize(f, 12)).Muted().Ellipsis()
 						}
 					})
 					if card.printer.PasswordRequired {
@@ -628,8 +628,8 @@ func (p *Panels) drawPrinterTable(f ui.C, theme ui.Theme, width float32, cards [
 					}
 				})
 				if wide {
-					ui.Text(f, card.ownerName).Width(owner).FontSize(13).Ellipsis()
-					ui.Text(f, card.capability).Width(capability).FontSize(13).Ellipsis()
+					ui.Text(f, card.ownerName).Width(owner).FontSize(textSize(f, 13)).Ellipsis()
+					ui.Text(f, card.capability).Width(capability).FontSize(textSize(f, 13)).Ellipsis()
 				}
 				tone, label := theme.Success, i18n.T("可用")
 				if !card.available {
@@ -637,7 +637,7 @@ func (p *Panels) drawPrinterTable(f ui.C, theme ui.Theme, width float32, cards [
 				}
 				ui.Row(f).Width(status).Gap(6).Items(ui.Center).Children(func() {
 					ui.Row(f).Size(7, 7).Radius(4).Background(tone)
-					ui.Text(f, label).FontSize(13).Color(tone).Ellipsis()
+					ui.Text(f, label).FontSize(textSize(f, 13)).Color(tone).Ellipsis()
 				})
 				ui.Row(f).Width(actions).Gap(6).Items(ui.Center).Justify(ui.End).Children(func() {
 					p.drawPrinterActions(f, theme, card, !wide, submit)
@@ -687,7 +687,7 @@ func (p *Panels) drawPrinterActions(f ui.C, theme ui.Theme, card panelPrintCard,
 	}
 	box.Children(func() {
 		ui.Icon(f, panelPrintIcon).Size(16, 16).Color(color)
-		ui.Text(f, i18n.T("打印")).FontSize(13).Weight(gfx.WeightMedium).Color(color)
+		ui.Text(f, i18n.T("打印")).FontSize(textSize(f, 13)).Weight(gfx.WeightMedium).Color(color)
 	})
 	if box.Clicked() && !disabled {
 		if p.presentPrint == nil || !p.presentPrint(card.printer.ID) {
@@ -705,18 +705,18 @@ func (p *Panels) drawPrintAvatar(f ui.C, card panelPrintCard, theme ui.Theme, si
 	}
 	ui.Row(f).Size(size, size).Shrink(0).Radius(size / 2).Background(theme.Muted).
 		Items(ui.Center).Justify(ui.Center).Children(func() {
-		ui.Text(f, initialOf(card.ownerName)).FontSize(fontToken(theme, min(18*theme.Metrics.EffectiveTextScale(), size*.42))).Weight(gfx.WeightSemibold)
+		ui.Text(f, initialOf(card.ownerName)).FontSize(min(theme.Metrics.ScaledText(18), size*.42)).Weight(gfx.WeightSemibold)
 	})
 }
 
 func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records []panelPrintRecord, fullHistory bool) {
-	compact := width < 900*theme.Metrics.EffectiveTextScale()
+	compact := width < theme.Metrics.ScaledText(900)
 	directionWidth := float32(88)
 	sourceWidth := float32(190)
 	timeWidth := float32(92)
 	statusWidth := float32(128)
 	if compact {
-		directionWidth, sourceWidth, timeWidth, statusWidth = 0, 0, 0, 100*theme.Metrics.EffectiveTextScale()
+		directionWidth, sourceWidth, timeWidth, statusWidth = 0, 0, 0, theme.Metrics.ScaledText(100)
 	}
 	sort := &p.print.recentSort
 	if fullHistory {
@@ -736,7 +736,7 @@ func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records
 	})
 	drawRows := func() {
 		for _, record := range records {
-			row := ui.Row(f).FillWidth().MinHeight(max(panelTableRowHeight, 42*theme.Metrics.EffectiveTextScale())).PadX(15).Gap(12).Items(ui.Center).
+			row := ui.Row(f).FillWidth().MinHeight(max(panelTableRowHeight, theme.Metrics.ScaledText(42))).PadX(15).Gap(12).Items(ui.Center).
 				Hover(ui.Look{}.Background(theme.Hover))
 			row.Children(func() {
 				ui.Row(f).Grow(1).MinWidth(0).Gap(10).Items(ui.Center).Children(func() {
@@ -745,7 +745,7 @@ func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records
 						ui.Icon(f, printFileIcon(record.job)).Size(17, 17).Color(theme.Primary)
 					})
 					ui.Column(f).Grow(1).MinWidth(0).Gap(2).Children(func() {
-						ui.Text(f, record.name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
+						ui.Text(f, record.name).FontSize(textSize(f, 14)).Weight(gfx.WeightMedium).Ellipsis()
 						meta := record.options
 						if compact {
 							meta = record.direction + " · " + record.source
@@ -757,23 +757,23 @@ func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records
 							meta += " · " + record.error
 						}
 						if meta != "" {
-							ui.Text(f, meta).Muted().FontSize(11).Ellipsis()
+							ui.Text(f, meta).Muted().FontSize(textSize(f, 11)).Ellipsis()
 						}
 					})
 				})
 				if fullHistory && !compact {
-					ui.Text(f, record.direction).FontSize(13).Width(directionWidth).Ellipsis()
+					ui.Text(f, record.direction).FontSize(textSize(f, 13)).Width(directionWidth).Ellipsis()
 				}
 				if !compact {
-					ui.Text(f, record.source).FontSize(13).Width(sourceWidth).Ellipsis()
+					ui.Text(f, record.source).FontSize(textSize(f, 13)).Width(sourceWidth).Ellipsis()
 				}
 				if !compact {
-					ui.Text(f, record.date).Muted().FontSize(12).Width(timeWidth).Ellipsis()
+					ui.Text(f, record.date).Muted().FontSize(textSize(f, 12)).Width(timeWidth).Ellipsis()
 				}
 				ui.Row(f).Width(statusWidth).Gap(7).Items(ui.Center).Children(func() {
 					icon, color := printStatusIcon(record.statusKind, theme)
 					ui.Icon(f, icon).Size(16, 16).Color(color)
-					ui.Text(f, record.status).FontSize(12.5).Color(color).Ellipsis()
+					ui.Text(f, record.status).FontSize(textSize(f, 12.5)).Color(color).Ellipsis()
 				})
 			})
 			ui.Divider(f).FillWidth()
@@ -842,11 +842,11 @@ func (p *Panels) drawPrinterShareDialog(f ui.C, theme ui.Theme, state domain.Sta
 	}
 	dialog.Body(func() {
 		ui.Column(f).Fill().Gap(9).Children(func() {
-			ui.Text(f, i18n.T("本机打印机")).FontSize(12.5).Weight(gfx.WeightMedium)
+			ui.Text(f, i18n.T("本机打印机")).FontSize(textSize(f, 12.5)).Weight(gfx.WeightMedium)
 			if state.PrintersLoading && len(queueIDs) == 0 {
 				ui.Row(f).Height(38).Gap(8).Items(ui.Center).Children(func() {
 					ui.Spinner(f).Size(16, 16)
-					ui.Text(f, i18n.T("正在读取本机打印机…")).Muted().FontSize(12.5)
+					ui.Text(f, i18n.T("正在读取本机打印机…")).Muted().FontSize(textSize(f, 12.5))
 				})
 			} else {
 				previous := p.print.shareQueue
@@ -858,7 +858,7 @@ func (p *Panels) drawPrinterShareDialog(f ui.C, theme ui.Theme, state domain.Sta
 					p.print.loadExistingShare(state)
 				}
 			}
-			ui.Text(f, i18n.T("共享名称")).FontSize(12.5).Weight(gfx.WeightMedium)
+			ui.Text(f, i18n.T("共享名称")).FontSize(textSize(f, 12.5)).Weight(gfx.WeightMedium)
 			field := ui.TextFieldID(f, p.print.ids.shareName, &p.print.shareName,
 				i18n.T("共享名称"), i18n.T("例如：陈晨-前台 HP")).FillWidth().MinHeight(printControlHeight(theme))
 			if field.Changed() {
@@ -866,7 +866,7 @@ func (p *Panels) drawPrinterShareDialog(f ui.C, theme ui.Theme, state domain.Sta
 			}
 			submitted = field.Submitted()
 			ui.Row(f).FillWidth().Gap(12).Items(ui.Center).Children(func() {
-				ui.Text(f, i18n.T("启用打印密码")).Grow(1).FontSize(13)
+				ui.Text(f, i18n.T("启用打印密码")).Grow(1).FontSize(textSize(f, 13))
 				ui.Switch(f, &p.print.shareProtected, "").Hit(p.print.ids.shareRequirePassword, i18n.T("启用打印密码"))
 			})
 			if p.print.shareProtected {
@@ -876,12 +876,12 @@ func (p *Panels) drawPrinterShareDialog(f ui.C, theme ui.Theme, state domain.Sta
 				}
 				ui.TextFieldID(f, p.print.ids.sharePassword, &p.print.sharePassword, i18n.T("打印密码"), hint).FillWidth().MinHeight(printControlHeight(theme))
 			}
-			ui.Paragraph(f, i18n.T("首次使用时验证一次；修改密码后，成员需要重新验证。"), 3).FillWidth().Muted().FontSize(12)
+			ui.Paragraph(f, i18n.T("首次使用时验证一次；修改密码后，成员需要重新验证。"), 3).FillWidth().Muted().FontSize(textSize(f, 12))
 			if p.print.shareError != "" {
-				ui.Text(f, p.print.shareError).FontSize(12).Color(theme.Danger)
+				ui.Text(f, p.print.shareError).FontSize(textSize(f, 12)).Color(theme.Danger)
 			}
 			if state.PrintError != "" {
-				ui.Text(f, state.PrintError).FontSize(fontToken(theme, theme.Metrics.FontSizeS)).Color(theme.Danger)
+				ui.Text(f, state.PrintError).FontSize(theme.Metrics.FontSizeS).Color(theme.Danger)
 			}
 		})
 	})

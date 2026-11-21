@@ -15,12 +15,12 @@ func remarkUsername(peer domain.Peer) string {
 
 func (u *UI) peerNameLine(f ui.C, name, username string, size float32) {
 	if username == "" {
-		ui.Text(f, name).FontSize(size).Weight(gfx.WeightSemibold).Ellipsis()
+		ui.Text(f, name).FontSize(textSize(f, size)).Weight(gfx.WeightSemibold).Ellipsis()
 		return
 	}
 	ui.Row(f).FillWidth().MinWidth(0).Items(ui.Center).Gap(6).Children(func() {
-		ui.Text(f, name).FontSize(size).Weight(gfx.WeightSemibold).Ellipsis()
-		ui.Text(f, username).FontSize(max(10, size-2)).Muted().MaxWidth(140).Ellipsis()
+		ui.Text(f, name).FontSize(textSize(f, size)).Weight(gfx.WeightSemibold).Ellipsis()
+		ui.Text(f, username).FontSize(textSize(f, max(10, size-2))).Muted().MaxWidth(140).Ellipsis()
 	})
 }
 

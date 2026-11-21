@@ -67,7 +67,7 @@ func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 		subtle = u.palette.hover
 	}
 	status := u.voiceCallStatus(call)
-	avatarSize := min(128, max(64, height-220-100*u.theme.Metrics.EffectiveTextScale()))
+	avatarSize := min(128, max(64, height-220-u.theme.Metrics.ScaledText(100)))
 	var muteButton, speakerButton, hangupButton ui.Box
 
 	u.dialogPage.Draw(canvas, viewport, func(f ui.C) {
@@ -84,12 +84,12 @@ func (u *UI) drawVoiceCall(canvas *gfx.Canvas, viewport ui.Rect) {
 					})
 					ui.Slot(f).Height(20)
 					ui.Text(f, name).FillWidth().
-						FontSize(24).Weight(gfx.WeightSemibold).TextCenter().Ellipsis()
+						FontSize(textSize(f, 24)).Weight(gfx.WeightSemibold).TextCenter().Ellipsis()
 					ui.Slot(f).Height(8)
-					ui.Text(f, status).FillWidth().FontSize(13.5).Muted().TextCenter()
+					ui.Text(f, status).FillWidth().FontSize(textSize(f, 13.5)).Muted().TextCenter()
 					if call.Status == domain.VoiceCallActive {
 						ui.Slot(f).Height(5)
-						ui.Text(f, voiceCallElapsed(call.ConnectedAt)).FillWidth().FontSize(12).
+						ui.Text(f, voiceCallElapsed(call.ConnectedAt)).FillWidth().FontSize(textSize(f, 12)).
 							Muted().TextCenter()
 					}
 					ui.Spacer(f)
@@ -178,7 +178,7 @@ func (u *UI) voiceControl(f ui.C, id gfx.ID, icon gfx.Icon, label string, backgr
 		circle.Children(func() {
 			ui.Icon(f, icon).Size(24, 24).Color(foreground)
 		})
-		ui.Text(f, label).FillWidth().FontSize(11.5).Weight(gfx.WeightMedium).Muted().TextCenter().MaxLines(2)
+		ui.Text(f, label).FillWidth().FontSize(textSize(f, 11.5)).Weight(gfx.WeightMedium).Muted().TextCenter().MaxLines(2)
 	})
 	return button
 }

@@ -1528,9 +1528,9 @@ func panelStatusColor(theme ui.Theme, status string) ui.Color {
 func panelPageHeader(f ui.C, theme ui.Theme, title, description string, trailing func()) {
 	ui.Row(f).FillWidth().Items(ui.Center).Gap(20).Children(func() {
 		ui.Column(f).Grow(1).Gap(3).Children(func() {
-			ui.Text(f, title).FontSize(25).Weight(gfx.WeightSemibold)
+			ui.Text(f, title).FontSize(textSize(f, 25)).Weight(gfx.WeightSemibold)
 			if description != "" {
-				ui.Paragraph(f, description, 2).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS+1))
+				ui.Paragraph(f, description, 2).Muted().FontSize(theme.Metrics.FontSizeS + 1)
 			}
 		})
 		if trailing != nil {
@@ -1542,10 +1542,10 @@ func panelPageHeader(f ui.C, theme ui.Theme, title, description string, trailing
 func panelSection(f ui.C, title, description string, body func()) {
 	ui.Column(f).FillWidth().Gap(2).PadSides(0, 0, 2, 0).Children(func() {
 		ui.Row(f).FillWidth().PadY(8).Children(func() {
-			ui.Text(f, title).FontSize(16).Weight(gfx.WeightSemibold)
+			ui.Text(f, title).FontSize(textSize(f, 16)).Weight(gfx.WeightSemibold)
 		})
 		if description != "" {
-			ui.Paragraph(f, description, 2).Muted().FontSize(12)
+			ui.Paragraph(f, description, 2).Muted().FontSize(textSize(f, 12))
 		}
 		body()
 	})
@@ -1554,9 +1554,9 @@ func panelSection(f ui.C, title, description string, body func()) {
 func panelSettingRow(f ui.C, theme ui.Theme, title, description string, control func()) {
 	ui.Row(f).FillWidth().Gap(24).PadY(13).Items(ui.Center).Children(func() {
 		ui.Column(f).Grow(1).Gap(3).Children(func() {
-			ui.Text(f, title).FontSize(fontToken(theme, theme.Metrics.FontSizeM+1)).Weight(gfx.WeightMedium)
+			ui.Text(f, title).FontSize(theme.Metrics.FontSizeM + 1).Weight(gfx.WeightMedium)
 			if description != "" {
-				ui.Paragraph(f, description, 3).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
+				ui.Paragraph(f, description, 3).Muted().FontSize(theme.Metrics.FontSizeS)
 			}
 		})
 		if control != nil {
@@ -1574,7 +1574,7 @@ func panelPill(f ui.C, theme ui.Theme, text string, tone ui.Color) {
 	background := panelTint(tone, 0.10, theme.Background)
 	ui.Row(f).PadSides(4, 9, 4, 9).Radius(gfx.RadiusFull).Background(background).
 		Border(1, panelTint(tone, 0.22, theme.Background)).Children(func() {
-		ui.Text(f, text).FontSize(fontToken(theme, theme.Metrics.FontSizeS)).Weight(gfx.WeightMedium).Color(tone)
+		ui.Text(f, text).FontSize(theme.Metrics.FontSizeS).Weight(gfx.WeightMedium).Color(tone)
 	})
 }
 
@@ -1589,7 +1589,7 @@ func panelBanner(f ui.C, theme ui.Theme, text string, danger bool, dismiss func(
 	ui.Row(f).FillWidth().PadSides(9, 12, 9, 12).Gap(12).Items(ui.Center).
 		Background(panelTint(tone, 0.08, theme.Background)).
 		Border(1, panelTint(tone, 0.24, theme.Background)).Radius(8).Children(func() {
-		ui.Paragraph(f, text, 3).FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).Grow(1).Color(tone)
+		ui.Paragraph(f, text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1).Color(tone)
 		if dismiss != nil {
 			if namedButton(f, gfx.ID{}, i18n.T("关闭")).Small().Ghost().Clicked() {
 				dismiss()
@@ -1601,9 +1601,9 @@ func panelBanner(f ui.C, theme ui.Theme, text string, danger bool, dismiss func(
 func panelScrollFooter(f ui.C, theme ui.Theme, left, right string) {
 	ui.Divider(f).FillWidth()
 	ui.Row(f).FillWidth().PadY(10).Items(ui.Center).Children(func() {
-		ui.Text(f, left).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS)).Grow(1)
+		ui.Text(f, left).Muted().FontSize(theme.Metrics.FontSizeS).Grow(1)
 		if right != "" {
-			ui.Text(f, right).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
+			ui.Text(f, right).Muted().FontSize(theme.Metrics.FontSizeS)
 		}
 	})
 }
@@ -1633,7 +1633,7 @@ func panelBannerWithAction(f ui.C, theme ui.Theme, text string, danger bool, id 
 	ui.Row(f).FillWidth().PadSides(9, 12, 9, 12).Gap(12).Items(ui.Center).
 		Background(panelTint(tone, 0.08, theme.Background)).
 		Border(1, panelTint(tone, 0.24, theme.Background)).Radius(8).Children(func() {
-		ui.Paragraph(f, text, 3).FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).Grow(1).Color(tone)
+		ui.Paragraph(f, text, 3).FontSize(theme.Metrics.FontSizeS + 1).Grow(1).Color(tone)
 		if dismiss != nil {
 			if namedButton(f, id, i18n.T("关闭")).Small().Ghost().Clicked() {
 				dismiss()
@@ -1644,8 +1644,8 @@ func panelBannerWithAction(f ui.C, theme ui.Theme, text string, danger bool, id 
 
 func panelEmpty(f ui.C, theme ui.Theme, title, description string) {
 	ui.Column(f).FillWidth().PadY(64).Gap(6).Items(ui.Center).Children(func() {
-		ui.Text(f, title).FontSize(16).Weight(gfx.WeightMedium)
-		ui.Paragraph(f, description, 2).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).MaxWidth(420).TextCenter()
+		ui.Text(f, title).FontSize(textSize(f, 16)).Weight(gfx.WeightMedium)
+		ui.Paragraph(f, description, 2).Muted().FontSize(theme.Metrics.FontSizeS + 1).MaxWidth(420).TextCenter()
 	})
 }
 
@@ -1657,7 +1657,7 @@ func panelPathText(f ui.C, theme ui.Theme, path string) {
 	ui.Row(f).FillWidth().Height(theme.Metrics.ControlHeight).PadX(10).
 		Background(theme.Muted).Border(1, theme.Border).Radius(theme.Metrics.RadiusControl).
 		Clip().Items(ui.Center).Children(func() {
-		ui.Text(f, path).FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).Ellipsis().Grow(1)
+		ui.Text(f, path).FontSize(theme.Metrics.FontSizeS + 1).Ellipsis().Grow(1)
 	})
 }
 

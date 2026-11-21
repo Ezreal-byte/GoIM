@@ -30,9 +30,9 @@ func panelPageInset(width float32) float32 {
 
 func drawPanelPageHeading(f ui.C, width float32, title, description string) {
 	ui.Column(f).Grow(1).MinWidth(112).Gap(6).Children(func() {
-		ui.Text(f, title).FontSize(29).Weight(gfx.WeightSemibold).Ellipsis()
+		ui.Text(f, title).FontSize(textSize(f, 29)).Weight(gfx.WeightSemibold).Ellipsis()
 		if width >= 760 {
-			ui.Text(f, description).Muted().FontSize(15).Ellipsis()
+			ui.Text(f, description).Muted().FontSize(textSize(f, 15)).Ellipsis()
 		}
 	})
 }
@@ -77,7 +77,7 @@ func (p *Panels) drawTransfers(f ui.C, theme ui.Theme, bounds ui.Rect, state dom
 			})
 		}
 		drawTableSearch(f, p.ids.transferSearch, &p.transferSearch, i18n.T("搜索文件"))
-		p.drawTransferTabs(f)
+		p.drawTransferTabs(f, bounds.Width-2*pad)
 		ui.Divider(f).FillWidth()
 		p.drawTransferTableHead(f, columns)
 		entries := p.transferEntries()
@@ -153,15 +153,24 @@ func (p *Panels) transferEntries() []panelTransferEntry {
 	return panelFilterTransfers(entries, strings.TrimSpace(p.transferSearch.Text()))
 }
 
-func (p *Panels) drawTransferTabs(f ui.C) {
+func (p *Panels) drawTransferTabs(f ui.C, available float32) {
+	size := textSize(f, panelTabFontSize)
 	var widest float32
 	for _, label := range p.transferLabels {
-		widest = max(widest, f.Canvas().TextWidthWeight(label, panelTabFontSize, gfx.WeightMedium))
+		widest = max(widest, f.Canvas().TextWidthWeight(label, size, gfx.WeightMedium))
 	}
+	tabWidth := float32(len(transferFilters))*max(85, widest+18) + 4
+	label := func(filter transferFilter) string { return p.transferLabels[filter] }
 	ui.Row(f).FillWidth().PadSides(6, 0, 0, 0).Children(func() {
-		tabs := ui.Tabs(f.Part("transfer-filter"), &p.transferFilter, transferFilters[:],
-			func(filter transferFilter) string { return p.transferLabels[filter] }).
-			Line().FontSize(panelTabFontSize).Width(float32(len(transferFilters))*max(85, widest+18) + 4)
+		if tabWidth > available {
+			if ui.Select(f.Part("transfer-filter-menu"), &p.transferFilter, transferFilters[:], label).
+				Label(i18n.T("文件传输")).FontSize(size).Width(min(available, widest+64)).Height(max(36, size+14)).Changed() {
+				p.transferMenu = ""
+			}
+			return
+		}
+		tabs := ui.Tabs(f.Part("transfer-filter"), &p.transferFilter, transferFilters[:], label).
+			Line().FontSize(size).Width(tabWidth)
 		if tabs.Changed() {
 			p.transferMenu = ""
 		}
@@ -176,12 +185,14 @@ func (p *Panels) drawTransferHeader(f ui.C, theme ui.Theme, width float32, direc
 		if width < 760 {
 			height, size = 39, 13
 		}
-		button := ui.Row(f).Height(height).PadX(14).Gap(9).Items(ui.Center).Radius(8).
+		fontSize := textSize(f, size)
+		buttonWidth := 28 + 18 + 9 + f.Canvas().TextWidthWeight(label, fontSize, gfx.WeightMedium)
+		button := ui.Row(f).Width(buttonWidth+2).Shrink(0).Height(max(height, fontSize+14)).PadX(14).Gap(9).Items(ui.Center).Radius(8).
 			Border(1, theme.Border).Hover(ui.Look{}.Background(theme.Hover)).
 			HitWith(p.ids.transferDirectory, label, gfx.HitOptions{Role: gfx.RoleButton, Disabled: directory == ""})
 		button.Children(func() {
 			ui.Icon(f, FolderOpen).Size(18, 18).Color(theme.MutedForeground)
-			ui.Text(f, label).FontSize(size).Weight(gfx.WeightMedium)
+			ui.Text(f, label).FontSize(fontSize).Weight(gfx.WeightMedium)
 		})
 		if button.Clicked() {
 			p.queueLocalAction(mediaJob{path: directory, reveal: true, directory: true, ensureDirectory: true})
@@ -204,7 +215,7 @@ func (p *Panels) drawIncomingTransfers(f ui.C, theme ui.Theme, bounds ui.Rect, s
 			tint = panelAccentSurface(theme)
 		}
 		ui.Column(f).FillWidth().Radius(8).Background(tint).PadSides(14, side, 11, side).Gap(12).Children(func() {
-			ui.Text(f, p.transferIncomingLabel).FontSize(19).Weight(gfx.WeightSemibold)
+			ui.Text(f, p.transferIncomingLabel).FontSize(textSize(f, 19)).Weight(gfx.WeightSemibold)
 			drawRows := func() {
 				for i := range p.transferIncoming {
 					entry := &p.transferIncoming[i]
@@ -217,10 +228,10 @@ func (p *Panels) drawIncomingTransfers(f ui.C, theme ui.Theme, bounds ui.Rect, s
 						if bounds.Width < 760 {
 							width = 68
 						}
-						if entry.saveAs && namedButton(f, entry.ids.saveAs, i18n.T("另存为…")).Outline().FontSize(15).Height(38).MinWidth(width+8).Disabled(p.transferPickerOpen).Clicked() {
+						if entry.saveAs && namedButton(f, entry.ids.saveAs, i18n.T("另存为…")).Outline().FontSize(textSize(f, 15)).Height(38).MinWidth(width+8).Disabled(p.transferPickerOpen).Clicked() {
 							p.saveTransferAs(f.Canvas(), submit, entry.transfer)
 						}
-						if namedButton(f, entry.ids.accept, i18n.T("接收")).FontSize(15).Height(38).MinWidth(width).Clicked() {
+						if namedButton(f, entry.ids.accept, i18n.T("接收")).FontSize(textSize(f, 15)).Height(38).MinWidth(width).Clicked() {
 							submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: entry.transfer.ID})
 						}
 						p.drawTransferMore(f, theme, entry, true)
@@ -256,8 +267,8 @@ func drawTransferIdentity(f ui.C, theme ui.Theme, entry *panelTransferEntry) {
 	ui.Row(f).Grow(1).MinWidth(0).Gap(15).Items(ui.Center).Children(func() {
 		drawFileIcon(f, theme, entry.icon, 40, 23)
 		ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
-			ui.Text(f, entry.name).FontSize(18).Weight(gfx.WeightSemibold).Ellipsis()
-			ui.Text(f, entry.meta).FontSize(15).Muted().Ellipsis()
+			ui.Text(f, entry.name).FontSize(textSize(f, 18)).Weight(gfx.WeightSemibold).Ellipsis()
+			ui.Text(f, entry.meta).FontSize(textSize(f, 15)).Muted().Ellipsis()
 		})
 	})
 }
@@ -280,7 +291,7 @@ func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, columns panelTableColum
 	if entry.progress != "" {
 		tooltip += "\n" + entry.progress
 	}
-	row := ui.Row(f).FillWidth().Height(panelTableRowHeight).PadX(15).Gap(12).Items(ui.Center).Radius(radiusControl).
+	row := ui.Row(f).FillWidth().MinHeight(panelTableRowHeight).PadSides(4, 15, 4, 15).Gap(12).Items(ui.Center).Radius(radiusControl).
 		Hover(ui.Look{}.Background(theme.Hover)).
 		HitWith(entry.ids.more, entry.name, gfx.HitOptions{Role: gfx.RoleButton, Hint: entry.name}).
 		Tooltip(tooltip)
@@ -288,11 +299,11 @@ func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, columns panelTableColum
 		ui.Row(f).Grow(1).MinWidth(0).Gap(11).Items(ui.Center).Children(func() {
 
 			drawFileIcon(f, theme, entry.icon, 32, 20)
-			ui.Text(f, entry.name).FontSize(15).Weight(gfx.WeightMedium).MinWidth(0).Ellipsis()
+			ui.Text(f, entry.name).FontSize(textSize(f, 15)).Weight(gfx.WeightMedium).MinWidth(0).Ellipsis()
 		})
-		ui.Text(f, entry.peer).Width(columns.peer).FontSize(13).Ellipsis()
-		ui.Text(f, entry.source).Width(columns.source).FontSize(13).Ellipsis()
-		ui.Text(f, entry.size).Width(columns.size).FontSize(13).Ellipsis()
+		ui.Text(f, entry.peer).Width(columns.peer).FontSize(textSize(f, 13)).Ellipsis()
+		ui.Text(f, entry.source).Width(columns.source).FontSize(textSize(f, 13)).Ellipsis()
+		ui.Text(f, entry.size).Width(columns.size).FontSize(textSize(f, 13)).Ellipsis()
 		drawTransferStatus(f, theme, entry, columns.status)
 		p.drawTransferActions(f, theme, columns, entry, submit)
 	})
@@ -302,18 +313,18 @@ func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, columns panelTableColum
 func drawTransferStatus(f ui.C, theme ui.Theme, entry *panelTransferEntry, width float32) ui.Box {
 	if entry.err != "" {
 		return ui.Text(f, i18n.T(entry.status)+" · "+i18n.T(entry.err)).Width(width).
-			FontSize(13).Color(theme.Danger).Ellipsis()
+			FontSize(textSize(f, 13)).Color(theme.Danger).Ellipsis()
 	}
 	if entry.percent == "" {
-		return ui.Text(f, entry.status).Width(width).FontSize(13).Color(panelStatusColor(theme, entry.transfer.Status)).Ellipsis()
+		return ui.Text(f, entry.status).Width(width).FontSize(textSize(f, 13)).Color(panelStatusColor(theme, entry.transfer.Status)).Ellipsis()
 	}
 	return ui.Column(f).Width(width).Gap(2).Justify(ui.Center).Children(func() {
 		ui.Row(f).FillWidth().Gap(7).Items(ui.Center).Clip().Children(func() {
-			ui.Progress(f, entry.fraction).Grow(1).MinWidth(24).Height(6)
-			ui.Text(f, entry.percent).Muted().FontSize(13).MinWidth(38)
+			ui.Progress(f, entry.fraction).Grow(1).Basis(0).MinWidth(12).Height(6)
+			ui.Text(f, entry.percent).Muted().FontSize(textSize(f, 13)).Shrink(0)
 		})
 		if rate := transferRateLabel(entry.transfer); rate != "" {
-			ui.Text(f, rate).Muted().FontSize(12).Ellipsis()
+			ui.Text(f, rate).Muted().FontSize(textSize(f, 12)).Ellipsis()
 		}
 	})
 }

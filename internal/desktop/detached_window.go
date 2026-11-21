@@ -149,7 +149,7 @@ func (u *UI) drawDetachedTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 			if pin.Clicked() {
 				u.toggleDetachedPinned()
 			}
-			ui.Text(f, title).FontSize(14).Weight(gfx.WeightSemibold).Grow(1).Ellipsis()
+			ui.Text(f, title).FontSize(textSize(f, 14)).Weight(gfx.WeightSemibold).Grow(1).Ellipsis()
 		})
 	})
 }

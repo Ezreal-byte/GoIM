@@ -81,10 +81,17 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 			drawTableSearch(f, p.ids.shareSearch, &p.shareSearch, i18n.T("搜索文件"))
 		}
 		var entries []panelShareEntry
+		separateActions := bounds.Width-2*pad < theme.Metrics.ScaledText(740)
+		drawActions := func() {
+			p.drawShareSelectionActions(f, entries, submit)
+			if namedButton(f, p.ids.sharesRefresh, i18n.T("刷新")).Icon(RefreshCw).Outline().Clicked() {
+				submit(domain.Command{Kind: domain.RefreshShares})
+			}
+		}
 		ui.Row(f).FillWidth().PadSides(6, 0, 0, 0).Items(ui.Center).Gap(8).Children(func() {
 			if ui.Tabs(f.Part("share-filter"), &p.shareFilter, shareFilters[:],
 				func(filter shareFilter) string { return p.shareLabels[filter] }).Line().
-				FontSize(panelTabFontSize).Changed() {
+				FontSize(textSize(f, panelTabFontSize)).Changed() {
 				p.closeMemberProject()
 				p.shareSelected = ""
 				clear(p.shareChecked)
@@ -102,12 +109,14 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 				return
 			}
 			entries = panelFilterShares(p.sharesRemote, query)
-			ui.Spacer(f)
-			p.drawShareSelectionActions(f, entries, submit)
-			if namedButton(f, p.ids.sharesRefresh, i18n.T("刷新")).Icon(RefreshCw).Outline().Clicked() {
-				submit(domain.Command{Kind: domain.RefreshShares})
+			if !separateActions {
+				ui.Spacer(f)
+				drawActions()
 			}
 		})
+		if separateActions && p.memberProject == nil && p.shareFilter == panelSharesRemote {
+			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Justify(ui.End).Children(drawActions)
+		}
 		ui.Divider(f).FillWidth()
 		if p.memberProject != nil {
 			p.drawMemberProject(f, theme, bounds.Width-2*pad, project, submit)
@@ -140,25 +149,35 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 
 func (p *Panels) drawShareToolbar(f ui.C, theme ui.Theme, device domain.DeviceShare, width float32) {
 	height, labelSize := float32(45), float32(15)
-	if width < 760 {
+	compact := width < theme.Metrics.ScaledText(760)
+	if compact {
 		height, labelSize = 39, 13
 	}
 	ui.Row(f).FillWidth().Gap(12).Items(ui.Start).Children(func() {
 		drawPanelPageHeading(f, width, i18n.T("文件共享"), i18n.T("查看和管理你创建的分享，以及成员与你共享的文件。"))
 		label := i18n.T("设备分享主页")
-		if width < 760 {
+		if compact {
 			label = i18n.T("设备主页")
 		}
-		deviceButton := ui.Row(f).Height(height).Gap(9).PadX(14).Items(ui.Center).Radius(8).
+		fontSize := textSize(f, labelSize)
+		height = max(height, fontSize+14)
+		deviceWidth := float32(28+18+14+18+2) + f.Canvas().TextWidthWeight(label, fontSize, gfx.WeightMedium)
+		if device.URL != "" {
+			deviceWidth += 15
+			if !compact {
+				deviceWidth += 9 + f.Canvas().TextWidth(i18n.T("已启用"), textSize(f, 12))
+			}
+		}
+		deviceButton := ui.Row(f).Width(deviceWidth).Shrink(0).Height(height).Gap(9).PadX(14).Items(ui.Center).Radius(8).
 			Border(1, theme.Border).Hover(ui.Look{}.Background(theme.Hover)).
 			HitWith(p.ids.deviceShareMenu, label, gfx.HitOptions{Role: gfx.RoleButton, Expandable: true, Expanded: p.shareMenu.kind == shareMenuDevice})
 		deviceButton.Children(func() {
 			ui.Icon(f, shareHomeIcon).Size(18, 18).Color(theme.MutedForeground)
-			ui.Text(f, label).FontSize(labelSize).Weight(gfx.WeightMedium)
+			ui.Text(f, label).FontSize(fontSize).Weight(gfx.WeightMedium)
 			if device.URL != "" {
 				ui.Row(f).Size(6, 6).Radius(3).Background(theme.Success)
-				if width >= 760 {
-					ui.Text(f, i18n.T("已启用")).Muted().FontSize(12)
+				if !compact {
+					ui.Text(f, i18n.T("已启用")).Muted().FontSize(textSize(f, 12))
 				}
 			}
 			ui.Icon(f, ChevronDown).Size(14, 14).Color(theme.MutedForeground)
@@ -169,12 +188,13 @@ func (p *Panels) drawShareToolbar(f ui.C, theme ui.Theme, device domain.DeviceSh
 		if p.shareMenu.kind == shareMenuDevice {
 			p.shareAnchor = deviceButton
 		}
-		addButton := ui.Row(f).Height(height).Gap(9).PadX(14).Items(ui.Center).Radius(8).
+		addWidth := float32(28+17+1+14+27+2) + f.Canvas().TextWidthWeight(i18n.T("新增分享"), fontSize, gfx.WeightSemibold)
+		addButton := ui.Row(f).Width(addWidth).Shrink(0).Height(height).Gap(9).PadX(14).Items(ui.Center).Radius(8).
 			Background(theme.Primary).Hover(ui.Look{}.Background(theme.Primary.WithAlpha(.87))).
 			HitWith(p.ids.sharesAdd, i18n.T("新增分享"), gfx.HitOptions{Role: gfx.RoleButton, Disabled: p.sharePickerOpen, Expandable: true, Expanded: p.shareMenu.kind == shareMenuAdd})
 		addButton.Children(func() {
 			ui.Icon(f, Plus).Size(17, 17).Color(theme.PrimaryForeground)
-			ui.Text(f, i18n.T("新增分享")).Color(theme.PrimaryForeground).FontSize(labelSize).Weight(gfx.WeightSemibold)
+			ui.Text(f, i18n.T("新增分享")).Color(theme.PrimaryForeground).FontSize(fontSize).Weight(gfx.WeightSemibold)
 			ui.Row(f).Size(1, 17).Background(theme.PrimaryForeground.WithAlpha(.32))
 			ui.Icon(f, ChevronDown).Size(14, 14).Color(theme.PrimaryForeground)
 		})
@@ -246,9 +266,9 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 				toggleShareSelection(p.shareChecked, entry.file.ID)
 			}
 			drawFileIcon(f, theme, entry.icon, 32, 23)
-			ui.Text(f, entry.title).FontSize(15).Weight(gfx.WeightMedium).MinWidth(0).Ellipsis()
+			ui.Text(f, entry.title).FontSize(textSize(f, 15)).Weight(gfx.WeightMedium).MinWidth(0).Ellipsis()
 		})
-		ui.Text(f, entry.meta).Width(columns.size).FontSize(13).Ellipsis()
+		ui.Text(f, entry.meta).Width(columns.size).FontSize(textSize(f, 13)).Ellipsis()
 		ui.Row(f).Width(columns.access).Gap(7).Items(ui.Center).Children(func() {
 			icon, color := Users, theme.MutedForeground
 			if entry.file.ShareUnavailable {
@@ -259,10 +279,10 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 				icon, color = Link, theme.Success
 			}
 			ui.Icon(f, icon).Size(16, 16).Color(color)
-			ui.Text(f, entry.access).FontSize(13).MinWidth(0).Ellipsis()
+			ui.Text(f, entry.access).FontSize(textSize(f, 13)).MinWidth(0).Ellipsis()
 		})
 		if columns.date > 0 {
-			ui.Text(f, entry.date).Width(columns.date).Muted().FontSize(13).Ellipsis()
+			ui.Text(f, entry.date).Width(columns.date).Muted().FontSize(textSize(f, 13)).Ellipsis()
 		}
 		ui.Row(f).Width(columns.actions).Gap(5).Items(ui.Center).Justify(ui.End).Children(func() {
 			if entry.memberWebProject() {

@@ -67,10 +67,10 @@ func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, s
 			ui.Image(f, titleMark).Fill()
 		})
 		ui.Column(f).Grow(1).Gap(4).Children(func() {
-			ui.Text(f, "GoIM").FontSize(23).Weight(gfx.WeightSemibold)
+			ui.Text(f, "GoIM").FontSize(textSize(f, 23)).Weight(gfx.WeightSemibold)
 			ui.Paragraph(f, i18n.T("局域网内的原生即时通讯与文件传输工具。"), 2).Muted().
 				FontSize(theme.Metrics.FontSizeS + 1)
-			ui.Text(f, version).Mono().FontSize(fontToken(theme, theme.Metrics.FontSizeS)).Muted()
+			ui.Text(f, version).Mono().FontSize(theme.Metrics.FontSizeS).Muted()
 		})
 	})
 	ui.Row(f).FillWidth().PadSides(0, 0, 8, 0).Gap(10).Items(ui.Center).Children(func() {
@@ -143,7 +143,7 @@ func (p *Panels) drawSettingsAbout(f ui.C, theme ui.Theme, state domain.State, s
 	})
 
 	ui.Paragraph(f, i18n.T("版本信息与诊断报告均不包含聊天内容、联系人、文件路径或本机地址。"), 3).
-		Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
+		Muted().FontSize(theme.Metrics.FontSizeS)
 }
 
 func (p *Panels) drawResetDataDialog(f ui.C, state domain.State, submit func(domain.Command)) {
@@ -305,7 +305,7 @@ func (p *Panels) aboutFactCard(f ui.C, theme ui.Theme, id gfx.ID, fact aboutFact
 		})
 	p.settingAnchor(fact.label, card)
 	card.Children(func() {
-		ui.Text(f, fact.label).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS))
+		ui.Text(f, fact.label).Muted().FontSize(theme.Metrics.FontSizeS)
 		ui.Paragraph(f, fact.value, 2).FontSize(theme.Metrics.FontSizeS + 2).Weight(gfx.WeightMedium)
 	})
 	if f.Canvas().FocusVisible() == id {
@@ -402,7 +402,7 @@ func (p *Panels) aboutLinkCard(f ui.C, theme ui.Theme, item aboutLinkItem) {
 		}
 		ui.Column(f).Grow(1).Gap(2).Children(func() {
 			ui.Text(f, item.name).FontSize(theme.Metrics.FontSizeS + 2).Weight(gfx.WeightMedium)
-			ui.Text(f, item.desc).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS)).Ellipsis()
+			ui.Text(f, item.desc).Muted().FontSize(theme.Metrics.FontSizeS).Ellipsis()
 		})
 		ui.Icon(f, *action).Size(15, 15).Color(theme.MutedForeground)
 	})
@@ -531,6 +531,6 @@ func (p *Panels) drawLicense(f ui.C, theme ui.Theme) {
 	})
 	ui.Divider(f).FillWidth()
 	for _, paragraph := range strings.Split(panelLicenseText, "\n\n") {
-		ui.Paragraph(f, paragraph, 40).FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).PadY(10)
+		ui.Paragraph(f, paragraph, 40).FontSize(theme.Metrics.FontSizeS + 1).PadY(10)
 	}
 }

@@ -250,7 +250,7 @@ func (v *printWindowView) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 		ui.Row(f).Fill().MovesWindow().
 			PadSides(12, trailing+12, 6, leading+10).Items(ui.Center).Gap(9).Children(func() {
 			ui.Icon(f, panelPrintIcon).Size(20, 20).Color(v.palette.icon)
-			ui.Text(f, i18n.T("打印文档")).FontSize(15).Weight(gfx.WeightSemibold)
+			ui.Text(f, i18n.T("打印文档")).FontSize(textSize(f, 15)).Weight(gfx.WeightSemibold)
 		})
 	})
 	canvas.Fill(ui.Rect{X: bounds.X, Y: bounds.Bottom() - 1, Width: bounds.Width, Height: 1}, v.palette.border)
@@ -271,7 +271,7 @@ func (v *printWindowView) drawBody(canvas *gfx.Canvas, bounds ui.Rect) {
 					v.drawFileSection(f)
 					v.drawOptions(f, share)
 					if v.err != "" {
-						ui.Paragraph(f, v.err, 4).FillWidth().FontSize(12).Color(v.palette.danger)
+						ui.Paragraph(f, v.err, 4).FillWidth().FontSize(textSize(f, 12)).Color(v.palette.danger)
 					}
 				})
 			})
@@ -292,12 +292,12 @@ func (v *printWindowView) drawAuthorization(f ui.C, share domain.PrinterShare) {
 			if v.needsPassword(share) {
 				label = i18n.T("此打印机需要验证密码")
 			}
-			ui.Text(f, label).Grow(1).FontSize(13).Weight(gfx.WeightMedium)
+			ui.Text(f, label).Grow(1).FontSize(textSize(f, 13)).Weight(gfx.WeightMedium)
 		})
 		if v.needsPassword(share) {
 			ui.TextFieldID(f, v.ids.password, &v.password, i18n.T("打印密码"), i18n.T("输入共享人设置的密码")).FillWidth().MinHeight(printControlHeight(v.theme)).Disabled(v.pendingPrint)
 		}
-		ui.Paragraph(f, i18n.T("仅首次使用或共享人修改密码后需要验证，不保存明文密码。"), 3).FillWidth().Muted().FontSize(11.5)
+		ui.Paragraph(f, i18n.T("仅首次使用或共享人修改密码后需要验证，不保存明文密码。"), 3).FillWidth().Muted().FontSize(textSize(f, 11.5))
 	})
 }
 
@@ -318,7 +318,7 @@ func (v *printWindowView) drawPrinterHeader(f ui.C, share domain.PrinterShare) {
 		} else {
 			ui.Row(f).Size(54, 54).Shrink(0).Radius(27).Background(v.palette.mutedAvatar).
 				Items(ui.Center).Justify(ui.Center).Children(func() {
-				ui.Text(f, initialOf(ownerName)).FontSize(fontToken(v.theme, min(18*v.theme.Metrics.EffectiveTextScale(), 54*.42))).Weight(gfx.WeightSemibold)
+				ui.Text(f, initialOf(ownerName)).FontSize(min(v.theme.Metrics.ScaledText(18), 54*.42)).Weight(gfx.WeightSemibold)
 			})
 		}
 		ui.Column(f).Grow(1).MinWidth(0).Gap(4).Children(func() {
@@ -326,8 +326,8 @@ func (v *printWindowView) drawPrinterHeader(f ui.C, share domain.PrinterShare) {
 			if name == "" {
 				name = i18n.T("共享打印机已不可用")
 			}
-			ui.Text(f, name).FillWidth().FontSize(18).Weight(gfx.WeightSemibold).Ellipsis()
-			ui.Text(f, i18n.T("共享人 ")+ownerName).FillWidth().Muted().FontSize(13).Ellipsis()
+			ui.Text(f, name).FillWidth().FontSize(textSize(f, 18)).Weight(gfx.WeightSemibold).Ellipsis()
+			ui.Text(f, i18n.T("共享人 ")+ownerName).FillWidth().Muted().FontSize(textSize(f, 13)).Ellipsis()
 		})
 		ui.Row(f).Shrink(0).Gap(7).Items(ui.Center).Children(func() {
 			tone := v.palette.success
@@ -337,14 +337,14 @@ func (v *printWindowView) drawPrinterHeader(f ui.C, share domain.PrinterShare) {
 				label = i18n.T("离线")
 			}
 			ui.Row(f).Size(8, 8).Radius(4).Background(tone)
-			ui.Text(f, label).FontSize(13).Color(tone)
+			ui.Text(f, label).FontSize(textSize(f, 13)).Color(tone)
 		})
 	})
 }
 
 func (v *printWindowView) drawFileSection(f ui.C) {
 	ui.Column(f).FillWidth().Gap(9).Children(func() {
-		ui.Text(f, i18n.T("打印文件")).FontSize(21).Weight(gfx.WeightSemibold)
+		ui.Text(f, i18n.T("打印文件")).FontSize(textSize(f, 21)).Weight(gfx.WeightSemibold)
 		if v.path == "" {
 			box := ui.Row(f).FillWidth().MinHeight(86).Pad(16).Gap(12).Items(ui.Center).
 				Background(v.palette.chat).Border(1, v.palette.border).Radius(radiusControl).
@@ -356,10 +356,10 @@ func (v *printWindowView) drawFileSection(f ui.C) {
 					ui.Icon(f, Upload).Size(20, 20).Color(v.palette.selectedText)
 				})
 				ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
-					ui.Text(f, i18n.T("选择要打印的文件")).FillWidth().FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
-					ui.Text(f, i18n.T("支持 PDF、图片和文本文件")).FillWidth().Muted().FontSize(11.5).Ellipsis()
+					ui.Text(f, i18n.T("选择要打印的文件")).FillWidth().FontSize(textSize(f, 14)).Weight(gfx.WeightMedium).Ellipsis()
+					ui.Text(f, i18n.T("支持 PDF、图片和文本文件")).FillWidth().Muted().FontSize(textSize(f, 11.5)).Ellipsis()
 				})
-				ui.Text(f, i18n.T("选择文件")).Shrink(0).FontSize(13).Color(v.palette.selectedText)
+				ui.Text(f, i18n.T("选择文件")).Shrink(0).FontSize(textSize(f, 13)).Color(v.palette.selectedText)
 			})
 			if box.Clicked() {
 				v.chooseFile(f.Canvas())
@@ -374,15 +374,15 @@ func (v *printWindowView) drawFileSection(f ui.C) {
 					Size(22, 22).Color(v.theme.Primary)
 			})
 			ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
-				ui.Text(f, v.fileName).FontSize(14).Weight(gfx.WeightSemibold).Ellipsis()
-				ui.Text(f, printWindowFileMeta(v.fileSize, v.fileName)).Muted().FontSize(11.5).Ellipsis()
+				ui.Text(f, v.fileName).FontSize(textSize(f, 14)).Weight(gfx.WeightSemibold).Ellipsis()
+				ui.Text(f, printWindowFileMeta(v.fileSize, v.fileName)).Muted().FontSize(textSize(f, 11.5)).Ellipsis()
 			})
 			if namedButton(f, v.ids.replace, i18n.T("更换文件")).Small().Outline().Clicked() {
 				v.chooseFile(f.Canvas())
 			}
 		})
 		if v.fileErr != "" {
-			ui.Text(f, v.fileErr).FontSize(11.5).Color(v.palette.danger)
+			ui.Text(f, v.fileErr).FontSize(textSize(f, 11.5)).Color(v.palette.danger)
 		}
 	})
 }
@@ -390,8 +390,8 @@ func (v *printWindowView) drawFileSection(f ui.C) {
 func (v *printWindowView) drawOptions(f ui.C, share domain.PrinterShare) {
 	capabilities := printWindowCapabilities(share.Capabilities)
 	ui.Column(f).FillWidth().Gap(10).Children(func() {
-		ui.Text(f, i18n.T("打印参数")).FontSize(21).Weight(gfx.WeightSemibold)
-		ui.Grid(f, 250*v.theme.Metrics.EffectiveTextScale()).FillWidth().Gap(13).Children(func() {
+		ui.Text(f, i18n.T("打印参数")).FontSize(textSize(f, 21)).Weight(gfx.WeightSemibold)
+		ui.Grid(f, v.theme.Metrics.ScaledText(250)).FillWidth().Gap(13).Children(func() {
 			v.drawOption(f, i18n.T("纸张"), func() {
 				ui.Select(f.Part("print-paper"), &v.paper, capabilities.Papers,
 					func(value string) string { return printPaperLabel(value) }).FillWidth().MinHeight(printControlHeight(v.theme))
@@ -442,7 +442,7 @@ func (v *printWindowView) drawOptions(f ui.C, share domain.PrinterShare) {
 
 func (v *printWindowView) drawOption(f ui.C, label string, body func()) {
 	ui.Column(f).FillWidth().Gap(7).Children(func() {
-		ui.Text(f, label).FontSize(12.5).Weight(gfx.WeightMedium)
+		ui.Text(f, label).FontSize(textSize(f, 12.5)).Weight(gfx.WeightMedium)
 		body()
 	})
 }
@@ -457,7 +457,7 @@ func (v *printWindowView) drawFooter(f ui.C, share domain.PrinterShare) {
 	}
 	ui.Row(f).FillWidth().PadY(14).Gap(12).Items(ui.Center).Children(func() {
 		ui.Text(f, fmt.Sprintf(i18n.T("%s 的 GoIM 将自动提交到打印队列。"), ownerName)).
-			Muted().FontSize(11.5).Grow(1).Ellipsis()
+			Muted().FontSize(textSize(f, 11.5)).Grow(1).Ellipsis()
 		if namedButton(f, v.ids.cancel, i18n.T("取消")).Shrink(0).MinHeight(printControlHeight(v.theme)).Outline().Clicked() {
 			if v.close != nil {
 				v.close()

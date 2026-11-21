@@ -44,7 +44,7 @@ func (u *UI) drawEmojiPicker(c *gfx.Canvas, viewport ui.Rect) {
 		ui.Scroll(f).Scrollbars().Fill().PadSides(12, 12, 14, 12).Children(func() {
 			ui.Column(f).FillWidth().Gap(7).Children(func() {
 				if len(u.recentEmoji) > 0 {
-					ui.Text(f, i18n.T("最近使用")).FontSize(12).Muted().PadX(6)
+					ui.Text(f, i18n.T("最近使用")).FontSize(textSize(f, 12)).Muted().PadX(6)
 					for start := 0; start < len(u.recentEmoji); start += columns {
 						ui.Row(f).Height(41).Children(func() {
 							for _, value := range u.recentEmoji[start:min(start+columns, len(u.recentEmoji))] {
@@ -61,7 +61,7 @@ func (u *UI) drawEmojiPicker(c *gfx.Canvas, viewport ui.Rect) {
 					}
 					ui.Divider(f)
 				}
-				ui.Text(f, i18n.T("所有表情")).FontSize(12).Muted().PadX(6)
+				ui.Text(f, i18n.T("所有表情")).FontSize(textSize(f, 12)).Muted().PadX(6)
 				for start := 0; start < len(emojiChoices); start += columns {
 					ui.Row(f).Height(41).Children(func() {
 						for _, choice := range emojiChoices[start:min(start+columns, len(emojiChoices))] {

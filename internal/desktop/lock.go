@@ -116,8 +116,8 @@ func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {
 				description = i18n.T("输入 GoIM 密码，或使用系统验证解锁。")
 			}
 			logo = ui.Slot(f).Size(44, 44)
-			ui.Text(f, title).FontSize(26).Weight(gfx.WeightSemibold)
-			ui.Paragraph(f, description, 2).Muted().FontSize(13)
+			ui.Text(f, title).FontSize(textSize(f, 26)).Weight(gfx.WeightSemibold)
+			ui.Paragraph(f, description, 2).Muted().FontSize(textSize(f, 13))
 			field := ui.TextFieldID(f, s.focus, &s.field, label, label).Height(52).FillWidth().Disabled(s.pending || s.systemBusy)
 			submitted := field.Submitted()
 			if s.setup {
@@ -125,10 +125,10 @@ func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {
 					Height(52).FillWidth().Disabled(s.pending).Submitted() || submitted
 			}
 			if s.err != "" {
-				ui.Paragraph(f, s.err, 2).FontSize(12).Color(u.theme.Danger)
+				ui.Paragraph(f, s.err, 2).FontSize(textSize(f, 12)).Color(u.theme.Danger)
 			}
 			if s.systemErr != "" {
-				ui.Paragraph(f, s.systemErr, 2).FontSize(12).Color(u.theme.Danger)
+				ui.Paragraph(f, s.systemErr, 2).FontSize(textSize(f, 12)).Color(u.theme.Danger)
 			}
 			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				if s.setup && namedButton(f, s.cancel, i18n.T("取消")).Height(48).Outline().Disabled(s.pending).Clicked() {

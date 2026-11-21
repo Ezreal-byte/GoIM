@@ -313,16 +313,16 @@ func (v *historyWindowView) paint(canvas *gfx.Canvas, size ui.Size) {
 	leading, trailing := app.TitlebarInsets()
 	v.titlePage.Draw(canvas, title, func(f ui.C) {
 		ui.Row(f).Fill().MovesWindow().PadSides(8, trailing+16, 8, leading+20).Items(ui.Center).Children(func() {
-			ui.Text(f, v.title).FontSize(14).Weight(gfx.WeightMedium).Grow(1).Ellipsis()
+			ui.Text(f, v.title).FontSize(textSize(f, 14)).Weight(gfx.WeightMedium).Grow(1).Ellipsis()
 		})
 	})
 	v.page.Draw(canvas, ui.Rect{Y: 44, Width: size.Width, Height: max(size.Height-44, 0)}, func(f ui.C) {
 		ui.Column(f).Fill().Children(func() {
 			ui.Column(f).FillWidth().PadSides(16, 24, 12, 24).Gap(14).Children(func() {
-				ui.TextFieldID(f, v.searchID, &v.search, i18n.T("搜索聊天记录"), i18n.T("搜索消息、文件名或打印记录")).FillWidth().Height(44).FontSize(14)
+				ui.TextFieldID(f, v.searchID, &v.search, i18n.T("搜索聊天记录"), i18n.T("搜索消息、文件名或打印记录")).FillWidth().Height(44).FontSize(textSize(f, 14))
 				ui.Flow(f).FillWidth().Gap(8).Children(func() {
 					for _, tab := range historyTabs {
-						button := ui.Button(f.Part(tab.value), i18n.T(tab.label)).Ghost().Height(36).FontSize(13).Radius(8)
+						button := ui.Button(f.Part(tab.value), i18n.T(tab.label)).Ghost().Height(36).FontSize(textSize(f, 13)).Radius(8)
 						if v.tab == tab.value {
 							button.Background(v.palette.selected).Color(v.palette.selectedText)
 						}
@@ -339,15 +339,15 @@ func (v *historyWindowView) paint(canvas *gfx.Canvas, size ui.Size) {
 					if ui.Select(f.Part("sender"), &v.sender, v.senders, v.senderLabel).MinWidth(126).Height(36).Changed() {
 						v.filter()
 					}
-					ui.Text(f, v.count).FontSize(12).Muted()
+					ui.Text(f, v.count).FontSize(textSize(f, 12)).Muted()
 				})
 			})
 			ui.Divider(f)
 			if len(v.rows) == 0 {
 				ui.Column(f).Grow(1).FillWidth().Items(ui.Center).Justify(ui.Center).Gap(12).Children(func() {
 					ui.Icon(f, Search).Size(32, 32).Color(v.palette.secondaryText)
-					ui.Text(f, i18n.T("没有找到聊天记录")).FontSize(16).Weight(gfx.WeightMedium)
-					ui.Text(f, i18n.T("试试其他关键词、日期或成员。")).FontSize(13).Muted()
+					ui.Text(f, i18n.T("没有找到聊天记录")).FontSize(textSize(f, 16)).Weight(gfx.WeightMedium)
+					ui.Text(f, i18n.T("试试其他关键词、日期或成员。")).FontSize(textSize(f, 13)).Muted()
 				})
 			} else {
 				ui.List(f.Part("results"), &v.list, len(v.rows), func(row ui.ListRow) { v.drawResult(row) }).Grow(1).FillWidth().Scrollbars()
@@ -358,7 +358,7 @@ func (v *historyWindowView) paint(canvas *gfx.Canvas, size ui.Size) {
 			}
 			ui.Divider(f)
 			ui.Row(f).FillWidth().MinHeight(60).PadX(24).Items(ui.Center).Gap(12).Children(func() {
-				ui.Text(f, i18n.T("选择记录，查看聊天上下文")).FontSize(12).Muted().Grow(1).Ellipsis()
+				ui.Text(f, i18n.T("选择记录，查看聊天上下文")).FontSize(textSize(f, 12)).Muted().Grow(1).Ellipsis()
 				selected := v.list.Selected()
 				button := namedButton(f, v.locateID, i18n.T("定位到聊天")).Height(36).Disabled(selected < 0 || selected >= len(v.rows))
 				if button.Clicked() && selected >= 0 && selected < len(v.rows) && v.locate != nil {
@@ -385,7 +385,7 @@ func (v *historyWindowView) drawResult(row ui.ListRow) {
 	}
 	ui.Column(f).FillWidth().Gap(12).Children(func() {
 		if row.Index == 0 || v.rows[row.Index-1].day != r.day {
-			ui.Text(f, r.day).FontSize(12).Weight(gfx.WeightMedium).Muted().PadY(4)
+			ui.Text(f, r.day).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium).Muted().PadY(4)
 		}
 		ui.Row(f).FillWidth().Gap(12).Items(ui.Start).Children(func() {
 			if v.avatar != nil {
@@ -395,27 +395,27 @@ func (v *historyWindowView) drawResult(row ui.ListRow) {
 			ui.Column(f).Grow(1).MinWidth(0).Gap(8).Children(func() {
 				ui.Row(f).FillWidth().Gap(12).Children(func() {
 					if r.username == "" {
-						ui.Text(f, r.name).FontSize(12).Muted().Grow(1).Ellipsis()
+						ui.Text(f, r.name).FontSize(textSize(f, 12)).Muted().Grow(1).Ellipsis()
 					} else {
 						ui.Row(f).Grow(1).MinWidth(0).Gap(6).Children(func() {
-							ui.Text(f, r.name).FontSize(12).Weight(gfx.WeightSemibold).Ellipsis()
-							ui.Text(f, r.username).FontSize(11).Muted().MaxWidth(140).Ellipsis()
+							ui.Text(f, r.name).FontSize(textSize(f, 12)).Weight(gfx.WeightSemibold).Ellipsis()
+							ui.Text(f, r.username).FontSize(textSize(f, 11)).Muted().MaxWidth(140).Ellipsis()
 						})
 					}
-					ui.Text(f, r.time).FontSize(11).Muted()
+					ui.Text(f, r.time).FontSize(textSize(f, 11)).Muted()
 				})
 				if r.message.FileID != "" || r.message.Kind == "print" || isVoiceRecord(r.message) {
 					ui.Row(f).FillWidth().Pad(12).Gap(12).Radius(10).Background(v.palette.incoming).Items(ui.Center).Children(func() {
 						ui.Icon(f, r.icon).Size(28, 28).Color(v.palette.selectedText)
 						ui.Column(f).Grow(1).MinWidth(0).Gap(5).Children(func() {
-							ui.Text(f, r.text).FontSize(14).Weight(gfx.WeightMedium).MaxLines(2).Highlight(strings.TrimSpace(v.search.Text()), v.theme.Primary.WithAlpha(.18))
+							ui.Text(f, r.text).FontSize(textSize(f, 14)).Weight(gfx.WeightMedium).MaxLines(2).Highlight(strings.TrimSpace(v.search.Text()), v.theme.Primary.WithAlpha(.18))
 							if r.meta != "" {
-								ui.Text(f, r.meta).FontSize(12).Muted().Ellipsis()
+								ui.Text(f, r.meta).FontSize(textSize(f, 12)).Muted().Ellipsis()
 							}
 						})
 					})
 				} else {
-					ui.Paragraph(f, r.text, 5).FontSize(14).LineHeight(22).FillWidth().Highlight(strings.TrimSpace(v.search.Text()), v.theme.Primary.WithAlpha(.18))
+					ui.Paragraph(f, r.text, 5).FontSize(textSize(f, 14)).LineHeight(textSize(f, 22)).FillWidth().Highlight(strings.TrimSpace(v.search.Text()), v.theme.Primary.WithAlpha(.18))
 				}
 			})
 		})

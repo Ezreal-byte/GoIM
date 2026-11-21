@@ -36,7 +36,7 @@ func (u *UI) drawRecalledMessage(f ui.C, c domain.Conversation, m domain.Message
 	ui.Row(f).FillWidth().Justify(ui.Center).Children(func() {
 		ui.Row(f).PadSides(6, 10, 6, 10).Radius(radiusControl).Background(u.palette.mutedAvatar).
 			HitWith(id, label, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).Children(func() {
-			ui.Text(f, label).FontSize(11).Muted()
+			ui.Text(f, label).FontSize(textSize(f, 11)).Muted()
 		})
 	})
 	u.messageContextPointer(f.Canvas(), id, m)

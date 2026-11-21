@@ -143,6 +143,31 @@ jobs:
       - name: Run the race detector
         run: go test -race ./internal/core ./internal/desktop ./internal/ipmsg ./internal/neiwangtong -count=1 -timeout=300s
 
+  macos-typography:
+    name: macOS desktop build and typography
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: go.sum
+      - name: Build and check desktop layouts with native fonts
+        run: |
+          go build ./...
+          go test ./internal/desktop -run 'FontSize|Typography|AdaptiveLayout|LargestEnglishFont' -count=1
+        env:
+          GOIM_QA_SCREENSHOTS: ${{ runner.temp }}/typography
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: macos-typography
+          path: ${{ runner.temp }}/typography/
+          retention-days: 7
+
   windows-smoke:
     name: Windows desktop tests and smoke
     needs: changes

@@ -107,11 +107,11 @@ type panelConnectionFields struct {
 func connectionFields(f ui.C, state domain.State, form panelConnectionFields) (submitted bool) {
 	ui.Column(f).FillWidth().Gap(12).Children(func() {
 		ui.Column(f).FillWidth().Gap(4).Children(func() {
-			ui.Text(f, i18n.T("连接方式")).FontSize(12).Weight(gfx.WeightMedium)
+			ui.Text(f, i18n.T("连接方式")).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium)
 			connectionSelector(f, form.route).FillWidth()
 		})
 		ui.Column(f).FillWidth().Gap(4).Children(func() {
-			ui.Text(f, i18n.T("对方 IP 地址")).FontSize(12).Weight(gfx.WeightMedium)
+			ui.Text(f, i18n.T("对方 IP 地址")).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium)
 			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				available := connectionAvailable(state, *form.route) && !state.ConnectionFeedback.Pending
 				field := ui.TextFieldID(f, form.addressID, form.address, i18n.T("对方 IP 地址"), connectionHint(state, *form.route)).Grow(1)
@@ -121,7 +121,7 @@ func connectionFields(f ui.C, state domain.State, form panelConnectionFields) (s
 				}
 			})
 			if !connectionAvailable(state, *form.route) {
-				ui.Paragraph(f, connectionProblem(state, *form.route), 2).FontSize(11).Muted()
+				ui.Paragraph(f, connectionProblem(state, *form.route), 2).FontSize(textSize(f, 11)).Muted()
 			}
 		})
 	})

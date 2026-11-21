@@ -219,7 +219,7 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry 
 				}
 			})
 		}
-		sizeWidth, actionsWidth := float32(84), 148*theme.Metrics.EffectiveTextScale()
+		sizeWidth, actionsWidth := float32(84), theme.Metrics.ScaledText(148)
 		if len(v.page.Items) > 0 {
 			ui.Row(f).FillWidth().Height(panelTableHeadHeight).Gap(10).Items(ui.Center).Children(func() {
 				v.sort.header(f, "名称", 0, v.sortItems)
@@ -236,7 +236,7 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry 
 					}
 					drawFileIcon(row, theme, fileTypeIcon(domain.File{Name: e.Name, Folder: e.Folder}), 28, 20)
 					ui.Text(row, e.Name).MinWidth(0).Grow(1).Ellipsis()
-					ui.Text(row, e.Size).Width(sizeWidth).Muted().FontSize(12).Ellipsis()
+					ui.Text(row, e.Size).Width(sizeWidth).Muted().FontSize(textSize(f, 12)).Ellipsis()
 					ui.Row(row).Width(actionsWidth).Gap(4).Justify(ui.End).Items(ui.Center).Children(func() {
 						if e.Folder && ui.Button(row.Part("open"), i18n.T("打开")).Small().Ghost().Disabled(v.busy).Clicked() {
 							v.list(e.URL, "", path.Join(location, e.Name))

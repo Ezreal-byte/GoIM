@@ -233,7 +233,7 @@ func (p *Panels) drawBackgroundSettings(f ui.C, theme ui.Theme, state domain.Sta
 					p.submitString(submit, state, "background_transparency", strconv.Itoa(int(s.transparency.Value)))
 					s.transparencyDirty = false
 				}
-				ui.Text(f, strconv.Itoa(int(s.transparency.Value))+"%").FontSize(12).Muted().Width(40)
+				ui.Text(f, strconv.Itoa(int(s.transparency.Value))+"%").FontSize(textSize(f, 12)).Muted().Width(40)
 			})
 		})
 	})
@@ -370,7 +370,7 @@ func (p *Panels) drawPasswordDialog(f ui.C, theme ui.Theme, state domain.State, 
 			field := func(id gfx.ID, editor *ui.Field, label, hint string) ui.Box {
 				var result ui.Box
 				ui.Column(f).FillWidth().Gap(4).Children(func() {
-					ui.Text(f, i18n.T(label)).FontSize(13)
+					ui.Text(f, i18n.T(label)).FontSize(textSize(f, 13))
 					result = ui.TextFieldID(f, id, editor, i18n.T(label), i18n.T(hint)).FillWidth().Disabled(s.passwordPending)
 				})
 				return result
@@ -386,10 +386,10 @@ func (p *Panels) drawPasswordDialog(f ui.C, theme ui.Theme, state domain.State, 
 				save = field(s.passwordRepeat, &s.repeat, "确认新密码", "再输入一次新密码").Submitted()
 			}
 			if s.passwordSystem {
-				ui.Paragraph(f, i18n.T("输入当前锁定密码以确认开启。"), 2).Muted().FontSize(12)
+				ui.Paragraph(f, i18n.T("输入当前锁定密码以确认开启。"), 2).Muted().FontSize(textSize(f, 12))
 			}
 			if s.passwordError != "" {
-				ui.Paragraph(f, s.passwordError, 2).Color(theme.Danger).FontSize(12)
+				ui.Paragraph(f, s.passwordError, 2).Color(theme.Danger).FontSize(textSize(f, 12))
 			}
 		})
 	})

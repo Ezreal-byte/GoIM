@@ -114,7 +114,7 @@ func (p *Panels) drawVoiceVolume(f ui.C, theme ui.Theme, state domain.State, sub
 					level.pending, level.pendingSet, level.dirty = value, true, false
 					p.submitString(submit, state, setting, fmt.Sprintf("%d", value))
 				}
-				ui.Text(f, fmt.Sprintf("%d%%", int(level.slider.Value))).FontSize(12).Muted().Width(40)
+				ui.Text(f, fmt.Sprintf("%d%%", int(level.slider.Value))).FontSize(textSize(f, 12)).Muted().Width(40)
 			})
 		})
 	})

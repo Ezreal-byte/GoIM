@@ -32,7 +32,7 @@ func (s *messageTextSelection) selected() string {
 
 func (u *UI) messageParagraph(f ui.C, m domain.Message, limit int, size, height float32) {
 	id := u.messageTextIDs[m.ID]
-	ui.Paragraph(f, m.Text, limit).FontSize(size).LineHeight(height).
+	ui.Paragraph(f, m.Text, limit).FontSize(textSize(f, size)).LineHeight(textSize(f, height)).
 		HitWith(id, m.Text, gfx.HitOptions{Role: gfx.RoleGroup, Cursor: gfx.PointerCursorText, ReadOnly: true, SkipTab: true}).
 		Draw(u.drawTextSelection)
 	u.messageContextPointer(f.Canvas(), id, m)

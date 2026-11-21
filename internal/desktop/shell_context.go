@@ -108,7 +108,7 @@ func (u *UI) drawShellMenu(canvas *gfx.Canvas, viewport ui.Rect) {
 
 func (u *UI) beginShellMenu(canvas *gfx.Canvas, viewport ui.Rect, items int, separators int) components.ContextMenu {
 	height := float32(12 + items*32 + separators*9)
-	width := min(viewport.Width, 220*max(1, u.theme.Metrics.EffectiveTextScale()))
+	width := min(viewport.Width, 220*max(1, u.theme.Metrics.ScaledText(1)))
 	return components.BeginContextMenu(canvas, u.theme,
 		ui.Rect{X: u.shellMenu.x, Y: u.shellMenu.y, Width: width, Height: height},
 		components.ContextMenuOptions{
@@ -454,12 +454,12 @@ func (u *UI) drawOrganizeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 				ui.Row(f).Items(ui.Center).Gap(9).Children(func() {
 					u.avatarStatus(f, peer.Name, peer.Avatar, 28, peer.Online)
 					ui.Column(f).Grow(1).Gap(2).Children(func() {
-						ui.Text(f, peer.Name).FontSize(12.5).Weight(gfx.WeightMedium).Ellipsis()
+						ui.Text(f, peer.Name).FontSize(textSize(f, 12.5)).Weight(gfx.WeightMedium).Ellipsis()
 						current := strings.TrimSpace(peer.ContactGroup)
 						if current == "" {
 							current = "未分组"
 						}
-						ui.Text(f, i18n.T("当前：")+current).FontSize(10.5).Muted().Ellipsis()
+						ui.Text(f, i18n.T("当前：")+current).FontSize(textSize(f, 10.5)).Muted().Ellipsis()
 					})
 				})
 			}
@@ -474,9 +474,9 @@ func (u *UI) drawOrganizeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			field := ui.TextFieldID(f, u.ids.organizeField, &u.organize.field, label, placeholder).Height(38).FillWidth()
 			submitted = field.Submitted()
 			if u.organize.errText != "" {
-				ui.Text(f, u.organize.errText).FontSize(10.5).Color(u.palette.danger)
+				ui.Text(f, u.organize.errText).FontSize(textSize(f, 10.5)).Color(u.palette.danger)
 			} else if mode == "" {
-				ui.Text(f, i18n.T("输入现有分组名称可直接归档，也可新建分组。")).FontSize(10.5).Muted()
+				ui.Text(f, i18n.T("输入现有分组名称可直接归档，也可新建分组。")).FontSize(textSize(f, 10.5)).Muted()
 			}
 		})
 	})

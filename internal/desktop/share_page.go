@@ -213,7 +213,7 @@ func (p *Panels) drawShareSendDialog(f ui.C, theme ui.Theme, submit func(domain.
 			if count > 3 {
 				names = append(names, fmt.Sprintf(i18n.T("等 %d 个文件"), count))
 			}
-			ui.Text(f, strings.Join(names, "、")).FontSize(fontToken(theme, theme.Metrics.FontSizeS+1)).
+			ui.Text(f, strings.Join(names, "、")).FontSize(theme.Metrics.FontSizeS + 1).
 				Weight(gfx.WeightMedium).Ellipsis()
 			field := ui.TextFieldID(f, p.ids.shareDialogPassword, &p.shareDialog.password,
 				i18n.T("访问密码（可选）"), i18n.T("留空表示无需密码")).FillWidth()
@@ -302,7 +302,7 @@ func (p *Panels) drawShareQRDialog(f ui.C, theme ui.Theme) {
 				})
 			}
 			if p.shareQR.url != "" {
-				ui.Text(f, p.shareQR.url).Muted().FontSize(fontToken(theme, theme.Metrics.FontSizeS)).
+				ui.Text(f, p.shareQR.url).Muted().FontSize(theme.Metrics.FontSizeS).
 					Ellipsis().MaxWidth(300)
 			}
 			ui.Text(f, i18n.T("手机与电脑连接同一局域网后，即可扫码打开。")).Muted().
