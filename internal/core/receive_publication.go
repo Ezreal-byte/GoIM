@@ -282,6 +282,7 @@ func recordPublishedReceive(p *persisted, index int, publication receivePublicat
 		}
 	}
 	task.Size = publication.Size
+	task.ShareStage = ""
 	return completeReceiveState(task, publication.Destination)
 }
 
@@ -299,7 +300,7 @@ func removeReceiveStage(publication receivePublication, id string) {
 func completeReceiveState(t *domain.Transfer, path string) []pending {
 	t.Status, t.Path, t.Error = "completed", path, ""
 	t.Done, t.Speed, t.UpdatedAt = t.Size, 0, time.Now()
-	if t.RemoteImageMD5 != "" {
+	if t.ShareProject != "" || t.RemoteImageMD5 != "" {
 		return nil
 	}
 	return []pending{{PeerID: t.PeerID, Envelope: envelope{Type: "file_status", TransferID: t.ID, Status: "completed"}}}

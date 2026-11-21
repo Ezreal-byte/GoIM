@@ -25,7 +25,7 @@ func (n *Node) receiveFileStatus(peer string, e envelope) error {
 			return nil
 		}
 		t := &p.State.Transfers[i]
-		if t.PeerID != peer || terminalTransfer(t.Status) {
+		if t.ShareProject != "" || t.PeerID != peer || terminalTransfer(t.Status) {
 			return nil
 		}
 		switch e.Status {
@@ -70,6 +70,23 @@ func (n *Node) receiveFileStatus(peer string, e envelope) error {
 	})
 }
 func (n *Node) retryTransfer(t domain.Transfer) error {
+	if t.ShareRequest {
+		if t.Status != "cancelled" && t.Status != "rejected" && t.Status != "failed" {
+			return nil
+		}
+		return n.queueShareDownloads([]domain.ShareDownload{{ProjectID: t.FileID}})
+	}
+	if t.ShareProject != "" {
+		err := n.change(func(s *domain.State) {
+			if i := transferIndex(s, t.ID); i >= 0 && (s.Transfers[i].Status == "failed" || s.Transfers[i].Status == "cancelled" || s.Transfers[i].Status == "rejected") {
+				updateTransferProgress(&s.Transfers[i], "queued", 0, 0, "")
+			}
+		})
+		if err == nil {
+			n.startShareWorker()
+		}
+		return err
+	}
 	if unboundIPMSGTransfer(t) {
 		return errUnboundIPMSGPeer
 	}

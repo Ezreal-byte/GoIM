@@ -46,7 +46,7 @@ func TestBrowserFolderShareNavigationAndDownload(t *testing.T) {
 	if !shared.ShareFolder || !shared.ShareProtected || shared.ShareURL == "" {
 		t.Fatalf("invalid folder share: %#v", shared)
 	}
-	if err := n.offerShared("peer", shared.ID); err == nil {
+	if err := n.offerShared("peer", shared.ID, ""); err == nil {
 		t.Fatal("a browser-only directory could be offered as a chat file")
 	}
 	write(filepath.Join(folder, "新增文件.txt"), "not shared")

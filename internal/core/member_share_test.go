@@ -184,16 +184,9 @@ func TestMemberCatalogDownloadBrowseUnlockAndRevoke(t *testing.T) {
 	if err != nil || len(privatePage.Items) != 1 {
 		t.Fatalf("native unlock: %+v %v", privatePage, err)
 	}
-	dest := t.TempDir()
-	for _, name := range []string{"confidential.txt", "confidential (1).txt"} {
-		path, err := nativeClient.Download(t.Context(), privatePage.Items[0], dest)
-		if err != nil || filepath.Base(path) != name {
-			t.Fatalf("native download: %q %v", path, err)
-		}
-		body, err := os.ReadFile(path)
-		if err != nil || string(body) != "shared bytes" {
-			t.Fatalf("download contents: %v", err)
-		}
+	var received strings.Builder
+	if _, err := nativeClient.Copy(t.Context(), privatePage.Items[0], &received); err != nil || received.String() != "shared bytes" {
+		t.Fatalf("native download: %q %v", received.String(), err)
 	}
 	login := resolved
 	get(login+"/download", http.StatusUnauthorized)

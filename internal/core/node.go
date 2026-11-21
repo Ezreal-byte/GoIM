@@ -60,6 +60,8 @@ type Node struct {
 	wg                    sync.WaitGroup
 	workers               sync.WaitGroup
 	closing               bool
+	shareSessions         map[string]domain.ShareSession
+	shareWorker           bool
 	transfers             map[string]context.CancelFunc
 	discovery             bool
 	discoveryWake         chan struct{}
@@ -227,6 +229,12 @@ func New(opts Options) (*Node, error) {
 	}
 	for i := range n.data.State.Transfers {
 		t := &n.data.State.Transfers[i]
+		if t.ShareProject != "" {
+			if _, ok := n.data.ReceivePublications[t.ID]; !ok {
+				resetShareDownload(t)
+			}
+			continue
+		}
 		if t.Status == "transferring" || t.Status == "verifying" {
 			t.Status = "waiting"
 			t.Speed = 0

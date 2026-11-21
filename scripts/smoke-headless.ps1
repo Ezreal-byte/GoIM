@@ -296,6 +296,7 @@ try {
     $taskFolderChild=Join-Path $taskFolderShare '界面设计'
     New-Item -ItemType Directory -Path $taskFolderChild -Force | Out-Null
     Copy-Item -LiteralPath $taskSamplePath -Destination (Join-Path $taskFolderChild '浏览器下载.txt')
+    Copy-Item -LiteralPath $taskSamplePath -Destination (Join-Path $taskFolderShare '清单.txt')
     Send-Command $taskAlice 'click "button:文件共享"'
     Send-Command $taskAlice ('openfiles "'+$taskSamplePath.Replace('\','/')+'"')
     Send-Command $taskAlice 'click "新增分享"'
@@ -339,6 +340,48 @@ try {
     Send-Command $taskAlice 'expect layout clean'
     Send-Command $taskAlice 'click "创建分享"'
     Wait-Control $taskAlice '交付资料'
+    Send-Command $taskBob 'click "button:文件共享"'
+    Send-Command $taskBob 'expect exists "checkbox:选择 交付资料" within 15000'
+    Send-Command $taskBob 'click "checkbox:选择 交付资料"'
+    Send-Command $taskBob 'click "checkbox:选择 受密码保护的共享"'
+    Send-Command $taskBob 'click "下载所选（2）"'
+    Send-Command $taskBob 'expect exists "textfield:分享密码" within 15000'
+    Send-Command $taskBob 'click "textfield:分享密码"'
+    Send-Command $taskBob 'type goim-share-smoke'
+    Send-Command $taskBob 'click "打开共享"'
+    Send-Command $taskBob 'waitfor "文件传输" 15000'
+    Send-Command $taskBob 'expect text "来源"'
+    Send-Command $taskBob 'expect text "文件分享" within 15000'
+    Send-Command $taskBob 'expect text "聊天"'
+    $taskClientFolder=Join-Path $taskRunDir '林晓-downloads/交付资料/界面设计/浏览器下载.txt'
+    $taskClientFile=Join-Path $taskRunDir '林晓-downloads/真实文件 (1).txt'
+    $taskDeadline=[Diagnostics.Stopwatch]::StartNew()
+    while(!(Test-Path -LiteralPath $taskClientFolder) -or !(Test-Path -LiteralPath $taskClientFile)) {
+        if($taskDeadline.Elapsed.TotalSeconds -gt 15){throw 'Incoming batch did not finish'}
+        Start-Sleep -Milliseconds 80
+    }
+    foreach($received in @($taskClientFolder,$taskClientFile)){
+        if((Get-FileHash -LiteralPath $received).Hash -ne (Get-FileHash -LiteralPath $taskSamplePath).Hash){throw 'Member batch download differs'}
+    }
+    Send-Command $taskBob 'expect layout clean'
+    Save-Screenshot $taskBob 'real-incoming-shares.png'
+    Send-Command $taskBob 'click "button:文件共享"'
+    Send-Command $taskBob 'click "交付资料"'
+    Send-Command $taskBob 'expect exists "checkbox:选择 界面设计" within 15000'
+    Send-Command $taskBob 'click "全选"'
+    Send-Command $taskBob 'expect exists "button:取消全选"'
+    Send-Command $taskBob 'click "下载所选（2）"'
+    Send-Command $taskBob 'waitfor "文件传输" 15000'
+    $taskNestedDownloads=@('林晓-downloads/清单.txt','林晓-downloads/界面设计/浏览器下载.txt')
+    foreach($relative in $taskNestedDownloads) {
+        $taskNestedFile=Join-Path $taskRunDir $relative
+        $taskDeadline.Restart()
+        while(!(Test-Path -LiteralPath $taskNestedFile)){
+            if($taskDeadline.Elapsed.TotalSeconds -gt 15){throw "Selected item did not arrive: $relative"}
+            Start-Sleep -Milliseconds 80
+        }
+        if((Get-FileHash -LiteralPath $taskNestedFile).Hash -ne (Get-FileHash -LiteralPath $taskSamplePath).Hash){throw 'Selected folder entry differs'}
+    }
     Send-Command $taskAlice 'rightclick "交付资料"'
     Send-Command $taskAlice 'click "复制项目链接"'
     $taskFolderURL=[regex]::Match((Send-Command $taskAlice 'clip'),'http://127\.0\.0\.1:\d+/s/[a-zA-Z0-9_-]+').Value
@@ -432,7 +475,7 @@ try {
         if(!$taskCanonical -or ($taskCanonical | Measure-Object Length -Maximum).Maximum -gt 180KB){throw 'Avatar was not stored as a compact PNG'}
         ('Avatar {0:N2} MiB JPEG; process working set before {1:N1} MiB, preview {2:N1} MiB; idle CPU over 850 ms {3:N1} ms.' -f ($taskPhotoSize/1MB),($taskMemoryBefore/1MB),($taskMemoryPreview/1MB),$taskAvatarCPU)
     }
-    'PASS: three independent processes, real TLS text, emoji, inline images, independent viewer and original save, live language switch, group delivery, SHA256, lock/unlock, browser project shares, device catalog and upload.'
+    'PASS: three independent processes, real TLS text, emoji, inline images, independent viewer and original save, live language switch, group delivery, SHA256, lock/unlock, browser project shares, incoming batch downloads, device catalog and upload.'
 } catch {
     foreach ($taskProcess in $taskProcesses) {
         if (!$taskProcess.HasExited) {

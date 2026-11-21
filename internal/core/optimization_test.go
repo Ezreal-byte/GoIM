@@ -49,7 +49,7 @@ func TestBrowserSharePasswordRevocationAndRanges(t *testing.T) {
 	if !f.Shared || !f.ShareProtected || f.ShareURL == "" {
 		t.Fatalf("incomplete link: %#v", f)
 	}
-	if err := n.offerShared("peer", f.ID); err == nil {
+	if err := n.offerShared("peer", f.ID, ""); err == nil {
 		t.Fatal("a password-protected browser share was offered to a native peer")
 	}
 	if err := n.shareFile(path, ""); err == nil {

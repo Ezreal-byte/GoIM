@@ -106,7 +106,8 @@ func measureTransferColumns(width float32) panelTableColumns {
 	}
 	if width >= 1180 {
 		return panelTableColumns{
-			peer:    150,
+			peer:    140,
+			source:  84,
 			size:    96,
 			status:  220,
 			actions: actions,
@@ -114,14 +115,16 @@ func measureTransferColumns(width float32) panelTableColumns {
 	}
 	if width >= 900 {
 		return panelTableColumns{
-			peer:    112,
+			peer:    100,
+			source:  70,
 			size:    84,
 			status:  156,
 			actions: actions,
 		}
 	}
 	return panelTableColumns{
-		peer:    86,
+		peer:    70,
+		source:  60,
 		size:    74,
 		status:  118,
 		actions: actions,
@@ -139,6 +142,8 @@ func (p *Panels) transferEntries() []panelTransferEntry {
 	entries := p.transferRows
 	if p.transferFilter != panelTransferAll {
 		switch p.transferFilter {
+		case panelTransferReceived:
+			entries = p.transferReceived
 		case panelTransferIncoming:
 			entries = p.transferIncoming
 		case panelTransferPending:
@@ -159,7 +164,7 @@ func (p *Panels) drawTransferTabs(f ui.C, compact bool) {
 	ui.Row(f).FillWidth().PadSides(top, 0, 0, 0).Children(func() {
 		tabs := ui.Tabs(f.Part("transfer-filter"), &p.transferFilter, transferFilters[:],
 			func(filter transferFilter) string { return p.transferLabels[filter] }).
-			Line().FontSize(panelTabFontSize).Width(4*max(104, widest+24) + 4)
+			Line().FontSize(panelTabFontSize).Width(float32(len(transferFilters))*max(85, widest+18) + 4)
 		if tabs.Changed() {
 			p.transferMenu = ""
 		}
@@ -238,6 +243,7 @@ func (p *Panels) drawTransferTableHead(f ui.C, theme ui.Theme, columns panelTabl
 	ui.Row(f).FillWidth().Height(panelTableHeadHeight).PadX(15).Gap(12).Items(ui.Center).Children(func() {
 		ui.Text(f, i18n.T("文件名")).Muted().Grow(1).FontSize(13)
 		ui.Text(f, i18n.T("对方")).Muted().Width(columns.peer).FontSize(13)
+		ui.Text(f, i18n.T("来源")).Muted().Width(columns.source).FontSize(13)
 		ui.Text(f, i18n.T("大小")).Muted().Width(columns.size).FontSize(13)
 		ui.Text(f, i18n.T("状态")).Muted().Width(columns.status).FontSize(13)
 		ui.Row(f).Width(columns.actions)
@@ -284,6 +290,7 @@ func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, columns panelTableColum
 			ui.Text(f, entry.name).FontSize(15).Weight(gfx.WeightMedium).MinWidth(0).Ellipsis()
 		})
 		ui.Text(f, entry.peer).Width(columns.peer).FontSize(13).Ellipsis()
+		ui.Text(f, entry.source).Width(columns.source).FontSize(13).Ellipsis()
 		ui.Text(f, entry.size).Width(columns.size).FontSize(13).Ellipsis()
 		drawTransferStatus(f, theme, entry, columns.status)
 		p.drawTransferActions(f, theme, columns, entry, submit)
@@ -319,7 +326,7 @@ func (p *Panels) drawTransferActions(f ui.C, theme ui.Theme, columns panelTableC
 			submit(domain.Command{Kind: domain.RetryTransfer, TransferID: entry.transfer.ID})
 		}
 		if entry.open && namedButton(f, entry.ids.open, i18n.T("打开")).Small().Outline().Clicked() {
-			panelOpenLocal(f.Canvas(), p, entry.path, false)
+			p.requestLocalAction(entry.path, false, entry.directory)
 		}
 		if entry.cancel && panelActionIcon(f, theme, entry.ids.cancel, X, i18n.T("取消传输"), false, false).Clicked() {
 			submit(domain.Command{Kind: domain.CancelTransfer, TransferID: entry.transfer.ID})
@@ -407,7 +414,7 @@ func (p *Panels) drawTransferMenu(c *gfx.Canvas, theme ui.Theme, viewport ui.Rec
 			}
 		})
 	case entry.reveal && c.Clicked(entry.ids.reveal):
-		panelOpenLocal(c, p, entry.path, true)
+		p.requestLocalAction(entry.path, true, entry.directory)
 	case entry.saveAs && c.Clicked(entry.ids.saveAs):
 		p.saveTransferAs(c, submit, entry.transfer)
 	case entry.reject && c.Clicked(entry.ids.reject):

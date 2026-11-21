@@ -383,6 +383,7 @@ type shareCrumb struct{ Name, URL string }
 
 type sharePageItem struct {
 	Name, Size, Kind, Date, URL, Style string
+	Bytes                              int64
 	Folder                             bool
 }
 
@@ -424,7 +425,7 @@ func renderShare(w http.ResponseWriter, r *http.Request, status int, data shareP
 		if data.Ready {
 			p.Title, p.Current, p.ParentURL = data.Title, data.Current, data.ParentURL
 			for _, e := range data.Items {
-				p.Items = append(p.Items, shareclient.Entry{Name: e.Name, URL: e.URL, Folder: e.Folder, Size: e.Size})
+				p.Items = append(p.Items, shareclient.Entry{Name: e.Name, URL: e.URL, Folder: e.Folder, Size: e.Size, Bytes: &e.Bytes})
 			}
 		}
 		w.Header().Set("Content-Type", shareclient.MediaType)
@@ -570,7 +571,7 @@ func webFileItem(name, mediaType string, size int64, date time.Time, url string)
 	if len(kind) == 0 || len(kind) > 6 {
 		kind = "文件"
 	}
-	item := sharePageItem{Name: name, Size: shareFileSize(size), Kind: kind, URL: url, Style: style}
+	item := sharePageItem{Name: name, Bytes: size, Size: shareFileSize(size), Kind: kind, URL: url, Style: style}
 	if !date.IsZero() {
 		item.Date = date.Local().Format("2006-01-02")
 	}

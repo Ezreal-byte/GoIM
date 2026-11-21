@@ -8,14 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"goim/internal/filemove"
 	"io"
 	"mime"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -32,6 +30,7 @@ var memberPath = regexp.MustCompile("^/m/[0-9a-f]{32}$")
 type Entry struct {
 	Name, Size, URL string
 	Folder          bool
+	Bytes           *int64 `json:",omitempty"`
 }
 type Page struct {
 	Title, Current, ParentURL, Path string
@@ -186,63 +185,4 @@ func safeName(name string) bool {
 		}
 	}
 	return true
-}
-func (c *Client) Download(ctx context.Context, e Entry, dir string) (string, error) {
-	if e.Folder || !safeName(e.Name) || !filepath.IsAbs(dir) {
-		return "", errors.New("无效的下载目标")
-	}
-	u, err := c.target(e.URL, true)
-	if err != nil {
-		return "", err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return "", remoteError(ctx)
-	}
-	defer resp.Body.Close()
-	mt, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if resp.StatusCode != http.StatusOK || mt != "application/octet-stream" || resp.ContentLength < 0 || resp.Request.URL.String() != u.String() {
-		return "", errors.New("文件已变化或访问已过期，请重新打开共享")
-	}
-	if err = os.MkdirAll(dir, 0700); err != nil {
-		return "", err
-	}
-	temp, err := os.CreateTemp(dir, ".goim-download-*")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(temp.Name())
-	n, copyErr := io.Copy(temp, resp.Body)
-	err = errors.Join(copyErr, temp.Close(), ctx.Err())
-	if err != nil {
-		return "", err
-	}
-	if n != resp.ContentLength {
-		return "", io.ErrUnexpectedEOF
-	}
-	ext := filepath.Ext(e.Name)
-	base := strings.TrimSuffix(e.Name, ext)
-	for i := 0; i < 10000; i++ {
-		name := e.Name
-		if i > 0 {
-			name = fmt.Sprintf("%s (%d)%s", base, i, ext)
-		}
-		dest := filepath.Join(dir, name)
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		err := filemove.Exclusive(temp.Name(), dest)
-		if errors.Is(err, os.ErrExist) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		return dest, nil
-	}
-	return "", errors.New("接收目录中的同名文件过多")
 }

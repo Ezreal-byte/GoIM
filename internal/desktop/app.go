@@ -801,6 +801,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.voiceFallbackPage = page("incoming-call")
 	u.surface = u.newChatSurface(page("workspace"))
 	u.panels.Init(&u.tree)
+	u.panels.showIncoming = func() { u.setSection(sectionTransfers) }
 	u.panels.settingsExtra.openProfile = u.openProfile
 	u.panels.openUpdates = u.showUpdates
 	u.panels.setMediaSubmit(u.media.submitOne)

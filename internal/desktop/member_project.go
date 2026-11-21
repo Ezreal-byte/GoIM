@@ -12,13 +12,13 @@ import (
 )
 
 type memberProjectResult struct {
-	page     shareclient.Page
-	download bool
-	path     string
-	err      error
+	page shareclient.Page
+	err  error
 }
 type memberProjectView struct {
 	id, address, title string
+	checked            map[string]bool
+	batchUnlock        bool
 	ctx                context.Context
 	cancel             context.CancelFunc
 	client             *shareclient.Client
@@ -31,6 +31,11 @@ type memberProjectView struct {
 }
 
 func (p *Panels) closeMemberProject() {
+	p.shareBatch = nil
+	p.shareUnlock = nil
+	p.dismissMemberProject()
+}
+func (p *Panels) dismissMemberProject() {
 	if v := p.memberProject; v != nil {
 		v.cancel()
 		v.client.Close()
@@ -39,14 +44,14 @@ func (p *Panels) closeMemberProject() {
 	}
 }
 func (p *Panels) openMemberProject(file domain.File) {
-	p.closeMemberProject()
+	p.dismissMemberProject()
 	client, err := shareclient.New(file.MemberURL)
 	if err != nil {
 		p.setShareToast("无法打开共享页面", i18n.T(err.Error()), components.ToastError)
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	v := &memberProjectView{id: file.ID, address: file.MemberURL, title: file.Name, ctx: ctx, cancel: cancel, client: client, results: make(chan memberProjectResult, 1), invalidate: p.invalidate}
+	v := &memberProjectView{id: file.ID, address: file.MemberURL, title: file.Name, ctx: ctx, cancel: cancel, client: client, results: make(chan memberProjectResult, 1), invalidate: p.invalidate, checked: make(map[string]bool)}
 	v.password.Secure = true
 	p.memberProject = v
 	p.shareMenu = shareMenuState{}
@@ -76,7 +81,7 @@ func (v *memberProjectView) list(ref, password string) {
 		return memberProjectResult{page: page, err: err}
 	})
 }
-func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, bounds ui.Rect, dest string) {
+func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, bounds ui.Rect, submit func(domain.Command)) {
 	v := p.memberProject
 	select {
 	case result := <-v.results:
@@ -86,10 +91,18 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, bounds ui.Rect, dest 
 			v.problem = i18n.T(result.err.Error())
 		}
 		if result.page.Path != "" {
+			if result.page.Path != v.page.Path {
+				clear(v.checked)
+			}
 			v.page = result.page
 		}
-		if result.download && result.err == nil {
-			p.setShareToast("下载完成", result.path, components.ToastSuccess)
+		if v.batchUnlock && result.err == nil && result.page.Path != "" && !result.page.Locked {
+			p.shareBatch = append(p.shareBatch, v.selection(result.page.Whole()))
+			p.continueShareBatch(submit)
+			if p.invalidate != nil {
+				p.invalidate()
+			}
+			return
 		}
 	default:
 	}
@@ -133,26 +146,51 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, bounds ui.Rect, dest 
 		if v.page.Path != "" && len(v.page.Items) == 0 && !v.busy {
 			ui.Text(f, i18n.T("这个文件夹是空的")).Muted()
 		}
+		if v.page.Path != "" {
+			ui.Row(f.Part("project-downloads")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+				whole := v.page.Whole()
+				if whole.Folder && ui.Button(f.Part("download-folder"), i18n.T("下载整个文件夹")).Outline().Disabled(v.busy).Clicked() {
+					p.submitShareBatch([]domain.ShareDownload{v.selection(whole)}, submit)
+					return
+				}
+				if len(v.page.Items) == 0 {
+					return
+				}
+				if ui.Button(f.Part("select-all"), shareSelectAllLabel(len(v.checked) == len(v.page.Items))).Ghost().Disabled(v.busy).Clicked() {
+					all := len(v.checked) != len(v.page.Items)
+					clear(v.checked)
+					if all {
+						for _, e := range v.page.Items {
+							v.checked[e.URL] = true
+						}
+					}
+				}
+				if ui.Button(f.Part("download-selected"), downloadSelectedLabel(len(v.checked))).Outline().Disabled(v.busy || len(v.checked) == 0).Clicked() {
+					var batch []domain.ShareDownload
+					for _, e := range v.page.Items {
+						if v.checked[e.URL] {
+							batch = append(batch, v.selection(e))
+						}
+					}
+					p.submitShareBatch(batch, submit)
+				}
+			})
+		}
 		ui.Scroll(f.Key(v.page.Path)).FillWidth().Grow(1).Scrollbars().Children(func() {
 			for _, e := range v.page.Items {
 				row := f.Key(e.URL)
 				ui.Row(row).FillWidth().Height(44).Items(ui.Center).Gap(10).Children(func() {
+					if selectionCheckbox(row, v.checked[e.URL], e.Name, v.busy) {
+						toggleShareSelection(v.checked, e.URL)
+					}
 					drawFileIcon(row, theme, fileTypeIcon(domain.File{Name: e.Name, Folder: e.Folder}), 28, 20)
 					ui.Text(row, e.Name).MinWidth(0).Grow(1).Ellipsis()
 					ui.Text(row, e.Size).Muted().FontSize(12)
-					label := "下载"
-					if e.Folder {
-						label = "打开"
+					if e.Folder && ui.Button(row.Part("open"), i18n.T("打开")).Small().Ghost().Disabled(v.busy).Clicked() {
+						v.list(e.URL, "")
 					}
-					if ui.Button(row.Part("action"), i18n.T(label)).Small().Ghost().Disabled(v.busy).Clicked() {
-						if e.Folder {
-							v.list(e.URL, "")
-						} else {
-							v.run("正在下载…", func() memberProjectResult {
-								path, err := v.client.Download(v.ctx, e, dest)
-								return memberProjectResult{download: true, path: path, err: err}
-							})
-						}
+					if ui.Button(row.Part("download"), i18n.T("下载")).Small().Ghost().Disabled(v.busy).Clicked() {
+						p.submitShareBatch([]domain.ShareDownload{v.selection(e)}, submit)
 					}
 				})
 			}

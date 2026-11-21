@@ -137,7 +137,7 @@ func TestShareRevocationRejectsHistoricalRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := a.Snapshot().Files[0]
-	if err := a.offerShared(b.Snapshot().Self.ID, f.ID); err != nil {
+	if err := a.offerShared(b.Snapshot().Self.ID, f.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	task := a.Snapshot().Transfers[0]
@@ -165,7 +165,7 @@ func TestShareRetryPreservesGrantAcrossPasswordChange(t *testing.T) {
 	}
 	f := a.Snapshot().Files[0]
 	peer := b.Snapshot().Self.ID
-	if err := a.offerShared(peer, f.ID); err != nil {
+	if err := a.offerShared(peer, f.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	first := a.Snapshot().Transfers[0]

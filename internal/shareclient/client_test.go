@@ -2,9 +2,10 @@ package shareclient
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -45,13 +46,12 @@ func TestLegacyFolderNavigationAndPartialDownload(t *testing.T) {
 	if err != nil || len(sub.Items) != 1 || sub.ParentURL != project || sub.Items[0].Size != "5 B" {
 		t.Fatal(sub, err)
 	}
-	dir := t.TempDir()
-	if _, err := c.Download(t.Context(), sub.Items[0], dir); err == nil {
-		t.Fatal("accepted partial file")
+	plan, err := c.Plan(t.Context(), root, root.Title, 0, true)
+	if err != nil || plan.Bytes != 5 || len(plan.Parts) != 3 || plan.Parts[2].Path != filepath.Join("子目录", "表格.xlsx") {
+		t.Fatal("legacy folder plan", plan, err)
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) != 0 {
-		t.Fatal(entries, err)
+	if _, err := c.Copy(t.Context(), sub.Items[0], io.Discard); err == nil {
+		t.Fatal("accepted partial file")
 	}
 	for _, ref := range []string{"https://example.invalid", project + "/../secret", "/s/" + strings.Repeat("c", 32) + "/download?file=1", project + "/download?file=-1"} {
 		if _, err := c.target(ref, true); err == nil {

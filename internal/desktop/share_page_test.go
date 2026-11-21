@@ -178,8 +178,8 @@ func TestMemberShareVisitRequiresOnlinePeerAndExplicitClick(t *testing.T) {
 			t.Fatalf("online member action: %+v", hit)
 		}
 		h.click(entry.moreID)
-		if _, ok := h.findHit(h.panels.ids.shareMenuGet); ok {
-			t.Fatal("web project offers native download")
+		if hit, ok := h.findHit(h.panels.ids.shareMenuGet); !ok || hit.Disabled {
+			t.Fatal("missing project download action")
 		}
 		if _, ok := h.findHit(h.panels.ids.shareMenuCopy); ok {
 			t.Fatal("web project offers copying another member's URL")

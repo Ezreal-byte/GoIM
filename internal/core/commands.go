@@ -120,36 +120,50 @@ func (n *Node) execute(c domain.Command) error {
 		}
 		return n.retryTransfer(t)
 	case domain.RejectTransfer, domain.CancelTransfer:
-		s := n.snapshot(false)
-		i := transferIndex(&s, c.TransferID)
-		if i < 0 {
-			return errors.New("找不到传输任务")
-		}
-		t := s.Transfers[i]
-		if t.Status == "completed" {
-			return nil
-		}
 		status := "cancelled"
 		if c.Kind == domain.RejectTransfer {
 			status = "rejected"
 		}
 		cancelled := false
+		var t domain.Transfer
 		err := n.durable(func(p *persisted) []pending {
-			if i := transferIndex(&p.State, t.ID); i >= 0 {
-				v := &p.State.Transfers[i]
-				if terminalTransfer(v.Status) || receiveAlreadyPublished(p, v.ID) {
-					return nil
+			i := transferIndex(&p.State, c.TransferID)
+			if i < 0 {
+				// A sender may have just replaced the visible request with its offer.
+				for j, row := range p.State.Transfers {
+					if c.TransferID != "" && row.Direction == "receive" && row.FromShare && row.ShareRequestID == c.TransferID {
+						i = j
+						break
+					}
 				}
-				v.Status = status
-				cancelled = true
-				v.Speed = 0
-				v.UpdatedAt = time.Now()
-				if v.Direction == "send" {
-					v.Revoked = true
+			}
+			if i < 0 {
+				return nil
+			}
+			v := &p.State.Transfers[i]
+			t = *v
+			if terminalTransfer(v.Status) || receiveAlreadyPublished(p, v.ID) {
+				return nil
+			}
+			v.Status = status
+			cancelled = true
+			v.Speed = 0
+			v.UpdatedAt = time.Now()
+			if v.Direction == "send" {
+				v.Revoked = true
+			}
+			if stop := n.transfers[v.ID]; stop != nil {
+				stop()
+			}
+			if t.ShareRequest {
+				for id, d := range p.Outbox {
+					if d.PeerID == t.PeerID && d.Envelope.Type == "get_shared" && d.Envelope.TransferID == t.ID {
+						delete(p.Outbox, id)
+					}
 				}
-				if stop := n.transfers[v.ID]; stop != nil {
-					stop()
-				}
+			}
+			if t.ShareProject != "" || t.ShareRequest {
+				return nil
 			}
 			p.TransferTombstones[t.PeerID+":"+t.ID] = status
 			for id, d := range p.Outbox {
@@ -159,6 +173,9 @@ func (n *Node) execute(c domain.Command) error {
 			}
 			return []pending{{PeerID: t.PeerID, Envelope: envelope{Type: "file_status", TransferID: t.ID, Status: status}}}
 		})
+		if err == nil && t.ID == "" {
+			return errors.New("找不到传输任务")
+		}
 		if err == nil && cancelled && t.PrintJobID != "" {
 			n.failPrintTransfer(t.ID, "打印任务已取消")
 		}
@@ -288,6 +305,9 @@ func (n *Node) execute(c domain.Command) error {
 	case domain.PrintFile:
 		return n.printFile(c)
 	case domain.GetShared:
+		if len(c.ShareDownloads) > 0 {
+			return n.queueShareDownloads(c.ShareDownloads)
+		}
 		s := n.snapshot(false)
 		f := s.File(c.FileID)
 		if f.ID == "" || !f.Shared {

@@ -51,6 +51,7 @@ type envelope struct {
 	PrintAuth       printerAuthMessage `json:",omitempty"`
 	PrintToken      string             `json:",omitempty"`
 	TransferID      string
+	ShareRequestID  string `json:",omitempty"`
 	Offset          int64
 	Status          string
 	Error           string
@@ -288,7 +289,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 				}
 				for i := range s.Transfers {
 					t := &s.Transfers[i]
-					if t.PeerID == pc.peer.ID && t.Status == "transferring" {
+					if t.ShareProject == "" && t.PeerID == pc.peer.ID && t.Status == "transferring" {
 						t.Status = "waiting"
 						t.Speed = 0
 					}
@@ -660,6 +661,12 @@ func (n *Node) receiveFrom(peer string, e envelope, source *peerConn) error {
 					}
 				}
 			}
+			for i := range s.Transfers {
+				t := &s.Transfers[i]
+				if t.ShareRequest && t.Status == "requesting" && t.PeerID == peer && !s.File(t.FileID).Shared {
+					updateTransferProgress(t, "failed", 0, 0, "分享已失效")
+				}
+			}
 			return nil
 		})
 		// Catalog data must commit before the first URL becomes actionable. The
@@ -688,7 +695,7 @@ func (n *Node) receiveFrom(peer string, e envelope, source *peerConn) error {
 	case "printer_auth_result":
 		n.receivePrinterAuthResult(peer, e)
 	case "get_shared":
-		err = n.offerShared(peer, e.File.ID)
+		err = n.offerShared(peer, e.File.ID, e.TransferID)
 	case "voice_signal":
 		err = n.receiveVoiceSignal(peer, e.Voice)
 	case "voice_audio":

@@ -249,7 +249,24 @@ type File struct {
 	ShareEntryCount int    `json:"-"`
 }
 
+// ShareSession carries an unlocked member session only between local commands.
+type ShareSession struct{ Address, Project, Token string }
+
+// ShareDownload identifies an item in the peer's immutable member catalog.
+type ShareDownload struct {
+	ProjectID, Name string
+	Index           int
+	Folder          bool
+	Session         ShareSession
+}
+
 type Transfer struct {
+	ShareProject      string `json:",omitempty"` // member catalog project, for HTTP downloads
+	ShareIndex        int    `json:",omitempty"`
+	ShareFolder       bool   `json:",omitempty"`
+	ShareRequestID    string `json:",omitempty"` // original catalog request for a native offer
+	ShareRequest      bool   `json:",omitempty"` // waiting for a native file offer
+	ShareStage        string `json:",omitempty"` // incomplete member download, local to the receive directory
 	Revoked           bool
 	FromShare         bool
 	ID                string
@@ -279,7 +296,7 @@ type Transfer struct {
 }
 
 func (t Transfer) CanClearPartial() bool {
-	return t.Direction == "receive" && t.PrintJobID == "" && (t.Status == "failed" || t.Status == "waiting" || t.Status == "cancelled" || t.Status == "rejected")
+	return t.ShareProject == "" && !t.ShareRequest && t.Direction == "receive" && t.PrintJobID == "" && (t.Status == "failed" || t.Status == "waiting" || t.Status == "cancelled" || t.Status == "rejected")
 }
 
 // PrintCapabilities is the portable subset of printer options both sides can
@@ -808,6 +825,7 @@ const (
 )
 
 type Command struct {
+	ShareDownloads []ShareDownload `json:"-"`
 	// OnResult reports local command completion. Callbacks must not block or mutate window state.
 	OnResult       func(error) `json:"-"`
 	Transport      string

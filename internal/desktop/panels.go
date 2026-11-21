@@ -50,6 +50,7 @@ const (
 	panelTransferIncoming
 	panelTransferPending
 	panelTransferFinished
+	panelTransferReceived
 )
 
 type shareFilter uint8
@@ -61,6 +62,7 @@ const (
 
 var transferFilters = [...]transferFilter{
 	panelTransferAll,
+	panelTransferReceived,
 	panelTransferIncoming,
 	panelTransferPending,
 	panelTransferFinished,
@@ -143,7 +145,7 @@ type panelIDs struct {
 	deviceShareQR                        gfx.ID
 	deviceShareInbox                     gfx.ID
 	deviceShareStop                      gfx.ID
-	shareCopyLink                        gfx.Scope
+	shareCopyLink, shareDownload         gfx.Scope
 	shareMore                            gfx.Scope
 	shareRow                             gfx.Scope
 
@@ -206,13 +208,14 @@ type panelLocalAction struct {
 }
 
 type panelTransferEntry struct {
-	icon                                      *gfx.Icon
-	transfer                                  domain.Transfer
-	ids                                       transferActionIDs
-	name, peer, status, meta, err, path, size string
-	progress, percent                         string
-	fraction                                  float32
-	updated                                   time.Time
+	icon                                              *gfx.Icon
+	transfer                                          domain.Transfer
+	ids                                               transferActionIDs
+	name, peer, source, status, meta, err, path, size string
+	directory                                         bool
+	progress, percent                                 string
+	fraction                                          float32
+	updated                                           time.Time
 
 	accept bool
 	saveAs bool
@@ -227,7 +230,7 @@ type panelShareEntry struct {
 	icon                                          *gfx.Icon
 	online                                        bool
 	file                                          domain.File
-	rowID, copyID, moreID                         gfx.ID
+	rowID, copyID, downloadID, moreID             gfx.ID
 	title, label, kind, date, access, compactMeta string
 	size                                          string
 	sender                                        string
@@ -239,7 +242,7 @@ type panelShareEntry struct {
 }
 
 type panelTableColumns struct {
-	name, peer, size, status, access, date, actions float32
+	name, peer, source, size, status, access, date, actions float32
 }
 
 type panelPendingKind uint8
@@ -296,6 +299,10 @@ type Panels struct {
 	transferRows       []panelTransferEntry
 	shareFilter        shareFilter
 	shareAnchor        ui.Box
+	shareChecked       map[string]bool
+	shareBatch         []domain.ShareDownload
+	shareUnlock        []domain.File
+	showIncoming       func()
 	shareSelected      string
 	sharePickerOpen    bool
 	shareSearch        ui.Field
@@ -327,7 +334,8 @@ type Panels struct {
 	transferIncoming      []panelTransferEntry
 	transferPending       []panelTransferEntry
 	transferFinished      []panelTransferEntry
-	transferLabels        [4]string
+	transferReceived      []panelTransferEntry
+	transferLabels        [5]string
 	transferIncomingLabel string
 	sharesAll             []panelShareEntry
 	sharesMine            []panelShareEntry
@@ -449,6 +457,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	p.ids.deviceShareInbox = tree.ID(shares, "device-inbox")
 	p.ids.deviceShareStop = tree.ID(shares, "device-stop")
 	p.ids.shareCopyLink = tree.Sub(shares, tree.Name("copy-link"))
+	p.ids.shareDownload = tree.Sub(shares, tree.Name("download"))
 	p.ids.shareMore = tree.Sub(shares, tree.Name("more"))
 	p.ids.shareRow = tree.Sub(shares, tree.Name("share-row"))
 
@@ -845,11 +854,18 @@ func (p *Panels) refreshTransferRows() {
 		sort.SliceStable(entries, func(i, j int) bool { return entries[i].updated.After(entries[j].updated) })
 	}
 	p.transferIncomingLabel = fmt.Sprintf(i18n.T("待接收 %d"), len(p.transferIncoming))
-	p.transferLabels = [4]string{
+	p.transferReceived = p.transferReceived[:0]
+	for _, entry := range p.transferRows {
+		if entry.transfer.Direction == "receive" {
+			p.transferReceived = append(p.transferReceived, entry)
+		}
+	}
+	p.transferLabels = [5]string{
 		fmt.Sprintf(i18n.T("全部 %d"), len(p.transferRows)),
 		fmt.Sprintf(i18n.T("待接收 %d"), len(p.transferIncoming)),
 		fmt.Sprintf(i18n.T("传输中 %d"), len(p.transferPending)),
 		fmt.Sprintf(i18n.T("已结束 %d"), len(p.transferFinished)),
+		fmt.Sprintf(i18n.T("传入 %d"), len(p.transferReceived)),
 	}
 }
 
@@ -871,10 +887,21 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domai
 	if strings.TrimSpace(entry.name) == "" {
 		entry.name = i18n.T("未命名文件")
 	}
+	entry.source = i18n.T("聊天")
+	if transfer.FromShare || transfer.Direction == "receive" && file.Shared {
+		entry.source = i18n.T("文件分享")
+	}
+	if transfer.PrintJobID != "" {
+		entry.source = i18n.T("打印共享")
+	}
 	entry.path = transfer.Path
+	if transfer.ShareFolder {
+		file.Folder = true
+	}
 	if file.Name == "" {
 		file.Name = transfer.Name
 	}
+	entry.directory = file.Folder
 	entry.icon = fileTypeIcon(file)
 	direction := i18n.T("发送给 ") + name
 	if transfer.Direction == "receive" {
@@ -913,7 +940,7 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domai
 		} else {
 			entry.cancel = true
 		}
-	case "transferring", "verifying", "waiting", "retry_requested":
+	case "transferring", "verifying", "waiting", "retry_requested", "requesting", "queued":
 		entry.cancel = true
 	case "failed", "cancelled", "rejected":
 		entry.retry = true
@@ -937,6 +964,10 @@ func panelTransferIsFinished(status string) bool {
 
 func panelTransferStatus(status, direction string) string {
 	switch status {
+	case "queued":
+		return i18n.T("等待下载")
+	case "requesting":
+		return i18n.T("正在请求文件")
 	case "offered":
 		if direction == "receive" {
 			return i18n.T("等待接收")
@@ -1062,6 +1093,9 @@ func (p *Panels) rebuildShares(state domain.State) {
 		entry.icon = fileTypeIcon(file)
 		entry.rowID = p.tree.ID(p.ids.shareRow, file.ID)
 		entry.copyID = p.tree.ID(p.ids.shareCopyLink, file.ID)
+		if entry.memberWebProject() {
+			entry.downloadID = p.tree.ID(p.ids.shareDownload, file.ID)
+		}
 		entry.moreID = p.tree.ID(p.ids.shareMore, file.ID)
 		switch {
 		case file.ShareFolder:

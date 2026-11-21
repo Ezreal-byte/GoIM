@@ -249,11 +249,15 @@ func appendFileOffer(s *domain.State, peer, convID string, f domain.File, tid st
 	f.ConversationID = convID
 	return pending{PeerID: peer, Envelope: envelope{Type: "file_offer", File: publicFile(f), TransferID: tid}}
 }
+func validTransferID(id string) bool {
+	b, err := hex.DecodeString(id)
+	return err == nil && len(b) == 16 && id == strings.ToLower(id)
+}
+
 func (n *Node) receiveOffer(peer string, e envelope) error {
 	f := e.File
 	f.SourcePath = ""
-	transferBytes, transferErr := hex.DecodeString(e.TransferID)
-	if !validFile(f) || f.SenderID != peer || transferErr != nil || len(transferBytes) != 16 || e.TransferID != strings.ToLower(e.TransferID) {
+	if !validFile(f) || f.SenderID != peer || !validTransferID(e.TransferID) {
 		return errors.New("无效文件邀请")
 	}
 	isPrint := e.PrintJob.ID != ""
@@ -276,6 +280,25 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 		if !conversationAllows(s, f.ConversationID, peer) {
 			denied = errors.New("群文件权限无效")
 			return nil
+		}
+		if f.Shared && !isPrint && transferIndex(s, e.TransferID) < 0 {
+			i := pendingShareRequest(s, peer, f.ID, e.ShareRequestID)
+			if i >= 0 || e.ShareRequestID != "" {
+				catalog := s.File(f.ID)
+				if i >= 0 && s.Transfers[i].Status == "requesting" && catalog.Shared && catalog.Hash == f.Hash && catalog.Size == f.Size && catalog.Name == f.Name {
+					// Older senders do not echo the local request ID.
+					e.ShareRequestID = s.Transfers[i].ID
+					s.Transfers = append(s.Transfers[:i], s.Transfers[i+1:]...)
+					autoReceive = true
+				} else {
+					if i >= 0 && s.Transfers[i].Status == "requesting" {
+						updateTransferProgress(&s.Transfers[i], "failed", 0, 0, "分享已失效")
+					}
+					suppressed = true
+					p.TransferTombstones[peer+":"+e.TransferID] = "rejected"
+					return []pending{{PeerID: peer, Envelope: envelope{Type: "file_status", TransferID: e.TransferID, Status: "rejected"}}}
+				}
+			}
 		}
 		var printJob domain.PrintJob
 		if isPrint {
@@ -341,7 +364,7 @@ func (n *Node) receiveOffer(peer string, e envelope) error {
 				status = "waiting"
 			}
 			transfer := domain.Transfer{ID: e.TransferID, FileID: f.ID, ConversationID: f.ConversationID, PeerID: peer,
-				Direction: "receive", Status: status, Name: f.Name, Size: f.Size, UpdatedAt: time.Now()}
+				Direction: "receive", Status: status, FromShare: f.Shared, ShareRequestID: e.ShareRequestID, Name: f.Name, Size: f.Size, UpdatedAt: time.Now()}
 			kind := "file"
 			if f.InlineImage {
 				kind = "image"
@@ -483,6 +506,14 @@ func watchConnection(ctx context.Context, c net.Conn) func() {
 	return func() { close(done) }
 }
 func (n *Node) startReceive(id, destination string) {
+	n.mu.Lock()
+	i := transferIndex(&n.data.State, id)
+	_, recovery := n.data.ReceivePublications[id]
+	if i >= 0 && !recovery && (n.data.State.Transfers[i].ShareProject != "" || n.data.State.Transfers[i].ShareRequest) {
+		n.mu.Unlock()
+		return
+	}
+	n.mu.Unlock()
 	ctx, finish, ok := n.transferContext(id)
 	if !ok {
 		return
@@ -572,11 +603,15 @@ func (n *Node) download(ctx context.Context, id, destination string) error {
 		return nil
 	}
 	if destination == "" {
-		path, err := receiveDestination(s.Settings.DownloadDir, f.Name, s.Settings.DuplicatePolicy)
+		var err error
+		if t.ShareRequestID != "" && t.FromShare {
+			destination, err = n.shareDestination(ctx, t, s.Settings.DownloadDir)
+		} else {
+			destination, err = receiveDestination(s.Settings.DownloadDir, f.Name, s.Settings.DuplicatePolicy)
+		}
 		if err != nil {
 			return err
 		}
-		destination = path
 	}
 	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
 		return err
@@ -813,18 +848,37 @@ func (n *Node) broadcastCatalog() {
 		}
 	}
 }
-func (n *Node) offerShared(peer, id string) error {
+func (n *Node) offerShared(peer, id, requestID string) error {
+	if requestID != "" && !validTransferID(requestID) {
+		return errors.New("无效的共享请求")
+	}
 	granted := false
 	err := n.durable(func(p *persisted) []pending {
 		f := p.State.File(id)
 		if !publicSharedFile(p, f) {
+			if requestID != "" {
+				return []pending{{PeerID: peer, Envelope: envelope{Type: "file_status", TransferID: requestID, Status: "rejected", Error: "分享已失效"}}}
+			}
 			return nil
 		}
 		granted = true
+		if requestID != "" {
+			for _, t := range p.State.Transfers {
+				if t.Direction == "send" && t.PeerID == peer && t.FromShare && t.ShareRequestID == requestID {
+					return nil
+				}
+			}
+		}
 		conv := ensureDirect(&p.State, p.State.Peer(peer))
-		return []pending{appendFileOffer(&p.State, peer, conv, f, "", true)}
+		d := appendFileOffer(&p.State, peer, conv, f, "", true)
+		d.Envelope.ShareRequestID = requestID
+		if requestID != "" {
+			i := transferIndex(&p.State, d.Envelope.TransferID)
+			p.State.Transfers[i].ShareRequestID = requestID
+		}
+		return []pending{d}
 	})
-	if err == nil && !granted {
+	if err == nil && !granted && requestID == "" {
 		return errors.New("此分享已不可用")
 	}
 	return err
@@ -833,6 +887,10 @@ func (n *Node) offerShared(peer, id string) error {
 // receiveDestination chooses the first available name. Publication still checks
 // the final path, because another transfer can finish while this one is running.
 func receiveDestination(dir, name, policy string) (string, error) {
+	return availableReceiveDestination(dir, name, policy, nil)
+}
+
+func availableReceiveDestination(dir, name, policy string, reserved map[string]bool) (string, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
@@ -844,6 +902,9 @@ func receiveDestination(dir, name, policy string) (string, error) {
 			candidate = fmt.Sprintf("%s (%d)%s", base, index, ext)
 		}
 		path := filepath.Join(dir, candidate)
+		if reserved[strings.ToLower(path)] {
+			continue
+		}
 		_, err := os.Lstat(path)
 		if errors.Is(err, os.ErrNotExist) {
 			return path, nil
