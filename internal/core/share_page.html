@@ -64,6 +64,23 @@ h1 { font-size:clamp(22px,2vw,28px); font-weight:650; line-height:1.23; letter-s
 .columns,.entry { display:grid; grid-template-columns:minmax(0,56fr) minmax(0,17fr) minmax(0,15fr) minmax(5em,12fr); align-items:center; padding-inline:16px }
 .columns { min-height:32px; background:var(--head); border-bottom:1px solid var(--line); color:var(--muted); font-weight:550; font-size:12px }
 .entries,.crumbs { list-style:none; padding:0; margin:0 }
+.batch-tools { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:6px 14px; padding:7px 12px; border-bottom:1px solid var(--line) }
+.batch-all,.pick { display:inline-flex; align-items:center; justify-content:center; min-height:36px; cursor:pointer }
+.batch-tools input,.pick input { margin:0; width:17px; height:17px; accent-color:var(--button) }
+.batch-all { gap:7px }
+.batch-tools button { display:inline-flex; align-items:center; gap:7px; min-height:36px; padding:5px 12px; border:1px solid var(--line); border-radius:6px; color:var(--ink); background:var(--paper) }
+.batch-tools button:not(:disabled):hover { background:var(--hover) }
+.batch-tools button:disabled { color:var(--muted); opacity:.6; cursor:default }
+.batch-tools .glyph { width:16px; height:16px }
+.selectable .columns { margin:0; padding-left:50px }
+.selectable li { display:flex; flex-wrap:wrap; align-items:stretch; border-bottom:1px solid var(--line) }
+.selectable li:last-child { border-bottom:0 }
+.selectable .entry { flex:1; min-width:0; border:0; padding-left:6px }
+.selectable .pick { width:44px; flex:none }
+.selectable li:has(input:checked) { background:var(--hover) }
+.batch-password { display:flex; flex-basis:100%; align-items:center; gap:10px; padding:0 12px 10px 50px; color:var(--muted) }
+.selectable li:has(.pick input:not(:checked)) .batch-password { display:none }
+.batch-password input { min-width:0; width:min(210px,60%); padding:6px 10px; border:1px solid var(--line); border-radius:5px; background:var(--paper); color:var(--ink) }
 .entry { min-height:40px; padding-block:3px; border-bottom:1px solid var(--line); font-size:14px }
 .entry:hover,.parent-row:hover { background:var(--hover) }
 .entry:focus-visible { outline-offset:-2px }
@@ -137,6 +154,7 @@ h1 { font-size:clamp(22px,2vw,28px); font-weight:650; line-height:1.23; letter-s
   .columns { min-height:38px; font-size:13px }
   .columns span:not(:first-child),.kind,.size { display:none }
   .entry { min-height:52px; font-size:14px }
+  .batch-tools button,.batch-all { min-height:44px }
   .identity { gap:9px }
   .mobile-meta { display:block; margin-top:2px; font-size:12px }
   .name-line { gap:1px 6px }
@@ -157,16 +175,17 @@ h1 { font-size:clamp(22px,2vw,28px); font-weight:650; line-height:1.23; letter-s
     <a class="primary" data-open-upload href="{{.Path}}?upload=1"><span class="glyph g-upload" aria-hidden="true"></span>上传文件</a>
   </header>
   {{if .Uploaded}}<p class="upload-success" role="status">上传完成，文件已发送到这台设备。</p>{{end}}
-  <section class="directory" id="upload-drop" aria-label="分享目录">
+  <section class="directory{{if .Catalog}} selectable{{end}}" id="upload-drop" aria-label="分享目录">
+    {{if .Catalog}}{{template "batch-tools" .}}{{end}}
     {{template "columns"}}
     {{if .Catalog}}<ul class="entries">
-      {{range .Catalog}}<li><a class="entry" href="{{.URL}}" aria-label="{{if .Folder}}打开{{else}}查看{{end}}{{.Name}}{{if .Protected}}，需密码{{end}}">
+      {{range .Catalog}}<li>{{template "pick" .}}<a class="entry" href="{{.URL}}" aria-label="{{if .Folder}}打开{{else}}查看{{end}}{{.Name}}{{if .Protected}}，需密码{{end}}">
         <span class="identity"><span class="file-type type-{{.Style}}" aria-hidden="true"></span>
           <span><span class="name-line"><span class="filename">{{.Name}}</span>{{if .Protected}}<span class="protected"><span class="glyph g-lock" aria-hidden="true"></span>需密码</span>{{end}}</span>{{template "mobile-meta" .}}</span>
         </span>
         {{template "cells" .}}
         <span class="action">{{if .Folder}}打开{{else}}查看{{end}}<span class="glyph g-next" aria-hidden="true"></span></span>
-      </a></li>{{end}}
+      </a>{{if .Protected}}<label class="batch-password">分享密码<input type="password" name="password-{{.SelectID}}" form="batch-download" maxlength="256" autocomplete="off" aria-label="{{.Name}}的分享密码"></label>{{end}}</li>{{end}}
     </ul>{{else}}<p class="empty"><span class="glyph g-empty" aria-hidden="true"></span>暂时没有分享项目</p>{{end}}
     <div class="drop-hint" aria-hidden="true">松开以上传文件</div>
   </section>
@@ -200,11 +219,12 @@ h1 { font-size:clamp(22px,2vw,28px); font-weight:650; line-height:1.23; letter-s
         {{range $index, $crumb := .Crumbs}}<li>{{if $index}}<span class="glyph g-next" aria-hidden="true"></span>{{end}}{{if .URL}}<a href="{{.URL}}">{{.Name}}</a>{{else}}<span aria-current="page">{{.Name}}</span>{{end}}</li>{{end}}
       </ol></nav>{{end}}
     </header>
-    <section class="directory" aria-label="{{.Current}}，{{.Count}}">
+    <section class="directory{{if .Items}} selectable{{end}}" aria-label="{{.Current}}，{{.Count}}">
+      {{if .Items}}{{template "batch-tools" .}}{{end}}
       {{template "columns"}}
       {{if .ParentURL}}<a class="parent-row" href="{{.ParentURL}}" aria-label="返回上一级"><span class="glyph g-back" aria-hidden="true"></span>返回上一级</a>{{end}}
       {{if .Items}}<ul class="entries">
-        {{range .Items}}<li><a class="entry" href="{{.URL}}" {{if .Folder}}aria-label="打开文件夹：{{.Name}}"{{else}}aria-label="下载文件：{{.Name}}"{{end}}>
+        {{range .Items}}<li>{{template "pick" .}}<a class="entry" href="{{.URL}}" {{if .Folder}}aria-label="打开文件夹：{{.Name}}"{{else}}aria-label="下载文件：{{.Name}}"{{end}}>
           <span class="identity"><span class="file-type type-{{.Style}}" aria-hidden="true"></span><span><span class="filename">{{.Name}}</span>{{template "mobile-meta" .}}</span></span>
           {{template "cells" .}}
           <span class="action">{{if .Folder}}打开<span class="glyph g-next" aria-hidden="true"></span>{{else}}下载<span class="glyph g-download" aria-hidden="true"></span>{{end}}</span>
@@ -237,6 +257,12 @@ h1 { font-size:clamp(22px,2vw,28px); font-weight:650; line-height:1.23; letter-s
 {{if and .LiveVersion (or .Ready .Device)}}<script defer src="/assets/share-live.js" data-source="{{.Path}}" data-version="{{.LiveVersion}}"></script>{{end}}
 </body>
 </html>
+{{define "batch-tools"}}<form id="batch-download" class="batch-tools" method="post" action="{{.Path}}/archive">
+  <input type="hidden" name="dir" value="{{.DirectoryID}}">
+  <label class="batch-all" hidden><input type="checkbox" id="select-all">全选</label>
+  <button type="submit" title="将所选项目打包为 ZIP 下载"><span class="glyph g-download" aria-hidden="true"></span><span id="download-label">下载所选</span></button>
+</form><script src="/assets/share-select.js" defer></script>{{end}}
+{{define "pick"}}<label class="pick"><input type="checkbox" name="item" form="batch-download" value="{{.SelectID}}" aria-label="选择{{.Name}}"></label>{{end}}
 {{define "columns"}}<div class="columns" aria-hidden="true"><span>名称</span><span>类型</span><span>大小</span></div>{{end}}
 {{define "type"}}{{if .Folder}}文件夹{{else if eq .Kind "TXT"}}文本文档{{else}}{{.Kind}}{{end}}{{end}}
 {{define "mobile-meta"}}<span class="mobile-meta">{{template "type" .}}{{if not .Folder}} · {{.Size}}{{end}}</span>{{end}}

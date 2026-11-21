@@ -119,6 +119,7 @@ func (n *Node) deviceSharePage(token string) (sharePageData, string, bool) {
 		}
 		href := "/s/" + record.Token
 		item := webFileItem(file.Name, file.MIME, file.Size, file.CreatedAt, href)
+		item.SelectID = file.ID
 		if file.ShareFolder {
 			item.Folder, item.Style = true, "folder"
 		}
@@ -132,6 +133,10 @@ func (n *Node) deviceSharePage(token string) (sharePageData, string, bool) {
 
 func (n *Node) handleDeviceShare(w http.ResponseWriter, r *http.Request) {
 	token, tail, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/d/"), "/")
+	if len(token) == 32 && tail == "archive" {
+		n.downloadShareArchive(w, r, token, true)
+		return
+	}
 	if len(token) == 32 && tail == "events" {
 		n.watchShare(w, r, token, true)
 		return

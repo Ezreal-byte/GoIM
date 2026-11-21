@@ -23,11 +23,12 @@
         if (project.pathname.startsWith('/d/')) location.replace(project.href);
         else location.reload();
       };
-      // Keep the user's selected upload until the dialog is closed.
+      // Keep pending uploads, download selections and their passwords intact.
       const dialog = document.querySelector('#upload-dialog');
       function whenIdle() {
         if (dialog?.open) dialog.addEventListener('close', whenIdle, {once:true});
         else if (dialog?.dataset.uploadActive === 'true') dialog.addEventListener('uploadidle', whenIdle, {once:true});
+        else if (document.querySelector('.pick input:checked')) document.querySelector('.selectable').addEventListener('change', whenIdle, {once:true});
         else refresh();
       }
       whenIdle();

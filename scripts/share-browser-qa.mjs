@@ -68,6 +68,31 @@ try {
   if (metrics.width>1040 || metrics.height>44 || metrics.gutter<32 || !metrics.icon.includes('svg')) {
     throw new Error("Directory geometry or file icon regression: "+JSON.stringify(metrics));
   }
+  await call("Browser.setDownloadBehavior", {behavior:"allow", downloadPath:profile});
+  const verifyBatch = async (device) => {
+    await eventually(() => evaluate("!document.querySelector('.batch-all').hidden && document.querySelector('#batch-download button').disabled"));
+    await evaluate("document.querySelector('.pick input').click()");
+    if (!(await evaluate("document.querySelector('#select-all').indeterminate && document.querySelector('#download-label').textContent.includes('1')"))) {
+      throw new Error("Partial selection did not update the download button");
+    }
+    await evaluate("document.querySelector('#select-all').click()");
+    if (!(await evaluate("document.querySelector('#select-all').checked && !document.querySelector('.pick input:not(:checked)')"))) {
+      throw new Error("Select all left an unchecked row");
+    }
+    if (device) {
+      await evaluate("document.querySelector('.batch-password input').value='goim-share-smoke'");
+      await capture("browser-share-multiselect-mobile.png");
+    }
+    await evaluate("document.querySelector('#batch-download button').click()");
+    const archive = join(profile, 'GoIM-所选文件.zip');
+    await eventually(async () => {
+      const file = await readFile(archive);
+      return file.readUInt32LE(0) === 0x04034b50 && file.readUInt32LE(file.length-22) === 0x06054b50;
+    });
+    await unlink(archive);
+    await evaluate("document.querySelector('#select-all').click()");
+  };
+  await verifyBatch(false);
   if (sharedDirectory) {
     const liveName = 'live-browser-' + process.pid + '.txt';
     const testFile = join(sharedDirectory, liveName);
@@ -85,6 +110,9 @@ try {
   if (deviceURL) {
     await call("Page.navigate",{url:deviceURL});
     await eventually(() => evaluate("Boolean(document.querySelector('[data-open-upload]'))"));
+    await call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await verifyBatch(true);
+    await call("Emulation.setDeviceMetricsOverride",{width:1440,height:900,deviceScaleFactor:1,mobile:false});
     await evaluate("document.querySelector('[data-open-upload]').click(); true");
     const width = await evaluate("document.querySelector('#upload-dialog').getBoundingClientRect().width");
     if (width < 600) throw new Error("Desktop upload dialog is too narrow");

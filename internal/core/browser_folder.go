@@ -209,6 +209,7 @@ func (n *Node) renderFolderShare(w http.ResponseWriter, r *http.Request, file do
 		return
 	}
 	var folders, files int
+	page.DirectoryID = id
 	for index, entry := range record.Entries {
 		if entry.Parent != id {
 			continue
@@ -222,6 +223,7 @@ func (n *Node) renderFolderShare(w http.ResponseWriter, r *http.Request, file do
 			url := page.Path + "/download?file=" + strconv.Itoa(record.entryID(index))
 			page.Items = append(page.Items, webFileItem(name, "", entry.Size, entry.Modified, url))
 		}
+		page.Items[len(page.Items)-1].SelectID = strconv.Itoa(record.entryID(index))
 	}
 	slices.SortStableFunc(page.Items, func(a, b sharePageItem) int {
 		if a.Folder != b.Folder {

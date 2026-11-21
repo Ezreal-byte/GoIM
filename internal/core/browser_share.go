@@ -336,7 +336,7 @@ func (n *Node) shareHandler(local net.IP, address string, membersOnly bool) http
 			http.NotFound(w, r)
 			return
 		}
-		if membersOnly && (!(strings.HasPrefix(r.URL.Path, "/m/") || strings.HasPrefix(r.URL.Path, "/s/") || r.URL.Path == "/assets/share-live.js") || !n.hasMemberOnInterface(local, host)) {
+		if membersOnly && (!(strings.HasPrefix(r.URL.Path, "/m/") || strings.HasPrefix(r.URL.Path, "/s/") || r.URL.Path == "/assets/share-live.js" || r.URL.Path == "/assets/share-select.js") || !n.hasMemberOnInterface(local, host)) {
 			http.NotFound(w, r)
 			return
 		}
@@ -393,12 +393,14 @@ type sharePageData struct {
 	Catalog                                     []deviceShareEntry
 	OpenUpload, Uploaded                        bool
 	UploadError                                 string
+	DirectoryID                                 int
 }
 
 type shareCrumb struct{ Name, URL string }
 
 type sharePageItem struct {
 	Name, Size, Kind, Date, URL, Style string
+	SelectID                           string
 	Bytes                              int64
 	Folder                             bool
 }
@@ -468,6 +470,9 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/assets/share-live.js":
 		serveShareScript(w, r, shareLiveScript)
 		return
+	case r.URL.Path == "/assets/share-select.js":
+		serveShareScript(w, r, shareSelectScript)
+		return
 	case r.URL.Path == "/assets/share-upload.js":
 		serveShareScript(w, r, shareUploadScript)
 		return
@@ -479,6 +484,10 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token, tail, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/s/"), "/")
+	if len(token) == 32 && tail == "archive" {
+		n.downloadShareArchive(w, r, token, false)
+		return
+	}
 	if len(token) == 32 && tail == "events" {
 		n.watchShare(w, r, token, false)
 		return
