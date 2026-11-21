@@ -327,3 +327,48 @@ func TestNestedChangeUpdatesMemberCatalogVersion(t *testing.T) {
 		t.Fatal(updated, err)
 	}
 }
+
+func TestFolderSweepDetectsAnEditedFile(t *testing.T) {
+	n := testNode(t, "owner")
+	root := t.TempDir()
+	sub := filepath.Join(root, "reports")
+	if err := os.Mkdir(sub, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sub, "report.txt")
+	if err := os.WriteFile(path, []byte("first"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.shareFile(root, ""); err != nil {
+		t.Fatal(err)
+	}
+	f := n.Snapshot().Files[0]
+	n.mu.Lock()
+	old := n.data.BrowserShares[f.ID]
+	n.mu.Unlock()
+	if len(old.Entries) != 2 {
+		t.Fatal("missing shared folder or file")
+	}
+	dir, report := old.Entries[0], old.Entries[1]
+	if err := os.WriteFile(path, []byte("later"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mtime := report.Modified.Add(2 * time.Second)
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	// In-place edits need not change any directory timestamps.
+	if err := os.Chtimes(sub, dir.Modified, dir.Modified); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(root, old.Modified, old.Modified); err != nil {
+		t.Fatal(err)
+	}
+	n.refreshShareSources([]string{f.ID}, checkShareTree)
+	n.mu.Lock()
+	current := n.data.BrowserShares[f.ID]
+	n.mu.Unlock()
+	if _, ok := current.entry(report.ID); ok || current.Version <= old.Version {
+		t.Fatal("open viewers still have the previous file revision")
+	}
+}

@@ -165,13 +165,12 @@ func (n *Node) inspectShareSource(f domain.File, old browserShare, view int) (br
 
 func folderNeedsScan(root *os.Root, r browserShare, view int) bool {
 	if view == checkShareTree {
-		// Adds, renames and removals change the immediate parent's timestamp.
+		// In-place saves can leave all parent timestamps untouched. Check the
+		// bounded manifest's metadata; a content hash is not needed for polling.
 		for _, e := range r.Entries {
-			if !e.Folder {
-				continue
-			}
 			fi, err := root.Lstat(filepath.FromSlash(e.Path))
-			if err != nil || !fi.IsDir() || !e.Modified.Equal(fi.ModTime()) {
+			if err != nil || e.Folder != fi.IsDir() || !e.Modified.Equal(fi.ModTime()) ||
+				!e.Folder && (!fi.Mode().IsRegular() || e.Size != fi.Size()) {
 				return true
 			}
 		}
