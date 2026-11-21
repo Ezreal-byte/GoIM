@@ -9,7 +9,7 @@ import (
 
 type systemCallInvitation struct {
 	callID, name, avatar, accept, decline, body string
-	locked, private                             bool
+	locked                                      bool
 	cancel                                      context.CancelFunc
 	failed                                      bool
 }
@@ -30,23 +30,19 @@ func (r *desktopRuntime) syncSystemInvitation(state domain.State, locked bool) b
 		return false
 	}
 	r.ui.inlineVoiceID = call.ID
-	private := locked || state.Settings.HideNotificationText
-	name, path := voicePeerPresentation(state)
-	if private {
-		name, path = "GoIM", ""
-	}
+	name, path, body := invitationCaller(state, locked)
 	accept := i18n.T("接听")
 	if locked {
 		accept = i18n.T("解锁后接听")
 	}
-	decline, body := i18n.T("拒绝"), i18n.T("收到一个语音通话邀请")
+	decline := i18n.T("拒绝")
 	if n := r.systemInvitation; n != nil && n.callID == call.ID && n.name == name && n.avatar == path &&
-		n.private == private && n.locked == locked && n.accept == accept && n.decline == decline {
+		n.locked == locked && n.accept == accept && n.decline == decline {
 		return !n.failed
 	}
 	r.cancelSystemInvitation()
 	ctx, cancel := context.WithCancel(context.Background())
-	n := &systemCallInvitation{callID: call.ID, name: name, avatar: path, locked: locked, private: private,
+	n := &systemCallInvitation{callID: call.ID, name: name, avatar: path, locked: locked,
 		accept: accept, decline: decline, body: body, cancel: cancel}
 	r.systemInvitation = n
 	go func() {

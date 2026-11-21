@@ -128,7 +128,7 @@ func (view *UI) refreshVoice() {
 	view.theme = themeForSettings(view.state.Settings)
 	view.palette = paletteFor(view.theme)
 	_, path := voicePeerPresentation(view.state)
-	if view.voiceInvitation && (view.voiceConcealed || view.state.Locked || view.state.Settings.HideNotificationText) {
+	if view.voiceInvitation && (view.voiceConcealed || view.state.Locked) {
 		path = ""
 	}
 	if path != "" && (!view.mediaDesiredImages[path] || previous.Revision != view.state.Revision) {

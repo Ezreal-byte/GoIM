@@ -27,12 +27,12 @@ func voiceUIState(t *testing.T, call domain.VoiceCall) domain.State {
 
 func openVoiceQA(t *testing.T, state domain.State, width, height int) (*UI, *vivaheadless.Session) {
 	t.Helper()
-	backend := newShellTestBackend(state)
-	shell := New(backend)
-	// Visual QA must never open a physical microphone or speaker.
-	shell.voiceAudio = nil
-	config := shell.voiceConfig()
+	shell := newUIShell(nil, false)
+	shell.backend = newShellTestBackend(state)
 	shell.voiceBoundID = state.VoiceCall.ID
+	shell.voiceInvitation = incomingVoiceInvitation(state.VoiceCall)
+	shell.refreshVoice()
+	config := shell.voiceConfig()
 	if incomingVoiceInvitation(state.VoiceCall) {
 		config = shell.invitationConfig()
 	} else {
@@ -45,6 +45,7 @@ func openVoiceQA(t *testing.T, state domain.State, width, height int) (*UI, *viv
 	}
 	t.Cleanup(session.Close)
 	t.Cleanup(shell.Close)
+	shell.invalidator.Invalidate()
 	return shell, session
 }
 
@@ -105,14 +106,18 @@ func TestVoiceCallIncomingNotificationAcceptsAndDeclines(t *testing.T) {
 		t.Run(action.name, func(t *testing.T) {
 			h := newVoiceWindowHarness(t, voiceUIState(t, base))
 			id := h.ui.ids.voiceAccept
+			label := "接听"
 			if action.name == "decline" {
 				id = h.ui.ids.voiceReject
+				label = "拒绝"
 			}
 			if !h.hasText("邀请你进行语音通话") {
 				t.Fatal("incoming call does not show the invitation")
 			}
-			if !h.hasHit(id) {
-				t.Fatalf("%s control is not on screen", action.name)
+			hit, ok := h.findHit(id)
+			if !ok || hit.Role != gfx.RoleButton || hit.Label != label || h.hasText(label) ||
+				hit.Bounds.Width < 44 || hit.Bounds.Width != hit.Bounds.Height {
+				t.Fatalf("expected icon-only %s button with a usable circular target: %+v", action.name, hit)
 			}
 			h.clickID(id)
 			command := h.lastCommand()
@@ -127,8 +132,8 @@ func TestVoiceInvitationDoesNotAnswerStaleOrLockedCalls(t *testing.T) {
 	state := voiceUIState(t, domain.VoiceCall{ID: "one", PeerID: "missing", PeerName: "Private caller", Direction: domain.VoiceCallIncoming, Status: domain.VoiceCallRinging})
 	state.Settings.HideNotificationText = true
 	h := newVoiceWindowHarness(t, state)
-	if h.hasText("Private caller") || !h.hasText("收到一个语音通话邀请") {
-		t.Fatal("private invitation exposed the caller")
+	if !h.hasText("Private caller") {
+		t.Fatal("incoming call did not fall back to the caller's name")
 	}
 	unlock := 0
 	h.ui.unlockForVoice = func() { unlock++ }
@@ -137,6 +142,10 @@ func TestVoiceInvitationDoesNotAnswerStaleOrLockedCalls(t *testing.T) {
 	h.clickID(h.ui.ids.voiceAccept)
 	if unlock != 1 || hasCommandKind(h.backend.commandLog(), domain.AcceptVoiceCall) {
 		t.Fatal("locked invitation opened the microphone")
+	}
+	h.wake()
+	if h.hasText("Private caller") || !h.hasText("收到一个语音通话邀请") {
+		t.Fatal("locked invitation exposed the caller")
 	}
 	state.Locked = false
 	state.VoiceCall.ID = "two"
@@ -184,6 +193,7 @@ func TestVoiceWindowLoadsLatestContactAvatar(t *testing.T) {
 			state := voiceUIState(t, domain.VoiceCall{ID: "call", PeerID: "peer", PeerName: "Old", Direction: direction, Status: domain.VoiceCallRinging})
 			path := writeExtraTestPNG(t, "peer.png")
 			state.Peers = []domain.Peer{{ID: "peer", Name: "Alice", Remark: "Real contact", Avatar: path}}
+			state.Settings.HideNotificationText = true
 			h := newVoiceWindowHarness(t, state)
 			h.waitFor(func() bool { return bitmapReady(h.ui.avatarBitmap(path)) })
 			if !h.hasText("Real contact") {
@@ -361,7 +371,23 @@ func TestVoiceCallScreenshotQA(t *testing.T) {
 			t.Run(test.name+"-"+theme, func(t *testing.T) {
 				state := voiceUIState(t, test.call)
 				state.Settings.Theme = theme
-				_, session := openVoiceQA(t, state, 430, 540)
+				if incomingVoiceInvitation(test.call) {
+					state.Peers[0].Remark = "林晓 · 设计部"
+					state.Peers[0].Avatar = filepath.Join(t.TempDir(), "avatar.png")
+					writePromoAvatar(t, state.Peers[0].Avatar, 1)
+					state.Settings.HideNotificationText = true
+				}
+				shell, session := openVoiceQA(t, state, 430, 540)
+				if incomingVoiceInvitation(test.call) {
+					if err := session.WaitFor(func(_ app.Snapshot) bool {
+						return bitmapReady(shell.avatarBitmap(state.Peers[0].Avatar))
+					}, time.Second); err != nil {
+						t.Fatal(err)
+					}
+					if err := session.Expect("layout", "clean"); err != nil {
+						t.Fatal(err)
+					}
+				}
 				shellQAShot(t, session, directory, filepath.Join("voice-"+test.name+"-"+theme+".png"))
 			})
 		}

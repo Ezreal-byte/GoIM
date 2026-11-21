@@ -54,8 +54,11 @@ func waitSystemCallAction(ctx context.Context, n *systemCallInvitation) (string,
 	if filepath.IsAbs(n.avatar) {
 		icon = (&url.URL{Scheme: "file", Path: n.avatar}).String()
 	}
-	actions := []string{"accept", n.accept, "reject", n.decline}
+	actions := []string{"call-stop", n.decline, "call-start", n.accept}
 	hints := map[string]dbus.Variant{"category": dbus.MakeVariant("call.incoming"), "urgency": dbus.MakeVariant(byte(2)), "suppress-sound": dbus.MakeVariant(true), "transient": dbus.MakeVariant(true)}
+	if slices.Contains(caps, "action-icons") {
+		hints["action-icons"] = dbus.MakeVariant(true)
+	}
 	var id uint32
 	// Once sent, collect Notify's reply even if the call ends immediately so
 	// its actual server ID can be withdrawn.
@@ -87,8 +90,11 @@ func waitSystemCallAction(ctx context.Context, n *systemCallInvitation) (string,
 			}
 			switch s.Name {
 			case service + ".ActionInvoked":
-				if key, ok := s.Body[1].(string); ok && (key == "accept" || key == "reject") {
-					return key, nil
+				switch s.Body[1] {
+				case "call-stop":
+					return "reject", nil
+				case "call-start":
+					return "accept", nil
 				}
 			case service + ".NotificationClosed":
 				return "", nil

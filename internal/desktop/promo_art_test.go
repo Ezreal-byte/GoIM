@@ -1,5 +1,3 @@
-//go:build vivahead
-
 package desktop
 
 import (

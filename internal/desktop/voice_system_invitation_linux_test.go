@@ -17,8 +17,13 @@ type callNoticeServer struct {
 	closed  chan uint32
 }
 
-func (s *callNoticeServer) GetCapabilities() ([]string, *dbus.Error) { return []string{"actions"}, nil }
+func (s *callNoticeServer) GetCapabilities() ([]string, *dbus.Error) {
+	return []string{"actions", "action-icons"}, nil
+}
 func (s *callNoticeServer) Notify(app string, replace uint32, icon, title, body string, actions []string, hints map[string]dbus.Variant, expire int32) (uint32, *dbus.Error) {
+	if hints["action-icons"].Value() != true {
+		return 0, dbus.MakeFailedError(os.ErrInvalid)
+	}
 	s.actions <- actions
 	return 42, nil
 }
@@ -60,7 +65,7 @@ func TestVoiceWaylandNotificationActionsAndWithdrawal(t *testing.T) {
 			}()
 			select {
 			case btn := <-server.actions:
-				if !slices.Equal(btn, []string{"accept", "Answer", "reject", "Decline"}) {
+				if !slices.Equal(btn, []string{"call-stop", "Decline", "call-start", "Answer"}) {
 					t.Fatalf("actions: %q", btn)
 				}
 			case res := <-result:
@@ -71,10 +76,14 @@ func TestVoiceWaylandNotificationActionsAndWithdrawal(t *testing.T) {
 			if action == "cancel" {
 				cancel()
 			} else {
-				if err := bus.Emit(path, service+".ActionInvoked", uint32(7), "reject"); err != nil {
+				if err := bus.Emit(path, service+".ActionInvoked", uint32(7), "call-stop"); err != nil {
 					t.Fatal(err)
 				}
-				if err := bus.Emit(path, service+".ActionInvoked", uint32(42), action); err != nil {
+				key := "call-start"
+				if action == "reject" {
+					key = "call-stop"
+				}
+				if err := bus.Emit(path, service+".ActionInvoked", uint32(42), key); err != nil {
 					t.Fatal(err)
 				}
 			}
