@@ -68,7 +68,6 @@ func newTransferActionIDs(tree *gfx.Tree, scope gfx.Scope, entry panelTransferEn
 
 func (p *Panels) drawTransfers(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.State, submit func(domain.Command)) {
 	pad := panelPageInset(bounds.Width)
-	compact := bounds.Width < 900
 	columns := measureTransferColumns(bounds.Width - 2*pad)
 	ui.Column(f).Fill().PadSides(panelPageTop, pad, 18, pad).Children(func() {
 		p.drawTransferHeader(f, theme, bounds.Width, state.Settings.DownloadDir)
@@ -78,12 +77,12 @@ func (p *Panels) drawTransfers(f ui.C, theme ui.Theme, bounds ui.Rect, state dom
 				p.panelFeedback(f, theme, state, submit, p.ids.transfersDismiss, p.ids.transfersClearError)
 			})
 		}
-		p.drawTableSearch(f, theme, p.ids.transferSearch, &p.transferSearch, i18n.T("搜索文件"))
-		p.drawTransferTabs(f, compact)
+		drawTableSearch(f, p.ids.transferSearch, &p.transferSearch, i18n.T("搜索文件"))
+		p.drawTransferTabs(f)
 		ui.Divider(f).FillWidth()
-		p.drawTransferTableHead(f, theme, columns)
+		p.drawTransferTableHead(f, columns)
 		entries := p.transferEntries()
-		ui.Scroll(f.KeyInt(int(p.transferFilter))).Grow(1).FillWidth().Children(func() {
+		ui.Scroll(f.KeyInt(int(p.transferFilter))).Grow(1).MinHeight(0).FillWidth().AlwaysScrollbars().Children(func() {
 			ui.Column(f).FillWidth().Children(func() {
 				if len(entries) == 0 {
 					ui.Column(f).FillWidth().PadSides(24, 0, 0, 0).Children(func() {
@@ -131,10 +130,10 @@ func measureTransferColumns(width float32) panelTableColumns {
 	}
 }
 
-func (p *Panels) drawTableSearch(f ui.C, theme ui.Theme, id gfx.ID, field *ui.Field, placeholder string) {
-	ui.Row(f).FillWidth().PadSides(22, 0, 0, 0).Gap(9).Items(ui.Center).Children(func() {
-		ui.Icon(f, Search).Size(15, 15).Color(theme.MutedForeground)
-		ui.TextFieldID(f, id, field, placeholder, placeholder).Height(35).Width(220)
+func drawTableSearch(f ui.C, id gfx.ID, field *ui.Field, placeholder string) {
+	ui.Row(f).FillWidth().PadSides(9, 0, 0, 0).Children(func() {
+		box := ui.TextFieldID(f, id, field, placeholder, placeholder).Height(33).Width(220)
+		box.Addons().SetEnd(components.InputGroupSlot{Kind: components.InputGroupSlotIcon, Icon: Search})
 	})
 }
 
@@ -155,13 +154,12 @@ func (p *Panels) transferEntries() []panelTransferEntry {
 	return panelFilterTransfers(entries, strings.TrimSpace(p.transferSearch.Text()))
 }
 
-func (p *Panels) drawTransferTabs(f ui.C, compact bool) {
-	top := float32(24)
+func (p *Panels) drawTransferTabs(f ui.C) {
 	var widest float32
 	for _, label := range p.transferLabels {
 		widest = max(widest, f.Canvas().TextWidthWeight(label, panelTabFontSize, gfx.WeightMedium))
 	}
-	ui.Row(f).FillWidth().PadSides(top, 0, 0, 0).Children(func() {
+	ui.Row(f).FillWidth().PadSides(6, 0, 0, 0).Children(func() {
 		tabs := ui.Tabs(f.Part("transfer-filter"), &p.transferFilter, transferFilters[:],
 			func(filter transferFilter) string { return p.transferLabels[filter] }).
 			Line().FontSize(panelTabFontSize).Width(float32(len(transferFilters))*max(85, widest+18) + 4)
@@ -231,7 +229,7 @@ func (p *Panels) drawIncomingTransfers(f ui.C, theme ui.Theme, bounds ui.Rect, s
 				}
 			}
 			if len(p.transferIncoming) > limit {
-				ui.Scroll(f.Part("incoming-transfers")).FillWidth().Height(float32(limit * (rowHeight + 1))).Children(drawRows)
+				ui.Scroll(f.Part("incoming-transfers")).AlwaysScrollbars().FillWidth().Height(float32(limit * (rowHeight + 1))).Children(drawRows)
 			} else {
 				drawRows()
 			}
@@ -239,13 +237,17 @@ func (p *Panels) drawIncomingTransfers(f ui.C, theme ui.Theme, bounds ui.Rect, s
 	})
 }
 
-func (p *Panels) drawTransferTableHead(f ui.C, theme ui.Theme, columns panelTableColumns) {
+func (p *Panels) drawTransferTableHead(f ui.C, columns panelTableColumns) {
 	ui.Row(f).FillWidth().Height(panelTableHeadHeight).PadX(15).Gap(12).Items(ui.Center).Children(func() {
-		ui.Text(f, i18n.T("文件名")).Muted().Grow(1).FontSize(13)
-		ui.Text(f, i18n.T("对方")).Muted().Width(columns.peer).FontSize(13)
-		ui.Text(f, i18n.T("来源")).Muted().Width(columns.source).FontSize(13)
-		ui.Text(f, i18n.T("大小")).Muted().Width(columns.size).FontSize(13)
-		ui.Text(f, i18n.T("状态")).Muted().Width(columns.status).FontSize(13)
+		apply := func() {
+			p.transferMenu, p.transferMenuEntry = "", nil
+			p.sortTransfers()
+		}
+		p.transferSort.header(f, "文件名", 0, apply)
+		p.transferSort.header(f, "对方", columns.peer, apply)
+		p.transferSort.header(f, "来源", columns.source, apply)
+		p.transferSort.header(f, "大小", columns.size, apply)
+		p.transferSort.header(f, "状态", columns.status, apply)
 		ui.Row(f).Width(columns.actions)
 	})
 }

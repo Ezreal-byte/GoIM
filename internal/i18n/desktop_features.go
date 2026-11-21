@@ -4,6 +4,9 @@ package i18n
 // settings layout catalog, keeping the main locale table easy to scan.
 func init() {
 	for label, english := range map[string]string{
+		"打印能力":       "Capabilities",
+		"点击升序排列":     "Sort ascending",
+		"点击降序排列":     "Sort descending",
 		"返回":         "Back",
 		"找不到图片剪贴板工具": "Image clipboard helper not found",
 

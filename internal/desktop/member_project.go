@@ -18,6 +18,7 @@ type memberProjectResult struct {
 	err      error
 }
 type memberProjectView struct {
+	sort                  panelTableSort
 	id, address, location string
 	version               uint64
 	checked               map[string]bool
@@ -127,6 +128,7 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry 
 				v.checked = selected
 			}
 			v.page = result.page
+			v.sortItems()
 			v.location = result.location
 			if v.page.ParentURL == "" {
 				v.location = v.page.Title
@@ -217,7 +219,15 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry 
 				}
 			})
 		}
-		ui.Scroll(f.Key(v.page.Path)).FillWidth().Grow(1).Scrollbars().Children(func() {
+		sizeWidth, actionsWidth := float32(84), 148*theme.Metrics.EffectiveTextScale()
+		if len(v.page.Items) > 0 {
+			ui.Row(f).FillWidth().Height(panelTableHeadHeight).Gap(10).Items(ui.Center).Children(func() {
+				v.sort.header(f, "名称", 0, v.sortItems)
+				v.sort.header(f, "大小", sizeWidth, v.sortItems)
+				ui.Row(f).Width(actionsWidth)
+			})
+		}
+		ui.Scroll(f.Key(v.page.Path)).FillWidth().Grow(1).AlwaysScrollbars().Children(func() {
 			for _, e := range v.page.Items {
 				row := f.Key(e.URL)
 				ui.Row(row).FillWidth().Height(44).Items(ui.Center).Gap(10).Children(func() {
@@ -226,13 +236,15 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry 
 					}
 					drawFileIcon(row, theme, fileTypeIcon(domain.File{Name: e.Name, Folder: e.Folder}), 28, 20)
 					ui.Text(row, e.Name).MinWidth(0).Grow(1).Ellipsis()
-					ui.Text(row, e.Size).Muted().FontSize(12)
-					if e.Folder && ui.Button(row.Part("open"), i18n.T("打开")).Small().Ghost().Disabled(v.busy).Clicked() {
-						v.list(e.URL, "", path.Join(location, e.Name))
-					}
-					if ui.Button(row.Part("download"), i18n.T("下载")).Small().Ghost().Disabled(v.busy).Clicked() {
-						p.submitShareBatch([]domain.ShareDownload{v.selection(e)}, submit)
-					}
+					ui.Text(row, e.Size).Width(sizeWidth).Muted().FontSize(12).Ellipsis()
+					ui.Row(row).Width(actionsWidth).Gap(4).Justify(ui.End).Items(ui.Center).Children(func() {
+						if e.Folder && ui.Button(row.Part("open"), i18n.T("打开")).Small().Ghost().Disabled(v.busy).Clicked() {
+							v.list(e.URL, "", path.Join(location, e.Name))
+						}
+						if ui.Button(row.Part("download"), i18n.T("下载")).Small().Ghost().Disabled(v.busy).Clicked() {
+							p.submitShareBatch([]domain.ShareDownload{v.selection(e)}, submit)
+						}
+					})
 				})
 			}
 		})

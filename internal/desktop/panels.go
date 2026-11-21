@@ -293,6 +293,8 @@ type Panels struct {
 	shortcutKeys   string
 	shortcutError  string
 
+	transferSort       panelTableSort
+	shareSort          panelTableSort
 	transferFilter     transferFilter
 	transferMenu       string
 	transferAnchor     ui.Box
@@ -374,6 +376,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 		return
 	}
 	p.tree = tree
+	p.shareSort = panelTableSort{column: "分享时间", descending: true}
 	p.page = ui.NewPage(ui.PageConfig{Root: "panels", Tree: tree, Theme: &p.theme})
 	p.shortcutEdit = -1
 	p.localActions = make(map[uint64]panelLocalAction)
@@ -818,9 +821,7 @@ func (p *Panels) updateLists(state domain.State) {
 }
 
 func (p *Panels) rebuildTransfers(state domain.State) {
-	p.transferIncoming = p.transferIncoming[:0]
-	p.transferPending = p.transferPending[:0]
-	p.transferFinished = p.transferFinished[:0]
+	p.transferRows = p.transferRows[:0]
 	fileIndex := make(map[string]int)
 	if len(state.Transfers) > 0 {
 		for i := range state.Files {
@@ -835,38 +836,10 @@ func (p *Panels) rebuildTransfers(state domain.State) {
 		entry := panelBuildTransfer(state, transfer, file)
 		scope := p.tree.Sub(p.ids.transferActions, p.tree.Name(transfer.ID))
 		entry.ids = newTransferActionIDs(p.tree, scope, entry)
-		switch {
-		case entry.accept:
-			p.transferIncoming = append(p.transferIncoming, entry)
-		case panelTransferIsFinished(transfer.Status):
-			p.transferFinished = append(p.transferFinished, entry)
-		default:
-			p.transferPending = append(p.transferPending, entry)
-		}
+		p.transferRows = append(p.transferRows, entry)
 	}
-	p.refreshTransferRows()
-}
-
-func (p *Panels) refreshTransferRows() {
-	p.transferRows = p.transferRows[:0]
-	for _, group := range [][]panelTransferEntry{
-		p.transferIncoming,
-		p.transferPending,
-		p.transferFinished,
-	} {
-		p.transferRows = append(p.transferRows, group...)
-	}
-	sort.SliceStable(p.transferRows, func(i, j int) bool { return p.transferRows[i].updated.After(p.transferRows[j].updated) })
-	for _, entries := range [][]panelTransferEntry{p.transferIncoming, p.transferPending, p.transferFinished} {
-		sort.SliceStable(entries, func(i, j int) bool { return entries[i].updated.After(entries[j].updated) })
-	}
+	p.sortTransfers()
 	p.transferIncomingLabel = fmt.Sprintf(i18n.T("待接收 %d"), len(p.transferIncoming))
-	p.transferReceived = p.transferReceived[:0]
-	for _, entry := range p.transferRows {
-		if entry.transfer.Direction == "receive" {
-			p.transferReceived = append(p.transferReceived, entry)
-		}
-	}
 	p.transferLabels = [5]string{
 		fmt.Sprintf(i18n.T("全部 %d"), len(p.transferRows)),
 		fmt.Sprintf(i18n.T("待接收 %d"), len(p.transferIncoming)),
@@ -1133,19 +1106,11 @@ func (p *Panels) rebuildShares(state domain.State) {
 			p.sharesRemote = append(p.sharesRemote, entry)
 		}
 	}
-	panelSortShares(p.sharesAll)
-	panelSortShares(p.sharesMine)
-	panelSortShares(p.sharesRemote)
+	p.sortShares()
 	p.shareLabels = [2]string{
 		panelSharesRemote: fmt.Sprintf(i18n.T("成员共享 %d"), len(p.sharesRemote)),
 		panelSharesMine:   fmt.Sprintf(i18n.T("我的分享 %d"), len(p.sharesMine)),
 	}
-}
-
-func panelSortShares(entries []panelShareEntry) {
-	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].file.CreatedAt.After(entries[j].file.CreatedAt)
-	})
 }
 
 func (p *Panels) refreshNetworks() {

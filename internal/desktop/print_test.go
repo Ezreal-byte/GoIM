@@ -89,7 +89,7 @@ func TestPrintPanelCardsRecordsAndShareDialog(t *testing.T) {
 	h := panelTestNewHarness(t, panelModulePrint, state)
 	h.panels.presentPrint = func(string) bool { return true }
 
-	requirePrintTexts(t, printTexts(h.driver.Snapshot()), "打印共享", "陈晨-前台 HP", "共享人 陈晨", "可用", "A4 / A3 · 双面", "已提交队列")
+	requirePrintTexts(t, printTexts(h.driver.Snapshot()), "打印共享", "陈晨-前台 HP", "共享人", "陈晨", "可用", "A4 / A3 · 双面", "已提交队列")
 	h.clickLabelRole("打印", gfx.RoleButton)
 	h.click(h.panels.print.ids.openShare)
 	requirePrintTexts(t, printTexts(h.driver.Snapshot()), "分享打印机", "本机打印机", "共享名称", "我-HP Front Desk")

@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"sort"
@@ -94,20 +95,21 @@ type printPanel struct {
 	tree *gfx.Tree
 	ids  printPanelIDs
 
-	tab               printTab
-	queues            []printQueueOption
-	lanCards          []panelPrintCard
-	mineCards         []panelPrintCard
-	allCards          []panelPrintCard
-	records           []panelPrintRecord
-	shareOpen         bool
-	shareQueue        string
-	shareName         ui.Field
-	sharePassword     ui.Field
-	shareProtected    bool
-	shareWasProtected bool
-	shareEditing      bool
-	shareError        string
+	tab                                printTab
+	queues                             []printQueueOption
+	lanCards                           []panelPrintCard
+	mineCards                          []panelPrintCard
+	records                            []panelPrintRecord
+	recent                             []panelPrintRecord
+	deviceSort, recordSort, recentSort panelTableSort
+	shareOpen                          bool
+	shareQueue                         string
+	shareName                          ui.Field
+	sharePassword                      ui.Field
+	shareProtected                     bool
+	shareWasProtected                  bool
+	shareEditing                       bool
+	shareError                         string
 
 	shareDefault    string
 	shareNameManual bool
@@ -118,6 +120,8 @@ func (t *printPanel) init(tree *gfx.Tree) {
 		return
 	}
 	t.tree = tree
+	t.recordSort = panelTableSort{column: "时间", descending: true}
+	t.recentSort = t.recordSort
 	t.ids.feature = tree.Feature("print-panel")
 	t.ids.refresh = tree.ID(t.ids.feature, "refresh")
 	t.ids.openShare = tree.ID(t.ids.feature, "share-printer")
@@ -261,7 +265,6 @@ func (t *printPanel) rebuild(state domain.State) {
 		t.selectDefaultQueue()
 	}
 
-	t.allCards = t.allCards[:0]
 	t.lanCards = t.lanCards[:0]
 	t.mineCards = t.mineCards[:0]
 	selfName := strings.TrimSpace(state.Settings.Nickname)
@@ -304,16 +307,13 @@ func (t *printPanel) rebuild(state domain.State) {
 		card.editID = t.tree.ID(scope, "edit")
 		card.pinID = t.tree.ID(scope, "pin")
 		card.pinned = slices.Contains(state.Settings.PinnedPrinters, share.ID)
-		t.allCards = append(t.allCards, card)
 		if own {
 			t.mineCards = append(t.mineCards, card)
 		} else {
 			t.lanCards = append(t.lanCards, card)
 		}
 	}
-	sortPrintCards(t.allCards)
-	sortPrintCards(t.lanCards)
-	sortPrintCards(t.mineCards)
+	t.sortDevices()
 
 	t.records = t.records[:0]
 	for _, job := range state.PrintJobs {
@@ -337,23 +337,67 @@ func (t *printPanel) rebuild(state domain.State) {
 		record.date = printRecordTime(job.CreatedAt)
 		t.records = append(t.records, record)
 	}
-	sort.SliceStable(t.records, func(i, j int) bool {
-		return t.records[i].job.CreatedAt.After(t.records[j].job.CreatedAt)
-	})
+	newest := panelTableSort{column: "时间", descending: true}
+	sortPrintRecords(t.records, newest)
+	t.recent = append(t.recent[:0], t.records[:min(5, len(t.records))]...)
+	if t.recordSort != newest {
+		sortPrintRecords(t.records, t.recordSort)
+	}
+	if t.recentSort != newest {
+		sortPrintRecords(t.recent, t.recentSort)
+	}
 }
 
-func sortPrintCards(cards []panelPrintCard) {
-	sort.SliceStable(cards, func(i, j int) bool {
-		if cards[i].pinned != cards[j].pinned {
-			return cards[i].pinned
+func (t *printPanel) sortDevices() {
+	sort := t.deviceSort
+	compare := func(a, b panelPrintCard) int {
+		if pin := trueFirst(a.pinned, b.pinned); pin != 0 {
+			return pin
 		}
-		if cards[i].available != cards[j].available {
-			return cards[i].available
+		availability := trueFirst(a.available, b.available)
+		var order int
+		switch sort.column {
+		case "打印机":
+			order = cmp.Compare(a.printer.Name, b.printer.Name)
+		case "共享人":
+			order = cmp.Compare(a.ownerName, b.ownerName)
+		case "打印能力":
+			order = cmp.Compare(a.capability, b.capability)
+		case "状态":
+			order = availability
 		}
-		if cards[i].printer.Name != cards[j].printer.Name {
-			return cards[i].printer.Name < cards[j].printer.Name
+		return cmp.Or(sort.order(order), availability, cmp.Compare(a.printer.Name, b.printer.Name), cmp.Compare(a.ownerName, b.ownerName), cmp.Compare(a.printer.ID, b.printer.ID))
+	}
+	slices.SortStableFunc(t.lanCards, compare)
+	slices.SortStableFunc(t.mineCards, compare)
+}
+
+func trueFirst(a, b bool) int {
+	if a == b {
+		return 0
+	}
+	if a {
+		return -1
+	}
+	return 1
+}
+
+func sortPrintRecords(records []panelPrintRecord, sort panelTableSort) {
+	slices.SortStableFunc(records, func(a, b panelPrintRecord) int {
+		var order int
+		switch sort.column {
+		case "文件名称":
+			order = cmp.Compare(a.name, b.name)
+		case "类型":
+			order = cmp.Compare(a.direction, b.direction)
+		case "打印机 / 来源":
+			order = cmp.Compare(a.source, b.source)
+		case "时间":
+			order = a.job.CreatedAt.Compare(b.job.CreatedAt)
+		case "状态":
+			order = cmp.Compare(a.status, b.status)
 		}
-		return cards[i].ownerName < cards[j].ownerName
+		return cmp.Or(sort.order(order), b.job.CreatedAt.Compare(a.job.CreatedAt), cmp.Compare(a.job.ID, b.job.ID))
 	})
 }
 
@@ -437,17 +481,6 @@ func printRecordTime(at time.Time) string {
 	return at.Local().Format("2006-01-02 15:04")
 }
 
-func printPanelMinCell(width float32) float32 {
-	switch {
-	case width >= 1180:
-		return 320
-	case width >= 760:
-		return 290
-	default:
-		return 240
-	}
-}
-
 func printControlHeight(theme ui.Theme) float32 {
 	return 36 + 20*max(theme.Metrics.EffectiveTextScale()-1, 0)
 }
@@ -479,11 +512,18 @@ func (p *Panels) drawPrint(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.
 			}
 		})
 		ui.Divider(f).FillWidth()
-		ui.Scroll(f.KeyInt(700 + int(p.print.tab))).FillWidth().Grow(1).Children(func() {
-			ui.Column(f).FillWidth().PadY(18).Gap(18).Children(func() {
-				p.drawPrintTab(f, theme, bounds.Width-2*pad, state, submit)
+		if state.PrintError != "" {
+			panelBanner(f, theme, state.PrintError, true, nil)
+		}
+		if p.print.tab == printTabRecords && len(p.print.records) > 0 {
+			p.drawPrintRecords(f, theme, bounds.Width-2*pad, p.print.records, true)
+		} else {
+			ui.Scroll(f.KeyInt(700 + int(p.print.tab))).FillWidth().Grow(1).MinHeight(0).AlwaysScrollbars().Children(func() {
+				ui.Column(f).FillWidth().PadY(4).Children(func() {
+					p.drawPrintTab(f, theme, bounds.Width-2*pad, state, submit)
+				})
 			})
-		})
+		}
 		p.drawPrinterShareDialog(f, theme, state, submit)
 	})
 }
@@ -517,13 +557,9 @@ func (p *Panels) drawPrintToolbar(f ui.C, theme ui.Theme, width float32, state d
 			}
 		})
 	})
-	ui.Row(f).Height(15)
 }
 
 func (p *Panels) drawPrintTab(f ui.C, theme ui.Theme, width float32, state domain.State, submit func(domain.Command)) {
-	if state.PrintError != "" {
-		panelBanner(f, theme, state.PrintError, true, nil)
-	}
 	switch p.print.tab {
 	case printTabMine:
 		if len(p.print.mineCards) == 0 {
@@ -531,14 +567,10 @@ func (p *Panels) drawPrintTab(f ui.C, theme ui.Theme, width float32, state domai
 				i18n.T("点击右上角「分享打印机」，选择本机已安装的打印队列。"))
 			return
 		}
-		p.drawPrintCardGrid(f, theme, width, p.print.mineCards, true, submit)
+		p.drawPrinterTable(f, theme, width, p.print.mineCards, true, submit)
 	case printTabRecords:
-		if len(p.print.records) == 0 {
-			panelEmpty(f, theme, i18n.T("暂无打印记录"),
-				i18n.T("发出的任务和通过 GoIM 收到的任务都会保留在这里。"))
-			return
-		}
-		p.drawPrintRecords(f, theme, width, p.print.records, true)
+		panelEmpty(f, theme, i18n.T("暂无打印记录"),
+			i18n.T("发出的任务和通过 GoIM 收到的任务都会保留在这里。"))
 	default:
 		if len(p.print.lanCards) == 0 {
 			title, description := i18n.T("暂无共享打印机"), i18n.T("同一局域网内使用新版 GoIM 的成员共享打印机后会显示在这里。")
@@ -548,105 +580,122 @@ func (p *Panels) drawPrintTab(f ui.C, theme ui.Theme, width float32, state domai
 			panelEmpty(f, theme, title, description)
 			return
 		}
-		p.drawPrintCardGrid(f, theme, width, p.print.lanCards, false, submit)
+		p.drawPrinterTable(f, theme, width, p.print.lanCards, false, submit)
 		if len(p.print.records) > 0 {
-			ui.Column(f).FillWidth().Gap(8).Children(func() {
-				ui.Text(f, i18n.T("最近打印")).FontSize(22).Weight(gfx.WeightSemibold)
-				recent := p.print.records
-				if len(recent) > 5 {
-					recent = recent[:5]
-				}
-				p.drawPrintRecords(f, theme, width, recent, false)
+			ui.Column(f).FillWidth().PadSides(14, 0, 0, 0).Children(func() {
+				ui.Text(f, i18n.T("最近打印")).FontSize(17).Weight(gfx.WeightSemibold)
+				p.drawPrintRecords(f, theme, width, p.print.recent, false)
 			})
 		}
 	}
 }
 
-func (p *Panels) drawPrintCardGrid(f ui.C, theme ui.Theme, width float32, cards []panelPrintCard,
+func (p *Panels) drawPrinterTable(f ui.C, theme ui.Theme, width float32, cards []panelPrintCard,
 	mine bool, submit func(domain.Command)) {
-	minCell := min(width, max(printPanelMinCell(width), 330+150*(theme.Metrics.EffectiveTextScale()-1)))
-	ui.Grid(f, minCell).FillWidth().Gap(14).Children(func() {
+	scale := theme.Metrics.EffectiveTextScale()
+	wide := width >= 780*scale
+	owner, capability, status := 145*scale, 160*scale, 72*scale
+	actions := 116 * scale
+	if mine {
+		actions = 3*36 + 2*6
+		if wide {
+			actions = max(actions, 252*scale)
+		}
+	}
+	ui.Column(f).FillWidth().Children(func() {
+		ui.Row(f).FillWidth().Height(panelTableHeadHeight).PadX(15).Gap(12).Items(ui.Center).Children(func() {
+			p.print.deviceSort.header(f, "打印机", 0, p.print.sortDevices)
+			if wide {
+				p.print.deviceSort.header(f, "共享人", owner, p.print.sortDevices)
+				p.print.deviceSort.header(f, "打印能力", capability, p.print.sortDevices)
+			}
+			p.print.deviceSort.header(f, "状态", status, p.print.sortDevices)
+			ui.Row(f).Width(actions).Shrink(0)
+		})
 		for _, card := range cards {
-			p.drawPrintCard(f, theme, card, mine, submit)
+			ui.Row(f.Key(card.printer.ID)).FillWidth().MinHeight(max(panelTableRowHeight, 42*scale)).PadX(15).Gap(12).Items(ui.Center).
+				Hover(ui.Look{}.Background(theme.Hover)).Children(func() {
+				ui.Row(f).Grow(1).MinWidth(0).Gap(10).Items(ui.Center).Children(func() {
+					p.drawPrintAvatar(f, card, theme, 32)
+					ui.Column(f).Grow(1).MinWidth(0).Children(func() {
+						ui.Text(f, card.printer.Name).FontSize(15).Weight(gfx.WeightMedium).Ellipsis()
+						if !wide {
+							ui.Text(f, i18n.T("共享人 ")+card.ownerName+" · "+card.capability).FontSize(12).Muted().Ellipsis()
+						}
+					})
+					if card.printer.PasswordRequired {
+						ui.Icon(f, Lock).Size(14, 14).Color(theme.MutedForeground)
+					}
+				})
+				if wide {
+					ui.Text(f, card.ownerName).Width(owner).FontSize(13).Ellipsis()
+					ui.Text(f, card.capability).Width(capability).FontSize(13).Ellipsis()
+				}
+				tone, label := theme.Success, i18n.T("可用")
+				if !card.available {
+					tone, label = theme.MutedForeground, i18n.T("离线")
+				}
+				ui.Row(f).Width(status).Gap(6).Items(ui.Center).Children(func() {
+					ui.Row(f).Size(7, 7).Radius(4).Background(tone)
+					ui.Text(f, label).FontSize(13).Color(tone).Ellipsis()
+				})
+				ui.Row(f).Width(actions).Gap(6).Items(ui.Center).Justify(ui.End).Children(func() {
+					p.drawPrinterActions(f, theme, card, !wide, submit)
+				})
+			})
+			ui.Divider(f).FillWidth()
 		}
 	})
 }
 
-func (p *Panels) drawPrintCard(f ui.C, theme ui.Theme, card panelPrintCard,
-	mine bool, submit func(domain.Command)) {
-	ui.Column(f).FillWidth().Pad(16).Gap(14).Radius(radiusCard).
-		Background(theme.Background).Border(1, theme.Border).Children(func() {
-		ui.Row(f).FillWidth().Gap(12).Items(ui.Center).Children(func() {
-			p.drawPrintAvatar(f, card, theme, 54)
-			ui.Column(f).Grow(1).MinWidth(0).Gap(5).Justify(ui.Center).Children(func() {
-				ui.Text(f, card.printer.Name).FillWidth().FontSize(16).Weight(gfx.WeightSemibold).Ellipsis()
-				ui.Text(f, i18n.T("共享人 ")+card.ownerName).FillWidth().Muted().FontSize(12.5).Ellipsis()
-			})
-			label := i18n.T("置顶打印机")
-			if card.pinned {
-				label = i18n.T("取消置顶")
+func (p *Panels) drawPrinterActions(f ui.C, theme ui.Theme, card panelPrintCard, compact bool, submit func(domain.Command)) {
+	label := i18n.T("置顶打印机")
+	if card.pinned {
+		label = i18n.T("取消置顶")
+	}
+	if panelActionIcon(f, theme, card.pinID, Pin, label, card.pinned, false).Clicked() {
+		submit(domain.Command{Kind: domain.SetPrinterPinned, PrinterID: card.printer.ID, Bool: !card.pinned})
+	}
+	if card.own {
+		action := func(id gfx.ID, label string, icon gfx.Icon) ui.Box {
+			if compact {
+				return panelActionIcon(f, theme, id, icon, label, false, false).Tooltip(label)
 			}
-			if panelActionIcon(f, theme, card.pinID, Pin, label, card.pinned, false).Clicked() {
-				submit(domain.Command{Kind: domain.SetPrinterPinned, PrinterID: card.printer.ID, Bool: !card.pinned})
-			}
+			return namedButton(f, id, label).Small().MinHeight(printControlHeight(theme)).Outline()
+		}
+		if action(card.editID, i18n.T("编辑共享"), Pencil).Clicked() {
+			p.print.editShareDialog(card.printer)
+		}
+		if action(card.unshareID, i18n.T("停止共享"), X).Clicked() {
+			submit(domain.Command{Kind: domain.UnsharePrinter, PrinterID: card.printer.ID})
+		}
+		return
+	}
+	disabled := !card.available
+	hint := i18n.T("打印")
+	if disabled {
+		hint = i18n.T("共享打印机当前不可用")
+	}
+	box := ui.Row(f).MinHeight(34).PadSides(9, 12, 9, 12).Gap(7).Radius(radiusControl).
+		Border(1, theme.Border).Hover(ui.Look{}.Background(theme.Hover)).
+		HitWith(card.printActionID, hint, gfx.HitOptions{
+			Role: gfx.RoleButton, Hint: hint, Disabled: disabled,
 		})
-		ui.Row(f).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-			tone := theme.Success
-			label := i18n.T("可用")
-			if !card.available {
-				tone = theme.MutedForeground
-				label = i18n.T("离线")
-			}
-			ui.Row(f).Shrink(0).Gap(7).Items(ui.Center).Children(func() {
-				ui.Row(f).Size(7, 7).Radius(4).Background(tone)
-				ui.Text(f, label).FontSize(12).Color(tone)
-			})
-			ui.Row(f).Width(1).Height(14).Shrink(0).Background(theme.Border)
-			ui.Text(f, card.capability).Grow(1).MinWidth(0).Muted().FontSize(12).Ellipsis()
-			if card.printer.PasswordRequired {
-				ui.Icon(f, Lock).Size(14, 14).Color(theme.MutedForeground)
-			}
-		})
-		ui.Divider(f).FillWidth()
-		ui.Row(f).FillWidth().Gap(8).Justify(ui.End).Items(ui.Center).Children(func() {
-			if mine {
-				if namedButton(f, card.editID, i18n.T("编辑共享")).Small().MinHeight(printControlHeight(theme)).Outline().Clicked() {
-					p.print.editShareDialog(card.printer)
-				}
-				if namedButton(f, card.unshareID, i18n.T("停止共享")).Small().MinHeight(printControlHeight(theme)).Outline().Clicked() {
-					submit(domain.Command{Kind: domain.UnsharePrinter, PrinterID: card.printer.ID})
-				}
-				return
-			}
-			disabled := card.own || !card.available
-			hint := i18n.T("打印")
-			if card.own {
-				hint = i18n.T("本机打印机请使用系统打印")
-			} else if !card.available {
-				hint = i18n.T("共享打印机当前不可用")
-			}
-			box := ui.Row(f).MinHeight(34).PadSides(9, 12, 9, 12).Gap(7).Radius(radiusControl).
-				Border(1, theme.Border).Hover(ui.Look{}.Background(theme.Hover)).
-				HitWith(card.printActionID, hint, gfx.HitOptions{
-					Role: gfx.RoleButton, Hint: hint, Disabled: disabled,
-				})
-			color := theme.Foreground
-			if disabled {
-				color = theme.MutedForeground.WithAlpha(.55)
-			}
-			box.Children(func() {
-				ui.Icon(f, panelPrintIcon).Size(16, 16).Color(color)
-				ui.Text(f, i18n.T("打印")).FontSize(13).Weight(gfx.WeightMedium).Color(color)
-			})
-			if box.Clicked() && !disabled {
-				if p.presentPrint == nil || !p.presentPrint(card.printer.ID) {
-					if p.toast != nil {
-						p.toast(i18n.T("无法打开打印窗口"), i18n.T("请稍后重试。"), components.ToastWarning)
-					}
-				}
-			}
-		})
+	color := theme.Foreground
+	if disabled {
+		color = theme.MutedForeground.WithAlpha(.55)
+	}
+	box.Children(func() {
+		ui.Icon(f, panelPrintIcon).Size(16, 16).Color(color)
+		ui.Text(f, i18n.T("打印")).FontSize(13).Weight(gfx.WeightMedium).Color(color)
 	})
+	if box.Clicked() && !disabled {
+		if p.presentPrint == nil || !p.presentPrint(card.printer.ID) {
+			if p.toast != nil {
+				p.toast(i18n.T("无法打开打印窗口"), i18n.T("请稍后重试。"), components.ToastWarning)
+			}
+		}
+	}
 }
 
 func (p *Panels) drawPrintAvatar(f ui.C, card panelPrintCard, theme ui.Theme, size float32) {
@@ -660,7 +709,7 @@ func (p *Panels) drawPrintAvatar(f ui.C, card panelPrintCard, theme ui.Theme, si
 	})
 }
 
-func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records []panelPrintRecord, direction bool) {
+func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records []panelPrintRecord, fullHistory bool) {
 	compact := width < 900*theme.Metrics.EffectiveTextScale()
 	directionWidth := float32(88)
 	sourceWidth := float32(190)
@@ -669,62 +718,71 @@ func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records
 	if compact {
 		directionWidth, sourceWidth, timeWidth, statusWidth = 0, 0, 0, 100*theme.Metrics.EffectiveTextScale()
 	}
-	ui.Row(f).FillWidth().MinHeight(40).Pad(10).Gap(12).Items(ui.Center).Children(func() {
-		ui.Text(f, i18n.T("文件名称")).Muted().FontSize(13).Grow(1)
-		if direction && !compact {
-			ui.Text(f, i18n.T("类型")).Muted().FontSize(13).Width(directionWidth)
+	sort := &p.print.recentSort
+	if fullHistory {
+		sort = &p.print.recordSort
+	}
+	apply := func() { sortPrintRecords(records, *sort) }
+	ui.Row(f).FillWidth().Height(panelTableHeadHeight).PadX(15).Gap(12).Items(ui.Center).Children(func() {
+		sort.header(f, "文件名称", 0, apply)
+		if fullHistory && !compact {
+			sort.header(f, "类型", directionWidth, apply)
 		}
 		if !compact {
-			ui.Text(f, i18n.T("打印机 / 来源")).Muted().FontSize(13).Width(sourceWidth)
+			sort.header(f, "打印机 / 来源", sourceWidth, apply)
+			sort.header(f, "时间", timeWidth, apply)
 		}
-		if !compact {
-			ui.Text(f, i18n.T("时间")).Muted().FontSize(13).Width(timeWidth)
-		}
-		ui.Text(f, i18n.T("状态")).Muted().FontSize(13).Width(statusWidth)
+		sort.header(f, "状态", statusWidth, apply)
 	})
-	ui.Divider(f).FillWidth()
-	for _, record := range records {
-		row := ui.Row(f).FillWidth().MinHeight(64).Pad(12).Gap(12).Items(ui.Center).
-			Hover(ui.Look{}.Background(theme.Hover))
-		row.Children(func() {
-			ui.Row(f).Grow(1).MinWidth(0).Gap(10).Items(ui.Center).Children(func() {
-				ui.Row(f).Size(30, 30).Radius(radiusControl).Background(panelTint(theme.Primary, .10, theme.Background)).
-					Items(ui.Center).Justify(ui.Center).Children(func() {
-					ui.Icon(f, printFileIcon(record.job)).Size(17, 17).Color(theme.Primary)
-				})
-				ui.Column(f).Grow(1).MinWidth(0).Gap(2).Children(func() {
-					ui.Text(f, record.name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
-					meta := record.options
-					if compact {
-						meta = record.direction + " · " + record.source
-						if record.options != "" {
-							meta += " · " + record.options
+	drawRows := func() {
+		for _, record := range records {
+			row := ui.Row(f).FillWidth().MinHeight(max(panelTableRowHeight, 42*theme.Metrics.EffectiveTextScale())).PadX(15).Gap(12).Items(ui.Center).
+				Hover(ui.Look{}.Background(theme.Hover))
+			row.Children(func() {
+				ui.Row(f).Grow(1).MinWidth(0).Gap(10).Items(ui.Center).Children(func() {
+					ui.Row(f).Size(30, 30).Radius(radiusControl).Background(panelTint(theme.Primary, .10, theme.Background)).
+						Items(ui.Center).Justify(ui.Center).Children(func() {
+						ui.Icon(f, printFileIcon(record.job)).Size(17, 17).Color(theme.Primary)
+					})
+					ui.Column(f).Grow(1).MinWidth(0).Gap(2).Children(func() {
+						ui.Text(f, record.name).FontSize(14).Weight(gfx.WeightMedium).Ellipsis()
+						meta := record.options
+						if compact {
+							meta = record.direction + " · " + record.source
+							if record.options != "" {
+								meta += " · " + record.options
+							}
 						}
-					}
-					if record.error != "" && record.statusKind == "failed" {
-						meta += " · " + record.error
-					}
-					if meta != "" {
-						ui.Text(f, meta).Muted().FontSize(11).Ellipsis()
-					}
+						if record.error != "" && record.statusKind == "failed" {
+							meta += " · " + record.error
+						}
+						if meta != "" {
+							ui.Text(f, meta).Muted().FontSize(11).Ellipsis()
+						}
+					})
+				})
+				if fullHistory && !compact {
+					ui.Text(f, record.direction).FontSize(13).Width(directionWidth).Ellipsis()
+				}
+				if !compact {
+					ui.Text(f, record.source).FontSize(13).Width(sourceWidth).Ellipsis()
+				}
+				if !compact {
+					ui.Text(f, record.date).Muted().FontSize(12).Width(timeWidth).Ellipsis()
+				}
+				ui.Row(f).Width(statusWidth).Gap(7).Items(ui.Center).Children(func() {
+					icon, color := printStatusIcon(record.statusKind, theme)
+					ui.Icon(f, icon).Size(16, 16).Color(color)
+					ui.Text(f, record.status).FontSize(12.5).Color(color).Ellipsis()
 				})
 			})
-			if direction && !compact {
-				ui.Text(f, record.direction).FontSize(13).Width(directionWidth).Ellipsis()
-			}
-			if !compact {
-				ui.Text(f, record.source).FontSize(13).Width(sourceWidth).Ellipsis()
-			}
-			if !compact {
-				ui.Text(f, record.date).Muted().FontSize(12).Width(timeWidth).Ellipsis()
-			}
-			ui.Row(f).Width(statusWidth).Gap(7).Items(ui.Center).Children(func() {
-				icon, color := printStatusIcon(record.statusKind, theme)
-				ui.Icon(f, icon).Size(16, 16).Color(color)
-				ui.Text(f, record.status).FontSize(12.5).Color(color).Ellipsis()
-			})
-		})
-		ui.Divider(f).FillWidth()
+			ui.Divider(f).FillWidth()
+		}
+	}
+	if fullHistory {
+		ui.Scroll(f.Part("print-records")).FillWidth().Grow(1).MinHeight(0).AlwaysScrollbars().Children(drawRows)
+	} else {
+		drawRows()
 	}
 }
 

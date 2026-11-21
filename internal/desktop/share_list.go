@@ -2,12 +2,12 @@ package desktop
 
 import (
 	"errors"
-	"github.com/vivaui/viva/gfx"
 	"strings"
 	"time"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
@@ -59,9 +59,9 @@ func measureShareColumns(width float32) shareColumns {
 		return shareColumns{width * .16, width * .143, width * .17, 142}
 	}
 	if width >= 740 {
-		return shareColumns{0, 105, 130, 140}
+		return shareColumns{110, 105, 130, 140}
 	}
-	return shareColumns{0, 88, 0, 135}
+	return shareColumns{100, 88, 0, 135}
 }
 
 func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.State, submit func(domain.Command)) {
@@ -78,9 +78,9 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 	ui.Column(f).Fill().PadSides(panelPageTop, pad, 18, pad).Children(func() {
 		p.drawShareToolbar(f, theme, state.DeviceShare, bounds.Width)
 		if p.memberProject == nil {
-			p.drawTableSearch(f, theme, p.ids.shareSearch, &p.shareSearch, i18n.T("搜索文件"))
+			drawTableSearch(f, p.ids.shareSearch, &p.shareSearch, i18n.T("搜索文件"))
 		}
-		ui.Row(f).FillWidth().PadSides(18, 0, 0, 0).Items(ui.Center).Children(func() {
+		ui.Row(f).FillWidth().PadSides(6, 0, 0, 0).Items(ui.Center).Children(func() {
 			if ui.Tabs(f.Part("share-filter"), &p.shareFilter, shareFilters[:],
 				func(filter shareFilter) string { return p.shareLabels[filter] }).Line().
 				FontSize(panelTabFontSize).Changed() {
@@ -146,9 +146,9 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 			})
 		}
 		if len(entries) > 0 {
-			p.drawShareTableHead(f, theme, columns)
+			p.drawShareTableHead(f, columns)
 		}
-		ui.Scroll(f.KeyInt(int(p.shareFilter))).FillWidth().Grow(1).Children(func() {
+		ui.Scroll(f.KeyInt(int(p.shareFilter))).FillWidth().Grow(1).MinHeight(0).AlwaysScrollbars().Children(func() {
 			ui.Column(f).FillWidth().Children(func() {
 				if len(entries) == 0 {
 					message := i18n.T("点击「新增分享」选择文件或文件夹。")
@@ -218,13 +218,13 @@ func (p *Panels) drawShareToolbar(f ui.C, theme ui.Theme, device domain.DeviceSh
 	})
 }
 
-func (p *Panels) drawShareTableHead(f ui.C, theme ui.Theme, columns shareColumns) {
+func (p *Panels) drawShareTableHead(f ui.C, columns shareColumns) {
 	ui.Row(f).FillWidth().Height(panelTableHeadHeight).PadX(15).Gap(12).Items(ui.Center).Children(func() {
-		ui.Text(f, i18n.T("名称")).Muted().Grow(1).FontSize(13)
-		ui.Text(f, i18n.T("大小 · 项目数")).Muted().Width(columns.size).FontSize(13)
-		ui.Text(f, i18n.T("访问方式")).Muted().Width(columns.access).FontSize(13)
+		p.shareSort.header(f, "名称", 0, p.sortShares)
+		p.shareSort.header(f, "大小 · 项目数", columns.size, p.sortShares)
+		p.shareSort.header(f, "访问方式", columns.access, p.sortShares)
 		if columns.date > 0 {
-			ui.Text(f, i18n.T("分享时间")).Muted().Width(columns.date).FontSize(13)
+			p.shareSort.header(f, "分享时间", columns.date, p.sortShares)
 		}
 		ui.Row(f).Width(columns.actions)
 	})

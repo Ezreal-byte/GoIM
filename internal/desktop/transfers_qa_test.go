@@ -127,6 +127,9 @@ func TestTransferDesignScreenshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	shot("transfers-compact")
+	clickTab(shell.panels.transferLabels[panelTransferAll])
+	shot("transfers-scrollbar")
+	clickTab(shell.panels.transferLabels[panelTransferPending])
 	if err := session.Resize(1536, 1024); err != nil {
 		t.Fatal(err)
 	}
