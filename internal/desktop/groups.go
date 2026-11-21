@@ -989,6 +989,9 @@ func (u *UI) drawTransferRowActions(f ui.C, transfer domain.Transfer) {
 		if namedButton(f, u.fileRetryIDs[transfer.ID], label).Height(u.textExtent(36, 16)).FontSize(13).Clicked() {
 			u.submit(domain.Command{Kind: domain.RetryTransfer, TransferID: transfer.ID})
 		}
+		if transfer.CanRelocateFailedReceive() && namedButton(f, u.fileSaveIDs[transfer.ID], i18n.T("另存为")).Height(u.textExtent(36, 16)).FontSize(13).Outline().Clicked() {
+			u.chooseTransferDestination(f.Canvas(), transfer)
+		}
 	}
 }
 

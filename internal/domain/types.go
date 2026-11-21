@@ -289,6 +289,8 @@ type Transfer struct {
 	UpdatedAt         time.Time
 	LegacyTransport   string `json:",omitempty"`
 	RemotePacket      string `json:",omitempty"`
+	RemoteRevision    string `json:",omitempty"` // fingerprint of a stock direct-file source path, size and modification time
+	RemoteOfferClosed bool   `json:",omitempty"` // sender explicitly withdrew a completed stock file invitation
 	RemoteFile        string `json:",omitempty"`
 	RemoteImageMD5    string `json:",omitempty"` // legacy inline image asset digest
 	RemoteShareID     string `json:",omitempty"` // Neiwangtong group attachment
@@ -296,12 +298,18 @@ type Transfer struct {
 	FolderMaxPath     int    `json:",omitempty"`
 	FolderMaxItem     int64  `json:",omitempty"`
 	FolderStage       string `json:",omitempty"` // private staging directory of a group folder download
+	FileStage         string `json:",omitempty"` // resumable Neiwangtong file beside its destination
 	RemotePeerID      string `json:",omitempty"` // wire identity of an existing compatibility transfer
 	PrintJobID        string `json:",omitempty"` // local print task served by this transfer
 }
 
 func (t Transfer) CanClearPartial() bool {
 	return t.WebSender == "" && t.ShareProject == "" && !t.ShareRequest && t.Direction == "receive" && t.PrintJobID == "" && (t.Status == "failed" || t.Status == "waiting" || t.Status == "cancelled" || t.Status == "rejected")
+}
+
+func (t Transfer) CanRelocateFailedReceive() bool {
+	return t.Direction == "receive" && t.Status == "failed" && t.LegacyTransport == TransportNeiwangtong &&
+		!t.Revoked && t.PrintJobID == "" && t.RemoteImageMD5 == ""
 }
 
 // PrintCapabilities is the portable subset of printer options both sides can

@@ -522,7 +522,7 @@ func (n *Node) startReceive(id, destination string) {
 	if !n.async(func() {
 		defer func() {
 			finish()
-			n.removeFinishedGroupFolderStage(id)
+			n.removeFinishedNativeStage(id)
 		}()
 		if err := n.download(ctx, id, destination); err != nil {
 			if ctx.Err() != nil {

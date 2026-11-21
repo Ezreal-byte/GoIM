@@ -28,7 +28,7 @@ func (n *Node) clearTransferPartial(id string) error {
 		if problem = n.removeReceivePartial(*t); problem != nil {
 			return nil
 		}
-		t.Done, t.Speed, t.FolderStage, t.UpdatedAt = 0, 0, "", time.Now()
+		t.Done, t.Speed, t.FileStage, t.FolderStage, t.UpdatedAt = 0, 0, "", "", time.Now()
 		p.State.Notice, p.State.Error = "已清理传输临时文件", ""
 		return nil
 	})
@@ -45,13 +45,14 @@ func (n *Node) removeReceivePartial(t domain.Transfer) error {
 	}
 	part := filepath.Join(dir, t.ID+".part")
 	stage := nativeGroupFolderStage(t)
+	fileStage := nativeFileStage(t)
 	// A custom download destination can alias a private path through a link.
 	destination, err := os.Stat(t.Path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	if destination != nil {
-		for _, path := range []string{filepath.Join(n.dir, part), stage} {
+		for _, path := range []string{filepath.Join(n.dir, part), stage, fileStage} {
 			if path == "" {
 				continue
 			}
@@ -74,6 +75,11 @@ func (n *Node) removeReceivePartial(t domain.Transfer) error {
 	}
 	if stage != "" {
 		return os.RemoveAll(stage)
+	}
+	if fileStage != "" {
+		if err := os.Remove(fileStage); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	return nil
 }

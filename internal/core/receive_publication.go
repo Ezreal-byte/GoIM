@@ -23,6 +23,7 @@ type receivePublication struct {
 	Stage, Destination, Digest string
 	Size                       int64
 	Directory                  bool
+	ResumableFile              bool   `json:",omitempty"`
 	Name, MIME                 string `json:",omitempty"`
 }
 
@@ -181,7 +182,7 @@ func (n *Node) publishReceivedFile(ctx context.Context, id, partial, destination
 }
 
 func (n *Node) publishReceive(ctx context.Context, id string, publication receivePublication) error {
-	if !publication.Directory {
+	if !publication.Directory && !publication.ResumableFile {
 		defer func() {
 			if current, ok := n.receivePublication(id); !ok || current != publication {
 				_ = os.Remove(publication.Stage)
@@ -248,6 +249,7 @@ func (n *Node) finishReceivePublication(ctx context.Context, id string, publicat
 			return nil
 		}
 		i := transferIndex(&p.State, id)
+		keepPrefix := problem == nil && publication.ResumableFile && i >= 0 && canPublishReceive(p, p.State.Transfers[i])
 		if i < 0 || !installed && !canPublishReceive(p, p.State.Transfers[i]) {
 			problem = context.Canceled
 		} else if ctx.Err() != nil {
@@ -258,7 +260,10 @@ func (n *Node) finishReceivePublication(ctx context.Context, id string, publicat
 		}
 		delete(p.ReceivePublications, id)
 		if problem != nil {
-			discard = !publication.Directory || i < 0 || p.State.Transfers[i].FolderStage == ""
+			discard = !keepPrefix && (!publication.Directory || i < 0 || p.State.Transfers[i].FolderStage == "")
+			if discard && i >= 0 && p.State.Transfers[i].FileStage == publication.Stage {
+				p.State.Transfers[i].FileStage = ""
+			}
 			return nil
 		}
 		return recordPublishedReceive(p, i, publication)
@@ -283,6 +288,7 @@ func recordPublishedReceive(p *persisted, index int, publication receivePublicat
 	}
 	task.Size = publication.Size
 	task.ShareStage = ""
+	task.FileStage = ""
 	return completeReceiveState(task, publication.Destination)
 }
 

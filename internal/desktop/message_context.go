@@ -71,7 +71,7 @@ func (u *UI) drawMessageContextMenu(c *gfx.Canvas, viewport ui.Rect) {
 	var offer domain.Transfer
 	if isAttachment && !available {
 		for _, t := range u.transfersFor[f.ID] {
-			if t.Direction == "receive" && t.Status == "offered" && !t.Revoked {
+			if (t.Direction == "receive" && t.Status == "offered" && !t.Revoked) || t.CanRelocateFailedReceive() {
 				offer = t
 				break
 			}

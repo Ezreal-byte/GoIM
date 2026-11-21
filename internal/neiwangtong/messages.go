@@ -323,6 +323,7 @@ type XMLSendFile struct {
 	TaskID     uint64   `xml:"TASK_ID"`
 	FileID     uint64   `xml:"FILE_ID"`
 	Name       string   `xml:"NAME"`
+	SourcePath string   `xml:"-"` // original spelling for identifying a reissued offer, never a local destination
 	Pwd        string   `xml:"PWD"`
 	Size       int64    `xml:"SIZE"`
 	LastModify int64    `xml:"LAST_MODIFY"`
@@ -354,6 +355,7 @@ func ParseSendFile(data []byte) (XMLSendFile, error) {
 	}
 	// The original client sends its local Windows path. Only the last
 	// component belongs in the offer, even on receivers running on Unix.
+	x.SourcePath = x.Name
 	x.Name = x.Name[strings.LastIndexAny(x.Name, "/\\")+1:]
 	return x, nil
 }

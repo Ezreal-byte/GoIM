@@ -91,6 +91,26 @@ func TestIncomingChatFileAcceptAndSaveAsUseOneAction(t *testing.T) {
 	}
 }
 
+func TestFailedNativeFileCanChangeDestinationFromDetails(t *testing.T) {
+	state := shellTestState(t)
+	task := &state.Transfers[0]
+	task.Direction, task.Status, task.LegacyTransport = "receive", "failed", domain.TransportNeiwangtong
+	h := newShellTestHarness(t, state)
+	h.clickID(h.ui.fileButtonIDs[task.FileID])
+	destination := filepath.Join(t.TempDir(), "retry.iso")
+	if err := h.driver.QueueSaveFile(destination, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.clickID(h.ui.fileSaveIDs[task.ID])
+	h.settle()
+	for _, cmd := range h.backend.commandLog() {
+		if cmd.Kind == domain.AcceptTransfer && cmd.TransferID == task.ID && len(cmd.Paths) == 1 && cmd.Paths[0] == destination {
+			return
+		}
+	}
+	t.Fatal("failed transfer did not submit the new destination")
+}
+
 func TestInterfaceFontSizeScalesChatAndDetachedConversation(t *testing.T) {
 	for _, size := range []int{9, 14, 18, 28} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {

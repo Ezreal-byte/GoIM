@@ -1331,17 +1331,21 @@ func (s *Service) CancelSend(peerID string, taskID uint64) error {
 }
 
 func (s *Service) AcceptFile(ctx context.Context, peerID string, taskID, fileID uint64, total int64, destPath string, progress func(int64)) error {
-	return s.receiveFile(ctx, peerID, taskID, fileID, total, destPath, false, progress)
+	if err := s.receiveFile(ctx, peerID, taskID, fileID, total, destPath, false, progress, nil); err != nil {
+		return err
+	}
+	return s.ReportFileReceived(peerID, taskID, total)
 }
 
-// ResumeFile appends to a private partial file for this exact offer. It keeps
-// the received prefix if the connection is interrupted.
-func (s *Service) ResumeFile(ctx context.Context, peerID string, taskID, fileID uint64, total int64, partial string, progress func(int64)) error {
-	return s.receiveFile(ctx, peerID, taskID, fileID, total, partial, true, progress)
+// StageFile keeps the received prefix on interruption. The caller reports completion
+// after it has published the file. A stock sender may renew its task number while
+// the data connection still serves the original file selector.
+func (s *Service) StageFile(ctx context.Context, peerID string, taskID, fileID uint64, total int64, partial string, progress func(int64), currentTask func() uint64) error {
+	return s.receiveFile(ctx, peerID, taskID, fileID, total, partial, true, progress, currentTask)
 }
 
 func (s *Service) receiveFile(ctx context.Context, peerID string, taskID, fileID uint64, total int64,
-	destPath string, resume bool, progress func(int64)) error {
+	destPath string, resume bool, progress func(int64), currentTask func() uint64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -1385,15 +1389,57 @@ func (s *Service) receiveFile(ctx context.Context, peerID string, taskID, fileID
 	case <-s.ctx.Done():
 		return s.ctx.Err()
 	}
-	err = downloadFileTo(ctx, s.cfg.BindIP, tcp, fileID, total, destPath, stockClient, resume, func(done, total int64) {
+	var lastReport time.Time
+	var lastDone int64
+	return downloadFileTo(ctx, s.cfg.BindIP, tcp, fileID, total, destPath, stockClient, resume, func(done, total int64) {
 		if progress != nil {
 			progress(done)
 		}
+		now := time.Now()
+		elapsed := now.Sub(lastReport)
+		if done == total || elapsed < time.Second || ctx.Err() != nil {
+			return
+		}
+		rate := int64(0)
+		if !lastReport.IsZero() {
+			rate = int64(float64(done-lastDone) / elapsed.Seconds())
+		}
+		lastReport, lastDone = now, done
+		task := taskID
+		if currentTask != nil {
+			task = currentTask()
+		}
+		// A lost progress packet must not discard a healthy TCP download.
+		_ = s.reportReceiveProgress(peerID, task, done, total, rate)
 	})
-	if err == nil {
-		_ = s.enet.SendAppCommand(control, CmdProgressRecvFile, FormatProgressRecvFile(taskID, total, total, "0KB/s"))
+}
+
+func (s *Service) reportReceiveProgress(peerID string, taskID uint64, done, total, rate int64) error {
+	control, _, err := s.control(peerID)
+	if err != nil {
+		return err
 	}
-	return err
+	speed := fmt.Sprintf("%d KB/s", rate/1024)
+	return s.enet.SendAppCommand(control, CmdProgressRecvFile, FormatProgressRecvFile(taskID, total, done, speed))
+}
+
+func (s *Service) ReportFileReceived(peerID string, taskID uint64, size int64) error {
+	return s.reportReceiveProgress(peerID, taskID, size, size, 0)
+}
+
+// AcknowledgeFileReceive reattaches the sender's transfer pane to an existing download.
+func (s *Service) AcknowledgeFileReceive(peerID string, taskID uint64, done, total int64) error {
+	control, _, err := s.control(peerID)
+	if err != nil {
+		return err
+	}
+	if err := s.enet.SendAppCommand(control, CmdOperateRecvFile, FormatOperateRecvFile(taskID, fileReceiveAccept)); err != nil {
+		return err
+	}
+	if done >= total {
+		return nil // Only publication may send 100%, including for empty files.
+	}
+	return s.reportReceiveProgress(peerID, taskID, done, total, 0)
 }
 
 func localWireProfile(p Peer, png []byte) wireProfile {

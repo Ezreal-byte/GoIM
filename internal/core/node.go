@@ -270,10 +270,11 @@ func New(opts Options) (*Node, error) {
 			n.startReceive(t.ID, "")
 			continue
 		}
+		if terminalTransfer(t.Status) && (t.FileStage != "" || t.FolderStage != "") {
+			n.removeFinishedNativeStage(t.ID)
+			continue
+		}
 		if t.FolderStage != "" {
-			if terminalTransfer(t.Status) {
-				n.removeFinishedGroupFolderStage(t.ID)
-			}
 			// The folder invitation is usable again once its sender
 			// reconnects. Peer replay starts the saved download.
 			continue

@@ -505,7 +505,7 @@ func (u *UI) drawImageMessage(f ui.C, conversation domain.Conversation, message 
 			if picture.Clicked() {
 				u.openImageViewer(file.ID)
 			}
-			if message.Text != "" && message.Text != file.Name {
+			if u.hasImageCaption(message, file) {
 				ui.Column(f).MaxWidth(width).PadSides(8, 12, 7, 12).Radius(radiusControl).
 					Background(u.palette.incoming).Children(func() {
 					u.messageParagraph(f, message, 4, 13, 19)
@@ -519,6 +519,20 @@ func (u *UI) drawImageMessage(f ui.C, conversation domain.Conversation, message 
 			u.ownMessageAvatar(f)
 		}
 	})
+}
+
+func (u *UI) hasImageCaption(message domain.Message, file domain.File) bool {
+	if message.Text == "" || message.Text == file.Name {
+		return false
+	}
+	if message.Text == "[图片]" {
+		for _, t := range u.transfersFor[file.ID] {
+			if t.RemoteImageMD5 != "" {
+				return false // Stock inline images use this text for the conversation preview.
+			}
+		}
+	}
+	return true
 }
 
 func chatImageThumbnail(bitmap gfx.Bitmap, maxWidth float32) (float32, float32) {

@@ -928,13 +928,19 @@ func TestImageMessageOpensImageViewer(t *testing.T) {
 	})
 	state.Messages = append(state.Messages, domain.Message{
 		ID: "message-image", ConversationID: "conv-group", SenderID: "peer-a",
-		Kind: "image", FileID: "file-image", CreatedAt: time.Now(), Status: "delivered",
+		Kind: "image", FileID: "file-image", Text: "[图片]", CreatedAt: time.Now(), Status: "delivered",
 	})
+	state.Transfers = append(state.Transfers, domain.Transfer{ID: "image-download", FileID: "file-image",
+		Direction: "receive", Status: "completed", Path: path, LegacyTransport: domain.TransportNeiwangtong,
+		RemoteImageMD5: "0123456789abcdef0123456789abcdef"})
 	harness := newChatSurfaceHarness(t, state, 1440, 960)
 	harness.waitFor(func() bool { return bitmapReady(harness.ui.fileBitmap(path)) })
 
 	if !harness.hasHit(harness.ui.fileButtonIDs["file-image"]) {
 		t.Fatal("image message did not expose a preview target")
+	}
+	if harness.hasHit(harness.ui.messageTextIDs["message-image"]) {
+		t.Fatal("stock image placeholder appeared as a separate caption")
 	}
 	harness.clickID(harness.ui.fileButtonIDs["file-image"])
 	harness.settle()

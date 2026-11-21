@@ -432,7 +432,7 @@ func TestImageMessageUsesAspectRatioThumbnailAfterDecode(t *testing.T) {
 	})
 	state.Messages = append(state.Messages, domain.Message{
 		ID: "message-image", ConversationID: "conv-group", SenderID: "peer-a",
-		Kind: "image", FileID: "file-image", Status: "delivered",
+		Kind: "image", FileID: "file-image", Text: "图中是接收端", Status: "delivered",
 	})
 	harness := newShellTestHarness(t, state)
 	harness.waitFor(func() bool {
@@ -442,6 +442,9 @@ func TestImageMessageUsesAspectRatioThumbnailAfterDecode(t *testing.T) {
 	hit, ok := harness.findHit(harness.ui.fileButtonIDs["file-image"])
 	if !ok {
 		t.Fatal("decoded image did not expose its thumbnail target")
+	}
+	if !harness.hasText("图中是接收端") {
+		t.Fatal("image caption was lost")
 	}
 	if hit.Bounds.Width > 330.5 || hit.Bounds.Height > 250.5 {
 		t.Fatalf("image thumbnail exceeded its bounds: %+v", hit.Bounds)

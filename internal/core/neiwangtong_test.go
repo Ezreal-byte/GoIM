@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -90,6 +91,66 @@ func TestNeiwangtongRecallScopesSenderAndSuppressesReplay(t *testing.T) {
 	if len(chat1) != 1 || !chat1[0].Recalled || chat1[0].Text != "" ||
 		len(chat2) != 1 || chat2[0].Recalled || chat2[0].Text != message.Text() {
 		t.Fatalf("recall or replay affected the wrong messages: %+v; %+v", chat1, chat2)
+	}
+}
+
+func TestNeiwangtongRenewedFileOfferKeepsActiveCard(t *testing.T) {
+	n := testNode(t, "offer fixture")
+	const peer = "11111111111111111111111111111111"
+	n.receiveNeiwangtongPeer(neiwangtong.Peer{ID: peer, Name: "sender", Online: true})
+	offer := neiwangtong.XMLSendFile{TaskID: 7, FileID: 27935, Size: 6345887744, LastModify: 134397192692506982,
+		Name: "example.iso", SourcePath: `D:\images\example.iso`}
+	n.receiveNeiwangtongFile(peer, offer)
+	original := n.Snapshot().Transfers[0]
+	// Records saved before source fingerprints were added can still be matched
+	// using the original wire IDs and the source timestamp encoded in FileID.
+	if err := n.change(func(s *domain.State) {
+		s.Transfers[0].RemoteRevision = ""
+		s.Transfers[0].Status, s.Transfers[0].Done = "transferring", 1<<32
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first := offer
+	offer.TaskID++
+	offer.FileID++
+	n.receiveNeiwangtongFile(peer, offer)
+	n.receiveNeiwangtongFile(peer, first)
+	s := n.Snapshot()
+	if len(s.Transfers) != 1 || len(s.ChatMessages(original.ConversationID)) != 1 || s.Transfers[0].ID != original.ID ||
+		s.Transfers[0].RemotePacket != "8" || s.Transfers[0].RemoteFile != "27936" ||
+		s.Transfers[0].Status != "transferring" || s.Transfers[0].Done != 1<<32 {
+		t.Fatalf("renewal changed the active file card: %+v", s.Transfers)
+	}
+	other := offer
+	other.TaskID, other.FileID, other.SourcePath = 9, 27937, `D:\other\example.iso`
+	n.receiveNeiwangtongFile(peer, other)
+	changed := offer
+	changed.TaskID, changed.FileID, changed.LastModify = 10, 27938, offer.LastModify+1
+	n.receiveNeiwangtongFile(peer, changed)
+	if got := len(n.Snapshot().Transfers); got != 3 {
+		t.Fatalf("distinct source or version was folded into the original: %d cards", got)
+	}
+	if err := n.change(func(s *domain.State) {
+		s.Transfers[0].Status = "completed"
+		s.Transfers[0].UpdatedAt = time.Now().Add(-nativeFileReofferGrace - time.Second)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	offer.TaskID, offer.FileID = 11, 27939
+	n.receiveNeiwangtongFile(peer, offer)
+	if got := len(n.Snapshot().Transfers); got != 4 {
+		t.Fatalf("later explicit resend was swallowed: %d cards", got)
+	}
+	if err := n.change(func(s *domain.State) {
+		s.Transfers[3].Status = "completed"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	n.receiveNeiwangtongCancel(peer, offer.TaskID)
+	offer.TaskID, offer.FileID = 12, 27940
+	n.receiveNeiwangtongFile(peer, offer)
+	if tasks := n.Snapshot().Transfers; len(tasks) != 5 || tasks[3].Status != "completed" || tasks[4].Status != "offered" {
+		t.Fatal("a fresh send after explicit withdrawal should have its own invitation")
 	}
 }
 
@@ -172,6 +233,8 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	remotePhoto := nativeTestAvatar(t, 145)
 	remoteDigest := fmt.Sprintf("%x", md5.Sum(remotePhoto))
 	withdrawals := make(chan uint64, 2)
+	fileReceipts := make(chan neiwangtong.XMLProgressRecvFile, 16)
+	var firstFileBlock atomic.Bool
 	const folderTask = "1234567890abcdef1234567890abcdef"
 	firstFolderBlock := make(chan struct{}, 1)
 	folderPaused := make(chan struct{})
@@ -181,7 +244,19 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	remoteCfg := neiwangtong.Config{
 		ID: remoteID, Profile: profile, AvatarPNG: nativeTestAvatar(t, 30), BindIP: remoteIP, DisableBroadcast: true, EnableFolders: true,
 		DiscoveryPort: freeCompatibilityPort(t), ControlPort: 9012, RemoteControlPort: 9012, TransferPort: 9013,
+		TraceEvent: func(kind uint32, data []byte) {
+			if kind == neiwangtong.CmdProgressRecvFile {
+				if p, err := neiwangtong.ParseProgressRecvFile(data); err == nil && p.TaskID >= 777 && p.TaskID <= 779 {
+					fileReceipts <- p
+				}
+			}
+		},
 		Callbacks: neiwangtong.Callbacks{
+			FileProgress: func(_ string, task uint64, done, total int64, _ bool, _ error) {
+				if task == 777 && done > 0 && done < total {
+					firstFileBlock.Store(true)
+				}
+			},
 			Text:  func(_ string, _ uint64, text string) { outgoing <- text },
 			Files: func(_ string, offer neiwangtong.XMLSendFile) { offers <- offer },
 			GroupText: func(_ string, message neiwangtong.GroupMessage) error {
@@ -258,13 +333,28 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 		t.Fatal(ctx.Err())
 	}
 	path := filepath.Join(t.TempDir(), "原生文件.txt")
-	content := []byte("independent loopback file")
+	content := bytes.Repeat([]byte("independent loopback file"), 16384)
 	if err := os.WriteFile(path, content, 0600); err != nil {
 		t.Fatal(err)
 	}
 	// The original 3.4 client can advertise the full Windows path, even
 	// when the receiver is running on a different OS.
-	if err := remote.SendFileOffer(selfID, 777, `C:\goim-qa\原生文件.txt`, int64(len(content)), time.Now().Unix(), path); err != nil {
+	const wirePath = `C:\goim-qa\原生文件.txt`
+	modified := time.Now().Unix()
+	continueFile := make(chan struct{})
+	releaseFile := sync.OnceFunc(func() { close(continueFile) })
+	defer releaseFile()
+	access := neiwangtong.FileAccess{Allowed: func() bool {
+		if firstFileBlock.Load() {
+			select {
+			case <-continueFile:
+			case <-ctx.Done():
+				return false
+			}
+		}
+		return true
+	}}
+	if err := remote.SendFileOfferWithAccess(selfID, 777, 777, wirePath, int64(len(content)), modified, path, access); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "file offer", func() bool { return len(n.Snapshot().Transfers) == 1 })
@@ -284,16 +374,40 @@ func TestNeiwangtongDirectCommunication(t *testing.T) {
 	if err := n.execute(domain.Command{Kind: domain.AcceptTransfer, TransferID: task.ID, Paths: []string{dest}}); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(6 * time.Second)
-	for n.Snapshot().Transfers[0].Status != "completed" && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
+	waitReceipt := func(task uint64, complete bool) {
+		t.Helper()
+		timeout := time.After(5 * time.Second)
+		for {
+			select {
+			case p := <-fileReceipts:
+				if p.TaskID == task && p.TotalSize == int64(len(content)) && p.RecvdSize > 0 && (p.RecvdSize == p.TotalSize) == complete {
+					return
+				}
+			case <-timeout:
+				t.Fatalf("missing wire receipt for task %d, complete=%v", task, complete)
+			}
+		}
 	}
-	if completed := n.Snapshot().Transfers[0]; completed.Status != "completed" {
-		t.Fatalf("complete native file: %+v", completed)
+	waitReceipt(777, false)
+	if err := remote.SendFileOffer(selfID, 778, wirePath, int64(len(content)), modified, path); err != nil {
+		t.Fatal(err)
 	}
+	waitReceipt(778, false)
+	if transfers := n.Snapshot().Transfers; len(transfers) != 1 || transfers[0].Status != "transferring" {
+		t.Fatal("renewed invitation interrupted an active transfer")
+	}
+	releaseFile()
+	waitReceipt(778, true)
 	got, err := os.ReadFile(dest)
 	if err != nil || sha256.Sum256(got) != sha256.Sum256(content) {
-		t.Fatalf("file verification: %v", err)
+		t.Fatalf("file not published intact before completion receipt: %v", err)
+	}
+	if err := remote.SendFileOffer(selfID, 779, wirePath, int64(len(content)), modified, path); err != nil {
+		t.Fatal(err)
+	}
+	waitReceipt(779, true)
+	if transfers := n.Snapshot().Transfers; len(transfers) != 1 || transfers[0].Status != "completed" || transfers[0].Path != dest {
+		t.Fatal("renewed invitation created or reset a completed transfer")
 	}
 	outgoingFile := filepath.Join(t.TempDir(), "GoIM 发出的文件.txt")
 	outgoingBytes := []byte("GoIM 至内网通的文件内容")

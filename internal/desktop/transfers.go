@@ -48,8 +48,10 @@ func newTransferActionIDs(tree *gfx.Tree, scope gfx.Scope, entry panelTransferEn
 	}
 	if entry.accept {
 		ids.accept = tree.ID(scope, "accept")
-		ids.saveAs = tree.ID(scope, "save-as")
 		ids.reject = tree.ID(scope, "reject")
+	}
+	if entry.saveAs {
+		ids.saveAs = tree.ID(scope, "save-as")
 	}
 	if entry.cancel {
 		ids.cancel = tree.ID(scope, "cancel")

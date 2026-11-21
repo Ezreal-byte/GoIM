@@ -43,10 +43,13 @@ func (l *labChecks) checkResume(ctx context.Context, service *neiwangtong.Servic
 	if copyErr != nil {
 		return "", copyErr
 	}
-	if err := service.ResumeFile(phase, peer, offer.TaskID, offer.FileID, offer.Size, dest, nil); err != nil {
+	if err := service.StageFile(phase, peer, offer.TaskID, offer.FileID, offer.Size, dest, nil, nil); err != nil {
 		return "", err
 	}
 	result, err := verifySample(dest, sampleSize, digest)
+	if err == nil {
+		err = service.ReportFileReceived(peer, offer.TaskID, offer.Size)
+	}
 	return fmt.Sprintf("original resumed at %d; %s", position, result), err
 }
 

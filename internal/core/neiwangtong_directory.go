@@ -30,22 +30,30 @@ func nativeGroupFolderStage(task domain.Transfer) string {
 	return stage
 }
 
-func (n *Node) removeFinishedGroupFolderStage(id string) {
-	var stage string
+func (n *Node) removeFinishedNativeStage(id string) {
+	var task domain.Transfer
 	n.mu.Lock()
 	if i := transferIndex(&n.data.State, id); i >= 0 && n.transfers[id] == nil {
-		task := n.data.State.Transfers[i]
-		if terminalTransfer(task.Status) {
-			stage = nativeGroupFolderStage(task)
-		}
+		task = n.data.State.Transfers[i]
 	}
 	n.mu.Unlock()
-	if stage == "" || os.RemoveAll(stage) != nil {
+	if !terminalTransfer(task.Status) {
+		return
+	}
+	if stage := nativeFileStage(task); stage != "" {
+		if err := os.Remove(stage); err != nil && !os.IsNotExist(err) {
+			return
+		}
+	} else if folder := nativeGroupFolderStage(task); folder != "" {
+		if os.RemoveAll(folder) != nil {
+			return
+		}
+	} else {
 		return
 	}
 	_ = n.change(func(s *domain.State) {
-		if i := transferIndex(s, id); i >= 0 && s.Transfers[i].FolderStage == stage && terminalTransfer(s.Transfers[i].Status) {
-			s.Transfers[i].FolderStage = ""
+		if i := transferIndex(s, id); i >= 0 && s.Transfers[i].FileStage == task.FileStage && s.Transfers[i].FolderStage == task.FolderStage && terminalTransfer(s.Transfers[i].Status) {
+			s.Transfers[i].FileStage, s.Transfers[i].FolderStage = "", ""
 		}
 	})
 }

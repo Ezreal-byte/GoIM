@@ -930,6 +930,7 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domai
 		entry.cancel = true
 	case "failed", "cancelled", "rejected":
 		entry.retry = transfer.WebSender == ""
+		entry.saveAs = transfer.CanRelocateFailedReceive()
 		if transfer.Direction == "send" && transfer.FromShare {
 			entry.retry = !transfer.Revoked && file.Shared && !file.ShareProtected
 		}

@@ -248,24 +248,53 @@ func (n *Node) receiveNeiwangtongPeer(peer neiwangtong.Peer) {
 }
 
 func (n *Node) receiveNeiwangtongFile(peerID string, offer neiwangtong.XMLSendFile) {
-	if offer.Size < 0 || strings.TrimSpace(offer.Name) == "" {
+	if offer.Size < 0 || !validFileName(offer.Name) || offer.TaskID == 0 || offer.FileID == 0 {
 		return
 	}
 	var download string
-	err := n.change(func(s *domain.State) {
+	err := n.durableFromReader(func(p *persisted) []pending {
+		s := &p.State
 		peer := n.compatibilitySenderLocked(transportNWT, peerID)
 		if peer.ID == "" {
-			return
+			return nil
 		}
 		conversationID := ensureDirect(s, peer)
 		taskHex, fileNumber := fmt.Sprint(offer.TaskID), fmt.Sprint(offer.FileID)
 		identity := []string{peerID, taskHex, fileNumber, offer.Name, fmt.Sprint(offer.Size), fmt.Sprint(offer.LastModify)}
 		fileID := legacyStableID(append([]string{"nwt-file"}, identity...)...)
 		transferID := legacyStableID(append([]string{"nwt-transfer"}, identity...)...)
-		if fileIndex(s, fileID) >= 0 || transferIndex(s, transferID) >= 0 {
-			return
-		}
 		receivedAt := time.Now()
+		source := offer.SourcePath
+		if source == "" {
+			source = offer.Name
+		}
+		revision := legacyStableID(source, fmt.Sprint(offer.Size), fmt.Sprint(offer.LastModify))
+		if t := matchingNativeOffer(s, peerID, offer, fileID, revision, receivedAt); t != nil {
+			if t.Revoked || t.RemoteOfferClosed {
+				return nil
+			}
+			// An old datagram may arrive after a renewal. Keep the current selector.
+			if t.FileID != fileID || t.RemoteRevision == "" {
+				if t.Status == "completed" && (t.RemotePacket != taskHex || t.RemoteFile != fileNumber) {
+					t.UpdatedAt = receivedAt
+				}
+				t.RemotePacket, t.RemoteFile = taskHex, fileNumber
+			}
+			t.RemoteRevision = revision
+			switch t.Status {
+			case "transferring", "verifying", "completed":
+				for _, item := range p.Outbox {
+					if item.Envelope.Type == "file_status" && item.Envelope.TransferID == t.ID && item.Envelope.Status == "receiving" {
+						return nil
+					}
+				}
+				return []pending{{PeerID: t.PeerID, Envelope: envelope{Type: "file_status", TransferID: t.ID, Status: "receiving"}}}
+			}
+			return nil
+		}
+		if fileIndex(s, fileID) >= 0 || transferIndex(s, transferID) >= 0 {
+			return nil
+		}
 		mediaType := mime.TypeByExtension(strings.ToLower(filepath.Ext(offer.Name)))
 		file := domain.File{
 			ID:             fileID,
@@ -278,7 +307,7 @@ func (n *Node) receiveNeiwangtongFile(peerID string, offer neiwangtong.XMLSendFi
 			CreatedAt:      receivedAt,
 		}
 		if !validFile(file) {
-			return
+			return nil
 		}
 		status := "offered"
 		if file.AutoReceiveVideo(s.Settings) {
@@ -298,6 +327,7 @@ func (n *Node) receiveNeiwangtongFile(peerID string, offer neiwangtong.XMLSendFi
 			UpdatedAt:       receivedAt,
 			LegacyTransport: transportNWT,
 			RemotePacket:    taskHex,
+			RemoteRevision:  revision,
 			RemoteFile:      fileNumber,
 			RemotePeerID:    peerID,
 		})
@@ -311,10 +341,53 @@ func (n *Node) receiveNeiwangtongFile(peerID string, offer neiwangtong.XMLSendFi
 			CreatedAt:      file.CreatedAt,
 			Status:         "delivered",
 		})
+		return nil
 	})
 	if err == nil && download != "" {
 		n.startReceive(download, "")
 	}
+}
+
+// Stock retries can change both wire IDs. A completed task only absorbs immediate
+// reoffers; a later send of the same unchanged source is a new chat attachment.
+const nativeFileReofferGrace = 5 * time.Minute
+
+func matchingNativeOffer(s *domain.State, peer string, offer neiwangtong.XMLSendFile, fileID, revision string, now time.Time) *domain.Transfer {
+	for i := len(s.Transfers) - 1; i >= 0; i-- {
+		t := &s.Transfers[i]
+		if t.LegacyTransport != transportNWT || t.RemotePeerID != peer || t.Direction != "receive" ||
+			t.RemotePacket == "" || t.RemoteFile == "" || t.RemoteShareID != "" || t.RemoteImageMD5 != "" ||
+			t.Name != offer.Name || t.Size != offer.Size {
+			continue
+		}
+		if t.FileID == fileID || (t.RemoteRevision == revision && t.RemotePacket == fmt.Sprint(offer.TaskID) && t.RemoteFile == fmt.Sprint(offer.FileID)) {
+			return t
+		}
+		if offer.LastModify <= 0 {
+			continue
+		}
+		if t.RemoteRevision == "" {
+			// Earlier versions included the source timestamp in their file ID.
+			if legacyStableID("nwt-file", peer, t.RemotePacket, t.RemoteFile, t.Name, fmt.Sprint(t.Size), fmt.Sprint(offer.LastModify)) != t.FileID {
+				continue
+			}
+		} else if t.RemoteRevision != revision {
+			continue
+		}
+		if t.Revoked || t.RemoteOfferClosed {
+			return nil
+		}
+		switch t.Status {
+		case "offered", "waiting", "transferring", "verifying":
+			return t
+		case "completed":
+			if now.Sub(t.UpdatedAt) <= nativeFileReofferGrace {
+				return t
+			}
+		}
+		break
+	}
+	return nil
 }
 
 func (n *Node) receiveNeiwangtongCancel(peerID string, taskID uint64) {
@@ -328,7 +401,13 @@ func (n *Node) receiveNeiwangtongTaskCancel(peerID, remoteTask string) {
 		for i := range s.Transfers {
 			t := &s.Transfers[i]
 			if t.LegacyTransport != transportNWT || t.RemotePeerID != peerID ||
-				t.RemotePacket != remoteTask || t.Direction != "receive" || terminalTransfer(t.Status) || receiveAlreadyPublished(p, t.ID) {
+				t.RemotePacket != remoteTask || t.Direction != "receive" {
+				continue
+			}
+			if t.Status == "completed" && t.RemoteRevision != "" {
+				t.RemoteOfferClosed = true
+			}
+			if terminalTransfer(t.Status) || receiveAlreadyPublished(p, t.ID) {
 				continue
 			}
 			if stop := n.transfers[t.ID]; stop != nil {
@@ -346,6 +425,7 @@ func (n *Node) receiveNeiwangtongTaskCancel(peerID, remoteTask string) {
 	}
 	for _, id := range partials {
 		_ = os.Remove(n.nativePartialPath(id))
+		n.removeFinishedNativeStage(id)
 	}
 }
 
@@ -541,7 +621,7 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 		return service.SendFileOfferWithAccess(peer, taskID, fileID, f.Name, f.Size, source.ModTime().Unix(), f.SourcePath,
 			n.neiwangtongFileAccess(service, peer, t.ID, source))
 	case "file_status":
-		if e.Status != "rejected" && e.Status != "cancelled" {
+		if e.Status != "rejected" && e.Status != "cancelled" && e.Status != "completed" && e.Status != "receiving" {
 			return nil
 		}
 		s := n.snapshot(false)
@@ -550,6 +630,25 @@ func (n *Node) neiwangtongPending(peer string, value pending) error {
 			return nil
 		}
 		t := s.Transfers[i]
+		if e.Status == "completed" || e.Status == "receiving" {
+			if t.LegacyTransport != transportNWT || t.Direction != "receive" || t.RemoteImageMD5 != "" ||
+				t.RemoteShareID != "" || t.Revoked || t.RemoteOfferClosed || s.File(t.FileID).Folder {
+				return nil
+			}
+			task, err := strconv.ParseUint(t.RemotePacket, 10, 64)
+			if err != nil || task == 0 {
+				return nil
+			}
+			if e.Status == "receiving" && (t.Status == "transferring" || t.Status == "verifying" || t.Status == "completed") {
+				if err := service.AcknowledgeFileReceive(peer, task, t.Done, t.Size); err != nil {
+					return err
+				}
+			}
+			if t.Status == "completed" {
+				return service.ReportFileReceived(peer, task, t.Size)
+			}
+			return nil
+		}
 		if t.LegacyTransport == transportNWT && t.RemoteShareID != "" && s.File(t.FileID).Folder {
 			if t.Direction == "send" {
 				return service.CancelGroupFolder(peer, t.RemoteShareID)
@@ -733,41 +832,18 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 		destination = path
 	}
 
-	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
+	destination, err = filepath.Abs(destination)
+	if err != nil {
 		return err
 	}
-	partial := n.nativePartialPath(t.ID)
-	if err := os.MkdirAll(filepath.Dir(partial), 0700); err != nil {
-		return err
+	partial, have, err := n.prepareNativeFileStage(ctx, t, destination)
+	if err != nil {
+		return nativeReceiveWriteError(err)
 	}
-	// Explicit cancellation discards the prefix, while a time-out, a lost
-	// connection, and application shutdown keep it for the next attempt.
-	defer func() {
-		n.mu.Lock()
-		i := transferIndex(&n.data.State, t.ID)
-		discard := i < 0 || terminalTransfer(n.data.State.Transfers[i].Status)
-		n.mu.Unlock()
-		if discard {
-			_ = os.Remove(partial)
+	if remaining := t.Size - have; remaining > 0 {
+		if free, err := availableReceiveBytes(filepath.Dir(destination)); err == nil && uint64(remaining) > free {
+			return fmt.Errorf("接收目录空间不足：还需写入 %.2f GiB，当前可用 %.2f GiB。请另存到其他磁盘或释放空间后重试", float64(remaining)/(1<<30), float64(free)/(1<<30))
 		}
-	}()
-	var have int64
-	if info, err := os.Lstat(partial); err == nil && info.Mode().IsRegular() {
-		have = info.Size()
-	}
-	ready := false
-	if err := n.change(func(s *domain.State) {
-		if i := transferIndex(s, t.ID); i >= 0 && !terminalTransfer(s.Transfers[i].Status) {
-			task := &s.Transfers[i]
-			task.Status, task.Path, task.Done, task.Error = "transferring", destination, have, ""
-			task.UpdatedAt = time.Now()
-			ready = true
-		}
-	}); err != nil {
-		return err
-	}
-	if !ready || ctx.Err() != nil {
-		return context.Canceled
 	}
 	if have == 0 || have != t.Size {
 		var lastProgress time.Time
@@ -780,13 +856,22 @@ func (n *Node) downloadNeiwangtong(ctx context.Context, t domain.Transfer, f dom
 		if isGroupFile {
 			err = n.resumeNeiwangtongGroupFile(ctx, service, wireID, t, partial, have, progress)
 		} else {
-			err = service.ResumeFile(ctx, wireID, taskID, fileID, t.Size, partial, progress)
+			err = service.StageFile(ctx, wireID, taskID, fileID, t.Size, partial, progress, func() uint64 {
+				n.mu.Lock()
+				defer n.mu.Unlock()
+				if i := transferIndex(&n.data.State, t.ID); i >= 0 {
+					if current, err := strconv.ParseUint(n.data.State.Transfers[i].RemotePacket, 10, 64); err == nil {
+						return current
+					}
+				}
+				return taskID
+			})
 		}
 		if err != nil {
-			return err
+			return nativeReceiveWriteError(err)
 		}
 	}
-	return n.publishReceivedFile(ctx, t.ID, partial, destination, t.Size, "")
+	return n.publishNativeFileStage(ctx, t, partial, destination)
 }
 
 func (n *Node) resumeNeiwangtongGroupFile(ctx context.Context, service *neiwangtong.Service, peer string,
