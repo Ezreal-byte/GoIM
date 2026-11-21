@@ -80,7 +80,8 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 		if p.memberProject == nil {
 			drawTableSearch(f, p.ids.shareSearch, &p.shareSearch, i18n.T("搜索文件"))
 		}
-		ui.Row(f).FillWidth().PadSides(6, 0, 0, 0).Items(ui.Center).Children(func() {
+		var entries []panelShareEntry
+		ui.Row(f).FillWidth().PadSides(6, 0, 0, 0).Items(ui.Center).Gap(8).Children(func() {
 			if ui.Tabs(f.Part("share-filter"), &p.shareFilter, shareFilters[:],
 				func(filter shareFilter) string { return p.shareLabels[filter] }).Line().
 				FontSize(panelTabFontSize).Changed() {
@@ -92,9 +93,18 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 					submit(domain.Command{Kind: domain.RefreshShares})
 				}
 			}
+			if p.memberProject != nil {
+				return
+			}
+			query := strings.TrimSpace(p.shareSearch.Text())
+			if p.shareFilter == panelSharesMine {
+				entries = panelFilterShares(p.sharesMine, query)
+				return
+			}
+			entries = panelFilterShares(p.sharesRemote, query)
 			ui.Spacer(f)
-			if p.shareFilter == panelSharesRemote && p.memberProject == nil &&
-				panelActionIcon(f, theme, p.ids.sharesRefresh, RefreshCw, i18n.T("刷新"), false, false).Clicked() {
+			p.drawShareSelectionActions(f, entries, submit)
+			if namedButton(f, p.ids.sharesRefresh, i18n.T("刷新")).Icon(RefreshCw).Outline().Clicked() {
 				submit(domain.Command{Kind: domain.RefreshShares})
 			}
 		})
@@ -103,47 +113,6 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 			p.drawMemberProject(f, theme, bounds.Width-2*pad, project, submit)
 			p.drawShareDialogs(f, theme, submit)
 			return
-		}
-		entries := p.sharesMine
-		if p.shareFilter == panelSharesRemote {
-			entries = p.sharesRemote
-		}
-		entries = panelFilterShares(entries, strings.TrimSpace(p.shareSearch.Text()))
-		if p.shareFilter == panelSharesRemote && len(entries) > 0 {
-			if p.shareChecked == nil {
-				p.shareChecked = make(map[string]bool)
-			}
-			count, eligible := 0, 0
-			for _, entry := range entries {
-				if entry.canDownload() {
-					eligible++
-					if p.shareChecked[entry.file.ID] {
-						count++
-					}
-				}
-			}
-			ui.Row(f.Part("member-downloads")).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-				if ui.Button(f.Part("select-projects"), shareSelectAllLabel(eligible > 0 && count == eligible)).Ghost().Disabled(eligible == 0).Clicked() {
-					for _, entry := range entries {
-						if entry.canDownload() {
-							if count == eligible {
-								delete(p.shareChecked, entry.file.ID)
-							} else {
-								p.shareChecked[entry.file.ID] = true
-							}
-						}
-					}
-				}
-				if ui.Button(f.Part("download-projects"), downloadSelectedLabel(count)).Outline().Disabled(count == 0).Clicked() {
-					var selected []domain.File
-					for _, entry := range entries {
-						if entry.canDownload() && p.shareChecked[entry.file.ID] {
-							selected = append(selected, entry.file)
-						}
-					}
-					p.downloadProjects(selected, submit)
-				}
-			})
 		}
 		if len(entries) > 0 {
 			p.drawShareTableHead(f, columns)

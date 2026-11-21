@@ -35,6 +35,46 @@ func shareSelectAllLabel(all bool) string {
 func downloadSelectedLabel(count int) string {
 	return fmt.Sprintf(i18n.T("下载所选（%d）"), count)
 }
+
+func (p *Panels) drawShareSelectionActions(f ui.C, entries []panelShareEntry, submit func(domain.Command)) {
+	if len(entries) == 0 {
+		return
+	}
+	if p.shareChecked == nil {
+		p.shareChecked = make(map[string]bool)
+	}
+	count, eligible := 0, 0
+	for _, entry := range entries {
+		if entry.canDownload() {
+			eligible++
+			if p.shareChecked[entry.file.ID] {
+				count++
+			}
+		}
+	}
+	all := eligible > 0 && count == eligible
+	if ui.Button(f.Part("select-projects"), shareSelectAllLabel(all)).Ghost().Disabled(eligible == 0).Clicked() {
+		for _, entry := range entries {
+			if entry.canDownload() {
+				if all {
+					delete(p.shareChecked, entry.file.ID)
+				} else {
+					p.shareChecked[entry.file.ID] = true
+				}
+			}
+		}
+	}
+	if ui.Button(f.Part("download-projects"), downloadSelectedLabel(count)).Outline().Disabled(count == 0).Clicked() {
+		var selected []domain.File
+		for _, entry := range entries {
+			if entry.canDownload() && p.shareChecked[entry.file.ID] {
+				selected = append(selected, entry.file)
+			}
+		}
+		p.downloadProjects(selected, submit)
+	}
+}
+
 func (v *memberProjectView) selection(e shareclient.Entry) domain.ShareDownload {
 	return domain.ShareDownload{ProjectID: v.id, Name: e.Name, Index: e.Index(), Folder: e.Folder, Session: v.client.Session()}
 }

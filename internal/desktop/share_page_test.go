@@ -278,6 +278,39 @@ func TestShareListFitsMinimumWindowInBothThemes(t *testing.T) {
 	}
 }
 
+func TestMemberShareToolbar(t *testing.T) {
+	h := panelTestNewHarnessBounds(t, panelModuleShares, filePageSampleState(t), ui.Rect{X: 68, Width: 652, Height: 520})
+	download, ok := h.findHitLabelRole(downloadSelectedLabel(0), gfx.RoleButton)
+	if !ok || !download.Disabled {
+		t.Fatal("batch download should be disabled until a file is selected")
+	}
+	h.clickLabelRole(shareSelectAllLabel(false), gfx.RoleButton)
+	tab, ok := h.findHitLabelRole(h.panels.shareLabels[panelSharesMine], gfx.RoleTab)
+	if !ok {
+		t.Fatal("share tabs are missing")
+	}
+	rowY := tab.Bounds.Y + tab.Bounds.Height/2
+	right := tab.Bounds.X + tab.Bounds.Width
+	for _, label := range []string{shareSelectAllLabel(true), downloadSelectedLabel(2), "刷新"} {
+		button, ok := h.findHitLabelRole(label, gfx.RoleButton)
+		if !ok || button.Disabled || button.Bounds.X < right || rowY < button.Bounds.Y || rowY > button.Bounds.Y+button.Bounds.Height {
+			t.Fatalf("expected enabled %q after x=%v on the tab row at y=%v, got %+v", label, right, rowY, button)
+		}
+		right = button.Bounds.X + button.Bounds.Width
+	}
+	if _, ok := h.findText("刷新"); !ok {
+		t.Fatal("refresh button is missing visible text")
+	}
+	h.click(h.panels.ids.sharesRefresh)
+	if cmd := h.requireLastCommand(); cmd.Kind != domain.RefreshShares {
+		t.Fatalf("refresh command = %+v", cmd)
+	}
+	h.clickLabelRole(downloadSelectedLabel(2), gfx.RoleButton)
+	if cmd := h.requireLastCommand(); cmd.Kind != domain.GetShared || len(cmd.ShareDownloads) != 2 {
+		t.Fatalf("batch download command = %+v", cmd)
+	}
+}
+
 func TestShareListDesignScreenshots(t *testing.T) {
 	dir := os.Getenv("GOIM_SHARE_LIST_QA")
 	if dir == "" {
@@ -326,6 +359,10 @@ func TestShareListDesignScreenshots(t *testing.T) {
 	}
 	click(shell.ids.navShares)
 	shot("shares-members")
+	if err := session.ClickLabel(shareSelectAllLabel(false)); err != nil {
+		t.Fatal(err)
+	}
+	shot("shares-members-selected")
 	if err := session.ClickLabel(shell.panels.shareLabels[panelSharesMine]); err != nil {
 		t.Fatal(err)
 	}
