@@ -32,6 +32,7 @@ type desktopRuntime struct {
 	historyPending      string
 	tray                *app.StatusItem
 	seen                map[string]bool
+	heardTransfers      map[string]bool
 	badge               int
 	trayLanguage        string
 	global              string
@@ -79,7 +80,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 	defer stopCaptures()
 	icon, statusIcon := windowIcon(), trayIcon()
 	r := &desktopRuntime{
-		ui: shell, backend: backend, seen: make(map[string]bool), badge: -1,
+		ui: shell, backend: backend, seen: make(map[string]bool), heardTransfers: make(map[string]bool), badge: -1,
 		trayNormal: statusIcon, trayFlash: attentionIcon(statusIcon),
 		conversationWindows: make(map[string]*detachedConversationWindow),
 		printWindows:        make(map[string]*printWindowEntry),
@@ -107,6 +108,11 @@ func Run(backend domain.Backend, restartArguments []string) error {
 	shell.screenshotActive = r.screenshotRunning.Load
 	shell.restartArguments = restartArguments
 	defer shell.updater.stop()
+	for _, t := range shell.state.Transfers {
+		if t.Direction == "receive" && (t.Status == "offered" || t.Status == "completed") {
+			r.heardTransfers[t.ID] = true
+		}
+	}
 	for _, m := range shell.state.Messages {
 		r.seen[m.ID] = true
 	}
@@ -287,18 +293,6 @@ func (r *desktopRuntime) observe() {
 			r.tray.SetTooltip(fmt.Sprintf(i18n.T("GoIM · %d 条未读消息"), unread))
 		}
 	}
-	var done, total int64
-	for _, t := range s.Transfers {
-		if t.Status == "transferring" || t.Status == "verifying" {
-			done += t.Done
-			total += t.Size
-		}
-	}
-	if total > 0 {
-		r.application.SetProgress(float32(done) / float32(total))
-	} else {
-		r.application.SetProgress(-1)
-	}
 	mainForeground := mainWindowForeground(r.window)
 	for _, m := range s.Messages {
 		if r.seen[m.ID] {
@@ -352,7 +346,23 @@ func (r *desktopRuntime) observe() {
 			}
 		}
 	}
-	if attention && s.Settings.Sound && !s.VoiceCall.Live() {
+	transferAttention := false
+	var done, total int64
+	for _, t := range s.Transfers {
+		if r.transferNeedsChime(&s, t) {
+			transferAttention = true
+		}
+		if t.Status == "transferring" || t.Status == "verifying" {
+			done += t.Done
+			total += t.Size
+		}
+	}
+	if total > 0 {
+		r.application.SetProgress(float32(done) / float32(total))
+	} else {
+		r.application.SetProgress(-1)
+	}
+	if (attention || transferAttention) && s.Settings.Sound && !s.VoiceCall.Live() {
 		r.playMessageChime(s.Settings)
 	}
 	if attention && unread > 0 {

@@ -86,6 +86,34 @@ try {
     await call("Page.navigate",{url:deviceURL});
     await eventually(() => evaluate("Boolean(document.querySelector('[data-open-upload]'))"));
     await evaluate("document.querySelector('[data-open-upload]').click(); true");
+    const width = await evaluate("document.querySelector('#upload-dialog').getBoundingClientRect().width");
+    if (width < 600) throw new Error("Desktop upload dialog is too narrow");
+    await call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:false});
+    if (!(await evaluate("document.querySelector('#upload-dialog').getBoundingClientRect().width <= innerWidth && document.querySelector('#upload-target').textContent.trim() === '选择文件或将文件拖到这里'"))) {
+      throw new Error("Mobile text-only upload target does not fit");
+    }
+    await capture("browser-web-upload-mobile.png");
+    await call("Page.setInterceptFileChooserDialog",{enabled:true});
+    let chooser;
+    const onChooser = event => {
+      const msg=JSON.parse(event.data);
+      if (msg.method === "Page.fileChooserOpened") chooser=msg.params;
+    };
+    socket.addEventListener("message",onChooser);
+    await evaluate("document.querySelector('#upload-file').focus()");
+    await call("Input.dispatchKeyEvent",{type:"keyDown",key:"Enter",code:"Enter",text:"\r",unmodifiedText:"\r",windowsVirtualKeyCode:13});
+    await call("Input.dispatchKeyEvent",{type:"keyUp",key:"Enter",code:"Enter",windowsVirtualKeyCode:13});
+    await eventually(() => chooser?.mode === "selectMultiple");
+    await call("DOM.setFileInputFiles",{backendNodeId:chooser.backendNodeId,files:[]});
+    chooser = undefined;
+    const point = await evaluate("(() => {const r=document.querySelector('#upload-target span').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
+    await call("Input.dispatchMouseEvent",{type:"mousePressed",...point,button:"left",clickCount:1});
+    await call("Input.dispatchMouseEvent",{type:"mouseReleased",...point,button:"left",clickCount:1});
+    await eventually(() => chooser?.mode === "selectMultiple");
+    await call("DOM.setFileInputFiles",{backendNodeId:chooser.backendNodeId,files:[]});
+    socket.removeEventListener("message",onChooser);
+    await call("Page.setInterceptFileChooserDialog",{enabled:false});
+    await call("Emulation.setDeviceMetricsOverride",{width:1440,height:900,deviceScaleFactor:1,mobile:false});
     // Drop inside the modal (the background directory is inert while it is open).
     await evaluate("(() => {const d = new DataTransfer(); for (const name of ['browser-first.txt','browser-second.txt']) d.items.add(new File([name],name));document.querySelector('#upload-target').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:d}));document.querySelector('#upload-form').requestSubmit();return true;})()");
     await eventually(() => evaluate("Array.from(document.querySelectorAll('#upload-list .file-status')).filter(e => e.textContent==='已接收').length===2"));

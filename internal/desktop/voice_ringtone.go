@@ -134,7 +134,7 @@ func (s *ringtoneSession) run(open func(string) (voiceaudio.Playback, error), pr
 }
 
 // Pre-rendered mono 16 kHz signed PCM, padded to complete playback frames.
-// Source and attribution are recorded in THIRD_PARTY_NOTICES.md.
+// The message and incoming-call recordings are converted from the supplied MP3s.
 //
 //go:embed sounds/phone-incoming-call.pcm
 var callMelody []byte
@@ -142,7 +142,20 @@ var callMelody []byte
 //go:embed sounds/message-new-instant.pcm
 var messageChime []byte
 
-// A burst of messages shares one chime. This is called on the desktop thread.
+// Chat attachments use their message's notification rules. Web uploads and
+// transfer-only receives chime once, on an offer or on automatic completion.
+func (r *desktopRuntime) transferNeedsChime(s *domain.State, t domain.Transfer) bool {
+	if t.Direction != "receive" || t.PrintJobID != "" || (t.Status != "offered" && t.Status != "completed") || r.heardTransfers[t.ID] {
+		return false
+	}
+	r.heardTransfers[t.ID] = true
+	if t.ConversationID != "" && (r.seen[t.FileID] || s.Conversation(t.ConversationID).Muted) {
+		return false
+	}
+	return true
+}
+
+// A burst of messages and incoming files shares one chime on the desktop thread.
 func (r *desktopRuntime) playMessageChime(settings domain.Settings) {
 	if last := r.messageSound; last != nil {
 		select {

@@ -30,13 +30,17 @@ func TestIncomingRingtonePlaysOnceAndStopsOnEveryTransition(t *testing.T) {
 			for range 10 {
 				ring.sync(call, settings, devices)
 			}
-			select {
-			case pcm := <-playback.writes:
-				if bytes.Equal(pcm, make([]byte, len(pcm))) {
-					t.Fatal("ringtone is silent")
+			// Real recordings can start with a short silence. Ensure the
+			// playback stream delivers non-silent audio within the first second.
+			deadline := time.After(time.Second)
+			audible := false
+			for !audible {
+				select {
+				case pcm := <-playback.writes:
+					audible = !bytes.Equal(pcm, make([]byte, len(pcm)))
+				case <-deadline:
+					t.Fatal("ringtone did not become audible")
 				}
-			case <-time.After(time.Second):
-				t.Fatal("ringtone did not start")
 			}
 			if opens.Load() != 1 {
 				t.Fatalf("opened %d streams", opens.Load())
@@ -144,5 +148,32 @@ func TestRingtoneKeepsSpeakerBarrierWhenSoundIsDisabledBeforeAnswer(t *testing.T
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("speaker barrier never released")
+	}
+}
+
+func TestIncomingTransferChimeRespectsHistoryAndMutedChats(t *testing.T) {
+	r := desktopRuntime{heardTransfers: map[string]bool{"old": true}, seen: map[string]bool{"chat-file": true}}
+	s := domain.State{Conversations: []domain.Conversation{{ID: "quiet", Muted: true}}}
+	// A print attachment has its own message ID and already uses chat notifications.
+	if r.transferNeedsChime(&s, domain.Transfer{ID: "print-task", PrintJobID: "print-job", Direction: "receive", Status: "completed"}) {
+		t.Fatal("printed attachment played a second notification")
+	}
+	for _, tc := range []struct {
+		id, status, direction, conversation, file string
+		want                                      bool
+	}{
+		{"old", "completed", "receive", "", "", false},
+		{"upload", "offered", "receive", "", "", true},
+		{"upload", "completed", "receive", "", "", false},
+		{"auto", "transferring", "receive", "", "", false},
+		{"auto", "completed", "receive", "", "", true},
+		{"chat", "offered", "receive", "chat", "chat-file", false},
+		{"silent", "offered", "receive", "quiet", "", false},
+		{"out", "completed", "send", "", "", false},
+	} {
+		task := domain.Transfer{ID: tc.id, Status: tc.status, Direction: tc.direction, ConversationID: tc.conversation, FileID: tc.file}
+		if got := r.transferNeedsChime(&s, task); got != tc.want {
+			t.Fatalf("%s %s chime = %t, want %t", tc.id, tc.status, got, tc.want)
+		}
 	}
 }

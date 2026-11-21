@@ -12,7 +12,6 @@
   const limit = Number(form.dataset.limit);
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   let running = 0;
-  form.classList.add('enhanced');
   picker.required = false;
 
   function buttons() {
