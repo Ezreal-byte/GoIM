@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"path"
 
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
@@ -12,23 +13,24 @@ import (
 )
 
 type memberProjectResult struct {
-	page shareclient.Page
-	err  error
+	page     shareclient.Page
+	location string
+	err      error
 }
 type memberProjectView struct {
-	id, address     string
-	version         uint64
-	checked         map[string]bool
-	batchUnlock     bool
-	ctx             context.Context
-	cancel          context.CancelFunc
-	client          *shareclient.Client
-	results         chan memberProjectResult
-	invalidate      func()
-	page            shareclient.Page
-	password        ui.Field
-	busy            bool
-	status, problem string
+	id, address, location string
+	version               uint64
+	checked               map[string]bool
+	batchUnlock           bool
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	client                *shareclient.Client
+	results               chan memberProjectResult
+	invalidate            func()
+	page                  shareclient.Page
+	password              ui.Field
+	busy                  bool
+	status, problem       string
 }
 
 func (p *Panels) closeMemberProject() {
@@ -36,6 +38,15 @@ func (p *Panels) closeMemberProject() {
 	p.shareUnlock = nil
 	p.dismissMemberProject()
 }
+func (p *Panels) backMemberProject() {
+	v := p.memberProject
+	if v.page.ParentURL == "" {
+		p.closeMemberProject()
+	} else {
+		v.list(v.page.ParentURL, "", path.Dir(v.location))
+	}
+}
+
 func (p *Panels) dismissMemberProject() {
 	if v := p.memberProject; v != nil {
 		v.cancel()
@@ -56,7 +67,7 @@ func (p *Panels) openMemberProject(file domain.File) {
 	v.password.Secure = true
 	p.memberProject = v
 	p.shareMenu = shareMenuState{}
-	v.list("", "")
+	v.list("", "", "")
 }
 func (v *memberProjectView) run(status string, work func() memberProjectResult) {
 	if v.busy {
@@ -76,24 +87,24 @@ func (v *memberProjectView) run(status string, work func() memberProjectResult) 
 		}
 	}()
 }
-func (v *memberProjectView) list(ref, password string) {
+func (v *memberProjectView) list(ref, password, location string) {
 	v.run("正在读取共享目录…", func() memberProjectResult {
 		page, err := v.client.List(v.ctx, ref, password)
-		return memberProjectResult{page: page, err: err}
+		return memberProjectResult{page: page, location: location, err: err}
 	})
 }
 func (v *memberProjectView) refresh() {
-	ref, subdir := v.page.Path, v.page.ParentURL != ""
+	ref, location, subdir := v.page.Path, v.location, v.page.ParentURL != ""
 	v.run("正在读取共享目录…", func() memberProjectResult {
 		page, err := v.client.List(v.ctx, ref, "")
 		if err != nil && subdir && v.ctx.Err() == nil {
 			page, err = v.client.List(v.ctx, "", "")
 		}
-		return memberProjectResult{page: page, err: err}
+		return memberProjectResult{page: page, location: location, err: err}
 	})
 }
 
-func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, bounds ui.Rect, file domain.File, submit func(domain.Command)) {
+func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry panelShareEntry, submit func(domain.Command)) {
 	v := p.memberProject
 	select {
 	case result := <-v.results:
@@ -116,6 +127,12 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, bounds ui.Rect, file 
 				v.checked = selected
 			}
 			v.page = result.page
+			v.location = result.location
+			if v.page.ParentURL == "" {
+				v.location = v.page.Title
+			} else if v.page.Current != "" {
+				v.location = path.Join(path.Dir(v.location), v.page.Current)
+			}
 		}
 		if v.batchUnlock && result.err == nil && result.page.Path != "" && !result.page.Locked {
 			p.shareBatch = append(p.shareBatch, v.selection(result.page.Whole()))
@@ -127,48 +144,42 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, bounds ui.Rect, file 
 		}
 	default:
 	}
-	if !v.busy && v.version != file.ShareVersion {
-		v.version = file.ShareVersion
+	if !v.busy && v.version != entry.file.ShareVersion {
+		v.version = entry.file.ShareVersion
 		if v.page.Path != "" {
 			v.refresh()
 		}
 	}
-	pad := panelPageInset(bounds.Width)
-	ui.Column(f).Fill().PadSides(panelPageTop, pad, 18, pad).Gap(10).Children(func() {
-		if ui.Button(f.Part("back-projects"), i18n.T("返回成员共享")).Ghost().Clicked() {
-			p.closeMemberProject()
-			return
-		}
-		title := v.page.Current
-		if title == "" || v.page.ParentURL == "" {
-			title = v.page.Title
-		}
-		if title == "" {
-			title = file.Name
-		}
-		ui.Text(f, title).FontSize(21).Weight(gfx.WeightSemibold).Ellipsis()
-		ui.Divider(f)
+	location := v.location
+	if location == "" {
+		location = entry.title
+	}
+	ui.Column(f.Part("member-folder")).FillWidth().Grow(1).MinHeight(0).PadSides(8, 0, 0, 0).Gap(8).Children(func() {
+		ui.Row(f).FillWidth().Items(ui.Center).Gap(12).Children(func() {
+			if ui.Button(f.Part("back-projects"), i18n.T("返回")).Icon(viewerBackIcon).Ghost().Disabled(v.busy && v.page.ParentURL != "").Clicked() {
+				p.backMemberProject()
+			}
+			ui.Text(f, location).MinWidth(0).Grow(1).TextEnd().Ellipsis().Weight(gfx.WeightMedium).
+				HitWith(p.ids.shareLocation, location, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).Tooltip(location)
+		})
 		if v.problem != "" {
 			ui.Wrap(f, v.problem).Color(theme.Danger)
 		}
 		if v.busy {
 			ui.Text(f, i18n.T(v.status)).Muted()
 		}
+		if !v.busy && v.page.Path == "" && v.problem != "" && ui.Button(f.Part("refresh-project"), i18n.T("刷新")).Outline().Clicked() {
+			v.refresh()
+		}
 		if v.page.Locked {
-			field := ui.TextFieldID(f, p.ids.sharePasswordField, &v.password, i18n.T("分享密码"), i18n.T("输入分享密码")).Width(min(float32(320), bounds.Width-2*pad))
+			field := ui.TextFieldID(f, p.ids.sharePasswordField, &v.password, i18n.T("分享密码"), i18n.T("输入分享密码")).Width(min(float32(320), width))
 			submit := ui.Button(f.Part("unlock-project"), i18n.T("打开共享")).Disabled(v.busy || v.password.Text() == "")
 			if !v.busy && (submit.Clicked() || field.Submitted()) && v.password.Text() != "" {
 				pass := v.password.Text()
 				v.password.SetText("")
-				v.list(v.page.Path, pass)
+				v.list(v.page.Path, pass, v.location)
 			}
 			return
-		}
-		if !v.busy && v.page.Path == "" && v.problem != "" && ui.Button(f.Part("refresh-project"), i18n.T("刷新")).Outline().Clicked() {
-			v.refresh()
-		}
-		if v.page.ParentURL != "" && ui.Button(f.Part("up-project"), i18n.T("返回上一级")).Ghost().Disabled(v.busy).Clicked() {
-			v.list(v.page.ParentURL, "")
 		}
 		if v.page.Path != "" && len(v.page.Items) == 0 && !v.busy {
 			ui.Text(f, i18n.T("这个文件夹是空的")).Muted()
@@ -217,7 +228,7 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, bounds ui.Rect, file 
 					ui.Text(row, e.Name).MinWidth(0).Grow(1).Ellipsis()
 					ui.Text(row, e.Size).Muted().FontSize(12)
 					if e.Folder && ui.Button(row.Part("open"), i18n.T("打开")).Small().Ghost().Disabled(v.busy).Clicked() {
-						v.list(e.URL, "")
+						v.list(e.URL, "", path.Join(location, e.Name))
 					}
 					if ui.Button(row.Part("download"), i18n.T("下载")).Small().Ghost().Disabled(v.busy).Clicked() {
 						p.submitShareBatch([]domain.ShareDownload{v.selection(e)}, submit)

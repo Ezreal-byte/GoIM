@@ -54,7 +54,7 @@ func validateLinuxDialog(root, arch string) error {
 	if err != nil || strings.TrimSpace(string(b)) != arch {
 		return fmt.Errorf("offline dialog runtime architecture must be %s: %q (%v)", arch, b, err)
 	}
-	for _, name := range []string{"bin/zenity", "zenity", "ld.so", "gtk-query-immodules-3.0", "gdk-pixbuf-query-loaders", "packages.tsv"} {
+	for _, name := range []string{"bin/zenity", "zenity", "xclip", "ld.so", "gtk-query-immodules-3.0", "gdk-pixbuf-query-loaders", "packages.tsv"} {
 		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(name)))
 		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
 			return fmt.Errorf("offline dialog runtime missing %s", name)
@@ -67,7 +67,7 @@ func validateLinuxDialog(root, arch string) error {
 	if arch == "arm64" {
 		want = elf.EM_AARCH64
 	}
-	for _, name := range []string{"zenity", "ld.so"} {
+	for _, name := range []string{"zenity", "xclip", "ld.so"} {
 		file, err := elf.Open(filepath.Join(root, name))
 		if err != nil {
 			return fmt.Errorf("dialog runtime %s: %w", name, err)

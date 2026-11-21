@@ -5,7 +5,7 @@ dest=$(mkdir -p "$1" && cd "$1" && pwd)
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 version=3.44.5
 sha256=29ac447f4246b1da783a3c28ddc80b0ef7c80eccd5836ad9140abf89841d0eab
-for tool in curl meson ninja pkg-config ldd dpkg-query readelf glib-compile-schemas update-mime-database gtk-update-icon-cache; do
+for tool in xclip curl meson ninja pkg-config ldd dpkg-query readelf glib-compile-schemas update-mime-database gtk-update-icon-cache; do
     command -v "$tool" >/dev/null || { echo "Missing build tool: $tool (see packaging/linux/README.md)" >&2; exit 1; }
 done
 work=$(mktemp -d)
@@ -62,6 +62,10 @@ copy_closure() {
     done < <(awk '/=> \// {print $3} /^[[:space:]]*\// {print $1}' "$work/ldd.txt")
 }
 copy_closure "$dest/zenity"
+xclip=$(command -v xclip)
+install -m755 "$xclip" "$dest/xclip"
+record_package "$xclip"
+copy_closure "$dest/xclip"
 loader=$(readelf -l "$dest/zenity" | sed -n 's/.*interpreter: \(.*\)]/\1/p')
 test -n "$loader"
 cp -L "$loader" "$dest/ld.so"
@@ -117,7 +121,7 @@ sort -o "$dest/packages.tsv" "$dest/packages.tsv"
 printf '%s\n' "$(dpkg --print-architecture)" > "$dest/architecture"
 cp "$script_dir/README.md" "$dest/README.md"
 # Fail the package build if any runtime ELF still has an unresolved dependency.
-for binary in "$dest/zenity" "$dest/gtk/"*.so "$dest/pixbuf/"*.so; do
+for binary in "$dest/xclip" "$dest/zenity" "$dest/gtk/"*.so "$dest/pixbuf/"*.so; do
     "$dest/ld.so" --library-path "$dest/lib" --list "$binary" > "$work/check.txt"
     if grep -q 'not found' "$work/check.txt"; then cat "$work/check.txt" >&2; exit 1; fi
 done

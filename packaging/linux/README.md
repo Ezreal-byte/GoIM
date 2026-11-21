@@ -2,7 +2,7 @@
 
 Both the tar archive and DEB contain `lib/goim/file-dialog`: Zenity 3.44.5
 (GTK 3, without WebKit or libnotify), its ELF dependency closure, matching
-dynamic loader, GTK input methods, image decoders, schemas, MIME data and icons.
+dynamic loader, an X11 image clipboard helper (xclip), GTK input methods, image decoders, schemas, MIME data and icons.
 The system portal and installed zenity/kdialog are preferred. The private helper
 is the last PATH entry, used when neither system command is installed. No
 package manager or network request is made during installation or use.
@@ -10,7 +10,7 @@ package manager or network request is made during installation or use.
 Build natively on Debian/Ubuntu, for amd64 or arm64, with:
 
 ```sh
-sudo apt-get install build-essential meson ninja-build libgtk-3-dev gsettings-desktop-schemas gettext itstool curl xz-utils
+sudo apt-get install xclip build-essential meson ninja-build libgtk-3-dev gsettings-desktop-schemas gettext itstool curl xz-utils
 bash packaging/linux/build-dialog-runtime.sh /path/to/file-dialog
 ```
 

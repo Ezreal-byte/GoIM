@@ -65,22 +65,26 @@ func measureShareColumns(width float32) shareColumns {
 }
 
 func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.State, submit func(domain.Command)) {
-	if p.memberProject != nil {
-		if entry, ok := p.shareEntry(p.memberProject.id); ok && entry.online && entry.file.MemberURL == p.memberProject.address {
-			p.drawMemberProject(f, theme, bounds, entry.file, submit)
-			return
+	var project panelShareEntry
+	if v := p.memberProject; v != nil {
+		var ok bool
+		project, ok = p.shareEntry(v.id)
+		if !ok || !project.online || project.file.MemberURL != v.address || p.shareFilter != panelSharesRemote {
+			p.closeMemberProject()
 		}
-		p.closeMemberProject()
 	}
 	pad := panelPageInset(bounds.Width)
 	columns := measureShareColumns(bounds.Width - 2*pad)
 	ui.Column(f).Fill().PadSides(panelPageTop, pad, 18, pad).Children(func() {
 		p.drawShareToolbar(f, theme, state.DeviceShare, bounds.Width)
-		p.drawTableSearch(f, theme, p.ids.shareSearch, &p.shareSearch, i18n.T("搜索文件"))
+		if p.memberProject == nil {
+			p.drawTableSearch(f, theme, p.ids.shareSearch, &p.shareSearch, i18n.T("搜索文件"))
+		}
 		ui.Row(f).FillWidth().PadSides(18, 0, 0, 0).Items(ui.Center).Children(func() {
 			if ui.Tabs(f.Part("share-filter"), &p.shareFilter, shareFilters[:],
 				func(filter shareFilter) string { return p.shareLabels[filter] }).Line().
 				FontSize(panelTabFontSize).Changed() {
+				p.closeMemberProject()
 				p.shareSelected = ""
 				clear(p.shareChecked)
 				p.shareMenu = shareMenuState{}
@@ -89,12 +93,17 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 				}
 			}
 			ui.Spacer(f)
-			if p.shareFilter == panelSharesRemote &&
+			if p.shareFilter == panelSharesRemote && p.memberProject == nil &&
 				panelActionIcon(f, theme, p.ids.sharesRefresh, RefreshCw, i18n.T("刷新"), false, false).Clicked() {
 				submit(domain.Command{Kind: domain.RefreshShares})
 			}
 		})
 		ui.Divider(f).FillWidth()
+		if p.memberProject != nil {
+			p.drawMemberProject(f, theme, bounds.Width-2*pad, project, submit)
+			p.drawShareDialogs(f, theme, submit)
+			return
+		}
 		entries := p.sharesMine
 		if p.shareFilter == panelSharesRemote {
 			entries = p.sharesRemote

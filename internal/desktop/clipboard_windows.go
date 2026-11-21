@@ -5,6 +5,7 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"syscall"
 	"unsafe"
 
@@ -65,6 +66,9 @@ func setClipboardPNG(_ string, data []byte) error {
 	}
 	globalUnlock.Call(handle)
 
+	// Windows associates an open clipboard with the calling OS thread.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	if opened, _, callErr := openClipboard.Call(0); opened == 0 {
 		return windowsCallError("open clipboard", callErr)
 	}

@@ -24,6 +24,8 @@ Browser share QR codes are generated with [go-qrcode](https://github.com/skip2/g
 
 Windows and macOS packages include the Shotlet capture SDK helper under Apache-2.0, with SDL (zlib), Dear ImGui (MIT), and nlohmann/json (MIT). The packages include the full license texts and upstream third-party notices under `licenses/shotlet/`. The source revisions are pinned in `packaging/shotlet.cmake`. [Shotlet source](https://github.com/Ezreal-byte/shotlet)
 
+Linux packages also include xclip for X11 image copying. Its distribution license and corresponding source are included with the Linux file dialog runtime and its source archive.
+
 ## FFmpeg video decoder
 
 GoIM runs an independent, offline build of [FFmpeg 8.1.3](https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz) for video playback. FFmpeg is copyright its contributors and this build uses LGPL-2.1-or-later components. The unchanged FFmpeg source archive, license text and build script are distributed in `licenses/ffmpeg` (inside the application resources on macOS). You may rebuild and replace the separate `goim-media` executable.

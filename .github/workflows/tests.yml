@@ -158,6 +158,11 @@ jobs:
       - name: Windows desktop tests
         shell: pwsh
         run: go test ./... -count=1 -timeout=180s
+      - name: Native image clipboard round trip
+        shell: pwsh
+        env:
+          GOIM_CLIPBOARD_TEST: '1'
+        run: go test ./internal/desktop -run '^TestNativeClipboardPNGRoundTrip$' -count=1
       - name: Windows Hello native probe
         shell: pwsh
         env:

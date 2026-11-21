@@ -1,11 +1,15 @@
 package desktop
 
 import (
-	"github.com/vivaui/viva/gfx"
+	"bytes"
+	"image/color"
+	"image/png"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
@@ -60,7 +64,7 @@ func TestDetachedViewerTitlebarSeparatesWindowDragFromControls(t *testing.T) {
 }
 
 func TestDetachedImageSecondaryClickOpensMenuAtPointer(t *testing.T) {
-	u, d, _ := viewerTitlebarDriver(t)
+	u, d, invalidator := viewerTitlebarDriver(t)
 	stage, ok := findSessionHit(d.Snapshot().Hits, u.surface.ids.viewerStage)
 	if !ok {
 		t.Fatal("missing image surface")
@@ -78,6 +82,48 @@ func TestDetachedImageSecondaryClickOpensMenuAtPointer(t *testing.T) {
 	}
 	if _, ok := findSessionHit(d.Snapshot().Hits, u.surface.ids.viewerMenu.actual); !ok {
 		t.Fatal("missing actual size action")
+	}
+	id := u.surface.ids.viewerMenu.copy
+	if hit, ok := findSessionHit(d.Snapshot().Hits, id); !ok || !hit.Disabled {
+		t.Fatal("copy must wait for the full image")
+	}
+	// The thumbnail is one gray pixel. The viewer's full bitmap instead has
+	// two colored pixels and a padded stride.
+	source := gfx.Bitmap{ID: 42, Version: 1, Width: 2, Height: 1, Stride: 12, Pix: []byte{0, 0, 128, 128, 255, 0, 0, 255, 0, 0, 0, 0}}
+	u.surface.viewer.original = source
+	u.surface.viewer.originalPath = u.fileLocalPath[u.surface.viewer.fileID]
+	encoded := make(chan []byte, 1)
+	u.writeClipboardPNG = func(_ string, data []byte) error {
+		encoded <- data
+		return nil
+	}
+	invalidator.Invalidate()
+	if err := d.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	hit, ok := findSessionHit(d.Snapshot().Hits, id)
+	if !ok || hit.Disabled || hit.Label != "复制" {
+		t.Fatalf("full image copy option: %+v", hit)
+	}
+	if err := d.Click(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case data := <-encoded:
+		img, err := png.Decode(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if img.Bounds().Dx() != 2 || img.Bounds().Dy() != 1 ||
+			color.NRGBAModel.Convert(img.At(0, 0)) != (color.NRGBA{R: 255, A: 128}) ||
+			color.NRGBAModel.Convert(img.At(1, 0)) != (color.NRGBA{B: 255, A: 255}) {
+			t.Fatal("clipboard image lost resolution, color, or alpha")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("copy did not write an image")
+	}
+	if u.surface.viewer.menuOpen || source.Pix[0] != 0 {
+		t.Fatal("copy left the menu open or changed the viewer pixels")
 	}
 }
 

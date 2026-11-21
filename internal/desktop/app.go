@@ -456,6 +456,8 @@ type UI struct {
 	presentViewer        func()
 	pinViewer            func(bool) bool
 	saveViewer           func(string)
+	viewerCopying        atomic.Bool
+	writeClipboardPNG    func(string, []byte) error
 	fullscreenViewer     func(bool) bool
 	dismissViewer        func()
 	presentDetached      func(string) bool
@@ -665,6 +667,7 @@ func New(backend domain.Backend) *UI {
 func newUIShell(backend domain.Backend, watch bool) *UI {
 	u := &UI{
 		backend:             backend,
+		writeClipboardPNG:   setClipboardPNG,
 		theme:               ui.LightTheme(),
 		done:                make(chan struct{}),
 		section:             sectionContacts,

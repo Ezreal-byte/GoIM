@@ -29,7 +29,7 @@ func TestLinuxDEBBundlesFileDialogFallback(t *testing.T) {
 			for _, entry := range []string{
 				"GoIM", "goim-snip", "goim-media", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md", "build-info.json",
 				"licenses/fixture.txt", "share/applications/dev.goim.desktop.desktop", "share/polkit-1/actions/dev.goim.desktop.policy",
-				"lib/goim/file-dialog/bin/zenity", "lib/goim/file-dialog/lib/libgtk-3.so.0",
+				"lib/goim/file-dialog/bin/zenity", "lib/goim/file-dialog/xclip", "lib/goim/file-dialog/lib/libgtk-3.so.0",
 			} {
 				path := filepath.Join(output, name, filepath.FromSlash(entry))
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -64,7 +64,7 @@ func TestLinuxDEBBundlesFileDialogFallback(t *testing.T) {
 			if result, err := exec.Command("dpkg-deb", "--extract", archive, extracted).CombinedOutput(); err != nil {
 				t.Fatalf("extract: %v\n%s", err, result)
 			}
-			for _, file := range []string{"bin/zenity", "lib/libgtk-3.so.0", "architecture"} {
+			for _, file := range []string{"bin/zenity", "xclip", "lib/libgtk-3.so.0", "architecture"} {
 				if _, err := os.Stat(filepath.Join(extracted, "usr/lib/goim/file-dialog", file)); err != nil {
 					t.Fatal(err)
 				}

@@ -128,6 +128,7 @@ type panelIDs struct {
 	transferDirectory   gfx.ID
 	transferSearch      gfx.ID
 	shareSearch         gfx.ID
+	shareLocation       gfx.ID
 	transferMenuScope   gfx.ID
 	transferMenuDismiss gfx.ID
 	transferMenuCopy    gfx.ID
@@ -445,6 +446,7 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	shares := tree.Feature("shares-panel")
 	p.ids.sharesFeature = shares
 	p.ids.shareSearch = tree.ID(shares, "search")
+	p.ids.shareLocation = tree.ID(shares, "folder-location")
 	p.ids.sharesRefresh = tree.ID(shares, "refresh")
 	p.ids.sharesAdd = tree.ID(shares, "add")
 	p.ids.sharePickFiles = tree.ID(shares, "pick-files")
@@ -682,8 +684,8 @@ func (p *Panels) TextInput(context app.TextInputContext) *app.TextInput {
 // Config.OnKey and Config.OnShortcut (Shortcut is an alias for convenience).
 // It consumes only shortcut recording and Escape on its own detail pages.
 func (p *Panels) Key(event gfx.KeyEvent) gfx.EventResult {
-	if !event.Release && event.Key == gfx.KeyEscape && p.memberProject != nil {
-		p.closeMemberProject()
+	if !event.Release && event.Key == gfx.KeyEscape && p.memberProject != nil && p.shareMenu.kind == shareMenuClosed && !p.shareModalOpen() {
+		p.backMemberProject()
 		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if event.Release {

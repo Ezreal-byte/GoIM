@@ -4,6 +4,9 @@ package i18n
 // settings layout catalog, keeping the main locale table easy to scan.
 func init() {
 	for label, english := range map[string]string{
+		"返回":         "Back",
+		"找不到图片剪贴板工具": "Image clipboard helper not found",
+
 		"网页接收":         "Web upload",
 		"临时免确认（10 分钟）": "Allow uploads for 10 minutes",
 		"恢复网页接收确认":     "Require upload approval",

@@ -6,7 +6,6 @@ package bundle
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 )
 
 // Configure keeps desktop-provided file dialogs first and enables the bundled
@@ -17,14 +16,11 @@ func Configure() error {
 			return nil
 		}
 	}
-	exe, err := os.Executable()
+	directory, err := LinuxRuntimeBin()
 	if err != nil {
 		return err
 	}
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
-	}
-	if directory := dialogDirectory(exe); directory != "" {
+	if directory != "" {
 		path := os.Getenv("PATH")
 		if path != "" {
 			path += string(os.PathListSeparator)
@@ -32,15 +28,4 @@ func Configure() error {
 		return os.Setenv("PATH", path+directory)
 	}
 	return nil // Development builds can still use the desktop portal.
-}
-
-func dialogDirectory(exe string) string {
-	for _, root := range []string{filepath.Dir(exe), filepath.Join(filepath.Dir(exe), "..")} {
-		dir := filepath.Join(root, "lib", "goim", "file-dialog", "bin")
-		info, err := os.Stat(filepath.Join(dir, "zenity"))
-		if err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 {
-			return dir
-		}
-	}
-	return ""
 }
