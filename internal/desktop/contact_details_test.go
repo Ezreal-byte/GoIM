@@ -55,9 +55,15 @@ func TestContactActionsBelowProfile(t *testing.T) {
 		name   string
 		width  int
 		online bool
-	}{{"wide-online", 1440, true}, {"narrow-offline", 780, false}} {
+		font   int
+	}{
+		{"wide-online", 1440, true, 14},
+		{"narrow-offline", 780, false, 14},
+		{"large-type", 1000, true, domain.InterfaceFontSizeMaximum},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := shellTestState(t)
+			state.Settings.InterfaceFontSize = tc.font
 			peer := &state.Peers[0]
 			peer.Transport, peer.VoiceSupported, peer.Online = domain.TransportGoIM, true, tc.online
 			h := newShellTestHarnessAtSize(t, state, tc.width, 960)
@@ -69,17 +75,16 @@ func TestContactActionsBelowProfile(t *testing.T) {
 				call.Label != "语音通话" || talk.Label != "发消息" || call.Hint != call.Label || talk.Hint != talk.Label {
 				t.Fatalf("unexpected profile actions: call=%+v talk=%+v", call, talk)
 			}
-			if call.Bounds.Width != call.Bounds.Height || talk.Bounds.Width != talk.Bounds.Height ||
-				call.Bounds.Y != talk.Bounds.Y || call.Bounds.X+call.Bounds.Width >= talk.Bounds.X {
-				t.Fatalf("profile actions overlap or are not square: %v %v", call.Bounds, talk.Bounds)
+			if call.Bounds.Y != talk.Bounds.Y || call.Bounds.Right() >= talk.Bounds.X {
+				t.Fatalf("profile actions should sit side by side: %v %v", call.Bounds, talk.Bounds)
+			}
+			if !h.hasText(call.Label) || !h.hasText(talk.Label) {
+				t.Fatal("contact action labels must be visible without hovering")
 			}
 			var deviceBottom float32
 			for _, text := range h.snapshot().Texts {
 				if text.Value == peer.Address {
 					deviceBottom = text.Bounds.Y + text.Bounds.Height
-				}
-				if text.Value == call.Label || text.Value == talk.Label {
-					t.Fatalf("icon button also paints its label %q", text.Value)
 				}
 			}
 			if deviceBottom == 0 || call.Bounds.Y <= deviceBottom {

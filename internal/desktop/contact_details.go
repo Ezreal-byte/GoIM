@@ -111,12 +111,13 @@ func (u *UI) drawContactEmpty(f ui.C) {
 }
 
 func (u *UI) contactPeerActions(f ui.C, peer domain.Peer) {
-	const size = 44
+	height := u.textExtent(40, 16)
 	button := func(id gfx.ID, icon gfx.Icon, label string) ui.Box {
-		return ui.Button(f, label).IconOnly().Icon(icon).Size(size, size).Radius(size/2).
+		return ui.Button(f, label).Icon(icon).MinWidth(124).Height(height).
+			PadX(16).Gap(8).Radius(height/2).
 			HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: label})
 	}
-	ui.Row(f).FillWidth().Justify(ui.Center).Gap(12).Children(func() {
+	ui.Row(f).FillWidth().Justify(ui.Center).PadTop(4).Gap(12).Children(func() {
 		if peer.VoiceSupported && button(u.ids.contactCall, u.iconPhone, i18n.T("语音通话")).
 			Outline().Disabled(!peer.VisibleOnline()).Clicked() {
 			u.startVoiceCall(peer.ID)
