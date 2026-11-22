@@ -430,10 +430,12 @@ func TestImageMessageUsesAspectRatioThumbnailAfterDecode(t *testing.T) {
 		ID: "file-image", Name: "wide-preview.png", Size: 128, MIME: "image/png",
 		SenderID: "peer-a", ConversationID: "conv-group", SourcePath: path,
 	})
-	state.Messages = append(state.Messages, domain.Message{
+	// Keep the entire thumbnail in view. The hit bounds are clipped to the
+	// scroll viewport and measure only the visible slice of an older image.
+	state.Messages = []domain.Message{{
 		ID: "message-image", ConversationID: "conv-group", SenderID: "peer-a",
 		Kind: "image", FileID: "file-image", Text: "图中是接收端", Status: "delivered",
-	})
+	}}
 	harness := newShellTestHarness(t, state)
 	harness.waitFor(func() bool {
 		return bitmapReady(harness.ui.fileBitmap(path))
