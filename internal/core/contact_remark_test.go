@@ -89,6 +89,9 @@ func TestContactRemarkFollowsAuthenticatedIdentity(t *testing.T) {
 				}
 			}
 			connectNodes(t, a, b)
+			eventually(t, "the compatibility alias joins the authenticated contact", func() bool {
+				return a.Snapshot().Peer(alias).CompatibilityAliasOf == peer.ID
+			})
 			want := canonicalRemark
 			if want == "" {
 				want = "兼容备注"
