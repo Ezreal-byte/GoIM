@@ -14,6 +14,7 @@ import (
 	"github.com/vivaui/viva/ui"
 
 	"goim/internal/domain"
+	"goim/internal/shareclient"
 )
 
 func BenchmarkSharePagePaint(b *testing.B) {
@@ -194,8 +195,8 @@ func TestMemberShareVisitRequiresOnlinePeerAndExplicitClick(t *testing.T) {
 		if _, ok := h.driver.LastOpenedURL(); ok {
 			t.Fatal("opening member tab launched a browser")
 		}
-		if protected && (entry.title != "受密码保护的共享" || entry.meta != "Alice") {
-			t.Fatalf("password gate exposed metadata: %q / %q", entry.title, entry.meta)
+		if protected && (entry.title != state.Files[0].Name || entry.meta != "Alice") {
+			t.Fatalf("unexpected protected share listing: %q / %q", entry.title, entry.meta)
 		}
 		if hit, ok := h.findHit(entry.copyID); !ok || hit.Label != "打开共享" || hit.Disabled {
 			t.Fatalf("online member action: %+v", hit)
@@ -222,6 +223,34 @@ func TestMemberShareVisitRequiresOnlinePeerAndExplicitClick(t *testing.T) {
 		if hit, ok := h.findHit(h.panels.ids.shareMenuVisit); !ok || !hit.Disabled {
 			t.Fatalf("offline menu: %+v", hit)
 		}
+	}
+}
+
+func TestMemberSharePasswordFocusAndLayout(t *testing.T) {
+	s := panelTestDefaultState(t)
+	file := domain.File{ID: "project", SenderID: "owner", Name: "迅雷下载", Shared: true, ShareFolder: true, ShareProtected: true, MemberURL: "http://127.0.0.1:1234/m/project"}
+	s.Peers = []domain.Peer{{ID: file.SenderID, Online: true}}
+	s.Files = []domain.File{file}
+	h := panelTestNewHarness(t, panelModuleShares, s)
+	p := h.panels
+	v := &memberProjectView{id: file.ID, address: file.MemberURL, results: make(chan memberProjectResult, 1)}
+	v.password.Secure = true
+	p.memberProject = v
+	v.results <- memberProjectResult{page: shareclient.Page{Path: "/s/project", Locked: true}}
+	h.publish(s)
+	field, ok := h.findHit(p.ids.sharePasswordField)
+	if !ok || !field.Secure || h.driver.Snapshot().Focused != field.ID || !h.hasText(file.Name) {
+		t.Fatal("protected project should show its name and focus the secure password field")
+	}
+	center := field.Bounds.X + field.Bounds.Width/2
+	if delta := center - (h.bounds.X + h.bounds.Width/2); delta < -2 || delta > 2 || field.Bounds.Width <= 320 || field.Bounds.Height < 44 {
+		t.Fatalf("unexpected password input bounds: %+v in %+v", field.Bounds, h.bounds)
+	}
+	if err := h.driver.Type("sample"); err != nil || v.password.Text() != "sample" {
+		t.Fatal("typing without clicking did not reach the password field", err)
+	}
+	if _, visible := h.findHitLabelRole("全选", gfx.RoleButton); visible {
+		t.Fatal("download controls appeared before unlocking")
 	}
 }
 

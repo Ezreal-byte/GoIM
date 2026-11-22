@@ -77,6 +77,9 @@ func panelShareName(file domain.File) string {
 	if strings.TrimSpace(file.Name) != "" {
 		return file.Name
 	}
+	if file.ShareProtected {
+		return i18n.T("受密码保护的共享")
+	}
 	return i18n.T("未命名文件")
 }
 

@@ -106,9 +106,9 @@ func (r *desktopRuntime) saveViewerOriginal() {
 	r.viewerSaving = true
 	defer func() { r.viewerSaving = false }()
 	filename := filepath.Base(path)
-	file := r.ui.state.File(r.ui.surface.viewer.fileID)
+	file := r.ui.viewerFile()
 	// Use the original filename even when the received file was renamed locally.
-	if file.Name != "" && r.ui.fileLocalPath[file.ID] == path {
+	if file.Name != "" && r.ui.viewerPath() == path {
 		filename = filepath.Base(file.Name)
 	}
 	title, problem := "保存原图", "无法保存图片"

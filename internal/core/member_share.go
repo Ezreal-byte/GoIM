@@ -19,6 +19,7 @@ type memberProject struct {
 	Version   uint64 `json:",omitempty"`
 	Entries   int    `json:",omitempty"`
 	Protected bool   `json:",omitempty"`
+	Folder    bool   `json:",omitempty"`
 }
 
 type memberCatalog struct {
@@ -60,9 +61,8 @@ func (n *Node) shareCatalog() envelope {
 		if number == 0 || record.Token == "" {
 			continue
 		}
-		project := memberProject{Key: record.memberKey(), Version: record.Version, Protected: record.Password.set()}
+		project := memberProject{Key: record.memberKey(), Name: f.Name, Version: record.Version, Protected: record.Password.set(), Folder: f.ShareFolder}
 		if !project.Protected {
-			project.Name = f.Name
 			project.Entries = len(record.Entries)
 			for _, entry := range record.Entries {
 				project.Size += entry.Size
@@ -89,7 +89,11 @@ func (p *persisted) updateMemberProjects(peer string, incoming *memberCatalog) {
 			continue
 		}
 		if item.Protected {
-			item = memberProject{Key: item.Key, Version: item.Version, Protected: true}
+			// Older owners send only the key. Keep their password prompt usable.
+			if !validFileName(item.Name) {
+				item.Name = ""
+			}
+			item.Size, item.Entries = 0, 0
 		} else if !validFileName(item.Name) || item.Size < 0 || item.Entries < 0 {
 			continue
 		}
@@ -122,10 +126,7 @@ func (n *Node) attachMemberProjects(s *domain.State) {
 			f := domain.File{
 				ID: "member:" + peer.ID + ":" + project.Key, SenderID: peer.ID, Shared: true,
 				Name: project.Name, Size: project.Size, ShareEntryCount: project.Entries, ShareVersion: project.Version,
-				ShareFolder: !project.Protected, ShareProtected: project.Protected,
-			}
-			if project.Protected {
-				f.Name = "受密码保护的共享"
+				ShareFolder: !project.Protected || project.Folder, ShareProtected: project.Protected,
 			}
 			if base != "" {
 				f.MemberURL = base + project.Key

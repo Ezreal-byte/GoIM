@@ -94,7 +94,7 @@ func (u *UI) drawViewerTitlebar(c *gfx.Canvas, bar, viewport ui.Rect, theme ui.T
 		u.navigateImageViewer(1)
 	}
 	group()
-	if !u.state.File(state.fileID).Video() {
+	if !u.viewerFile().Video() {
 		if button(ids.viewerZoomIn, i18n.T("放大图片"), viewerZoomInIcon, gfx.IconTransform{}, false, false) {
 			u.zoomImageViewer(1.25)
 		}
@@ -125,7 +125,7 @@ func (u *UI) drawViewerTitlebar(c *gfx.Canvas, bar, viewport ui.Rect, theme ui.T
 		}
 	}
 	saveLabel := "保存原图"
-	if u.state.File(state.fileID).Video() {
+	if u.viewerFile().Video() {
 		saveLabel = "视频另存为"
 	}
 	if button(ids.viewerSave, i18n.T(saveLabel), viewerSaveIcon, gfx.IconTransform{}, path == "", false) && u.saveViewer != nil {
@@ -175,7 +175,7 @@ func viewerTitleButton(c *gfx.Canvas, theme ui.Theme, colors palette, bounds ui.
 }
 
 func (u *UI) drawViewerOptions(c *gfx.Canvas, viewport, anchor ui.Rect, theme ui.Theme, ids viewerMenuIDs, state *imageViewerState) {
-	video := u.state.File(state.fileID).Video()
+	video := u.viewerFile().Video()
 	height := float32(172)
 	if video {
 		height = 44
@@ -189,7 +189,7 @@ func (u *UI) drawViewerOptions(c *gfx.Canvas, viewport, anchor ui.Rect, theme ui
 	menu := components.BeginContextMenu(c, theme, bounds, components.ContextMenuOptions{
 		Layer: 83, Scope: ids.scope, DismissID: ids.dismiss, Side: side, Viewport: viewport,
 	})
-	copyReady := !video && bitmapReady(state.original) && state.originalPath == u.fileLocalPath[state.fileID] && state.originalTurn == state.rotation && !u.viewerCopying.Load()
+	copyReady := !video && bitmapReady(state.original) && state.originalPath == u.viewerPath() && state.originalTurn == state.rotation && !u.viewerCopying.Load()
 	if !video {
 		menu.AddItem(components.ContextMenuItem{ID: ids.copy, Label: i18n.T("复制"), Icon: Copy, Disabled: !copyReady})
 		menu.AddItem(components.ContextMenuItem{ID: ids.fit, Label: i18n.T("适应窗口")})
@@ -200,14 +200,14 @@ func (u *UI) drawViewerOptions(c *gfx.Canvas, viewport, anchor ui.Rect, theme ui
 	if video {
 		label = "视频另存为"
 	}
-	menu.AddItem(components.ContextMenuItem{ID: ids.save, Label: i18n.T(label), Disabled: u.fileLocalPath[state.fileID] == "" || u.saveViewer == nil})
+	menu.AddItem(components.ContextMenuItem{ID: ids.save, Label: i18n.T(label), Disabled: u.viewerPath() == "" || u.saveViewer == nil})
 	menu.End()
 	switch {
 	case c.Clicked(ids.copy) && copyReady:
 		u.copyViewerToClipboard(state.original)
 	case c.Clicked(ids.save):
 		if u.saveViewer != nil {
-			u.saveViewer(u.fileLocalPath[state.fileID])
+			u.saveViewer(u.viewerPath())
 		}
 	case c.Clicked(ids.fit):
 		u.fitImageViewer()

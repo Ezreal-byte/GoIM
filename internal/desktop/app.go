@@ -813,6 +813,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.panels.showIncoming = func() { u.setSection(sectionTransfers) }
 	u.panels.settingsExtra.openProfile = u.openProfile
 	u.panels.openUpdates = u.showUpdates
+	u.panels.previewTransfer = u.openTransferMedia
 	u.panels.setMediaSubmit(u.media.submitOne)
 	u.panels.setToast(u.showToast)
 	u.panels.printAvatar = u.paintPrintAvatar
@@ -3291,7 +3292,7 @@ func (u *UI) refreshImages() {
 		}
 	}
 	if viewer := &u.surface.viewer; viewer.open {
-		u.markImage(u.fileLocalPath[viewer.fileID])
+		u.markImage(u.viewerPath())
 	}
 	for path := range u.imageCache {
 		if !u.mediaDesiredImages[path] {

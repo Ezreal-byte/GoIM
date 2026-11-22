@@ -135,7 +135,7 @@ func TestOfflineShareSourceHiddenAndRepairKeepsAccess(t *testing.T) {
 				oldMember = f
 			}
 		}
-		return oldMember.MemberURL != "" && member.Snapshot().File(file.ID).Shared
+		return oldMember.MemberURL != "" && oldMember.Name == folder.Name && oldMember.ShareFolder && member.Snapshot().File(file.ID).Shared
 	})
 	if err := owner.replaceShareSource(file.ID, dir); err == nil {
 		t.Fatal("replaced a live source")
@@ -191,7 +191,7 @@ func TestOfflineShareSourceHiddenAndRepairKeepsAccess(t *testing.T) {
 		private, public := false, false
 		for _, f := range member.Snapshot().Files {
 			if f.Shared && f.MemberURL != "" {
-				private = private || f.ShareProtected && f.ID != oldMember.ID
+				private = private || f.ShareProtected && f.ID != oldMember.ID && f.Name == "replacement.txt" && !f.ShareFolder
 				public = public || f.Name == "moved" && f.ShareFolder
 			}
 		}

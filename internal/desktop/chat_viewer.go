@@ -19,6 +19,7 @@ type imageViewerState struct {
 	open           bool
 	fileID         string
 	conversationID string
+	fromTransfer   bool // images holds only the selected transfer's local file
 
 	pinned        bool
 	menuOpen      bool
@@ -58,7 +59,14 @@ type imageViewerState struct {
 }
 
 func (u *UI) imageViewerOpen() bool {
-	return u.presentViewer == nil && u.surface.viewer.open && !u.lockVisible() && !u.isPanelSection()
+	v := &u.surface.viewer
+	if u.presentViewer != nil || !v.open || u.lockVisible() {
+		return false
+	}
+	if v.fromTransfer {
+		return u.section == sectionTransfers
+	}
+	return !u.isPanelSection() && u.selected != "" && v.conversationID == u.selected
 }
 
 func (u *UI) openImageViewer(fileID string) {
@@ -72,6 +80,30 @@ func (u *UI) openImageViewer(fileID string) {
 	u.openConversationMedia(fileID, u.selected)
 }
 func (u *UI) openConversationMedia(fileID, conversation string) {
+	u.openMediaViewer(imageViewerState{fileID: fileID, conversationID: conversation})
+}
+
+func (u *UI) openTransferMedia(file domain.File) {
+	u.openMediaViewer(imageViewerState{fileID: file.ID, fromTransfer: true, images: []domain.File{file}})
+}
+
+func (u *UI) viewerFile() domain.File {
+	v := &u.surface.viewer
+	if v.fromTransfer {
+		return v.images[0]
+	}
+	return u.state.File(v.fileID)
+}
+
+func (u *UI) viewerPath() string {
+	v := &u.surface.viewer
+	if v.fromTransfer {
+		return v.images[0].SourcePath
+	}
+	return u.fileLocalPath[v.fileID]
+}
+
+func (u *UI) openMediaViewer(view imageViewerState) {
 	if u.lockVisible() {
 		return
 	}
@@ -79,18 +111,11 @@ func (u *UI) openConversationMedia(fileID, conversation string) {
 	u.closeChatPickers()
 	u.moreOpen = false
 	u.memberMenu = ""
-	surface := u.surface
-	surface.viewer = imageViewerState{
-		open:           true,
-		fileID:         fileID,
-		conversationID: conversation,
-		fit:            true,
-		zoom:           1,
-		fitScale:       1,
-	}
-	if u.state.File(fileID).Video() {
+	view.open, view.fit, view.zoom, view.fitScale = true, true, 1, 1
+	u.surface.viewer = view
+	if u.viewerFile().Video() {
 		u.startViewerVideo(0)
-	} else if path := u.fileLocalPath[fileID]; path != "" {
+	} else if path := u.viewerPath(); path != "" {
 		u.ensureImage(path)
 	}
 	u.queueViewerOriginal()
@@ -112,6 +137,7 @@ func (u *UI) closeImageViewer() {
 	surface.viewer.originalGen = 0
 	surface.viewer.fileID = ""
 	surface.viewer.conversationID = ""
+	surface.viewer.fromTransfer = false
 	surface.viewer.images = surface.viewer.images[:0]
 	surface.viewer.imagesConversation = ""
 	if u.dismissViewer != nil {
@@ -120,6 +146,9 @@ func (u *UI) closeImageViewer() {
 }
 
 func (u *UI) viewerImageFiles(state *imageViewerState) []domain.File {
+	if state.fromTransfer {
+		return state.images
+	}
 	if state.imagesConversation == state.conversationID && state.imagesRevision == u.state.Revision {
 		return state.images
 	}
@@ -184,12 +213,12 @@ func (u *UI) selectImageViewerFile(fileID string) {
 	state.panY = 0
 	state.drag = false
 	state.cached = gfx.Bitmap{}
-	if u.state.File(fileID).Video() {
+	if u.viewerFile().Video() {
 		u.startViewerVideo(0)
 		return
 	}
 	u.queueViewerOriginal()
-	if path := u.fileLocalPath[fileID]; path != "" {
+	if path := u.viewerPath(); path != "" {
 		u.ensureImage(path)
 		if bitmap := u.fileBitmap(path); bitmapReady(bitmap) {
 			u.viewerRotatedBitmap(state, bitmap)
@@ -236,7 +265,7 @@ func (u *UI) rotateImageViewer(direction int) {
 	state.panX = 0
 	state.panY = 0
 	u.queueViewerOriginal()
-	if path := u.fileLocalPath[state.fileID]; path != "" {
+	if path := u.viewerPath(); path != "" {
 		if bitmap := u.fileBitmap(path); bitmapReady(bitmap) {
 			u.viewerRotatedBitmap(state, bitmap)
 		}
@@ -255,7 +284,7 @@ func (u *UI) imageViewerKey(event gfx.KeyEvent) gfx.EventResult {
 		}
 		return gfx.EventResult{}
 	}
-	if event.Key == gfx.KeySpace && u.state.File(state.fileID).Video() {
+	if event.Key == gfx.KeySpace && u.viewerFile().Video() {
 		if !event.Repeat {
 			u.toggleViewerVideo()
 		}
@@ -296,14 +325,14 @@ func (u *UI) imageViewerKey(event gfx.KeyEvent) gfx.EventResult {
 	}
 	if event.Modifiers&(gfx.ModifierControl|gfx.ModifierMeta) != 0 && strings.EqualFold(event.Text, "s") && u.saveViewer != nil {
 		if !event.Repeat {
-			u.saveViewer(u.fileLocalPath[state.fileID])
+			u.saveViewer(u.viewerPath())
 		}
 		return gfx.EventResult{Handled: true}
 	}
 	if event.Modifiers&(gfx.ModifierControl|gfx.ModifierMeta|gfx.ModifierAlt) != 0 {
 		return gfx.EventResult{Handled: true}
 	}
-	if u.state.File(state.fileID).Video() {
+	if u.viewerFile().Video() {
 		return gfx.EventResult{}
 	}
 	switch strings.ToLower(event.Text) {
@@ -328,7 +357,7 @@ func (u *UI) imageViewerKey(event gfx.KeyEvent) gfx.EventResult {
 }
 
 func (u *UI) imageViewerWheel(event gfx.ScrollEvent) gfx.EventResult {
-	if !u.surface.viewer.open || u.state.File(u.surface.viewer.fileID).Video() || event.DeltaY == 0 {
+	if !u.surface.viewer.open || u.viewerFile().Video() || event.DeltaY == 0 {
 		return gfx.EventResult{Handled: true}
 	}
 	factor := float32(math.Exp(-float64(event.DeltaY) / 240))
@@ -347,7 +376,7 @@ func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool
 	if !state.open {
 		return
 	}
-	if !detached && (state.conversationID != u.selected || u.selected == "") {
+	if !detached && !u.imageViewerOpen() {
 		u.closeImageViewer()
 		return
 	}
@@ -388,7 +417,7 @@ func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool
 		Width: viewport.Width, Height: max(viewport.Height-top.Height-bottomHeight, 1),
 	}
 	file := files[index]
-	path := u.fileLocalPath[file.ID]
+	path := u.viewerPath()
 	source := u.fileBitmap(path)
 	bitmap := source
 	if detached && state.originalPath == path && state.originalTurn == state.rotation && bitmapReady(state.original) {
@@ -428,6 +457,8 @@ func (u *UI) drawImageViewer(canvas *gfx.Canvas, viewport ui.Rect, detached bool
 		message := i18n.T("正在加载图片…")
 		if path == "" {
 			message = i18n.T("图片尚未保存到本机")
+		} else if _, checked := u.imageStamps[path]; checked {
+			message = i18n.T("无法读取这张图片")
 		}
 		canvas.LabelCenter(message, stage, gfx.TextStyle{
 			Size: u.theme.Metrics.ScaledText(14), Color: muted,

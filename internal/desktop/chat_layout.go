@@ -98,9 +98,6 @@ func (u *UI) drawMainBody(canvas *gfx.Canvas, body ui.Rect) {
 	}
 	u.drawRail(canvas, rail)
 	if u.isPanelSection() {
-		if u.presentViewer == nil && u.surface.viewer.open {
-			u.closeImageViewer()
-		}
 		main := ui.Rect{
 			X: u.railExtent(), Y: body.Y,
 			Width: max(body.Width-u.railExtent(), 0), Height: body.Height,

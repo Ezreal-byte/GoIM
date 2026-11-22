@@ -15,7 +15,7 @@ func (u *UI) startViewerVideo(at time.Duration) {
 	s := &u.surface.viewer
 	s.video.Stop()
 	s.video = nil
-	path := u.fileLocalPath[s.fileID]
+	path := u.viewerPath()
 	s.videoPosition = max(0, at)
 	s.videoError = ""
 	s.videoEnded = false
@@ -66,7 +66,7 @@ func (u *UI) drawViewerVideo(c *gfx.Canvas, stage ui.Rect, theme ui.Theme, muted
 		text := s.videoError
 		if text == "" {
 			text = i18n.T("正在加载视频…")
-			if u.fileLocalPath[s.fileID] == "" {
+			if u.viewerPath() == "" {
 				text = i18n.T("视频尚未保存到本机")
 			}
 		}
@@ -83,7 +83,7 @@ func (u *UI) drawVideoControls(c *gfx.Canvas, stage ui.Rect, theme ui.Theme) {
 	button := func(id gfx.ID, label string, icon gfx.Icon, rotate float32) bool {
 		rect := ui.Rect{X: controlsX, Y: bar.Y + 5, Width: 38, Height: 34}
 		controlsX += 42
-		return viewerTitleButton(c, theme, colors, rect, id, i18n.T(label), icon, gfx.IconTransform{Rotate: rotate}, u.fileLocalPath[s.fileID] == "", false)
+		return viewerTitleButton(c, theme, colors, rect, id, i18n.T(label), icon, gfx.IconTransform{Rotate: rotate}, u.viewerPath() == "", false)
 	}
 	label, icon := "播放视频", Play
 	if s.video != nil && !s.videoEnded {

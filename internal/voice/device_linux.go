@@ -187,7 +187,7 @@ func openALSAStream(id string, stream int32) (*alsaStream, error) {
 	pcmName := append([]byte(name), 0)
 	var pcm uintptr
 	if status := api.open(&pcm, &pcmName[0], stream, 0); status < 0 {
-		purego.Dlclose(library)
+		defer purego.Dlclose(library)
 		return nil, fmt.Errorf("%w: 打开音频设备失败: %s", ErrDevice, alsaError(api, status))
 	}
 	if err := configureALSA(api, pcm); err != nil {
@@ -197,7 +197,7 @@ func openALSAStream(id string, stream int32) (*alsaStream, error) {
 	}
 	if status := api.nonblock(pcm, 1); status < 0 {
 		api.close(pcm)
-		purego.Dlclose(library)
+		defer purego.Dlclose(library)
 		return nil, fmt.Errorf("%w: 音频设备不支持非阻塞模式: %s", ErrDevice, alsaError(api, status))
 	}
 	return &alsaStream{api: api, library: library, pcm: pcm}, nil

@@ -300,6 +300,7 @@ var en = map[string]string{
 	"发送第一条群消息，邀请会在成员确认后生效。": "Send the first message. Invited members join after accepting.",
 	"查看图片 ":        "View image ",
 	"打开图片查看器":      "Open image viewer",
+	"预览":           "Preview",
 	"查看 ":          "View ",
 	" 详情":          " details",
 	"查看文件详情":       "View file details",

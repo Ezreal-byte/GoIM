@@ -107,12 +107,14 @@ func (v *memberProjectView) refresh() {
 
 func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry panelShareEntry, submit func(domain.Command)) {
 	v := p.memberProject
+	refocusPassword := false
 	select {
 	case result := <-v.results:
 		v.busy = false
 		v.status = ""
 		if result.err != nil {
 			v.problem = i18n.T(result.err.Error())
+			refocusPassword = v.page.Locked
 		}
 		if result.page.Path != "" {
 			if result.page.Path != v.page.Path {
@@ -193,27 +195,47 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry 
 				v.refresh()
 			}
 		}
-		if width >= theme.Metrics.ScaledText(700) {
+		if v.page.Locked || entry.file.ShareProtected && v.page.Path == "" {
+			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(header)
+		} else if width >= theme.Metrics.ScaledText(700) {
 			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() { header(); actions() })
 		} else {
 			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(header)
 			ui.Flow(f.Part("project-downloads")).FillWidth().Gap(6).Children(actions)
+		}
+		if v.page.Locked {
+			ui.Column(f).FillWidth().Grow(1).MinHeight(0).Items(ui.Center).Justify(ui.Center).Children(func() {
+				ui.Column(f).FillWidth().MaxWidth(440).Pad(20).Gap(12).Children(func() {
+					ui.Row(f).Gap(8).Items(ui.Center).Children(func() {
+						ui.Icon(f, Lock).Size(20, 20).Color(theme.MutedForeground)
+						ui.Text(f, i18n.T("输入分享密码")).FontSize(textSize(f, 18)).Weight(gfx.WeightSemibold)
+					})
+					field := ui.TextFieldID(f, p.ids.sharePasswordField, &v.password, i18n.T("分享密码"), i18n.T("分享密码")).
+						FillWidth().Height(max(48, textSize(f, 16)+20)).FontSize(textSize(f, 16)).AutoFocus()
+					if refocusPassword {
+						field.RequestFocus()
+					}
+					if v.problem != "" {
+						ui.Wrap(f, v.problem).Color(theme.Danger)
+					}
+					if v.busy {
+						ui.Text(f, i18n.T(v.status)).Muted()
+					}
+					unlock := ui.Button(f.Part("unlock-project"), i18n.T("打开共享")).FillWidth().MinHeight(40).Disabled(v.busy || v.password.Text() == "")
+					if !v.busy && v.password.Text() != "" && (unlock.Clicked() || field.Submitted()) {
+						pass := v.password.Text()
+						v.password.SetText("")
+						v.list(v.page.Path, pass, v.location)
+					}
+				})
+			})
+			return
 		}
 		if v.problem != "" {
 			ui.Wrap(f, v.problem).Color(theme.Danger)
 		}
 		if v.busy {
 			ui.Text(f, i18n.T(v.status)).Muted()
-		}
-		if v.page.Locked {
-			field := ui.TextFieldID(f, p.ids.sharePasswordField, &v.password, i18n.T("分享密码"), i18n.T("输入分享密码")).Width(min(float32(320), width))
-			submit := ui.Button(f.Part("unlock-project"), i18n.T("打开共享")).Disabled(v.busy || v.password.Text() == "")
-			if !v.busy && (submit.Clicked() || field.Submitted()) && v.password.Text() != "" {
-				pass := v.password.Text()
-				v.password.SetText("")
-				v.list(v.page.Path, pass, v.location)
-			}
-			return
 		}
 		if v.page.Path != "" && len(v.page.Items) == 0 && !v.busy {
 			ui.Text(f, i18n.T("这个文件夹是空的")).Muted()

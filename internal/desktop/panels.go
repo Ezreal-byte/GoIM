@@ -222,13 +222,14 @@ type panelTransferEntry struct {
 	fraction                                          float32
 	updated                                           time.Time
 
-	accept bool
-	saveAs bool
-	reject bool
-	cancel bool
-	retry  bool
-	open   bool
-	reveal bool
+	accept  bool
+	saveAs  bool
+	reject  bool
+	cancel  bool
+	retry   bool
+	open    bool
+	preview bool
+	reveal  bool
 }
 
 type panelShareEntry struct {
@@ -303,6 +304,7 @@ type Panels struct {
 	transferMenu       string
 	transferAnchor     ui.Box
 	transferMenuEntry  *panelTransferEntry
+	previewTransfer    func(domain.File)
 	transferPickerOpen bool
 	transferSearch     ui.Field
 	transferRows       []panelTransferEntry
@@ -882,7 +884,7 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domai
 		err:      transfer.Error,
 	}
 	if strings.TrimSpace(entry.name) == "" {
-		entry.name = i18n.T("未命名文件")
+		entry.name = panelShareName(file)
 	}
 	entry.source = i18n.T("聊天")
 	if transfer.FromShare || transfer.Direction == "receive" && file.Shared {
@@ -898,10 +900,13 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domai
 	if transfer.ShareFolder {
 		file.Folder = true
 	}
-	if file.Name == "" {
-		file.Name = transfer.Name
+	file.Name = entry.name
+	if entry.path == "" && transfer.Direction == "send" {
+		entry.path = file.SourcePath
 	}
 	entry.directory = file.Folder
+	entry.preview = !file.Folder && !file.ShareFolder && entry.path != "" &&
+		(transfer.Direction == "send" || transfer.Status == "completed") && (fileIsImage(file) || file.Video())
 	entry.icon = fileTypeIcon(file)
 	direction := i18n.T("发送给 ") + name
 	if transfer.Direction == "receive" {
@@ -949,7 +954,7 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domai
 			entry.retry = !transfer.Revoked && file.Shared && !file.ShareProtected
 		}
 	case "completed":
-		entry.open, entry.reveal = transfer.Path != "", transfer.Path != ""
+		entry.open, entry.reveal = entry.path != "", entry.path != ""
 	}
 	return entry
 }
@@ -1056,9 +1061,6 @@ func (p *Panels) rebuildShares(state domain.State) {
 			path: local.path, available: local.available,
 		}
 		entry.title = panelShareName(file)
-		if !own && file.ShareProtected {
-			entry.title = i18n.T("受密码保护的共享")
-		}
 		entry.kind = i18n.T("文件")
 		entry.label = i18n.T("共享文件 ") + entry.title
 		entry.meta = panelFormatBytes(file.Size)

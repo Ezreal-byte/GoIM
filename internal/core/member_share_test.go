@@ -120,7 +120,7 @@ func TestMemberCatalogDownloadBrowseUnlockAndRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"confidential.txt", "member-secret", "inside.txt"} {
+	for _, secret := range []string{"member-secret", "inside.txt"} {
 		if strings.Contains(string(encoded), secret) {
 			t.Fatalf("catalog disclosed %q", secret)
 		}
@@ -162,7 +162,8 @@ func TestMemberCatalogDownloadBrowseUnlockAndRevoke(t *testing.T) {
 		resolved = resp.Request.URL.String()
 		return string(result)
 	}
-	if native.Name != "public.txt" || native.MemberURL != "" || dir.Name != "shared folder" || dir.ShareEntryCount != 1 || locked.Size != 0 {
+	if native.Name != "public.txt" || native.MemberURL != "" || dir.Name != "shared folder" || dir.ShareEntryCount != 1 ||
+		locked.Name != "confidential.txt" || locked.ShareFolder || locked.Size != 0 {
 		t.Fatal("unexpected member metadata")
 	}
 	if body := get(locked.MemberURL, 200); strings.Contains(body, "confidential.txt") || !strings.Contains(body, "分享密码") {

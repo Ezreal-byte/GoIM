@@ -19,10 +19,10 @@ func (u *UI) queueViewerOriginal() {
 		return
 	}
 	state := &u.surface.viewer
-	if !state.open || u.state.File(state.fileID).Video() {
+	if !state.open || u.viewerFile().Video() {
 		return
 	}
-	path := u.fileLocalPath[state.fileID]
+	path := u.viewerPath()
 	if state.originalPath == path && state.originalTurn == state.rotation {
 		return
 	}

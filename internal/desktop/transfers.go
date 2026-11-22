@@ -38,7 +38,7 @@ func drawPanelPageHeading(f ui.C, width float32, title, description string) {
 }
 
 type transferActionIDs struct {
-	more, accept, saveAs, reject, cancel, retry, open, reveal gfx.ID
+	more, accept, saveAs, reject, cancel, retry, open, reveal, preview gfx.ID
 }
 
 func newTransferActionIDs(tree *gfx.Tree, scope gfx.Scope, entry panelTransferEntry) (ids transferActionIDs) {
@@ -58,6 +58,9 @@ func newTransferActionIDs(tree *gfx.Tree, scope gfx.Scope, entry panelTransferEn
 	}
 	if entry.open {
 		ids.open = tree.ID(scope, "open")
+	}
+	if entry.preview {
+		ids.preview = tree.ID(scope, "preview")
 	}
 	if entry.reveal {
 		ids.reveal = tree.ID(scope, "reveal")
@@ -287,13 +290,17 @@ func panelFilterTransfers(entries []panelTransferEntry, query string) []panelTra
 }
 
 func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, columns panelTableColumns, entry *panelTransferEntry, submit func(domain.Command)) {
-	tooltip := entry.name
+	rowID, hint := entry.ids.more, entry.name
+	if entry.preview {
+		rowID, hint = entry.ids.preview, i18n.T("预览")+" · "+entry.name
+	}
+	tooltip := hint
 	if entry.progress != "" {
 		tooltip += "\n" + entry.progress
 	}
 	row := ui.Row(f).FillWidth().MinHeight(panelTableRowHeight).PadSides(4, 15, 4, 15).Gap(12).Items(ui.Center).Radius(radiusControl).
 		Hover(ui.Look{}.Background(theme.Hover)).
-		HitWith(entry.ids.more, entry.name, gfx.HitOptions{Role: gfx.RoleButton, Hint: entry.name}).
+		HitWith(rowID, entry.name, gfx.HitOptions{Role: gfx.RoleButton, Hint: hint}).
 		Tooltip(tooltip)
 	row.Children(func() {
 		ui.Row(f).Grow(1).MinWidth(0).Gap(11).Items(ui.Center).Children(func() {
@@ -307,7 +314,16 @@ func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, columns panelTableColum
 		drawTransferStatus(f, theme, entry, columns.status)
 		p.drawTransferActions(f, theme, columns, entry, submit)
 	})
+	if entry.preview && row.Clicked() {
+		p.openTransferPreview(entry)
+	}
 	ui.Divider(f).FillWidth()
+}
+
+func (p *Panels) openTransferPreview(entry *panelTransferEntry) {
+	if p.previewTransfer != nil {
+		p.previewTransfer(domain.File{ID: entry.transfer.ID, Name: entry.name, SourcePath: entry.path})
+	}
 }
 
 func drawTransferStatus(f ui.C, theme ui.Theme, entry *panelTransferEntry, width float32) ui.Box {
@@ -337,8 +353,18 @@ func (p *Panels) drawTransferActions(f ui.C, theme ui.Theme, columns panelTableC
 		if entry.retry && namedButton(f, entry.ids.retry, i18n.T("重试")).Small().Outline().Clicked() {
 			submit(domain.Command{Kind: domain.RetryTransfer, TransferID: entry.transfer.ID})
 		}
-		if entry.open && namedButton(f, entry.ids.open, i18n.T("打开")).Small().Outline().Clicked() {
-			p.requestLocalAction(entry.path, false, entry.directory)
+		if entry.open {
+			label := i18n.T("打开")
+			if entry.preview {
+				label = i18n.T("预览")
+			}
+			if namedButton(f, entry.ids.open, label).Small().Outline().Clicked() {
+				if entry.preview {
+					p.openTransferPreview(entry)
+				} else {
+					p.requestLocalAction(entry.path, false, entry.directory)
+				}
+			}
 		}
 		if entry.cancel && panelActionIcon(f, theme, entry.ids.cancel, X, i18n.T("取消传输"), false, false).Clicked() {
 			submit(domain.Command{Kind: domain.CancelTransfer, TransferID: entry.transfer.ID})
