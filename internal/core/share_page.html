@@ -114,7 +114,8 @@ h1 { font-size:clamp(22px,2vw,28px); font-weight:650; line-height:1.23; letter-s
 .dragging .drop-hint { position:absolute; inset:0; z-index:1; display:grid; place-items:center; border:2px dashed var(--accent); background:var(--hover); color:var(--accent); border-radius:6px }
 .upload-success { margin-bottom:16px; color:var(--green) }
 .gate { max-width:400px; margin:clamp(12px,5vh,60px) auto }
-.gate h1,.dialog-title h2 { font-size:24px; line-height:1.35; overflow-wrap:anywhere }
+.gate h1 { font-size:28px; line-height:1.35; text-align:center }
+.dialog-title h2 { font-size:24px; line-height:1.35; overflow-wrap:anywhere }
 .gate p,.upload-help { color:var(--muted); font-size:14px }
 .gate p { margin-top:10px }
 .gate form { margin-top:24px }
@@ -240,7 +241,7 @@ h1 { font-size:clamp(22px,2vw,28px); font-weight:650; line-height:1.23; letter-s
   {{end}}
 {{else if .Locked}}
   <section class="gate" aria-labelledby="unlock-title">
-    <h1 id="unlock-title">输入分享密码</h1>
+    <h1 id="unlock-title">请输入分享密码</h1>
     <p>输入分享人提供的密码即可查看文件。</p>
     <form method="post" action="{{.ReturnURL}}">
       <input id="password" name="password" type="password" aria-label="分享密码" autocomplete="current-password" maxlength="256" placeholder="分享密码" {{if .Error}}aria-invalid="true" aria-describedby="password-error"{{end}} required>

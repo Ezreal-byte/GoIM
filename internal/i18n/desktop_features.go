@@ -97,7 +97,7 @@ func init() {
 		"正在下载…":      "Downloading\u2026",
 		"返回上一级":      "Up one level",
 		"这个文件夹是空的":   "This folder is empty",
-		"输入分享密码":     "Enter the share password",
+		"请输入分享密码":    "Enter the share password",
 		"共享地址无效":     "Invalid share address",
 		"共享地址已失效":    "This share has expired",
 		"无效的共享项目":    "Invalid shared project",

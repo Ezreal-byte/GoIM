@@ -246,6 +246,16 @@ func TestMemberSharePasswordFocusAndLayout(t *testing.T) {
 	if delta := center - (h.bounds.X + h.bounds.Width/2); delta < -2 || delta > 2 || field.Bounds.Width <= 320 || field.Bounds.Height < 44 {
 		t.Fatalf("unexpected password input bounds: %+v in %+v", field.Bounds, h.bounds)
 	}
+	var heading gfx.Text
+	for _, text := range h.driver.Snapshot().Texts {
+		if text.Value == "请输入分享密码" {
+			heading = text
+			break
+		}
+	}
+	if delta := heading.Bounds.X + heading.Bounds.Width/2 - center; delta < -2 || delta > 2 || heading.Style.Size <= 18 {
+		t.Fatalf("expected a prominent heading centered over the password field, got %+v", heading)
+	}
 	if err := h.driver.Type("sample"); err != nil || v.password.Text() != "sample" {
 		t.Fatal("typing without clicking did not reach the password field", err)
 	}

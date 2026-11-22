@@ -206,12 +206,12 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry 
 		if v.page.Locked {
 			ui.Column(f).FillWidth().Grow(1).MinHeight(0).Items(ui.Center).Justify(ui.Center).Children(func() {
 				ui.Column(f).FillWidth().MaxWidth(440).Pad(20).Gap(12).Children(func() {
-					ui.Row(f).Gap(8).Items(ui.Center).Children(func() {
-						ui.Icon(f, Lock).Size(20, 20).Color(theme.MutedForeground)
-						ui.Text(f, i18n.T("输入分享密码")).FontSize(textSize(f, 18)).Weight(gfx.WeightSemibold)
+					ui.Row(f).FillWidth().Justify(ui.Center).Children(func() {
+						ui.Paragraph(f, i18n.T("请输入分享密码"), 2).TextCenter().
+							FontSize(textSize(f, 26)).LineHeight(textSize(f, 34)).Weight(gfx.WeightSemibold)
 					})
 					field := ui.TextFieldID(f, p.ids.sharePasswordField, &v.password, i18n.T("分享密码"), i18n.T("分享密码")).
-						FillWidth().Height(max(48, textSize(f, 16)+20)).FontSize(textSize(f, 16)).AutoFocus()
+						Icon(Lock).FillWidth().Height(max(48, textSize(f, 16)+20)).FontSize(textSize(f, 16)).AutoFocus()
 					if refocusPassword {
 						field.RequestFocus()
 					}
