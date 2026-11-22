@@ -164,6 +164,28 @@ func TestUnreadTrayReminderDismissesUntilAnotherMessage(t *testing.T) {
 		if host.tray.open == nil || !r.flashOn {
 			t.Fatal("a new incoming message did not reactivate hover and flashing")
 		}
+		// Linux StatusNotifier owns hover. Its click and menu activation still
+		// open the interactive panel without changing the selected chat.
+		r.trayPanelHover = false
+		click := app.NewStatusClick(gfx.PointerButtonPrimary)
+		click.PanelDismissed = true
+		if !r.openUnreadTrayFromClick(click) || r.trayPanel != nil {
+			t.Fatal("the click that dismissed the popup reopened it")
+		}
+		click.PanelDismissed = false
+		if !r.openUnreadTrayFromClick(click) || r.trayPanel == nil {
+			t.Fatal("tray activation did not open the Linux fallback panel")
+		}
+		r.closeUnreadTrayPanel()
+		items := r.unreadTrayItems()
+		if len(items) == 0 || items[0].ID != "goim-unread-panel" {
+			t.Fatal("the desktop menu is missing the unread panel action")
+		}
+		items[0].OnSelect()
+		if r.trayPanel == nil {
+			t.Fatal("the desktop menu did not open the unread panel")
+		}
+		r.closeUnreadTrayPanel()
 		return nil
 	}); err != nil {
 		t.Fatal(err)

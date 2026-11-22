@@ -76,11 +76,32 @@ func (r *desktopRuntime) unreadTrayItems() []app.MenuItem {
 	if len(entries) == 0 {
 		return nil
 	}
-	items := make([]app.MenuItem, 0, len(entries)+1)
+	items := make([]app.MenuItem, 0, len(entries)+2)
+	if !r.trayPanelHover && !r.trayReminderPaused {
+		items = append(items, app.MenuItem{ID: "goim-unread-panel", Title: i18n.T("查看未读消息"), OnSelect: func() {
+			r.openUnreadTrayPanel(app.StatusAnchor{}, app.WindowPanel)
+		}})
+	}
 	for _, c := range entries {
 		items = append(items, app.MenuItem{ID: "unread-" + c.id, Title: c.label, OnSelect: func() { r.openUnreadChat(c.id) }})
 	}
 	return append(items, app.MenuItem{Separator: true})
+}
+
+func (r *desktopRuntime) openUnreadTrayFromClick(click app.StatusClick) bool {
+	if click.PanelDismissed {
+		return true
+	}
+	// StatusNotifier owns the Linux tooltip. Its activation is how the same
+	// interactive list can be opened on desktops without an app-owned hover.
+	if !r.trayPanelHover && r.openUnreadTrayPanel(click.Anchor, app.WindowPanel) != nil {
+		return true
+	}
+	if id := r.firstUnreadChat(); id != "" {
+		r.openUnreadChat(id)
+		return true
+	}
+	return false
 }
 
 func trayConversationVisible(c domain.Conversation) bool {

@@ -245,7 +245,7 @@ func (v *printWindowView) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 		return
 	}
 	canvas.Fill(bounds, v.palette.rail)
-	leading, trailing := app.TitlebarInsets()
+	leading, trailing := canvas.TitlebarInsets()
 	v.titlePage.Draw(canvas, bounds, func(f ui.C) {
 		ui.Row(f).Fill().MovesWindow().
 			PadSides(12, trailing+12, 6, leading+10).Items(ui.Center).Gap(9).Children(func() {

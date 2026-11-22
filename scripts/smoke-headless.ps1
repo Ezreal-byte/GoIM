@@ -106,10 +106,18 @@ try {
     do {
         Send-Command $taskBob 'wait 100'
         $taskTrayMenu=Send-Command $taskBob 'statusmenu 1'
-    } until ($taskTrayMenu -match 'path=1 title=.*1 条未读' -or $taskTrayDeadline.Elapsed.TotalSeconds -ge 10)
-    if ($taskTrayMenu -notmatch 'path=1 title=.*1 条未读') { throw 'Unread chat did not appear in the hidden receiver tray' }
-    Send-Command $taskBob 'statusselect 1 1'
-    if ((Send-Command $taskBob 'windows') -notmatch 'hidden=false') { throw 'Tray chat did not restore the receiver' }
+    } until ($taskTrayMenu -match 'path=2 title=.*1 条未读' -or $taskTrayDeadline.Elapsed.TotalSeconds -ge 10)
+    if ($taskTrayMenu -notmatch 'path=2 title="([^"]+1 条未读[^"]+)"') { throw 'Unread chat did not appear in the hidden receiver tray' }
+    $taskTrayRow=$Matches[1]
+    Send-Command $taskBob 'statusclick 1'
+    $taskTrayWindows=Send-Command $taskBob 'windows'
+    if ($taskTrayWindows -notmatch '(?m)^id=(\d+) .*panel=true hidden=false title="未读消息 · GoIM"') {
+        throw 'Activating the tray did not open the unread popup'
+    }
+    Send-Command $taskBob ('window '+$Matches[1])
+    Send-Command $taskBob ('click "button:'+$taskTrayRow+'"')
+    if ((Send-Command $taskBob 'windows') -notmatch '(?m)^id=1 .*hidden=false') { throw 'Tray chat did not restore the receiver' }
+    Send-Command $taskBob 'window 1'
     Send-Command $taskBob 'waitfor "双端真实消息：你好，局域网！" 10000'
     Send-Command $taskBob 'expect text "双端真实消息：你好，局域网！"'
     $taskSamplePath=Join-Path $taskRunDir '真实文件.txt'

@@ -15,7 +15,7 @@ func TestUnreadTrayLinksAndPrivacy(t *testing.T) {
 	s.Conversations[1].Unread = 3
 	s.Peers[0].Remark = "研发同事"
 	h := newShellTestHarness(t, s)
-	r := desktopRuntime{ui: h.ui}
+	r := desktopRuntime{ui: h.ui, trayPanelHover: true}
 	h.ui.section = sectionSettings
 	items := r.unreadTrayItems()
 	if len(items) != 3 || !strings.Contains(items[0].Title, "产品讨论组 · 研发同事") || !strings.Contains(items[1].Title, "研发同事（3 条未读）") {
@@ -55,6 +55,27 @@ func TestUnreadTrayLinksAndPrivacy(t *testing.T) {
 	items[0].OnSelect()
 	if h.ui.selected != "conv-alice" || len(r.unreadTrayItems()) != 0 {
 		t.Fatal("stale tray action bypassed lock")
+	}
+}
+
+func TestChatFileActionCoalescesWhileTheSystemOpenerIsPending(t *testing.T) {
+	h := newShellTestHarness(t, shellTestState(t))
+	var jobs []mediaJob
+	h.ui.panels.mediaSubmit = func(job mediaJob) { jobs = append(jobs, job) }
+	path := "example.pdf"
+	h.ui.openChatFile(path, false)
+	h.ui.openChatFile(path, false)
+	if len(jobs) != 1 || !h.ui.panels.localActionPending(path, false) {
+		t.Fatalf("opening the same file queued %d requests", len(jobs))
+	}
+	h.ui.openChatFile(path, true)
+	if len(jobs) != 2 || !jobs[1].reveal {
+		t.Fatal("revealing the file must remain a separate action")
+	}
+	h.ui.panels.applyMediaActions([]mediaActionResult{{id: jobs[0].actionID, path: path, available: true}})
+	h.ui.openChatFile(path, false)
+	if len(jobs) != 3 || jobs[2].actionID == jobs[0].actionID {
+		t.Fatal("opening the file again after completion must work")
 	}
 }
 

@@ -1000,11 +1000,13 @@ func (u *UI) drawFileActions(f ui.C, file domain.File) {
 	localAvailable := u.fileAvailable[file.ID]
 	ui.Row(f).MinHeight(u.textExtent(36, 16)).Gap(8).Items(ui.Center).Children(func() {
 		if localPath != "" && localAvailable {
-			if namedButton(f, u.ids.fileOpen, i18n.T("打开文件")).Height(u.textExtent(36, 16)).FontSize(textSize(f, 13)).Clicked() {
-				_ = app.OpenPath(localPath)
+			if namedButton(f, u.ids.fileOpen, i18n.T("打开文件")).Height(u.textExtent(36, 16)).FontSize(textSize(f, 13)).
+				Disabled(u.panels.localActionPending(localPath, false)).Clicked() {
+				f.Canvas().AfterPaint(func() { u.openChatFile(localPath, false) })
 			}
-			if namedButton(f, u.ids.fileReveal, i18n.T("打开文件夹")).Height(u.textExtent(36, 16)).FontSize(textSize(f, 13)).Outline().Clicked() {
-				_ = app.RevealPath(localPath)
+			if namedButton(f, u.ids.fileReveal, i18n.T("打开文件夹")).Height(u.textExtent(36, 16)).FontSize(textSize(f, 13)).Outline().
+				Disabled(u.panels.localActionPending(localPath, true)).Clicked() {
+				f.Canvas().AfterPaint(func() { u.openChatFile(localPath, true) })
 			}
 		}
 		if cancellable := u.fileCancelCount(file.ID); cancellable > 1 {
@@ -1013,6 +1015,12 @@ func (u *UI) drawFileActions(f ui.C, file domain.File) {
 				u.requestBatchCancel(file)
 			}
 		}
+	})
+}
+
+func (u *UI) openChatFile(path string, reveal bool) {
+	u.panels.queueLocalAction(mediaJob{path: path, reveal: reveal}, func(message string) {
+		u.showToast(i18n.T("无法打开本地项目"), message, components.ToastError)
 	})
 }
 

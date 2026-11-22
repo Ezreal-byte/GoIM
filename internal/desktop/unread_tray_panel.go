@@ -36,6 +36,10 @@ func newUnreadTrayPanel(shell *UI, entries []unreadTrayChat, onChat func(string)
 }
 
 func (r *desktopRuntime) showUnreadTrayPanel(anchor app.StatusAnchor) *app.Window {
+	return r.openUnreadTrayPanel(anchor, app.WindowNotification)
+}
+
+func (r *desktopRuntime) openUnreadTrayPanel(anchor app.StatusAnchor, mode app.WindowMode) *app.Window {
 	if r.trayReminderPaused {
 		return nil
 	}
@@ -50,6 +54,7 @@ func (r *desktopRuntime) showUnreadTrayPanel(anchor app.StatusAnchor) *app.Windo
 		r.openUnreadChat(id)
 	}, r.dismissUnreadTrayReminder)
 	config := view.config(anchor)
+	config.WindowMode = mode
 	config.OnClosed = func() {
 		view.page.Close()
 		if r.trayPanel == view {

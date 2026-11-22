@@ -232,11 +232,8 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		shell.invalidator.Invalidate()
 		show := func() { r.stopAttention(); window.Show(); shell.SetWindowVisible(true) }
 		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: i18n.T("GoIM · 局域网即时通讯"), Icon: statusIcon, OnClick: func(click app.StatusClick) {
-			if click.Button == gfx.PointerButtonPrimary {
-				if id := r.firstUnreadChat(); id != "" {
-					r.openUnreadChat(id)
-					return
-				}
+			if click.Button == gfx.PointerButtonPrimary && r.openUnreadTrayFromClick(click) {
+				return
 			}
 			show()
 		}, Menu: func() []app.MenuItem {

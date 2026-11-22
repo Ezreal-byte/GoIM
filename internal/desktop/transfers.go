@@ -198,7 +198,7 @@ func (p *Panels) drawTransferHeader(f ui.C, theme ui.Theme, width float32, direc
 			ui.Text(f, label).FontSize(fontSize).Weight(gfx.WeightMedium)
 		})
 		if button.Clicked() {
-			p.queueLocalAction(mediaJob{path: directory, reveal: true, directory: true, ensureDirectory: true})
+			p.queueLocalAction(mediaJob{path: directory, reveal: true, directory: true, ensureDirectory: true}, nil)
 		}
 	})
 }

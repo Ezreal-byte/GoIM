@@ -516,8 +516,6 @@ type UI struct {
 	lockUI         lockUIState
 	focusSearch    bool
 	focusedID      gfx.ID
-	titleLeading   float32
-	titleTrailing  float32
 	mainPinned     bool
 	lastBody       ui.Rect
 	lastChat       ui.Rect
@@ -797,7 +795,6 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.chatFind.field.Bind(u.ensureChatSearchEditor())
 	u.windowVisible.Store(true)
 	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
-	u.titleLeading, u.titleTrailing = app.TitlebarInsets()
 	u.media = newMediaWorker(func() { u.invalidator.Invalidate() })
 	u.voiceAudio = newVoiceAudioRuntime(backend, u.submit, u.invalidator.Invalidate)
 	u.initSystemUnlock()
@@ -1452,6 +1449,7 @@ func (u *UI) isPanelSection() bool {
 }
 
 func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
+	leading, trailing := canvas.TitlebarInsets()
 	if bounds.Height <= 0 {
 		return
 	}
@@ -1460,7 +1458,7 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	var githubClicked bool
 	u.titlePage.Draw(canvas, bounds, func(f ui.C) {
 		ui.Row(f).Fill().MovesWindow().
-			PadSides(0, u.titleTrailing+14, 0, u.titleLeading+20).
+			PadSides(0, trailing+14, 0, leading+20).
 			Items(ui.Center).Children(func() {
 			brand = ui.Slot(f).Size(24, 24)
 			ui.Row(f).Width(9).Height(1)

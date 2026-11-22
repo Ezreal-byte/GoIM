@@ -310,7 +310,7 @@ func (v *historyWindowView) paint(canvas *gfx.Canvas, size ui.Size) {
 		return
 	}
 	title := ui.Rect{Width: size.Width, Height: 44}
-	leading, trailing := app.TitlebarInsets()
+	leading, trailing := canvas.TitlebarInsets()
 	v.titlePage.Draw(canvas, title, func(f ui.C) {
 		ui.Row(f).Fill().MovesWindow().PadSides(8, trailing+16, 8, leading+20).Items(ui.Center).Children(func() {
 			ui.Text(f, v.title).FontSize(textSize(f, 14)).Weight(gfx.WeightMedium).Grow(1).Ellipsis()

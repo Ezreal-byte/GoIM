@@ -207,9 +207,10 @@ type panelLocalFile struct {
 }
 
 type panelLocalAction struct {
-	id     uint64
-	path   string
-	reveal bool
+	id          uint64
+	path        string
+	reveal      bool
+	reportError func(string)
 }
 
 type panelTransferEntry struct {
@@ -671,11 +672,11 @@ func (p *Panels) applyMediaActions(actions []mediaActionResult) {
 			if result.err != "" {
 				message += "：" + result.err
 			}
-			p.reportLocalActionError(message)
+			action.reportError(message)
 			continue
 		}
 		if result.err != "" {
-			p.reportLocalActionError(result.err)
+			action.reportError(result.err)
 		} else {
 			p.localError = ""
 		}
@@ -1442,24 +1443,35 @@ func panelOpenLocal(_ *gfx.Canvas, p *Panels, path string, reveal bool) {
 }
 
 func (p *Panels) requestLocalAction(path string, reveal, directory bool) {
-	p.queueLocalAction(mediaJob{path: path, reveal: reveal, directory: directory})
+	p.queueLocalAction(mediaJob{path: path, reveal: reveal, directory: directory}, nil)
 }
 
-func (p *Panels) queueLocalAction(job mediaJob) {
-	if job.path == "" {
+func (p *Panels) localActionPending(path string, reveal bool) bool {
+	for _, action := range p.localActions {
+		if action.path == path && action.reveal == reveal {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Panels) queueLocalAction(job mediaJob, reportError func(string)) {
+	if job.path == "" || p.localActionPending(job.path, job.reveal) {
+		return
+	}
+	if reportError == nil {
+		reportError = p.reportLocalActionError
+	}
+	if p.mediaSubmit == nil {
+		reportError(i18n.T("本地文件检查服务不可用"))
 		return
 	}
 	p.nextLocalAction++
-	action := panelLocalAction{id: p.nextLocalAction, path: job.path, reveal: job.reveal}
+	action := panelLocalAction{id: p.nextLocalAction, path: job.path, reveal: job.reveal, reportError: reportError}
 	if p.localActions == nil {
 		p.localActions = make(map[uint64]panelLocalAction)
 	}
 	p.localActions[action.id] = action
-	if p.mediaSubmit == nil {
-		delete(p.localActions, action.id)
-		p.reportLocalActionError(i18n.T("本地文件检查服务不可用"))
-		return
-	}
 	job.key = mediaJobKey{kind: mediaJobLocalAction, id: action.id}
 	job.kind, job.actionID = mediaJobLocalAction, action.id
 	p.mediaSubmit(job)

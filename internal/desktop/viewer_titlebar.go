@@ -55,7 +55,7 @@ func (u *UI) drawViewerTitlebar(c *gfx.Canvas, bar, viewport ui.Rect, theme ui.T
 	c.Fill(bar, colors.rail)
 	c.Fill(ui.Rect{X: bar.X, Y: bar.Bottom() - 1, Width: bar.Width, Height: 1}, colors.border)
 
-	leading, trailing := app.TitlebarInsets()
+	leading, trailing := c.TitlebarInsets()
 	if state.fullscreen {
 		leading, trailing = 0, 0
 	}

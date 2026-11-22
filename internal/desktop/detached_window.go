@@ -120,7 +120,7 @@ func (u *UI) drawDetachedTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	}
 	canvas.Fill(bounds, u.palette.rail)
 	canvas.Fill(ui.Rect{X: bounds.X, Y: bounds.Bottom() - 1, Width: bounds.Width, Height: 1}, u.palette.border)
-	leading, trailing := app.TitlebarInsets()
+	leading, trailing := canvas.TitlebarInsets()
 	title := u.conversationTitle(u.state.Conversation(u.selected))
 	if strings.TrimSpace(title) == "" {
 		title = "GoIM"

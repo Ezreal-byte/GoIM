@@ -8,7 +8,7 @@ require (
 	github.com/jezek/xgb v1.1.1
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	github.com/vivaui/viva v0.6.8-0.20261121182224-d5da72e6bd75
+	github.com/vivaui/viva v0.6.8-0.20261122155114-5db1b3c000c9
 	go.etcd.io/bbolt v1.5.0
 	golang.org/x/net v0.63.0
 	golang.org/x/sys v0.50.0
@@ -22,4 +22,4 @@ require (
 )
 
 // Build against the GoIM fork for tray updates and notification placement (Viva PRs #391 and #393).
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261122084309-01c7841a16f2
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261122155452-ba8718471d79
