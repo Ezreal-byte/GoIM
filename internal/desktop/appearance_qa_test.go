@@ -70,6 +70,18 @@ func TestAppearanceScreenshotQA(t *testing.T) {
 	if got != src.RGBAAt(0, 0) {
 		t.Fatalf("wallpaper in the editor = %v, want %v", got, src.RGBAAt(0, 0))
 	}
+	// A full-opacity wallpaper makes a square corner or a missing gutter visible.
+	chrome := img.At(2, 2)
+	left, top := int(shell.railExtent()), int(shell.lastBody.Y)
+	right, bottom := int(shell.lastChat.Right())-1, int(shell.lastChat.Bottom())-1
+	for _, pt := range []image.Point{
+		{2, top - 1}, {2, top}, {left, top}, {right, top}, {left, bottom}, {right, bottom},
+		{img.Bounds().Max.X - 2, (top + bottom) / 2}, {(left + right) / 2, img.Bounds().Max.Y - 2},
+	} {
+		if img.At(pt.X, pt.Y) != chrome {
+			t.Errorf("workspace chrome at %v = %v, want %v", pt, img.At(pt.X, pt.Y), chrome)
+		}
+	}
 	shellQAClick(t, session, shell.ids.navSettings)
 	shellQAClick(t, session, shell.panels.ids.settingsCategories.At(int(panelSettingsGeneral)))
 	shellQAShot(t, session, dir, "appearance-settings.png")

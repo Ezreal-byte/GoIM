@@ -835,7 +835,7 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 
 // Config describes the one native window this shell owns.
 func (u *UI) Config() app.Config {
-	clear := colorToApp(u.palette.sidebar)
+	clear := colorToApp(u.palette.rail)
 	return app.Config{
 		Title:          "GoIM",
 		Width:          1440,
@@ -1377,7 +1377,7 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	u.theme = themeForSettings(u.state.Settings)
 	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
-	canvas.Fill(bounds, u.palette.sidebar)
+	canvas.Fill(bounds, u.palette.rail)
 	u.focusedID = canvas.Focused()
 	u.emojiButton, u.mentionEditor, u.composerBox = ui.Box{}, ui.Box{}, ui.Box{}
 
@@ -1387,7 +1387,7 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	u.lastBody = body
 	u.drawTitlebar(canvas, titlebar)
 	if u.lockVisible() {
-		u.drawLocked(canvas, body)
+		u.drawLocked(canvas, body.Inset(gfx.Insets{Left: workspaceInset, Right: workspaceInset, Bottom: workspaceInset}))
 		u.textSelection.clear()
 		u.drawToasts(canvas, body)
 		u.markSelectedConversationRead()
@@ -1468,7 +1468,6 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	if pin.Clicked() {
 		u.toggleMainPinned()
 	}
-	canvas.Fill(ui.Rect{X: bounds.X, Y: bounds.Y + bounds.Height - 1, Width: bounds.Width, Height: 1}, u.palette.border)
 }
 
 func restoreMainSection(section string) string {
@@ -1568,7 +1567,6 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	if avatarSlot.Clicked() {
 		u.openProfile()
 	}
-	canvas.Fill(ui.Rect{X: bounds.X + bounds.Width - 1, Y: bounds.Y, Width: 1, Height: bounds.Height}, u.palette.border)
 }
 
 func (u *UI) railItem(f ui.C, id gfx.ID, icon gfx.Icon, label string, active bool, height float32) ui.Box {
@@ -1800,10 +1798,10 @@ func (u *UI) selfContactRow(f ui.C) {
 		!containsFold(i18n.T("个人资料"), query) {
 		return
 	}
-	row := ui.Row(f).FillWidth().Height(u.textExtent(sidebarSelfHeight, 30)).PadSides(8, 7, 8, 7).Radius(radiusControl).Gap(9).
-		Hover(ui.Look{}.Background(u.palette.hover)).
+	selected := u.contactPeer == self.ID
+	row := u.sidebarRow(f, selected).Height(u.textExtent(sidebarSelfHeight, 30)).PadSides(8, 7, 8, 7).
 		HitWith(u.ids.selfRow, name+i18n.T("，个人资料"),
-			gfx.HitOptions{Role: gfx.RoleButton, Hint: i18n.T("编辑个人资料")}).
+			gfx.HitOptions{Role: gfx.RoleButton, Selected: selected, Hint: i18n.T("编辑个人资料")}).
 		Children(func() {
 			u.avatarStatus(f, name, u.selfAvatarPath(), 34, true)
 			ui.Column(f).Grow(1).Basis(0).MinWidth(0).Gap(2).Justify(ui.Center).Children(func() {
@@ -1986,15 +1984,18 @@ func (u *UI) contactGroupHeader(f ui.C, group contactGroupView, collapsed bool) 
 	}
 }
 
+func (u *UI) sidebarRow(f ui.C, selected bool) ui.Box {
+	row := ui.Row(f).FillWidth().Radius(radiusCard).Gap(9)
+	if selected {
+		return row.Background(u.palette.selected).Hover(ui.Look{}.Background(u.palette.selected))
+	}
+	return row.Hover(ui.Look{}.Background(u.palette.hover))
+}
+
 func (u *UI) contactRow(f ui.C, peer domain.Peer) {
 	id := u.peerRowIDs[peer.ID]
 	selected := u.contactPeer == peer.ID
-	background := ui.Color{}
-	if selected {
-		background = u.palette.selected
-	}
-	row := ui.Row(f).FillWidth().Height(u.textExtent(sidebarContactHeight, 30)).PadSides(8, 7, 8, 7).Radius(radiusCard).Gap(9).
-		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
+	row := u.sidebarRow(f, selected).Height(u.textExtent(sidebarContactHeight, 30)).PadSides(8, 7, 8, 7).
 		HitWith(id, peer.DisplayName(), gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
 			u.avatarStatus(f, peer.Name, peer.Avatar, 34, peer.VisibleOnline())
@@ -2070,13 +2071,8 @@ func (u *UI) drawConversationList(f ui.C) {
 func (u *UI) conversationRow(f ui.C, conversation domain.Conversation) {
 	id := u.convRowIDs[conversation.ID]
 	selected := conversation.ID == u.selected
-	background := ui.Color{}
-	if selected {
-		background = u.palette.selected
-	}
 	card := u.conversationCard(conversation)
-	row := ui.Row(f).FillWidth().Height(u.textExtent(sidebarConversationHeight, 30)).PadSides(8, 7, 8, 7).Radius(radiusCard).Gap(9).
-		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
+	row := u.sidebarRow(f, selected).Height(u.textExtent(sidebarConversationHeight, 30)).PadSides(8, 7, 8, 7).
 		HitWith(id, card.title, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
 			u.conversationCardBody(f, card)
@@ -3609,19 +3605,19 @@ func paletteFor(theme ui.Theme, scheme string) palette {
 	dark := theme.Background.Red < 0.5
 	if dark {
 		return palette{
-			rail:          theme.Background,
+			rail:          ui.RGB(24, 29, 36),
 			sidebar:       theme.Background,
-			chat:          theme.Background,
+			chat:          ui.RGB(40, 47, 56),
 			header:        theme.Background,
 			border:        ui.RGBA(255, 255, 255, 0.09),
 			hover:         theme.Hover,
-			selected:      ui.RGB(25, 47, 88),
+			selected:      ui.RGB(44, 66, 98),
 			selectedText:  ui.RGB(152, 195, 255),
 			icon:          ui.RGB(205, 210, 220),
 			secondaryText: theme.MutedForeground,
 			mutedAvatar:   theme.CardElevated,
 			avatarText:    ui.RGB(225, 231, 241),
-			incoming:      theme.CardElevated,
+			incoming:      ui.RGB(53, 62, 73),
 			own:           ui.RGB(35, 56, 82),
 			bubbleBorder:  ui.RGBA(255, 255, 255, 0.06),
 			fileCard:      ui.RGB(42, 50, 63),
@@ -3632,19 +3628,19 @@ func paletteFor(theme ui.Theme, scheme string) palette {
 		}
 	}
 	return palette{
-		rail:          ui.RGB(253, 253, 255),
-		sidebar:       ui.RGB(251, 252, 254),
-		chat:          ui.RGB(249, 251, 254),
+		rail:          ui.RGB(227, 233, 241),
+		sidebar:       ui.RGB(240, 243, 248),
+		chat:          ui.RGB(251, 252, 254),
 		header:        ui.RGB(251, 252, 254),
 		border:        ui.RGB(231, 235, 241),
-		hover:         ui.RGB(246, 248, 252),
-		selected:      ui.RGB(229, 239, 255),
+		hover:         ui.RGB(231, 236, 244),
+		selected:      ui.RGB(215, 230, 253),
 		selectedText:  ui.RGB(31, 80, 191),
 		icon:          ui.RGB(78, 86, 100),
-		secondaryText: ui.RGB(117, 125, 139),
+		secondaryText: ui.RGB(96, 107, 124),
 		mutedAvatar:   ui.RGB(233, 238, 246),
 		avatarText:    ui.RGB(60, 72, 92),
-		incoming:      ui.RGB(244, 247, 251),
+		incoming:      ui.RGB(237, 241, 247),
 		own:           ui.RGB(229, 239, 255),
 		bubbleBorder:  ui.RGBA(30, 64, 120, 0.05),
 		fileCard:      ui.RGB(242, 247, 255),

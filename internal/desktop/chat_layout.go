@@ -8,6 +8,7 @@ import (
 )
 
 const (
+	workspaceInset           = float32(6)
 	chatSidebarMinWidth      = float32(240)
 	chatSidebarMaxWidth      = float32(420)
 	chatWorkspaceMinWidth    = float32(620)
@@ -97,24 +98,31 @@ func (u *UI) drawMainBody(canvas *gfx.Canvas, body ui.Rect) {
 		Width: min(u.railExtent(), body.Width), Height: body.Height,
 	}
 	u.drawRail(canvas, rail)
-	if u.isPanelSection() {
-		main := ui.Rect{
-			X: u.railExtent(), Y: body.Y,
-			Width: max(body.Width-u.railExtent(), 0), Height: body.Height,
-		}
-		u.panels.Draw(canvas, u.theme, main, u.section, u.state, u.submit)
+	workspace := body.Inset(gfx.Insets{Left: rail.Width, Right: workspaceInset, Bottom: workspaceInset})
+	if workspace.Width == 0 || workspace.Height == 0 {
 		return
 	}
-	u.drawChatWorkspace(canvas, body)
+	if u.isPanelSection() {
+		u.panels.Draw(canvas, u.theme, workspace, u.section, u.state, u.submit)
+	} else {
+		u.drawChatWorkspace(canvas, workspace)
+	}
+
+	// The inner contour frames every pane, including chat wallpaper on layer 1.
+	// Popups and full-window modal scrims use their own higher layers.
+	canvas.PushLayer(2)
+	canvas.Clip(workspace)
+	frame := workspace.Inset(gfx.All(-workspaceInset))
+	canvas.RoundedOutline(frame, radiusCard+workspaceInset, workspaceInset, u.palette.rail)
+	canvas.RoundedOutline(workspace, radiusCard, 1, u.theme.Foreground.WithAlpha(.07))
+	canvas.Unclip()
+	canvas.PopLayer()
 }
 
-func (u *UI) drawChatWorkspace(canvas *gfx.Canvas, body ui.Rect) {
+func (u *UI) drawChatWorkspace(canvas *gfx.Canvas, workspace ui.Rect) {
 	surface := u.surface
 	surface.clampSidebar()
-	workspace := ui.Rect{
-		X: min(u.railExtent(), body.Width), Y: body.Y,
-		Width: max(body.Width-u.railExtent(), 0), Height: body.Height,
-	}
+	canvas.Fill(workspace, u.palette.sidebar)
 	var sidebar, chat ui.Box
 	surface.workspace.Draw(canvas, workspace, func(f ui.C) {
 		ui.Row(f).Fill().Children(func() {

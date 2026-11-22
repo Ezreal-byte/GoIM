@@ -96,7 +96,7 @@ func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {
 		s.cancel = u.tree.ID(s.scope, "cancel")
 		s.systemButton = u.tree.ID(s.scope, "system-verify")
 	}
-	canvas.Fill(bounds, u.palette.chat)
+	canvas.Rounded(bounds, radiusCard, u.palette.chat)
 	width := min(454, max(0, bounds.Width-28))
 	height := min(350, max(0, bounds.Height-28))
 	if s.setup {

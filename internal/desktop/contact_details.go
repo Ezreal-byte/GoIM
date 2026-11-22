@@ -31,12 +31,7 @@ func (u *UI) contactGroupRow(f ui.C, c domain.Conversation) {
 		return
 	}
 	selected := u.contactGroup == group.ID
-	background := ui.Color{}
-	if selected {
-		background = u.palette.selected
-	}
-	row := ui.Row(f).FillWidth().Height(u.textExtent(sidebarGroupHeight, 30)).PadX(8).Radius(radiusControl).Gap(9).Items(ui.Center).
-		Background(background).Hover(ui.Look{}.Background(u.palette.hover)).
+	row := u.sidebarRow(f, selected).Height(u.textExtent(sidebarGroupHeight, 30)).PadX(8).Items(ui.Center).
 		HitWith(u.convRowIDs[c.ID], group.Name, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected}).
 		Children(func() {
 			u.avatarWithPresence(f, group.Name, group.Avatar, 34, false, false, ui.Color{})

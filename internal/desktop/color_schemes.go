@@ -59,12 +59,18 @@ func (c schemeTones) apply(t *ui.Theme) {
 }
 
 func colorSchemePalette(t ui.Theme) palette {
+	rail := t.Background.Mix(t.Foreground, .09)
+	incoming := t.Card
+	if t.Background.Red < .5 {
+		rail = t.Background.Mix(ui.RGB(0, 0, 0), .2)
+		incoming = t.CardElevated
+	}
 	return palette{
-		rail: t.Background, sidebar: t.Card, chat: t.Background, header: t.Card,
+		rail: rail, sidebar: t.Background, chat: t.Background.Mix(t.Card, .72), header: t.Card,
 		border: t.Border, hover: t.Hover, selected: t.Selection, selectedText: t.Primary,
 		icon: t.MutedForeground, secondaryText: t.MutedForeground,
 		mutedAvatar: t.CardElevated, avatarText: t.Foreground,
-		incoming: t.Card, own: t.Selection, bubbleBorder: t.Foreground.WithAlpha(.09),
+		incoming: incoming, own: t.Selection, bubbleBorder: t.Foreground.WithAlpha(.09),
 		fileCard: t.CardElevated, fileBorder: t.Border, invite: t.Popover,
 		success: t.Success, danger: t.Danger,
 	}

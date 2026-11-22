@@ -56,14 +56,14 @@ const (
 	panelSettingsControlH   = float32(38)
 )
 
-func (p *Panels) drawSettings(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) ui.Box {
+func (p *Panels) drawSettings(f ui.C, theme ui.Theme, sidebar ui.Color, state domain.State, submit func(domain.Command)) ui.Box {
 	available := f.Bounds().Width - panelSettingsWidth - 1 - 32 - 32
 	p.settingsWidth = min(max(available, 0), panelSettingsContentMax)
 	p.settingsNarrow = p.settingsWidth > 0 && p.settingsWidth < panelSettingsNarrowAt
 	contentTheme := theme.WithControlHeight(panelSettingsControlH)
 	var scroll ui.Box
 	ui.Row(f).Fill().Children(func() {
-		p.drawSettingsCategories(f, theme, state)
+		p.drawSettingsCategories(f, theme, sidebar, state)
 		ui.Divider(f).FillHeight()
 		ui.Column(f).Grow(1).FillHeight().PadSides(24, 32, 10, 32).
 			Items(ui.Center).Children(func() {
@@ -151,8 +151,8 @@ func (p *Panels) settingsControl(f ui.C, width float32, body func()) {
 	ui.Column(f).Width(width).Shrink(0).Items(ui.End).Justify(ui.Center).Children(body)
 }
 
-func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme, state domain.State) {
-	ui.Column(f).Width(panelSettingsWidth).FillHeight().PadSides(22, 20, 14, 20).Gap(3).Children(func() {
+func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme, sidebar ui.Color, state domain.State) {
+	ui.Column(f).Width(panelSettingsWidth).FillHeight().Background(sidebar).PadSides(22, 20, 14, 20).Gap(3).Children(func() {
 		ui.Text(f, i18n.T("设置")).FontSize(textSize(f, 26)).Weight(gfx.WeightSemibold)
 		field := ui.TextFieldID(f, p.ids.settingsSearch, &p.search.field, i18n.T("搜索设置"), i18n.T("搜索设置")).FillWidth().Height(34).Icon(Search)
 		p.search.update(state)

@@ -130,7 +130,7 @@ func chatSurfaceConfig(shell *UI) app.Config {
 		shell.theme = themeForName(shell.state.Settings.Theme)
 		shell.palette = paletteFor(shell.theme, shell.state.Settings.ColorScheme)
 		bounds := ui.Rect{Width: size.Width, Height: size.Height}
-		canvas.Fill(bounds, shell.palette.sidebar)
+		canvas.Fill(bounds, shell.palette.rail)
 		shell.focusedID = canvas.Focused()
 		title := min(titlebarHeight, bounds.Height)
 		body := ui.Rect{
@@ -354,7 +354,11 @@ func TestChatHistorySplitterKeepsBothPanesUsable(t *testing.T) {
 	}
 
 	harness.dragLabel("调整聊天记录和输入框高度", 0, 10000)
-	maxHistory := float32(960-titlebarHeight) - chatHeaderExtent - chatSplitterExtent - chatComposerMinHeight
+	chat := harness.ui.lastChat
+	if chat.Y != titlebarHeight || chat.Bottom() != 960-workspaceInset || chat.Right() != 1440-workspaceInset {
+		t.Fatalf("chat bounds do not respect the title bar and workspace insets: %+v", chat)
+	}
+	maxHistory := chat.Height - chatHeaderExtent - chatSplitterExtent - chatComposerMinHeight
 	if surface.history.Pos != maxHistory {
 		t.Fatalf("history pane maximum is %.1f, want %.0f", surface.history.Pos, maxHistory)
 	}
