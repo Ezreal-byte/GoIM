@@ -32,6 +32,10 @@ case "$platform" in
         test -x "$payload/lib/goim/file-dialog/bin/zenity"
         [[ $(cat "$payload/lib/goim/file-dialog/architecture") == "$arch" ]]
         cp -R "$payload/lib" "$root/usr/"
+        update_key=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["update_public_key"])' "$payload/build-info.json")
+        (cd "$script_dir/.." && GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X goim/internal/buildinfo.UpdatePublicKey=$update_key" \
+            -o "$root/usr/lib/goim/deb-update" ./cmd/goim-deb-update)
         cp -R "$payload/share/." "$root/usr/share/"
         cp -R "$payload/licenses" "$doc/"
         install -m 644 "$payload/LICENSE" "$doc/copyright"
@@ -64,12 +68,21 @@ EOF
         cmp "$payload/GoIM" "$work/check/usr/bin/GoIM"
         cmp "$payload/goim-media" "$work/check/usr/bin/goim-media"
         cmp "$payload/goim-snip" "$work/check/usr/bin/goim-snip"
+        test -x "$work/check/usr/lib/goim/deb-update"
         diff -r "$payload/lib/goim/file-dialog" "$work/check/usr/lib/goim/file-dialog"
         test -x "$work/check/usr/lib/goim/file-dialog/bin/zenity"
         test -f "$work/check/usr/share/applications/dev.goim.desktop.desktop"
         test -f "$work/check/usr/share/polkit-1/actions/dev.goim.desktop.policy"
         ;;
     darwin)
+        # Check the archive the online updater actually downloads, including
+        # the signatures of the nested helpers after ZIP extraction.
+        mkdir "$work/online"
+        unzip -q "$output/$name.zip" -d "$work/online"
+        online="$work/online/GoIM.app"
+        codesign --verify --deep --strict "$online"
+        [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$online/Contents/Info.plist") == dev.goim.desktop ]]
+        [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$online/Contents/Info.plist") == "$version" ]]
         mkdir "$work/image" "$work/mount"
         ditto "$payload/GoIM.app" "$work/image/GoIM.app"
         cp "$payload/README.md" "$payload/LICENSE" "$payload/THIRD_PARTY_NOTICES.md" "$payload/build-info.json" "$work/image/"

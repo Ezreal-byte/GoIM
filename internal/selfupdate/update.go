@@ -21,6 +21,7 @@ import (
 
 	"github.com/vivaui/viva/update"
 	"goim/internal/buildinfo"
+	"goim/internal/debupdate"
 )
 
 const (
@@ -52,6 +53,7 @@ const (
 	MacDownload
 	LinuxDeb
 	LinuxTar
+	linuxDebManual
 )
 
 type Target struct {
@@ -59,7 +61,7 @@ type Target struct {
 	Kind     Kind
 }
 
-func (t Target) automatic() bool {
+func (t Target) usesVivaInstaller() bool {
 	return t.OS == "windows" && t.Kind == WindowsSetup || t.OS == "darwin" && t.Kind == MacApp
 }
 
@@ -87,7 +89,7 @@ func (t Target) downloadSuffix() string {
 		return ".zip"
 	case MacApp, MacDownload:
 		return ".dmg"
-	case LinuxDeb:
+	case LinuxDeb, linuxDebManual:
 		return ".deb"
 	case LinuxTar:
 		return ".tar.gz"
@@ -104,6 +106,7 @@ type Offer struct {
 	// FeedUnavailable means the release was found but the signed feed could not be reached.
 	FeedUnavailable bool
 	asset           update.Asset
+	deb             *debupdate.Package
 }
 
 func manualOffer(version string, target Target) Offer {
@@ -120,7 +123,7 @@ func selectOffer(feed *update.Feed, target Target) (Offer, error) {
 		return Offer{}, fmt.Errorf("%w: release is not a stable GoIM version", update.ErrManifest)
 	}
 	offer := manualOffer(version, target)
-	if !target.automatic() {
+	if !target.usesVivaInstaller() {
 		return offer, nil
 	}
 	format, suffix := update.FormatZIP, ".zip"
@@ -269,6 +272,9 @@ func (c *Client) ReleaseNotes(ctx context.Context, offer Offer) (string, error) 
 }
 
 func (c *Client) Download(ctx context.Context, offer Offer, progress func(done, total int64)) (string, error) {
+	if offer.Automatic && offer.deb != nil {
+		return c.downloadDeb(ctx, *offer.deb, progress)
+	}
 	if !offer.Automatic || offer.asset.URL == "" {
 		return "", update.ErrManagedExternally
 	}
@@ -293,9 +299,13 @@ func (c *Client) Install(offer Offer, artifact string, args []string, quit func(
 	if err := os.WriteFile(pending, []byte(offer.Version), 0600); err != nil {
 		return err
 	}
-	err = update.Install(update.InstallOptions{
-		Artifact: artifact, Asset: offer.asset, Version: offer.Version, App: AppID, Args: args,
-	}, quit)
+	if c.target.Kind == LinuxDeb && offer.deb != nil {
+		err = installDeb(*offer.deb, artifact, args, quit)
+	} else {
+		err = update.Install(update.InstallOptions{
+			Artifact: artifact, Asset: offer.asset, Version: offer.Version, App: AppID, Args: args,
+		}, quit)
+	}
 	if err != nil {
 		_ = os.Remove(pending)
 	}

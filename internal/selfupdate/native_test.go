@@ -154,7 +154,7 @@ func TestNativeUpgradeChild(t *testing.T) {
 		fail(fmt.Errorf("screenshot companion does not match %s", version))
 	}
 	target := Target{OS: runtime.GOOS, Arch: runtime.GOARCH, Kind: detectInstall(exe)}
-	if !target.automatic() {
+	if !target.usesVivaInstaller() {
 		fail(fmt.Errorf("native fixture installation type %d is not eligible", target.Kind))
 	}
 	transport := transportFunc(func(req *http.Request) (*http.Response, error) {

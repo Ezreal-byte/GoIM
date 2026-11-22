@@ -64,7 +64,12 @@ func (c *Client) Check(ctx context.Context) (Offer, error) {
 	if feed == nil {
 		return Offer{}, nil
 	}
-	return selectOffer(feed, c.target)
+	offer, err := selectOffer(feed, c.target)
+	if err == nil && c.target.OS == "linux" && c.target.Kind == LinuxDeb &&
+		(c.target.Arch == "amd64" || c.target.Arch == "arm64") {
+		return c.debOffer(ctx, offer)
+	}
+	return offer, err
 }
 
 func verificationFailed(err error) bool {

@@ -14,4 +14,16 @@
       <allow_active>auth_self</allow_active>
     </defaults>
   </action>
+  <action id="dev.goim.desktop.install-update">
+    <description>Install a GoIM update</description>
+    <description xml:lang="zh_CN">安装 GoIM 更新</description>
+    <message>Administrator authentication is required to install the signed GoIM update.</message>
+    <message xml:lang="zh_CN">安装已签名的 GoIM 更新需要管理员授权。</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/goim/deb-update</annotate>
+  </action>
 </policyconfig>

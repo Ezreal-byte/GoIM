@@ -1,6 +1,7 @@
 package main
 
 import (
+	"debug/elf"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,6 +40,9 @@ func TestLinuxDEBBundlesFileDialogFallback(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if err := os.WriteFile(filepath.Join(output, name, "build-info.json"), []byte(`{"update_public_key":""}`), 0644); err != nil {
+				t.Fatal(err)
+			}
 			if err := os.WriteFile(filepath.Join(output, name, "lib/goim/file-dialog/architecture"), []byte(architecture), 0644); err != nil {
 				t.Fatal(err)
 			}
@@ -63,6 +67,14 @@ func TestLinuxDEBBundlesFileDialogFallback(t *testing.T) {
 			extracted := filepath.Join(t.TempDir(), "extract")
 			if result, err := exec.Command("dpkg-deb", "--extract", archive, extracted).CombinedOutput(); err != nil {
 				t.Fatalf("extract: %v\n%s", err, result)
+			}
+			helper, err := elf.Open(filepath.Join(extracted, "usr/lib/goim/deb-update"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer helper.Close()
+			if want := map[string]elf.Machine{"amd64": elf.EM_X86_64, "arm64": elf.EM_AARCH64}[architecture]; helper.Machine != want {
+				t.Fatalf("DEB helper architecture %v, want %v", helper.Machine, want)
 			}
 			for _, file := range []string{"bin/zenity", "xclip", "lib/libgtk-3.so.0", "architecture"} {
 				if _, err := os.Stat(filepath.Join(extracted, "usr/lib/goim/file-dialog", file)); err != nil {

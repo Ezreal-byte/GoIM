@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/update"
+	"goim/internal/debupdate"
 	"goim/internal/selfupdate"
 )
 
@@ -71,6 +72,27 @@ func signFeed(root, tag, public, secret string, at time.Time) error {
 			}
 			feed.Latest.Assets = append(feed.Latest.Assets, update.Asset{OS: item.os, Arch: arch,
 				Format: item.format, URL: selfupdate.AssetURL(version, item.os, arch, item.suffix), Size: size, SHA256: digest})
+		}
+	}
+	// A separate, signed descriptor keeps older Viva clients able to validate
+	// their existing feed, whose schema rejects unknown archive formats.
+	for _, arch := range []string{"amd64", "arm64"} {
+		name := selfupdate.AssetName(version, "linux", arch, ".deb")
+		size, digest, err := packageDigest(filepath.Join(root, name))
+		if err != nil {
+			return err
+		}
+		p := debupdate.Package{Version: version, Arch: arch, Size: size, SHA256: digest}
+		if size <= 0 || size > debupdate.MaxSize || sums[name] != digest {
+			return fmt.Errorf("%s differs from the verified release checksums", name)
+		}
+		p.Signature = ed25519.Sign(key, p.SignedBytes())
+		data, err := json.MarshalIndent(p, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(root, debupdate.MetadataName(arch)), append(data, '\n'), 0644); err != nil {
+			return err
 		}
 	}
 	body, err := json.MarshalIndent(feed, "", "  ")
