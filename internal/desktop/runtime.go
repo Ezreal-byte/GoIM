@@ -24,6 +24,7 @@ type desktopRuntime struct {
 	ui                  *UI
 	backend             domain.Backend
 	application         *app.Application
+	post                func(func())
 	window              *app.Window
 	mainCanvas          gfx.Canvas
 	conversationWindows map[string]*detachedConversationWindow
@@ -78,7 +79,8 @@ type detachedConversationWindow struct {
 // Run owns the native window and optional tray. The same lifecycle is exercised
 // by the vivahead runner without opening a real window or using the OS tray.
 func Run(backend domain.Backend, restartArguments []string) error {
-	shell := New(backend)
+	defer registerEmojiFallback()()
+	shell := newUIShell(backend, false)
 	defer shell.Close()
 	screenshotContext, stopCaptures := context.WithCancel(context.Background())
 	defer stopCaptures()
@@ -136,6 +138,12 @@ func Run(backend domain.Backend, restartArguments []string) error {
 	}()
 	return app.RunApplication(func(application *app.Application) error {
 		r.application = application
+		r.post = application.Post
+		if headlessApplication() {
+			// Viva's headless host executes Application.Post synchronously.
+			// Its driver serializes Invalidator.Post with simulated inputs.
+			r.post = func(fn func()) { shell.invalidator.Post(fn) }
+		}
 		shell.openDragPreview = func(config app.DragPreviewConfig) (conversationDragPreview, error) {
 			return application.OpenDragPreview(config)
 		}
@@ -216,7 +224,15 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		// invalidator to a native window. Wake once after binding to collect it.
 		shell.invalidator.Invalidate()
 		show := func() { r.stopAttention(); window.Show(); shell.SetWindowVisible(true) }
-		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: i18n.T("GoIM · 局域网即时通讯"), Icon: statusIcon, OnClick: func(app.StatusClick) { show() }, Menu: func() []app.MenuItem {
+		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: i18n.T("GoIM · 局域网即时通讯"), Icon: statusIcon, OnClick: func(click app.StatusClick) {
+			if click.Button == gfx.PointerButtonPrimary {
+				if id := r.firstUnreadChat(); id != "" {
+					r.openUnreadChat(id)
+					return
+				}
+			}
+			show()
+		}, Menu: func() []app.MenuItem {
 			items := append(r.voiceTrayItems(), r.unreadTrayItems()...)
 			return append(items, app.MenuItem{Title: i18n.T("打开 GoIM"), OnSelect: show}, app.MenuItem{Separator: true}, app.MenuItem{Title: i18n.T("退出 GoIM"), OnSelect: func() {
 				if hasActiveTransfers(shell.state.Transfers) && !shell.state.Locked {
@@ -234,6 +250,25 @@ func Run(backend domain.Backend, restartArguments []string) error {
 			backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("系统托盘暂不可用，关闭主窗口将退出应用：") + err.Error()})
 		}
 		r.observe()
+		var updateQueued atomic.Bool
+		go shell.watchUpdatesWith(func() {
+			if updateQueued.Swap(true) {
+				return
+			}
+			r.post(func() {
+				updateQueued.Store(false)
+				select {
+				case <-shell.done:
+					return
+				default:
+				}
+				shell.refresh()
+				shell.voiceAudio.sync(shell.state.VoiceCall, shell.state.Settings)
+				r.observe()
+				r.tickAttention(time.Now())
+				shell.invalidator.Invalidate()
+			})
+		})
 		return nil
 	})
 }
@@ -293,7 +328,7 @@ func (r *desktopRuntime) observe() {
 		r.application.SetDockBadge(text)
 	}
 	r.syncUnreadTray(unread)
-	mainForeground := mainWindowForeground(r.window)
+	mainForeground := r.ui.foreground(r.window)
 	for _, m := range s.Messages {
 		if r.seen[m.ID] {
 			continue
@@ -303,15 +338,15 @@ func (r *desktopRuntime) observe() {
 			continue
 		}
 		conv := s.Conversation(m.ConversationID)
-		if conv.Muted {
+		if conv.Muted || conv.Hidden {
 			continue
 		}
 		if !s.Locked && !r.window.Hidden() && !r.window.Minimized() && mainForeground &&
-			!r.ui.isPanelSection() && r.ui.selected == m.ConversationID {
+			r.ui.section == sectionMessages && r.ui.selected == m.ConversationID && !r.ui.modalOpen() {
 			continue
 		}
 		if detached := r.conversationWindows[m.ConversationID]; detached != nil &&
-			windowForeground(detached.window) &&
+			detached.ui.foreground(detached.window) &&
 			!detached.window.Hidden() && !detached.window.Minimized() {
 			continue
 		}

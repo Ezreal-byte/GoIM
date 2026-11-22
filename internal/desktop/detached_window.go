@@ -63,6 +63,8 @@ func (u *UI) DetachedConfig() app.Config {
 		TextInput:      u.textInput,
 		Invalidator:    &u.invalidator,
 		OnWake:         u.onWake,
+		OnActivate:     u.windowActivated,
+		OnDeactivate:   u.windowDeactivated,
 		OnScroll:       u.onScroll,
 		OnPointer:      u.onPointer,
 		OnKey:          u.onKey,

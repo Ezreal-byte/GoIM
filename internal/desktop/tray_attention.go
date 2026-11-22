@@ -44,7 +44,9 @@ func (r *desktopRuntime) tickAttention(now time.Time) {
 	}
 	_ = r.tray.SetIcon(icon)
 	r.flashDue = now.Add(attentionInterval)
-	r.flashTimer = time.AfterFunc(attentionInterval, r.ui.invalidator.Invalidate)
+	r.flashTimer = time.AfterFunc(attentionInterval, func() {
+		r.post(func() { r.tickAttention(time.Now()) })
+	})
 }
 
 func (r *desktopRuntime) stopAttention() {

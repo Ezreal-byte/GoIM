@@ -531,9 +531,11 @@ type UI struct {
 	clipboardImage    func() ([]byte, error)
 	clipboardCacheDir func() (string, error)
 
-	windowVisible atomic.Bool
-	readMarkID    string
-	readMarkCount int
+	windowVisible    atomic.Bool
+	windowActive     bool
+	windowFocusKnown bool
+	readMarkID       string
+	readMarkCount    int
 
 	conversations    []domain.Conversation
 	detached         map[string]bool
@@ -851,6 +853,8 @@ func (u *UI) Config() app.Config {
 		TextInput:      u.textInput,
 		Invalidator:    &u.invalidator,
 		OnWake:         u.onWake,
+		OnActivate:     u.windowActivated,
+		OnDeactivate:   u.windowDeactivated,
 		OnScroll:       u.onScroll,
 		OnPointer:      u.onPointer,
 		OnKey:          u.onKey,
@@ -888,6 +892,10 @@ func (u *UI) submit(command domain.Command) {
 }
 
 func (u *UI) watchUpdates() {
+	u.watchUpdatesWith(u.invalidator.Invalidate)
+}
+
+func (u *UI) watchUpdatesWith(wake func()) {
 	if u.backend == nil {
 		return
 	}
@@ -901,7 +909,7 @@ func (u *UI) watchUpdates() {
 			if !ok {
 				return
 			}
-			u.invalidator.Invalidate()
+			wake()
 		case <-u.done:
 			return
 		}
@@ -932,6 +940,20 @@ func (u *UI) SetWindowVisible(visible bool) {
 		return
 	}
 	u.invalidator.Invalidate()
+}
+
+func (u *UI) windowActivated() {
+	u.windowFocusKnown, u.windowActive = true, true
+	u.invalidator.Invalidate()
+}
+
+func (u *UI) windowDeactivated() gfx.EventResult {
+	u.windowFocusKnown, u.windowActive = true, false
+	return gfx.EventResult{}
+}
+
+func (u *UI) foreground(window windowGeometry) bool {
+	return (!u.windowFocusKnown || u.windowActive) && mainWindowForeground(window)
 }
 
 func (u *UI) refresh() {
@@ -1121,7 +1143,7 @@ func (u *UI) markSelectedConversationRead() {
 	if u.readMarkID == conversation.ID && u.readMarkCount == conversation.Unread {
 		return
 	}
-	if u.nativeWindow != nil && !mainWindowForeground(u.nativeWindow) {
+	if u.nativeWindow != nil && !u.foreground(u.nativeWindow) {
 		return
 	}
 	u.readMarkID = conversation.ID

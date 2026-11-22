@@ -98,11 +98,19 @@ try {
     Send-Command $taskAlice 'click "button:发消息"'
     Send-Command $taskAlice 'waitfor "发送" 10000'
     Send-Command $taskAlice 'click "消息输入框"'
+    Send-Command $taskBob 'requestclose'
+    if ((Send-Command $taskBob 'windows') -notmatch 'hidden=true') { throw 'Receiver did not minimize to the tray' }
     Send-Command $taskAlice 'type 双端真实消息：你好，局域网！'
     Send-Command $taskAlice 'key enter'
-    Send-Command $taskBob 'click id:goim/navigation/messages'
+    $taskTrayDeadline=[Diagnostics.Stopwatch]::StartNew()
+    do {
+        Send-Command $taskBob 'wait 100'
+        $taskTrayMenu=Send-Command $taskBob 'statusmenu 1'
+    } until ($taskTrayMenu -match 'path=1 title=.*1 条未读' -or $taskTrayDeadline.Elapsed.TotalSeconds -ge 10)
+    if ($taskTrayMenu -notmatch 'path=1 title=.*1 条未读') { throw 'Unread chat did not appear in the hidden receiver tray' }
+    Send-Command $taskBob 'statusselect 1 1'
+    if ((Send-Command $taskBob 'windows') -notmatch 'hidden=false') { throw 'Tray chat did not restore the receiver' }
     Send-Command $taskBob 'waitfor "双端真实消息：你好，局域网！" 10000'
-    Send-Command $taskBob 'click "我"'
     Send-Command $taskBob 'expect text "双端真实消息：你好，局域网！"'
     $taskSamplePath=Join-Path $taskRunDir '真实文件.txt'
     [System.IO.File]::WriteAllText($taskSamplePath,'GoIM independent-process file transfer: 中文 '+[guid]::NewGuid().ToString(),[System.Text.UTF8Encoding]::new($false))

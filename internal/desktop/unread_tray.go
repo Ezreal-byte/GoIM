@@ -65,6 +65,20 @@ func trayConversationVisible(c domain.Conversation) bool {
 	return c.ID != "" && c.Unread > 0 && !c.Muted && !c.Hidden
 }
 
+func (r *desktopRuntime) firstUnreadChat() string {
+	u := r.ui
+	if u.lockVisible() || u.state.Settings.HideNotificationText {
+		return ""
+	}
+	var latest domain.Conversation
+	for _, c := range u.state.Conversations {
+		if trayConversationVisible(c) && (latest.ID == "" || c.UpdatedAt.After(latest.UpdatedAt)) {
+			latest = c
+		}
+	}
+	return latest.ID
+}
+
 func (r *desktopRuntime) openUnreadChat(id string) {
 	u := r.ui
 	if u.lockVisible() || u.state.Settings.HideNotificationText || !trayConversationVisible(u.state.Conversation(id)) {
@@ -119,8 +133,8 @@ func (r *desktopRuntime) syncUnreadTray(unread int) {
 		r.traySummary = summary
 	}
 	hover := len(items) > 0
-	if hover != r.trayHover {
-		r.tray.SetMenuOnHover(hover)
+	if hover != r.trayHover && r.tray.SetMenuOnHover(hover) {
 		r.trayHover = hover
 	}
+	r.tray.RefreshMenu()
 }

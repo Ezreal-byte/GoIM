@@ -21,5 +21,5 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
-// Build against the GoIM fork for native tray hover menus (upstream PR #391).
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261122005650-d1ebd571ff2a
+// Build against the GoIM fork for tray updates and notification placement (Viva PRs #391 and #393).
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261122062216-2e4faba9a0e8

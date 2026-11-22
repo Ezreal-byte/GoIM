@@ -39,8 +39,12 @@ func (u *UI) drawVoiceInvitation(canvas *gfx.Canvas, card ui.Rect, id string) {
 	name, path, body := invitationCaller(u.state, locked)
 	u.voiceFallbackPage.Draw(canvas, card, func(f ui.C) {
 		canvas.Block(card)
-		ui.Row(f).Fill().Background(u.theme.Background).Border(1, u.palette.border).
-			Pad(16).Gap(12).Items(ui.Center).Children(func() {
+		row := ui.Row(f).Fill().Background(u.theme.Background).Border(1, u.palette.border).
+			Pad(16).Gap(12).Items(ui.Center)
+		if u.voiceInvitation {
+			row.MovesWindow()
+		}
+		row.Children(func() {
 			u.avatarWithPresence(f, name, path, 48, false, false, u.theme.Background)
 			ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
 				ui.Text(f, name).FillWidth().Weight(gfx.WeightSemibold).FontSize(textSize(f, 16)).Ellipsis()

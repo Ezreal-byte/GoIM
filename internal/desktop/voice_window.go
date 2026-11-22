@@ -93,7 +93,11 @@ func (r *desktopRuntime) syncVoiceWindow(state domain.State, locked bool) {
 		}
 		view.Close()
 	}
-	if !invitation {
+	if invitation {
+		width, height := config.Width, config.Height
+		r.geometry.remember("voice-invitation", &config)
+		config.Width, config.Height = width, height
+	} else {
 		r.geometry.remember("voice", &config)
 	}
 	var canvas gfx.Canvas

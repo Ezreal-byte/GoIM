@@ -119,6 +119,12 @@ func TestVoiceCallIncomingNotificationAcceptsAndDeclines(t *testing.T) {
 				hit.Bounds.Width < 44 || hit.Bounds.Width != hit.Bounds.Height {
 				t.Fatalf("expected icon-only %s button with a usable circular target: %+v", action.name, hit)
 			}
+			if kind := h.driver.PressAt(12, 12); kind != app.PressMove {
+				t.Fatalf("invitation background is not draggable: %v", kind)
+			}
+			if kind := h.driver.PressAt(hit.Bounds.X+22, hit.Bounds.Y+22); kind != app.PressControl {
+				t.Fatalf("invitation action is not a click target: %v", kind)
+			}
 			h.clickID(id)
 			command := h.lastCommand()
 			if command.Kind != action.kind || command.CallID != base.ID {
