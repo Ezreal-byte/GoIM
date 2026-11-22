@@ -11,7 +11,10 @@ import (
 	"goim/internal/i18n"
 )
 
-const trayPanelVisibleRows = 4
+const (
+	trayPanelVisibleRows = 4
+	trayPanelListPadding = 3
+)
 
 type unreadTrayPanel struct {
 	shell   *UI
@@ -33,6 +36,9 @@ func newUnreadTrayPanel(shell *UI, entries []unreadTrayChat, onChat func(string)
 }
 
 func (r *desktopRuntime) showUnreadTrayPanel(anchor app.StatusAnchor) *app.Window {
+	if r.trayReminderPaused {
+		return nil
+	}
 	entries := r.ui.unreadTrayChats()
 	if len(entries) == 0 {
 		return nil
@@ -42,7 +48,7 @@ func (r *desktopRuntime) showUnreadTrayPanel(anchor app.StatusAnchor) *app.Windo
 	view := newUnreadTrayPanel(r.ui, entries, func(id string) {
 		r.closeUnreadTrayPanel()
 		r.openUnreadChat(id)
-	}, r.closeUnreadTrayPanel)
+	}, r.dismissUnreadTrayReminder)
 	config := view.config(anchor)
 	config.OnClosed = func() {
 		view.page.Close()
@@ -87,12 +93,23 @@ func (r *desktopRuntime) updateUnreadTrayPanel(entries []unreadTrayChat) {
 	v.wake.Invalidate()
 }
 
-func (v *unreadTrayPanel) rowHeight() float32    { return v.shell.textExtent(66, 30) }
-func (v *unreadTrayPanel) footerHeight() float32 { return v.shell.textExtent(48, 16) }
+func (v *unreadTrayPanel) rowHeight() float32 {
+	if len(v.entries) == 1 && v.entries[0].sender == "" {
+		return v.shell.textExtent(36, 28)
+	}
+	return v.shell.textExtent(38, 28)
+}
+
+func (v *unreadTrayPanel) footerHeight() float32 { return v.shell.textExtent(23, 16) }
 
 func (v *unreadTrayPanel) size() (width, height int) {
-	width = int(math.Ceil(float64(v.shell.textExtent(304, 76))))
-	height = int(math.Ceil(float64(float32(min(trayPanelVisibleRows, len(v.entries)))*v.rowHeight() + v.footerHeight() + 15)))
+	baseWidth := float32(212)
+	if len(v.entries) == 1 {
+		baseWidth = 180
+	}
+	width = int(math.Ceil(float64(v.shell.textExtent(baseWidth, 68))))
+	rowCount := float32(min(trayPanelVisibleRows, len(v.entries)))
+	height = int(math.Ceil(float64(rowCount*v.rowHeight() + v.footerHeight() + 2*trayPanelListPadding + 1)))
 	return
 }
 
@@ -115,8 +132,8 @@ func (v *unreadTrayPanel) paint(canvas *gfx.Canvas, size gfx.Size) {
 		return
 	}
 	v.page.Draw(canvas, bounds, func(f ui.C) {
-		ui.Column(f).Fill().Radius(10).Border(1, u.palette.border).Children(func() {
-			list := ui.Scroll(f.Part("conversations")).Grow(1).MinHeight(0).FillWidth().PadSides(7, 7, 7, 7)
+		ui.Column(f).Fill().Radius(9).Border(1, u.palette.border).Children(func() {
+			list := ui.Scroll(f.Part("conversations")).Grow(1).MinHeight(0).FillWidth().Pad(trayPanelListPadding)
 			if len(v.entries) > trayPanelVisibleRows {
 				list = list.Scrollbars()
 			}
@@ -126,9 +143,10 @@ func (v *unreadTrayPanel) paint(canvas *gfx.Canvas, size gfx.Size) {
 				}
 			})
 			ui.Divider(f)
-			ui.Row(f).FillWidth().Height(v.footerHeight()).PadX(12).Items(ui.Center).Justify(ui.End).Children(func() {
+			ui.Row(f).FillWidth().Height(v.footerHeight()).PadX(6).Items(ui.Center).Justify(ui.End).Children(func() {
 				label := i18n.T("暂不处理")
-				if ui.Button(f.Part("dismiss"), label).Ghost().Clicked() {
+				if ui.Button(f.Part("dismiss"), label).Small().Ghost().FontSize(textSize(f, 11)).
+					Height(v.footerHeight() - 2).Clicked() {
 					canvas.AfterPaint(v.dismiss)
 				}
 			})
@@ -138,15 +156,15 @@ func (v *unreadTrayPanel) paint(canvas *gfx.Canvas, size gfx.Size) {
 
 func (v *unreadTrayPanel) row(f ui.C, entry unreadTrayChat) {
 	u := v.shell
-	row := ui.Row(f.Key(entry.id)).FillWidth().Height(v.rowHeight()).Radius(8).PadX(10).Gap(14).Items(ui.Center).
+	row := ui.Row(f.Key(entry.id)).FillWidth().Height(v.rowHeight()).Radius(6).PadX(6).Gap(7).Items(ui.Center).
 		Hover(ui.Look{}.Background(u.palette.hover)).Pressed(ui.Look{}.Background(u.palette.selected)).
 		HitWith(v.tree.ID(v.rows, entry.id), entry.label, gfx.HitOptions{Role: gfx.RoleButton})
 	if row.Children(func() {
 		v.avatar(f, entry)
-		ui.Column(f).Grow(1).MinWidth(0).Gap(4).Children(func() {
-			ui.Text(f, entry.title).FillWidth().FontSize(textSize(f, 15)).Weight(gfx.WeightSemibold).Ellipsis()
+		ui.Column(f).Grow(1).MinWidth(0).Gap(1).Children(func() {
+			ui.Text(f, entry.title).FillWidth().FontSize(textSize(f, 13)).Weight(gfx.WeightSemibold).Ellipsis()
 			if entry.sender != "" {
-				ui.Text(f, entry.sender).FillWidth().FontSize(textSize(f, 12)).Muted().Ellipsis()
+				ui.Text(f, entry.sender).FillWidth().FontSize(textSize(f, 10.5)).Muted().Ellipsis()
 			}
 		})
 	}).Clicked() {
@@ -155,10 +173,11 @@ func (v *unreadTrayPanel) row(f ui.C, entry unreadTrayChat) {
 }
 
 func (v *unreadTrayPanel) avatar(f ui.C, entry unreadTrayChat) {
-	const size = 44
+	const size = 26
 	u := v.shell
-	ui.Stack(f).Size(size+6, size+6).Shrink(0).Children(func() {
-		ui.Stack(f).Size(size, size).Absolute().Left(0).Bottom(0).Radius(9).Clip().Background(u.palette.mutedAvatar).
+	badgeWidth := max(14, float32(len(entry.count))*5+6)
+	ui.Stack(f).Size(size+badgeWidth-5, size+4).Shrink(0).Children(func() {
+		ui.Stack(f).Size(size, size).Absolute().Left(0).Bottom(0).Radius(6).Clip().Background(u.palette.mutedAvatar).
 			Children(func() {
 				if bitmap := u.avatarBitmap(entry.avatar); bitmapReady(bitmap) {
 					ui.Image(f, bitmap).Fill()
@@ -168,10 +187,9 @@ func (v *unreadTrayPanel) avatar(f ui.C, entry unreadTrayChat) {
 					u.avatarInitial(f, entry.title, size)
 				})
 			})
-		width := max(19, float32(len(entry.count))*6+9)
-		ui.Stack(f).Size(width, 19).Absolute().Right(0).Top(0).Radius(10).
+		ui.Stack(f).Size(badgeWidth, 14).Absolute().Right(0).Top(0).Radius(7).
 			Background(ui.RGB(215, 52, 67)).Border(1, u.theme.Card).Children(func() {
-			ui.Text(f, entry.count).FontSize(10.5).Weight(gfx.WeightSemibold).
+			ui.Text(f, entry.count).FontSize(9).Weight(gfx.WeightSemibold).
 				Color(ui.RGB(255, 255, 255)).TextCenter()
 		})
 	})

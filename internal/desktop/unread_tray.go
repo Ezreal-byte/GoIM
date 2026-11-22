@@ -126,22 +126,34 @@ func (r *desktopRuntime) openUnreadChat(id string) {
 	u.invalidator.Invalidate()
 }
 
-func (r *desktopRuntime) syncUnreadTray(unread int) {
+func (r *desktopRuntime) dismissUnreadTrayReminder() {
+	r.trayReminderPaused = true
+	r.stopAttention()
+	if r.messageSound != nil {
+		r.messageSound.stop()
+		r.messageSound = nil
+	}
+	r.closeUnreadTrayPanel()
+	r.syncUnreadTray(r.badge, true)
+}
+
+func (r *desktopRuntime) syncUnreadTray(unread int, force bool) {
 	if r.tray == nil {
 		return
 	}
 	u := r.ui
 	private := u.lockVisible() || u.state.Settings.HideNotificationText
 	lang := i18n.Language()
-	if r.trayLanguage == lang && r.trayRevision == u.state.Revision && r.trayPrivate == private {
+	if !force && r.trayLanguage == lang && r.trayRevision == u.state.Revision && r.trayPrivate == private {
 		return
 	}
 	r.trayRevision, r.trayPrivate, r.trayLanguage = u.state.Revision, private, lang
 	summary := i18n.T("GoIM · 局域网即时通讯")
-	if unread > 0 {
+	var entries []unreadTrayChat
+	if unread > 0 && !r.trayReminderPaused {
 		summary = fmt.Sprintf(i18n.T("GoIM · %d 条未读消息"), unread)
+		entries = u.unreadTrayChats()
 	}
-	entries := u.unreadTrayChats()
 	hover := len(entries) > 0
 	if hover != r.trayHover {
 		var panel func(app.StatusAnchor) *app.Window

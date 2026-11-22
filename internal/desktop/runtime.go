@@ -41,6 +41,7 @@ type desktopRuntime struct {
 	trayHover           bool
 	trayPanelHover      bool
 	trayPanel           *unreadTrayPanel
+	trayReminderPaused  bool
 	trayLanguage        string
 	global              string
 	globalRejected      string
@@ -333,7 +334,6 @@ func (r *desktopRuntime) observe() {
 		}
 		r.application.SetDockBadge(text)
 	}
-	r.syncUnreadTray(unread)
 	mainForeground := r.ui.foreground(r.window)
 	for _, m := range s.Messages {
 		if r.seen[m.ID] {
@@ -387,6 +387,11 @@ func (r *desktopRuntime) observe() {
 			}
 		}
 	}
+	resumeReminder := attention && unread > 0 && r.trayReminderPaused
+	if resumeReminder {
+		r.trayReminderPaused = false
+	}
+	r.syncUnreadTray(unread, resumeReminder)
 	transferAttention := false
 	var done, total int64
 	for _, t := range s.Transfers {
