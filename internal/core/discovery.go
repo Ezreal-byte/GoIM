@@ -13,7 +13,7 @@ import (
 	"goim/internal/domain"
 )
 
-const discoveryPort = 47841
+const discoveryPort = domain.LANDiscoveryPort
 
 func (n *Node) selectedInterface() *net.Interface {
 	n.mu.Lock()
@@ -134,7 +134,7 @@ func (n *Node) handleDiscoveryMessage(body []byte, remote net.IP) {
 }
 func (n *Node) discoveryLoop() {
 	defer n.wg.Done()
-	address := &net.UDPAddr{IP: net.IPv4(239, 192, 77, 77), Port: discoveryPort}
+	address := &net.UDPAddr{IP: net.ParseIP(domain.LANDiscoveryGroup).To4(), Port: discoveryPort}
 	var connections []*net.UDPConn
 	networkName := "__initial__"
 	previousNetwork := ""

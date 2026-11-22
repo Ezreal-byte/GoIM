@@ -63,7 +63,10 @@ const (
 	TransportIPMSG           = "ipmsg"
 	TransportNeiwangtong     = "neiwangtong"
 	IPMSGPort                = 2425
+	LANDiscoveryPort         = 47841
+	LANDiscoveryGroup        = "239.192.77.77"
 	NeiwangtongDiscoveryPort = 9011
+	NeiwangtongControlPort   = 9012
 )
 
 type CompatibilityConfig struct {
@@ -624,6 +627,7 @@ func (s *Settings) EnsureDefaultShortcuts() {
 
 type State struct {
 	ContactRefresh     ContactRefresh      `json:"-"`
+	DiscoveryDisabled  bool                `json:"-"`
 	IPMSGStatus        CompatibilityStatus `json:"-"`
 	NeiwangtongStatus  CompatibilityStatus `json:"-"`
 	Self               Peer

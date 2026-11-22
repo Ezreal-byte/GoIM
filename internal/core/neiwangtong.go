@@ -112,7 +112,7 @@ func (n *Node) newNeiwangtong(port int, live *atomic.Bool) (*neiwangtong.Service
 		GoIM:             true,
 		Profile:          nativeLocalProfile(s.Self, name),
 		DiscoveryPort:    port,
-		ControlPort:      9012,
+		ControlPort:      domain.NeiwangtongControlPort,
 		TransferPort:     9013,
 		EnableFolders:    true,
 		BindIP:           bind,

@@ -809,13 +809,12 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.previewPage = page("conversation-preview")
 	u.voiceFallbackPage = page("incoming-call")
 	u.surface = u.newChatSurface(page("workspace"))
-	u.panels.Init(&u.tree)
+	u.panels.Init(&u.tree, &u.invalidator)
 	u.panels.showIncoming = func() { u.setSection(sectionTransfers) }
 	u.panels.settingsExtra.openProfile = u.openProfile
 	u.panels.openUpdates = u.showUpdates
 	u.panels.setMediaSubmit(u.media.submitOne)
 	u.panels.setToast(u.showToast)
-	u.panels.setInvalidator(func() { u.invalidator.Invalidate() })
 	u.panels.printAvatar = u.paintPrintAvatar
 	u.panels.settingsExtra.chooseBackground = u.requestBackgroundPicker
 	u.panels.shareQRWorker.setNotify(u.invalidator.Invalidate)

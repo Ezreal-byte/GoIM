@@ -62,12 +62,12 @@ func panelTestNewHarnessBounds(t *testing.T, module string, state domain.State, 
 		theme:  ui.LightTheme(),
 		bounds: bounds,
 	}
-	h.panels.Init(&h.tree)
+	h.panels.Init(&h.tree, &h.wake)
+	t.Cleanup(h.panels.page.Close)
 	h.panels.OnWake(state)
 	h.panels.updateLists(state)
 	h.media = newMediaWorker(func() { h.wake.Invalidate() })
 	h.panels.setMediaSubmit(h.media.submitOne)
-	h.panels.setInvalidator(h.wake.Invalidate)
 	t.Cleanup(h.media.close)
 	driver, err := app.NewDriver(app.Config{
 		Title:  "panel driver test",

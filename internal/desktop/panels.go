@@ -271,6 +271,7 @@ type panelPendingSetting struct {
 // Panels owns the settings, transfers, and file-sharing surfaces. Init must be
 // called with the application's tree before Draw.
 type Panels struct {
+	firewall       firewallPanel
 	memberProject  *memberProjectView
 	dialogViewport ui.Rect
 	tree           *gfx.Tree
@@ -371,7 +372,7 @@ type Panels struct {
 	build      panelBuildInfo
 }
 
-func (p *Panels) Init(tree *gfx.Tree) {
+func (p *Panels) Init(tree *gfx.Tree, wake *app.Invalidator) {
 	if tree == nil {
 		return
 	}
@@ -380,7 +381,8 @@ func (p *Panels) Init(tree *gfx.Tree) {
 	}
 	p.tree = tree
 	p.shareSort = panelTableSort{column: "分享时间", descending: true}
-	p.page = ui.NewPage(ui.PageConfig{Root: "panels", Tree: tree, Theme: &p.theme})
+	p.page = ui.NewPage(ui.PageConfig{Root: "panels", Tree: tree, Theme: &p.theme, Invalidator: wake})
+	p.invalidate = wake.Invalidate
 	p.shortcutEdit = -1
 	p.localActions = make(map[uint64]panelLocalAction)
 	p.shareQRCache = make(map[shareQRKey]shareQRResult)
@@ -630,10 +632,6 @@ func (p *Panels) setMediaSubmit(submit func(mediaJob)) {
 
 func (p *Panels) setToast(toast func(title, description string, tone components.ToastType)) {
 	p.toast = toast
-}
-
-func (p *Panels) setInvalidator(invalidate func()) {
-	p.invalidate = invalidate
 }
 
 func (p *Panels) setLocalFileAvailability(entries []mediaFileResult) {

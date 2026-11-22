@@ -319,6 +319,7 @@ func (n *Node) snapshot(urls bool) domain.State {
 		peer.ContactDeleted = n.data.ContactVisibility[id] == contactDeleted
 	}
 	s.ContactRefresh = n.contactRefresh
+	s.DiscoveryDisabled = !n.discovery
 	s.LockResult = n.lockResult
 	s.ConnectionFeedback = n.connectionFeedback
 	if n.dnsActiveLocked() {
