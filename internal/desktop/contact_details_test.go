@@ -35,6 +35,9 @@ func TestContactDetailsAndAvatarMenuKeepCurrentChat(t *testing.T) {
 		}
 	}
 	requireShellLayout(t, h.snapshot())
+	if h.hasHit(h.ui.ids.contactCall) {
+		t.Fatal("voice action is visible for a contact without voice support")
+	}
 	h.clickID(h.ui.ids.contactTalk)
 	if h.ui.section != sectionMessages || h.ui.selected != "conv-alice" {
 		t.Fatalf("send-message action opened %s / %s", h.ui.section, h.ui.selected)
@@ -45,6 +48,51 @@ func TestContactDetailsAndAvatarMenuKeepCurrentChat(t *testing.T) {
 		t.Fatal("avatar menu did not open the shared profile without leaving chat")
 	}
 	requireShellLayout(t, h.snapshot())
+}
+
+func TestContactActionsBelowProfile(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		width  int
+		online bool
+	}{{"wide-online", 1440, true}, {"narrow-offline", 780, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := shellTestState(t)
+			peer := &state.Peers[0]
+			peer.Transport, peer.VoiceSupported, peer.Online = domain.TransportGoIM, true, tc.online
+			h := newShellTestHarnessAtSize(t, state, tc.width, 960)
+			h.clickID(h.ui.ids.navContacts)
+			h.clickID(h.ui.peerRowIDs[peer.ID])
+			call, hasCall := h.findHit(h.ui.ids.contactCall)
+			talk, hasTalk := h.findHit(h.ui.ids.contactTalk)
+			if !hasCall || !hasTalk || call.Disabled != !tc.online || talk.Disabled ||
+				call.Label != "语音通话" || talk.Label != "发消息" || call.Hint != call.Label || talk.Hint != talk.Label {
+				t.Fatalf("unexpected profile actions: call=%+v talk=%+v", call, talk)
+			}
+			if call.Bounds.Width != call.Bounds.Height || talk.Bounds.Width != talk.Bounds.Height ||
+				call.Bounds.Y != talk.Bounds.Y || call.Bounds.X+call.Bounds.Width >= talk.Bounds.X {
+				t.Fatalf("profile actions overlap or are not square: %v %v", call.Bounds, talk.Bounds)
+			}
+			var deviceBottom float32
+			for _, text := range h.snapshot().Texts {
+				if text.Value == peer.Address {
+					deviceBottom = text.Bounds.Y + text.Bounds.Height
+				}
+				if text.Value == call.Label || text.Value == talk.Label {
+					t.Fatalf("icon button also paints its label %q", text.Value)
+				}
+			}
+			if deviceBottom == 0 || call.Bounds.Y <= deviceBottom {
+				t.Fatalf("buttons at %v should follow the device details ending at %v", call.Bounds.Y, deviceBottom)
+			}
+			if tc.online {
+				h.clickHit(call)
+				if cmd := h.lastCommand(); cmd.Kind != domain.StartVoiceCall || cmd.PeerID != peer.ID {
+					t.Fatalf("voice button submitted %+v", cmd)
+				}
+			}
+		})
+	}
 }
 
 func BenchmarkContactDetailsPaint(b *testing.B) {

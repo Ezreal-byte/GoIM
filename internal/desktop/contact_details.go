@@ -67,9 +67,10 @@ func (u *UI) drawContactDetails(canvas *gfx.Canvas, bounds ui.Rect) {
 			return
 		}
 		title, selection := i18n.T("联系人资料"), peer.ID
+		self := peer.ID == u.state.Self.ID
 		if isGroup {
 			title, selection = i18n.T("群聊资料"), group.ID
-		} else if peer.ID == u.state.Self.ID {
+		} else if self {
 			title = i18n.T("个人资料")
 		}
 		ui.Scroll(f.Part("contact-details").Key(selection)).Fill().Children(func() {
@@ -82,12 +83,15 @@ func (u *UI) drawContactDetails(canvas *gfx.Canvas, bounds ui.Rect) {
 							u.drawContactGroupProfile(f, group, compact)
 							return
 						}
-						u.contactIdentity(f, peer, peer.Name, 62, !compact)
-						if compact {
-							u.contactPeerAction(f, peer)
+						u.contactIdentity(f, peer, peer.Name, 62, self && !compact)
+						if self && compact {
+							u.contactEditAction(f)
 						}
 						u.contactProfileFacts(f, peer, domain.Group{}, true, !compact)
 					})
+					if !isGroup && !self {
+						u.contactPeerActions(f, peer)
+					}
 				})
 			})
 		})
@@ -106,28 +110,30 @@ func (u *UI) drawContactEmpty(f ui.C) {
 	})
 }
 
-func (u *UI) contactPeerAction(f ui.C, peer domain.Peer) {
-	self := peer.ID == u.state.Self.ID
-	if !self && peer.VoiceSupported {
-		if namedButton(f, u.ids.contactCall, i18n.T("语音通话")).MinWidth(88).Height(36).PadX(14).
+func (u *UI) contactPeerActions(f ui.C, peer domain.Peer) {
+	const size = 44
+	button := func(id gfx.ID, icon gfx.Icon, label string) ui.Box {
+		return ui.Button(f, label).IconOnly().Icon(icon).Size(size, size).Radius(size/2).
+			HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: label})
+	}
+	ui.Row(f).FillWidth().Justify(ui.Center).Gap(12).Children(func() {
+		if peer.VoiceSupported && button(u.ids.contactCall, u.iconPhone, i18n.T("语音通话")).
 			Outline().Disabled(!peer.VisibleOnline()).Clicked() {
 			u.startVoiceCall(peer.ID)
 		}
-	}
-	label := i18n.T("发消息")
-	if self {
-		label = i18n.T("编辑资料")
-	}
-	if namedButton(f, u.ids.contactTalk, label).MinWidth(88).Height(36).PadX(14).Clicked() {
-		if self {
-			u.openProfile()
-		} else {
+		if button(u.ids.contactTalk, u.iconMessage, i18n.T("发消息")).Clicked() {
 			u.startDirectFromMembers(peer.ID)
 		}
+	})
+}
+
+func (u *UI) contactEditAction(f ui.C) {
+	if namedButton(f, u.ids.contactTalk, i18n.T("编辑资料")).MinWidth(88).Height(36).PadX(14).Clicked() {
+		u.openProfile()
 	}
 }
 
-func (u *UI) contactIdentity(f ui.C, peer domain.Peer, name string, avatarSize float32, action bool) {
+func (u *UI) contactIdentity(f ui.C, peer domain.Peer, name string, avatarSize float32, showEdit bool) {
 	statusColor := u.palette.secondaryText
 	if peer.VisibleOnline() {
 		switch peer.Presence {
@@ -158,8 +164,8 @@ func (u *UI) contactIdentity(f ui.C, peer domain.Peer, name string, avatarSize f
 				ui.Paragraph(f, peer.Signature, 2).FillWidth().FontSize(textSize(f, 13)).Muted().LineHeight(textSize(f, 19))
 			}
 		})
-		if action {
-			u.contactPeerAction(f, peer)
+		if showEdit {
+			u.contactEditAction(f)
 		}
 	})
 }
