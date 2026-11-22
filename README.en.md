@@ -24,7 +24,7 @@ GoIM is a desktop messenger built with Go and [Viva](https://github.com/vivaui/v
 <table>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/contacts-light.png"><img src="website/assets/screenshots/contacts-light.png" alt="Grouped contacts and presence" /></a><strong>Contacts</strong></td>
-    <td width="50%"><a href="website/assets/screenshots/transfers-dark.png"><img src="website/assets/screenshots/transfers-dark.png" alt="Incoming transfers showing chat, file share and web sources alongside progress" /></a><strong>Transfers</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/transfers-dark.png"><img src="website/assets/screenshots/transfers-dark.png" alt="Transfer list showing progress and status for chat, file share, and web uploads" /></a><strong>Transfers</strong></td>
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/shares-light.png"><img src="website/assets/screenshots/shares-light.png" alt="Member shares with file and folder selection, access modes and downloads" /></a><strong>Desktop file sharing</strong></td>

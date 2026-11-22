@@ -24,7 +24,7 @@ GoIM 是基于 Go 和 [Viva](https://github.com/vivaui/viva) 的桌面即时通�
 <table>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/contacts-light.png"><img src="website/assets/screenshots/contacts-light.png" alt="联系人分组与在线状态" /></a><strong>联系人与分组</strong></td>
-    <td width="50%"><a href="website/assets/screenshots/transfers-dark.png"><img src="website/assets/screenshots/transfers-dark.png" alt="传入列表按来源区分聊天、文件分享和网页接收，并显示进度" /></a><strong>文件传输</strong></td>
+    <td width="50%"><a href="website/assets/screenshots/transfers-dark.png"><img src="website/assets/screenshots/transfers-dark.png" alt="文件传输列表显示聊天、文件分享和网页接收的来源、进度与状态" /></a><strong>文件传输</strong></td>
   </tr>
   <tr>
     <td width="50%"><a href="website/assets/screenshots/shares-light.png"><img src="website/assets/screenshots/shares-light.png" alt="成员共享中的文件和文件夹，可多选下载，列表显示访问方式" /></a><strong>桌面端文件共享</strong></td>
