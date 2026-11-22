@@ -31,6 +31,20 @@ func TestTitlebarShowsLANEndpointOnlyOnHover(t *testing.T) {
 	}
 }
 
+func TestMainWindowBorderFollowsTheActiveTheme(t *testing.T) {
+	h := newShellTestHarness(t, shellMinimalState(t))
+	config := h.ui.Config()
+	if config.WindowBorderColor == nil || config.WindowBorderColor() != config.ClearColor {
+		t.Fatal("the native border must start with the window edge color")
+	}
+	h.ui.state.Settings.Theme = "dark"
+	h.ui.theme = themeForSettings(h.ui.state.Settings)
+	h.ui.palette = paletteFor(h.ui.theme, h.ui.state.Settings.ColorScheme)
+	if got := config.WindowBorderColor(); got == config.ClearColor || got != colorToApp(h.ui.palette.rail) {
+		t.Fatalf("native border after a theme change = %+v", got)
+	}
+}
+
 func TestGlobalShortcutFailureIsTransientAndKeepsConfiguration(t *testing.T) {
 	h := newShellTestHarness(t, shellMinimalState(t))
 	r := desktopRuntime{ui: h.ui, backend: h.backend}

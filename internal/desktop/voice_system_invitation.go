@@ -56,6 +56,9 @@ func (r *desktopRuntime) syncSystemInvitation(state domain.State, locked bool) b
 			}
 			if err != nil {
 				n.failed = true
+				// A hidden main window may not receive OnWake. Continue on the
+				// app loop so the fallback can still appear for this call.
+				r.syncVoiceWindow(r.ui.state, r.ui.lockVisible())
 				r.ui.invalidator.Invalidate()
 				return
 			}

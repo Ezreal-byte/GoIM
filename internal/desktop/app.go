@@ -847,6 +847,9 @@ func (u *UI) Config() app.Config {
 		WindowMode:     app.WindowCustomTitlebar,
 		TitlebarHeight: titlebarHeight,
 		ClearColor:     clear,
+		WindowBorderColor: func() app.Color {
+			return colorToApp(u.palette.rail)
+		},
 		Tree:           &u.tree,
 		WindowControls: u.windowControls,
 		Paint:          u.paint,
