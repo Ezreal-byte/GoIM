@@ -1452,7 +1452,7 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 				pin = pin.Background(u.palette.selected)
 			}
 			if !u.state.Settings.HideTitleGitHub {
-				githubClicked = u.iconButton(f, u.ids.titleGitHub, AboutGithub, i18n.T("作者的 GitHub 主页"), 30).Clicked()
+				githubClicked = u.iconButton(f, u.ids.titleGitHub, AboutGithub, i18n.T("GoIM 项目主页"), 30).Clicked()
 			}
 		})
 	})
@@ -1460,7 +1460,7 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	u.lanAnchor = status.Rect()
 	if githubClicked {
 		canvas.AfterPaint(func() {
-			if err := app.OpenURL(buildinfo.AuthorGitHubURL); err != nil {
+			if err := app.OpenURL(buildinfo.RepositoryURL); err != nil {
 				u.showToast(i18n.T("无法打开链接"), err.Error(), components.ToastError)
 			}
 		})

@@ -58,8 +58,8 @@ func TestMainTitleGitHubAndContactRefresh(t *testing.T) {
 		t.Fatal("GitHub icon is out of order")
 	}
 	h.clickID(h.ui.ids.titleGitHub)
-	if url, ok := h.driver.LastOpenedURL(); !ok || url != buildinfo.AuthorGitHubURL {
-		t.Fatal("GitHub button did not open the author profile", url)
+	if url, ok := h.driver.LastOpenedURL(); !ok || url != buildinfo.RepositoryURL {
+		t.Fatal("GitHub button did not open the GoIM repository", url)
 	}
 	state.Settings.HideTitleGitHub = true
 	state.Revision++

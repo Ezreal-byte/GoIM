@@ -11,9 +11,8 @@ import (
 )
 
 const (
-	AuthorGitHubURL = "https://github.com/Ezreal-byte"
-	RepositoryURL   = AuthorGitHubURL + "/GoIM"
-	IssuesURL       = RepositoryURL + "/issues"
+	RepositoryURL = "https://github.com/Ezreal-byte/GoIM"
+	IssuesURL     = RepositoryURL + "/issues"
 
 	SourceLocal         = "local"
 	SourceGitHubActions = "github-actions"

@@ -273,7 +273,7 @@ func (p *Panels) drawSettingsGeneral(f ui.C, theme ui.Theme, state domain.State,
 			})
 		})
 	})
-	p.settingsRow(f, theme, i18n.T("显示 GitHub 图标"), i18n.T("在主窗口顶栏显示作者的 GitHub 主页入口"), func() {
+	p.settingsRow(f, theme, i18n.T("显示 GitHub 图标"), i18n.T("在主窗口顶栏显示 GoIM 项目主页入口"), func() {
 		p.settingsControl(f, 84, func() {
 			visible := ui.State[bool](f, "show-title-github")
 			*visible = !settings.HideTitleGitHub
