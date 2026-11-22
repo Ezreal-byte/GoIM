@@ -21,7 +21,7 @@ func (u *UI) drawEmojiPicker(c *gfx.Canvas, viewport ui.Rect) {
 	}
 	anchor := u.emojiButton.Rect()
 
-	size := ui.Size{Width: 466, Height: min(350, max(anchor.Y-viewport.Y-16, 175))}
+	size := ui.Size{Width: 476, Height: min(392, max(anchor.Y-viewport.Y-16, 175))}
 	panel, _ := components.PlaceOverlay(anchor, size, viewport, components.OverlayPlacement{
 		Side: components.OverlayTop, Align: components.OverlayAlignStart, SideOffset: 8, Margin: 8,
 	})
@@ -59,7 +59,7 @@ func (u *UI) drawEmojiPicker(c *gfx.Canvas, viewport ui.Rect) {
 							}
 						})
 					}
-					ui.Divider(f)
+					ui.Row(f).Height(6)
 				}
 				ui.Text(f, i18n.T("所有表情")).FontSize(textSize(f, 12)).Muted().PadX(6)
 				for start := 0; start < len(emojiChoices); start += columns {
@@ -96,5 +96,7 @@ func (u *UI) emojiTile(f ui.C, choice emojiChoice, id gfx.ID) bool {
 	if f.Canvas().FocusVisible() == id {
 		tile.Stroke(1.5, u.theme.Ring)
 	}
-	return tile.Children(func() { ui.Icon(f, choice.Art).Size(30, 30) }).Clicked()
+	return tile.Children(func() {
+		ui.Image(f, emojiBitmaps()[choice.Name]).Size(27, 27)
+	}).Clicked()
 }

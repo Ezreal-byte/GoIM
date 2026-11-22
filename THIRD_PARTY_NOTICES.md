@@ -17,8 +17,9 @@ Copyright (c) 2026 Ezreal-byte. GoIM is licensed under the [Apache License, Vers
 | Material Icon Theme file-type icons | Material Extensions, via Iconify and Motty. The PowerPoint icon comes directly from Material Icon Theme. | licenses/material-icon-theme-MIT.txt |
 | Lucide compiled icons and application icon geometry | Lucide SVG sources compiled by Viva | Lucide ISC and Feather MIT sections in licenses/Viva-third-party.md |
 | Lucide icons in the browser share page | [0.468.0](https://github.com/lucide-icons/lucide/tree/0.468.0) | licenses/lucide-web-ISC.txt |
+| Microsoft Fluent Emoji 3D artwork | [1ffb34c752ec](https://github.com/microsoft/fluentui-emoji/tree/1ffb34c752ecf5d402f04cfb4b392c77f57c54bc), scaled for the picker and Linux fallback font | licenses/fluent-emoji-MIT.txt |
 
-The Viva notice also preserves upstream notices for its Unicode and font-related material. Native system fonts and graphics libraries are supplied by the operating system; font files are not bundled by GoIM.
+The Viva notice also preserves upstream notices for its Unicode and font-related material. GoIM uses native system fonts and graphics libraries and embeds the Fluent Emoji fallback font on Linux.
 
 Browser share QR codes are generated with [go-qrcode](https://github.com/skip2/go-qrcode), covered by [its bundled license](licenses/go-qrcode-LICENSE.txt).
 
