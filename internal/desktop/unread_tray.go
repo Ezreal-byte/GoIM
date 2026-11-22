@@ -18,7 +18,7 @@ func (r *desktopRuntime) unreadTrayItems() []app.MenuItem {
 	var chats []domain.Conversation
 	groups := make(map[string]string)
 	for _, c := range u.state.Conversations {
-		if c.Unread <= 0 || c.Muted || c.Hidden {
+		if !trayConversationVisible(c) {
 			continue
 		}
 		chats = append(chats, c)
@@ -61,9 +61,13 @@ func (r *desktopRuntime) unreadTrayItems() []app.MenuItem {
 	return append(items, app.MenuItem{Separator: true})
 }
 
+func trayConversationVisible(c domain.Conversation) bool {
+	return c.ID != "" && c.Unread > 0 && !c.Muted && !c.Hidden
+}
+
 func (r *desktopRuntime) openUnreadChat(id string) {
 	u := r.ui
-	if u.lockVisible() || u.state.Settings.HideNotificationText || u.state.Conversation(id).ID == "" {
+	if u.lockVisible() || u.state.Settings.HideNotificationText || !trayConversationVisible(u.state.Conversation(id)) {
 		return
 	}
 	r.stopAttention()
@@ -72,12 +76,17 @@ func (r *desktopRuntime) openUnreadChat(id string) {
 		detached.ui.SetWindowVisible(true)
 		return
 	}
-	u.setSection(sectionMessages)
-	u.selectConversation(id)
 	if r.window != nil {
 		r.window.Show()
 	}
 	u.SetWindowVisible(true)
+	if u.modalOpen() || !r.mainCanvas.TrappedFocusScope().IsZero() {
+		return
+	}
+	u.setSection(sectionMessages)
+	if u.section == sectionMessages {
+		u.selectConversation(id)
+	}
 	u.invalidator.Invalidate()
 }
 

@@ -335,7 +335,9 @@ func testInterruptedFile(t *testing.T, resumable bool) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if resumable && first != 2*nativeFileBlock {
+	// Progress is reported per TCP read. The first read of the resumed
+	// frame can contain only part of its payload.
+	if resumable && (first <= nativeFileBlock || first > 2*nativeFileBlock) {
 		t.Fatalf("resume did not skip the first block; next progress=%d", first)
 	}
 	if got, err := os.ReadFile(dest); err != nil || !bytes.Equal(got, data) {

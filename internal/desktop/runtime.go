@@ -25,6 +25,7 @@ type desktopRuntime struct {
 	backend             domain.Backend
 	application         *app.Application
 	window              *app.Window
+	mainCanvas          gfx.Canvas
 	conversationWindows map[string]*detachedConversationWindow
 	printWindows        map[string]*printWindowEntry
 	historyWindows      map[string]*historyWindowEntry
@@ -204,8 +205,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 			}
 			allow()
 		}
-		var canvas gfx.Canvas
-		window, err := application.OpenWindow(config, &canvas)
+		window, err := application.OpenWindow(config, &r.mainCanvas)
 		if err != nil {
 			return err
 		}

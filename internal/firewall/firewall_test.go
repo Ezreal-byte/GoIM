@@ -171,6 +171,22 @@ func TestUFWDirectionScopeAndExactPort(t *testing.T) {
 	}
 }
 
+func TestUFWSourcePrefixesAndRuleOrder(t *testing.T) {
+	r := testPlan()
+	for _, tc := range []struct{ rules, want string }{
+		{"ALLOW IN 192.0.0.0/16", "ALLOW"},
+		{"ALLOW IN 192.0.2.0/26", ""},
+		{"DENY IN 192.0.2.7\n48777/tcp ALLOW IN Anywhere", "DENY"},
+		{"REJECT IN 192.0.2.64/26", "REJECT"},
+		{"DENY IN 192.0.2.128/25", ""},
+		{"ALLOW IN 192.0.2.0/24\n48777/tcp DENY IN 192.0.2.7", "ALLOW"},
+	} {
+		if got := ufwVerdict("48777/tcp "+tc.rules, r, r.Rules[0]); got != tc.want {
+			t.Errorf("rules %q: got %q, want %q", tc.rules, got, tc.want)
+		}
+	}
+}
+
 func TestVendorInputPolicyIsReadOnly(t *testing.T) {
 	for _, tool := range []string{"nft", "iptables"} {
 		sys := commands{has: func(name string) bool { return name == tool }, run: func(_ context.Context, _ bool, name string, args ...string) (string, error) {

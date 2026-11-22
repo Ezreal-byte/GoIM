@@ -29,6 +29,23 @@ func TestUnreadTrayLinksAndPrivacy(t *testing.T) {
 	if len(r.unreadTrayItems()) != 2 {
 		t.Fatal("muted group still shown")
 	}
+	items[0].OnSelect()
+	h.ui.state.Conversations[0].Muted = false
+	h.ui.state.Conversations[0].Hidden = true
+	items[0].OnSelect()
+	h.ui.state.Conversations[0].Hidden = false
+	h.ui.state.Conversations[0].Unread = 0
+	items[0].OnSelect()
+	if h.ui.selected != "conv-alice" {
+		t.Fatal("stale tray item reopened a muted, hidden or read conversation")
+	}
+	h.ui.state.Conversations[0].Unread = 1
+	h.ui.confirm.open = true
+	items[0].OnSelect()
+	if h.ui.selected != "conv-alice" || !h.ui.confirm.open {
+		t.Fatal("tray navigation changed the conversation behind a dialog")
+	}
+	h.ui.confirm.open = false
 	h.ui.state.Settings.HideNotificationText = true
 	if len(r.unreadTrayItems()) != 0 {
 		t.Fatal("sender exposed in privacy mode")

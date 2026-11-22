@@ -4,7 +4,6 @@ package firewall
 import (
 	"context"
 	"fmt"
-
 	"net/netip"
 	"slices"
 	"strings"
@@ -144,6 +143,10 @@ func apply(ctx context.Context, current, preview Report, sys commands) (Report, 
 // UFW status uses separate columns for destination, action and source.
 // Compare tokens rather than accepting a substring of a port or subnet.
 func ufwVerdict(status string, r Report, rule Rule) string {
+	lan, err := netip.ParsePrefix(r.Subnet)
+	if err != nil {
+		return ""
+	}
 	for _, line := range strings.Split(status, "\n") {
 		line, _, _ = strings.Cut(line, "#")
 		fields := strings.Fields(line)
@@ -155,8 +158,23 @@ func ufwVerdict(status string, r Report, rule Rule) string {
 		if len(from) > 0 && from[0] == "IN" {
 			from = from[1:]
 		}
-		if len(from) != 1 || (from[0] != r.Subnet && from[0] != "Anywhere") {
+		if len(from) != 1 {
 			continue
+		}
+		if from[0] != "Anywhere" {
+			source, err := netip.ParsePrefix(from[0])
+			if err != nil {
+				ip, err := netip.ParseAddr(from[0])
+				if err != nil {
+					continue
+				}
+				source = netip.PrefixFrom(ip, ip.BitLen())
+			}
+			// An allow must cover the LAN. A denial affecting even one
+			// member needs administrator review before offering new rules.
+			if !source.Overlaps(lan) || fields[action] == "ALLOW" && source.Bits() > lan.Bits() {
+				continue
+			}
 		}
 		if i := slices.Index(to, "on"); i >= 0 {
 			if i+2 != len(to) || to[i+1] != r.Interface {
