@@ -10,8 +10,12 @@ import (
 	"goim/internal/i18n"
 )
 
-func (r *desktopRuntime) unreadTrayItems() []app.MenuItem {
-	u := r.ui
+type unreadTrayChat struct {
+	id, title, sender, avatar string
+	count, label              string
+}
+
+func (u *UI) unreadTrayChats() []unreadTrayChat {
 	if u.lockVisible() || u.state.Settings.HideNotificationText {
 		return nil
 	}
@@ -49,14 +53,32 @@ func (r *desktopRuntime) unreadTrayItems() []app.MenuItem {
 		}
 	}
 	slices.SortStableFunc(chats, func(a, b domain.Conversation) int { return b.UpdatedAt.Compare(a.UpdatedAt) })
-	items := make([]app.MenuItem, 0, len(chats)+1)
+	entries := make([]unreadTrayChat, 0, len(chats))
 	for _, c := range chats {
-		title := u.conversationTitle(c)
-		if sender := groups[c.ID]; sender != "" {
-			title += " · " + sender
+		avatar := u.state.Peer(c.PeerID).Avatar
+		if c.Kind == "group" {
+			avatar = u.state.Group(c.GroupID).Avatar
 		}
-		title = strings.Join(strings.Fields(title), " ")
-		items = append(items, app.MenuItem{ID: "unread-" + c.ID, Title: fmt.Sprintf(i18n.T("%s（%d 条未读）"), title, c.Unread), OnSelect: func() { r.openUnreadChat(c.ID) }})
+		title := strings.Join(strings.Fields(u.conversationTitle(c)), " ")
+		sender := strings.Join(strings.Fields(groups[c.ID]), " ")
+		menuTitle := title
+		if sender != "" {
+			menuTitle += " · " + sender
+		}
+		entries = append(entries, unreadTrayChat{id: c.ID, title: title, sender: sender, avatar: avatar,
+			count: intString(c.Unread), label: fmt.Sprintf(i18n.T("%s（%d 条未读）"), menuTitle, c.Unread)})
+	}
+	return entries
+}
+
+func (r *desktopRuntime) unreadTrayItems() []app.MenuItem {
+	entries := r.ui.unreadTrayChats()
+	if len(entries) == 0 {
+		return nil
+	}
+	items := make([]app.MenuItem, 0, len(entries)+1)
+	for _, c := range entries {
+		items = append(items, app.MenuItem{ID: "unread-" + c.id, Title: c.label, OnSelect: func() { r.openUnreadChat(c.id) }})
 	}
 	return append(items, app.MenuItem{Separator: true})
 }
@@ -119,22 +141,27 @@ func (r *desktopRuntime) syncUnreadTray(unread int) {
 	if unread > 0 {
 		summary = fmt.Sprintf(i18n.T("GoIM · %d 条未读消息"), unread)
 	}
-	var items []app.MenuItem
-	if unread > 0 && !private {
-		items = r.unreadTrayItems()
+	entries := u.unreadTrayChats()
+	hover := len(entries) > 0
+	if hover != r.trayHover {
+		var panel func(app.StatusAnchor) *app.Window
+		if hover {
+			panel = r.showUnreadTrayPanel
+		}
+		r.trayPanelHover = r.tray.SetHoverPanel(panel)
+		if r.trayPanelHover || r.tray.SetMenuOnHover(hover) {
+			r.trayHover = hover
+		}
 	}
-	for i := 0; i < min(3, len(items)); i++ {
-		if !items[i].Separator {
-			summary += "\n" + items[i].Title
+	if !r.trayPanelHover {
+		for _, entry := range entries[:min(3, len(entries))] {
+			summary += "\n" + entry.label
 		}
 	}
 	if summary != r.traySummary {
 		r.tray.SetTooltip(summary)
 		r.traySummary = summary
 	}
-	hover := len(items) > 0
-	if hover != r.trayHover && r.tray.SetMenuOnHover(hover) {
-		r.trayHover = hover
-	}
+	r.updateUnreadTrayPanel(entries)
 	r.tray.RefreshMenu()
 }

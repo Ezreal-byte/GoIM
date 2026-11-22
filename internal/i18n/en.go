@@ -602,6 +602,7 @@ var en = map[string]string{
 	"退出 GoIM？":                  "Quit GoIM?",
 	"进行中的文件传输将中断，重新连接后可继续。": "Active file transfers will pause and can resume after reconnecting.",
 	"GoIM · 局域网即时通讯":        "GoIM · LAN Messenger",
+	"暂不处理":                  "Dismiss for now",
 	"打开 GoIM":               "Open GoIM",
 	"退出 GoIM":               "Quit GoIM",
 	"GoIM · %d 条未读消息":       "GoIM · %d unread messages",

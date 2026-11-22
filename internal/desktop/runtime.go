@@ -39,6 +39,8 @@ type desktopRuntime struct {
 	trayPrivate         bool
 	traySummary         string
 	trayHover           bool
+	trayPanelHover      bool
+	trayPanel           *unreadTrayPanel
 	trayLanguage        string
 	global              string
 	globalRejected      string
@@ -177,6 +179,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 				r.voiceWindow.Close()
 			}
 			r.closeViewer()
+			r.closeUnreadTrayPanel()
 			r.closeDetachedConversations()
 			r.closePrintWindows()
 			r.closeHistoryWindows()
@@ -191,6 +194,9 @@ func Run(backend domain.Backend, restartArguments []string) error {
 			}
 			if wake != nil {
 				wake()
+			}
+			if r.trayPanel != nil {
+				r.trayPanel.wake.Invalidate()
 			}
 			if shell.update.quit || shell.state.DataResetPending {
 				application.Quit()
