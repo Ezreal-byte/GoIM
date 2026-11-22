@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/vivaui/viva/app"
@@ -57,5 +58,34 @@ func TestWindowLayoutStoresCompositorSizeWithoutInventingPosition(t *testing.T) 
 	next.remember("members", &cfg)
 	if cfg.Width != 540 || cfg.Height != 620 || cfg.Origin != nil {
 		t.Fatalf("restored compositor frame: %dx%d at %v", cfg.Width, cfg.Height, cfg.Origin)
+	}
+}
+
+func TestVoiceInvitationRestoresCurrentCoordinatesAndKeepsItsSize(t *testing.T) {
+	dir := t.TempDir()
+	store := loadWindowGeometry(dir)
+	legacy := app.Config{Width: 500, Height: 150}
+	store.remember("voice-invitation", &legacy)
+	legacy.OnFrameChange(gfx.Rect{X: -250, Y: 150, Width: 500, Height: 150})
+	legacy.OnClosed()
+
+	store = loadWindowGeometry(dir)
+	config := app.Config{Width: 336, Height: 136}
+	store.rememberVoiceInvitation(&config)
+	if runtime.GOOS == "windows" {
+		if config.Origin != nil {
+			t.Fatalf("legacy scaled Windows position was reused: %+v", config.Origin)
+		}
+	} else if config.Origin == nil || *config.Origin != (gfx.Point{X: -250, Y: 150}) {
+		t.Fatalf("existing notification position was lost: %+v", config.Origin)
+	}
+
+	config.OnFrameChange(gfx.Rect{X: -750, Y: 400, Width: 336, Height: 136})
+	config.OnClosed()
+	store = loadWindowGeometry(dir)
+	next := app.Config{Width: 320, Height: 120}
+	store.rememberVoiceInvitation(&next)
+	if next.Origin == nil || *next.Origin != (gfx.Point{X: -750, Y: 400}) || next.Width != 320 || next.Height != 120 {
+		t.Fatalf("restored notification = %dx%d at %+v", next.Width, next.Height, next.Origin)
 	}
 }

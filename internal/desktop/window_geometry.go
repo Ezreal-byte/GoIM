@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -33,6 +34,18 @@ func loadWindowGeometry(directory string) windowLayoutStore {
 		}
 	}
 	return g
+}
+
+func (g *windowLayoutStore) rememberVoiceInvitation(cfg *app.Config) {
+	kind := "voice-invitation"
+	if runtime.GOOS == "windows" {
+		// Older builds saved positions divided by the active monitor's DPI.
+		// That file lacks the monitor and DPI needed to recover the real point.
+		kind = "voice-invitation-windows-v2"
+	}
+	width, height := cfg.Width, cfg.Height
+	g.remember(kind, cfg)
+	cfg.Width, cfg.Height = width, height
 }
 
 func (g *windowLayoutStore) remember(kind string, cfg *app.Config) {
