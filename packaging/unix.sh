@@ -82,7 +82,7 @@ EOF
         online="$work/online/GoIM.app"
         codesign --verify --deep --strict "$online"
         [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$online/Contents/Info.plist") == dev.goim.desktop ]]
-        [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$online/Contents/Info.plist") == "$version" ]]
+        [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$online/Contents/Info.plist") == "${version%%-*}" ]]
         mkdir "$work/image" "$work/mount"
         ditto "$payload/GoIM.app" "$work/image/GoIM.app"
         cp "$payload/README.md" "$payload/LICENSE" "$payload/THIRD_PARTY_NOTICES.md" "$payload/build-info.json" "$work/image/"
