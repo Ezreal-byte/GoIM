@@ -1,0 +1,97 @@
+package desktop
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
+	"goim/internal/domain"
+	"goim/internal/shareclient"
+)
+
+func TestUnreadTrayLinksAndPrivacy(t *testing.T) {
+	s := shellTestState(t)
+	s.Conversations[1].Unread = 3
+	s.Peers[0].Remark = "研发同事"
+	h := newShellTestHarness(t, s)
+	r := desktopRuntime{ui: h.ui}
+	h.ui.section = sectionSettings
+	items := r.unreadTrayItems()
+	if len(items) != 3 || !strings.Contains(items[0].Title, "产品讨论组 · 研发同事") || !strings.Contains(items[1].Title, "研发同事（3 条未读）") {
+		t.Fatal(items)
+	}
+	items[1].OnSelect()
+	if h.ui.selected != "conv-alice" || h.ui.section != sectionMessages {
+		t.Fatal("wrong tray target")
+	}
+	h.ui.state.Conversations[0].Muted = true
+	if len(r.unreadTrayItems()) != 2 {
+		t.Fatal("muted group still shown")
+	}
+	h.ui.state.Settings.HideNotificationText = true
+	if len(r.unreadTrayItems()) != 0 {
+		t.Fatal("sender exposed in privacy mode")
+	}
+	h.ui.state.Settings.HideNotificationText = false
+	h.ui.state.Locked = true
+	items[0].OnSelect()
+	if h.ui.selected != "conv-alice" || len(r.unreadTrayItems()) != 0 {
+		t.Fatal("stale tray action bypassed lock")
+	}
+}
+
+func TestMemberFolderToolbarOrderAndSelection(t *testing.T) {
+	s := panelTestDefaultState(t)
+	s.Peers = []domain.Peer{{ID: "owner", Online: true, Name: "Owner"}}
+	file := domain.File{ID: "project", SenderID: "owner", Name: "资料包", ShareFolder: true, Shared: true, MemberURL: "http://127.0.0.1:1234/m/11111111111111111111111111111111"}
+	s.Files = []domain.File{file}
+	h := panelTestNewHarnessBounds(t, panelModuleShares, s, ui.Rect{Width: 1250, Height: 740})
+	v := &memberProjectView{id: file.ID, address: file.MemberURL, location: file.Name, checked: map[string]bool{}, page: shareclient.Page{Title: file.Name, Path: "/s/test", Items: []shareclient.Entry{{Name: "a.pdf", URL: "/s/test/download?file=1"}}}}
+	h.panels.memberProject = v
+	h.publish(s)
+	back, ok := h.findHitLabelRole("返回", gfx.RoleButton)
+	if !ok {
+		t.Fatal("Back missing")
+	}
+	path, ok := h.findHit(h.panels.ids.shareLocation)
+	if !ok || path.Bounds.X <= back.Bounds.X {
+		t.Fatal("path must follow Back")
+	}
+	last := path.Bounds.X
+	for _, title := range []string{"全选", downloadSelectedLabel(0), "下载整个文件夹", "刷新"} {
+		hit, ok := h.findHitLabelRole(title, gfx.RoleButton)
+		if !ok || hit.Bounds.X <= last || hit.Bounds.Y != back.Bounds.Y {
+			t.Fatalf("toolbar %q %+v after %v", title, hit, last)
+		}
+		last = hit.Bounds.X
+	}
+	h.clickLabelRole("全选", gfx.RoleButton)
+	if hit, ok := h.findHitLabelRole(downloadSelectedLabel(1), gfx.RoleButton); !ok || hit.Disabled {
+		t.Fatal("selection didn't enable batch download")
+	}
+}
+
+func TestPrintRecordCancelButtonHonorsPhase(t *testing.T) {
+	s := printTestState(t)
+	s.Peers[0].PrintCancelSupported = true
+	h := panelTestNewHarness(t, panelModulePrint, s)
+	h.panels.print.tab = printTabRecords
+	h.publish(s)
+	h.clickLabelRole("取消打印", gfx.RoleButton)
+	if c := h.requireLastCommand(); c.Kind != domain.CancelPrintJob || c.PrintJobID != s.PrintJobs[0].ID {
+		t.Fatal(c)
+	}
+	s.PrintJobs[0].Status = domain.PrintStatusSubmitting
+	s.Revision++
+	h.publish(s)
+	if hit, ok := h.findHitLabelRole("取消打印", gfx.RoleButton); !ok || !hit.Disabled {
+		t.Fatal("submission is not cancellable")
+	}
+	s.PrintJobs[0].Status = domain.PrintStatusCancelled
+	s.Revision++
+	h.publish(s)
+	if _, ok := h.findHitLabelRole("取消打印", gfx.RoleButton); ok || !h.hasText("已取消") {
+		t.Fatal("cancelled record still actionable")
+	}
+}

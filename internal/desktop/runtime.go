@@ -3,7 +3,6 @@ package desktop
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -34,6 +33,10 @@ type desktopRuntime struct {
 	seen                map[string]bool
 	heardTransfers      map[string]bool
 	badge               int
+	trayRevision        uint64
+	trayPrivate         bool
+	traySummary         string
+	trayHover           bool
 	trayLanguage        string
 	global              string
 	globalRejected      string
@@ -214,7 +217,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		shell.invalidator.Invalidate()
 		show := func() { r.stopAttention(); window.Show(); shell.SetWindowVisible(true) }
 		tray, err := application.AddStatusItem(app.StatusItemConfig{Tooltip: i18n.T("GoIM · 局域网即时通讯"), Icon: statusIcon, OnClick: func(app.StatusClick) { show() }, Menu: func() []app.MenuItem {
-			items := r.voiceTrayItems()
+			items := append(r.voiceTrayItems(), r.unreadTrayItems()...)
 			return append(items, app.MenuItem{Title: i18n.T("打开 GoIM"), OnSelect: show}, app.MenuItem{Separator: true}, app.MenuItem{Title: i18n.T("退出 GoIM"), OnSelect: func() {
 				if hasActiveTransfers(shell.state.Transfers) && !shell.state.Locked {
 					show()
@@ -281,18 +284,15 @@ func (r *desktopRuntime) observe() {
 	if unread == 0 {
 		r.stopAttention()
 	}
-	if unread != r.badge || r.trayLanguage != i18n.Language() {
-		r.trayLanguage = i18n.Language()
+	if unread != r.badge {
 		r.badge = unread
 		text := ""
 		if unread > 0 {
 			text = strconv.Itoa(unread)
 		}
 		r.application.SetDockBadge(text)
-		if r.tray != nil {
-			r.tray.SetTooltip(fmt.Sprintf(i18n.T("GoIM · %d 条未读消息"), unread))
-		}
 	}
+	r.syncUnreadTray(unread)
 	mainForeground := mainWindowForeground(r.window)
 	for _, m := range s.Messages {
 		if r.seen[m.ID] {

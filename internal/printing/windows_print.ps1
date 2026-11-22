@@ -507,6 +507,13 @@ function Write-PrintJobStatus {
     $queue = $null
     try {
         $queue = $server.GetPrintQueue($printer)
+        if ($env:GOIM_PRINT_MODE -eq 'cancel') {
+            $job = $queue.GetJob($jobID)
+            $job.Refresh()
+            if ($job.IsDeleted -or $job.IsCompleted -or $job.IsPrinted) { throw 'The job has already ended.' }
+            $job.Cancel()
+            return
+        }
         $job = $null
         try {
             $job = $queue.GetJob($jobID)
@@ -531,5 +538,6 @@ switch ([string]$env:GOIM_PRINT_MODE) {
     'list' { Write-PrinterCatalog }
     'submit' { Submit-PrintJob }
     'status' { Write-PrintJobStatus }
+    'cancel' { Write-PrintJobStatus }
     default { throw 'Unknown print helper mode.' }
 }

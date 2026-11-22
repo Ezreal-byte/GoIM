@@ -26,43 +26,45 @@ const maxFrame = 4 << 20
 const maxPendingPeerConnections = 64
 
 type envelope struct {
-	DNSDirectory    bool         `json:",omitempty"`
-	DNSMembers      []dnsMember  `json:",omitempty"`
-	RelaySupported  bool         `json:",omitempty"`
-	Relay           *relayPacket `json:",omitempty"`
-	RecallSupported bool         `json:",omitempty"`
-	PrintSupported  bool         `json:",omitempty"`
-	Version         int
-	ID              string
-	Type            string
-	Peer            domain.Peer
-	Message         domain.Message
-	Group           domain.Group
-	Invitation      domain.Invitation
-	File            domain.File
-	Files           []domain.File
-	MemberCatalog   *memberCatalog `json:",omitempty"`
-	CatalogRevision uint64
-	Printers        []domain.PrinterShare
-	PrinterRevision uint64
-	PrintJob        domain.PrintJob
-	PrintJobID      string
-	PrintStatus     string
-	PrintAuth       printerAuthMessage `json:",omitempty"`
-	PrintToken      string             `json:",omitempty"`
-	TransferID      string
-	ShareRequestID  string `json:",omitempty"`
-	Offset          int64
-	Status          string
-	Error           string
-	Target          string
-	Proof           domain.Ownership
-	Avatar          []byte
-	GroupAvatar     []byte
-	Peers           []domain.Peer
-	Voice           domain.VoiceSignal
-	CallID          string
-	Audio           []byte
+	DNSDirectory         bool         `json:",omitempty"`
+	DNSMembers           []dnsMember  `json:",omitempty"`
+	RelaySupported       bool         `json:",omitempty"`
+	Relay                *relayPacket `json:",omitempty"`
+	RecallSupported      bool         `json:",omitempty"`
+	PrintCancelSupported bool         `json:",omitempty"`
+	PrintSupported       bool         `json:",omitempty"`
+	Version              int
+	ID                   string
+	Type                 string
+	Peer                 domain.Peer
+	Message              domain.Message
+	Group                domain.Group
+	Invitation           domain.Invitation
+	File                 domain.File
+	Files                []domain.File
+	MemberCatalog        *memberCatalog `json:",omitempty"`
+	CatalogRevision      uint64
+	Printers             []domain.PrinterShare
+	PrinterRevision      uint64
+	PrintJob             domain.PrintJob
+	CancelRequest        string `json:",omitempty"`
+	PrintJobID           string
+	PrintStatus          string
+	PrintAuth            printerAuthMessage `json:",omitempty"`
+	PrintToken           string             `json:",omitempty"`
+	TransferID           string
+	ShareRequestID       string `json:",omitempty"`
+	Offset               int64
+	Status               string
+	Error                string
+	Target               string
+	Proof                domain.Ownership
+	Avatar               []byte
+	GroupAvatar          []byte
+	Peers                []domain.Peer
+	Voice                domain.VoiceSignal
+	CallID               string
+	Audio                []byte
 }
 type peerConn struct {
 	dnsRequestDirectory *dnsDirectory
@@ -130,6 +132,7 @@ func (n *Node) hello() envelope {
 	e.DNSDirectory = true
 	e.RecallSupported = true
 	e.PrintSupported = true
+	e.PrintCancelSupported = true
 	e.RelaySupported = true
 	return e
 }
@@ -197,6 +200,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 	hello.Peer.Avatar = ""
 	hello.Peer.RecallSupported = hello.RecallSupported
 	hello.Peer.PrintSupported = hello.PrintSupported
+	hello.Peer.PrintCancelSupported = hello.PrintCancelSupported
 	hello.Peer.RelaySupported = hello.RelaySupported
 	if len(hello.Avatar) > 0 {
 		path, err := n.cacheAvatar(hello.Peer.ID, hello.Avatar)
@@ -690,6 +694,10 @@ func (n *Node) receiveFrom(peer string, e envelope, source *peerConn) error {
 		}
 	case "printer_catalog":
 		err = n.receivePrinterCatalog(peer, e)
+	case "print_cancel":
+		err = n.cancelOwnedPrint(peer, e.PrintJobID, e.ID)
+	case "print_cancel_result":
+		err = n.receivePrintCancelResult(peer, e)
 	case "print_status":
 		err = n.receivePrintStatus(peer, e)
 	case "printer_auth":

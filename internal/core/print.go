@@ -49,6 +49,7 @@ func publicPrintJob(job domain.PrintJob) domain.PrintJob {
 	job.PrinterDevice = ""
 	job.LocalJobID = ""
 	job.SubmitKey = ""
+	job.CancelRequest, job.CancelError = "", ""
 	job.Error = ""
 	return job
 }
@@ -493,7 +494,7 @@ func (n *Node) receivePrintStatus(peer string, e envelope) error {
 		return errors.New("无效打印状态")
 	}
 	switch e.PrintStatus {
-	case domain.PrintStatusQueued, domain.PrintStatusCompleted, domain.PrintStatusFailed:
+	case domain.PrintStatusSubmitting, domain.PrintStatusCancelled, domain.PrintStatusQueued, domain.PrintStatusCompleted, domain.PrintStatusFailed:
 	default:
 		return errors.New("无效打印状态")
 	}
@@ -510,14 +511,28 @@ func (n *Node) receivePrintStatus(peer string, e envelope) error {
 		if job.PrinterOwnerID != peer || job.SenderID != p.State.Self.ID || job.Status == e.PrintStatus {
 			return nil
 		}
-		if job.Status == domain.PrintStatusCompleted || job.Status == domain.PrintStatusFailed {
+		if job.Terminal() {
 			return nil
 		}
-		if e.PrintStatus == domain.PrintStatusQueued &&
+		if e.PrintStatus == domain.PrintStatusSubmitting && job.Status == domain.PrintStatusQueued {
+			return nil
+		}
+		if e.PrintStatus == domain.PrintStatusQueued && job.Status != domain.PrintStatusSubmitting &&
 			job.Status != domain.PrintStatusSending && job.Status != domain.PrintStatusReceiving {
 			return nil
 		}
 		job.Status, job.Error, job.UpdatedAt = e.PrintStatus, errText, time.Now()
+		if job.Terminal() {
+			if job.CancelRequest != "" && job.Status != domain.PrintStatusCancelled {
+				job.CancelError = "取消时打印任务已结束"
+			} else if job.Status == domain.PrintStatusCancelled {
+				job.CancelError = ""
+			}
+			job.CancelRequest = ""
+		}
+		if job.Status == domain.PrintStatusCancelled {
+			n.cancelPrintTransferState(p, *job)
+		}
 		return nil
 	})
 }
@@ -528,10 +543,13 @@ func (n *Node) sendPrintStatuses(peer string) {
 		if job.PrinterOwnerID != s.Self.ID || job.SenderID != peer {
 			continue
 		}
+		if job.Status == domain.PrintStatusSubmitting && !s.Peer(peer).PrintCancelSupported {
+			continue
+		}
 		switch job.Status {
-		case domain.PrintStatusQueued, domain.PrintStatusCompleted, domain.PrintStatusFailed:
+		case domain.PrintStatusSubmitting, domain.PrintStatusCancelled, domain.PrintStatusQueued, domain.PrintStatusCompleted, domain.PrintStatusFailed:
 			_ = n.send(peer, envelope{
-				Type: "print_status", PrintJobID: job.ID, PrintStatus: job.Status, Error: job.Error,
+				Type: "print_status", PrintJobID: job.ID, PrintStatus: printStatusForPeer(job.Status, s.Peer(peer)), Error: job.Error,
 			})
 		}
 	}
@@ -652,12 +670,13 @@ func (n *Node) runPrintWorker(transferID string, pollOnly bool) {
 			n.finishPrintJob(job.ID, domain.PrintStatusFailed, err.Error())
 			return
 		}
-		if err := n.beginPrintSubmission(job.ID); err != nil {
-			return
-		}
 		select {
 		case n.printSubmitTokens <- struct{}{}:
 		case <-n.ctx.Done():
+			return
+		}
+		if err := n.beginPrintSubmission(job.ID); err != nil {
+			<-n.printSubmitTokens
 			return
 		}
 		receipt, err := n.printBackend.Submit(n.ctx, share.DeviceName, path, job.Options)
@@ -701,18 +720,32 @@ func (n *Node) setPrintJobStatus(id, status, problem string) error {
 }
 
 func (n *Node) beginPrintSubmission(id string) error {
-	return n.durable(func(p *persisted) []pending {
+	n.printCancelMu.Lock()
+	defer n.printCancelMu.Unlock()
+	started := false
+	err := n.durable(func(p *persisted) []pending {
 		i := printJobIndex(&p.State, id)
 		if i < 0 || p.State.PrintJobs[i].Terminal() {
 			return nil
 		}
 		job := &p.State.PrintJobs[i]
+		if job.Status != domain.PrintStatusReceiving {
+			return nil
+		}
+		started = true
 		job.Status, job.Error, job.UpdatedAt = domain.PrintStatusSubmitting, "", time.Now()
 		if job.SubmitKey == "" {
 			job.SubmitKey = job.ID
 		}
+		if p.State.Peer(job.SenderID).PrintCancelSupported {
+			return []pending{{PeerID: job.SenderID, Envelope: envelope{Type: "print_status", PrintJobID: job.ID, PrintStatus: job.Status}}}
+		}
 		return nil
 	})
+	if err == nil && !started {
+		return errors.New("打印任务已结束")
+	}
+	return err
 }
 
 func (n *Node) queuePrintJob(id, localID string) error {
@@ -736,6 +769,8 @@ func (n *Node) queuePrintJob(id, localID string) error {
 }
 
 func (n *Node) finishPrintJob(id, status, problem string) {
+	n.printCancelMu.Lock()
+	defer n.printCancelMu.Unlock()
 	s := n.snapshot(false)
 	job := s.PrintJob(id)
 	if job.ID == "" || job.Terminal() {

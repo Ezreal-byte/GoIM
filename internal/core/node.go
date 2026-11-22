@@ -102,6 +102,7 @@ type Node struct {
 	localPrinters         []domain.LocalPrinter
 	printersLoading       bool
 	printError            string
+	printCancelMu         sync.Mutex // Serialize spooler cancellation against terminal status updates.
 	printPolls            map[string]bool
 	printSubmitTokens     chan struct{}
 	printAuthWaiters      map[string]printerAuthWaiter

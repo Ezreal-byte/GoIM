@@ -157,21 +157,53 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry 
 		location = entry.title
 	}
 	ui.Column(f.Part("member-folder")).FillWidth().Grow(1).MinHeight(0).PadSides(8, 0, 0, 0).Gap(8).Children(func() {
-		ui.Row(f).FillWidth().Items(ui.Center).Gap(12).Children(func() {
-			if ui.Button(f.Part("back-projects"), i18n.T("返回")).Icon(viewerBackIcon).Ghost().Disabled(v.busy && v.page.ParentURL != "").Clicked() {
+		header := func() {
+			if ui.Button(f.Part("back-projects"), i18n.T("返回")).Icon(viewerBackIcon).Small().Outline().Disabled(v.busy && v.page.ParentURL != "").Clicked() {
 				p.backMemberProject()
 			}
-			ui.Text(f, location).MinWidth(0).Grow(1).TextEnd().Ellipsis().Weight(gfx.WeightMedium).
+			ui.Row(f).Width(1).Height(theme.Metrics.ScaledText(18)).Background(theme.Border)
+			ui.Text(f, location).MinWidth(0).Grow(1).Ellipsis().Weight(gfx.WeightMedium).
 				HitWith(p.ids.shareLocation, location, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).Tooltip(location)
-		})
+		}
+		actions := func() {
+			available := !v.busy && !v.page.Locked && len(v.page.Items) > 0
+			all := available && len(v.checked) == len(v.page.Items)
+			if ui.Button(f.Part("select-all"), shareSelectAllLabel(all)).Small().Outline().Disabled(!available).Clicked() {
+				clear(v.checked)
+				if !all {
+					for _, item := range v.page.Items {
+						v.checked[item.URL] = true
+					}
+				}
+			}
+			if ui.Button(f.Part("download-selected"), downloadSelectedLabel(len(v.checked))).Small().Outline().Disabled(!available || len(v.checked) == 0).Clicked() {
+				var batch []domain.ShareDownload
+				for _, item := range v.page.Items {
+					if v.checked[item.URL] {
+						batch = append(batch, v.selection(item))
+					}
+				}
+				p.submitShareBatch(batch, submit)
+			}
+			whole := v.page.Whole()
+			if ui.Button(f.Part("download-folder"), i18n.T("下载整个文件夹")).Small().Outline().Disabled(v.busy || v.page.Locked || !whole.Folder || v.page.Path == "").Clicked() {
+				p.submitShareBatch([]domain.ShareDownload{v.selection(whole)}, submit)
+			}
+			if ui.Button(f.Part("reload-directory"), i18n.T("刷新")).Small().Outline().Disabled(v.busy).Clicked() {
+				v.refresh()
+			}
+		}
+		if width >= theme.Metrics.ScaledText(700) {
+			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() { header(); actions() })
+		} else {
+			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(header)
+			ui.Flow(f.Part("project-downloads")).FillWidth().Gap(6).Children(actions)
+		}
 		if v.problem != "" {
 			ui.Wrap(f, v.problem).Color(theme.Danger)
 		}
 		if v.busy {
 			ui.Text(f, i18n.T(v.status)).Muted()
-		}
-		if !v.busy && v.page.Path == "" && v.problem != "" && ui.Button(f.Part("refresh-project"), i18n.T("刷新")).Outline().Clicked() {
-			v.refresh()
 		}
 		if v.page.Locked {
 			field := ui.TextFieldID(f, p.ids.sharePasswordField, &v.password, i18n.T("分享密码"), i18n.T("输入分享密码")).Width(min(float32(320), width))
@@ -185,39 +217,6 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry 
 		}
 		if v.page.Path != "" && len(v.page.Items) == 0 && !v.busy {
 			ui.Text(f, i18n.T("这个文件夹是空的")).Muted()
-		}
-		if v.page.Path != "" {
-			ui.Row(f.Part("project-downloads")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-				if ui.Button(f.Part("reload-directory"), i18n.T("刷新")).Ghost().Disabled(v.busy).Clicked() {
-					v.refresh()
-				}
-				whole := v.page.Whole()
-				if whole.Folder && ui.Button(f.Part("download-folder"), i18n.T("下载整个文件夹")).Outline().Disabled(v.busy).Clicked() {
-					p.submitShareBatch([]domain.ShareDownload{v.selection(whole)}, submit)
-					return
-				}
-				if len(v.page.Items) == 0 {
-					return
-				}
-				if ui.Button(f.Part("select-all"), shareSelectAllLabel(len(v.checked) == len(v.page.Items))).Ghost().Disabled(v.busy).Clicked() {
-					all := len(v.checked) != len(v.page.Items)
-					clear(v.checked)
-					if all {
-						for _, e := range v.page.Items {
-							v.checked[e.URL] = true
-						}
-					}
-				}
-				if ui.Button(f.Part("download-selected"), downloadSelectedLabel(len(v.checked))).Outline().Disabled(v.busy || len(v.checked) == 0).Clicked() {
-					var batch []domain.ShareDownload
-					for _, e := range v.page.Items {
-						if v.checked[e.URL] {
-							batch = append(batch, v.selection(e))
-						}
-					}
-					p.submitShareBatch(batch, submit)
-				}
-			})
 		}
 		sizeWidth, actionsWidth := float32(84), theme.Metrics.ScaledText(148)
 		if len(v.page.Items) > 0 {

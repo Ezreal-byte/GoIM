@@ -654,7 +654,7 @@ func (u *UI) drawPrintMessage(f ui.C, conversation domain.Conversation, message 
 	if own {
 		justify = ui.End
 	}
-	status, kind := printStatusPresentation(job.Status)
+	status, kind := printJobPresentation(job)
 	statusColor := u.palette.secondaryText
 	switch kind {
 	case "completed":

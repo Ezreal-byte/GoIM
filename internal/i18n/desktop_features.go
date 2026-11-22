@@ -4,6 +4,18 @@ package i18n
 // settings layout catalog, keeping the main locale table easy to scan.
 func init() {
 	for label, english := range map[string]string{
+		"系统队列已接受取消，已输出的页面无法撤回": "The spooler accepted the cancellation. Pages already printed cannot be recalled.",
+		"取消时打印任务已结束":           "The job ended before cancellation was confirmed.",
+		"未找到你可以取消的打印任务":        "No print job you can cancel was found.",
+		"文件传输已取消，旧版对端无法确认打印结果": "File transfer cancelled. The older printer host cannot confirm the print result.",
+		"%s（%d 条未读）":           "%s (%d unread)",
+		"等待取消结果":               "Awaiting cancellation",
+		"正在等待打印机主人确认":          "Waiting for the printer owner",
+		"当前打印阶段无法取消":           "Cancellation is unavailable at this stage",
+		"对方版本不支持远程取消打印":        "The printer owner's version does not support remote cancellation",
+		"取消打印": "Cancel print",
+		"当前打印阶段无法取消，请查看最新打印状态":                           "This job can no longer be cancelled at this stage. Check its latest status.",
+		"系统打印队列不支持取消此任务":                                 "The system print queue cannot cancel this job",
 		"麒麟可在「安全中心 → 网络防护」核对网络类型，并在「联网控制」查看 GoIM 的应用权限。": "On Kylin, check the network profile in Security Center → Network Protection and GoIM’s permissions under Network Access Control.",
 		"统信可在「安全中心」核对防火墙策略。使用集中域管的设备请管理员同步核对终端策略。":       "On UOS, check the firewall policy in Security Center. For a centrally managed device, ask the administrator to check its endpoint policy.",
 		"已有拒绝规则": "Explicit deny rule",

@@ -79,16 +79,17 @@ type panelPrintCard struct {
 }
 
 type panelPrintRecord struct {
-	job        domain.PrintJob
-	name       string
-	direction  string
-	source     string
-	date       string
-	status     string
-	statusKind string
-	options    string
-	error      string
-	sent       bool
+	job          domain.PrintJob
+	name         string
+	direction    string
+	source       string
+	date         string
+	status       string
+	statusKind   string
+	options      string
+	error        string
+	cancelReason string
+	sent         bool
 }
 
 type printPanel struct {
@@ -328,11 +329,11 @@ func (t *printPanel) rebuild(state domain.State) {
 		if sent {
 			direction = i18n.T("发出")
 		}
-		label, kind := printStatusPresentation(job.Status)
+		label, kind := printJobPresentation(job)
 		record := panelPrintRecord{
 			job: job, name: job.FileName, direction: direction, source: source,
 			status: label, statusKind: kind, options: printOptionSummary(job.Options),
-			error: job.Error, sent: sent,
+			error: job.Error, sent: sent, cancelReason: printCancelReason(state, job),
 		}
 		record.date = printRecordTime(job.CreatedAt)
 		t.records = append(t.records, record)
@@ -448,6 +449,26 @@ func printOptionSummary(options domain.PrintOptions) string {
 	return strings.Join(parts, " · ")
 }
 
+func printJobPresentation(j domain.PrintJob) (string, string) {
+	if j.CancelRequest != "" && !j.Terminal() {
+		return i18n.T("等待取消结果"), "active"
+	}
+	return printStatusPresentation(j.Status)
+}
+func printCancelReason(s domain.State, j domain.PrintJob) string {
+	switch {
+	case j.CancelRequest != "":
+		return i18n.T("正在等待打印机主人确认")
+	case !j.CanCancel():
+		return i18n.T("当前打印阶段无法取消")
+	case s.Self.ID == j.PrinterOwnerID:
+		return ""
+	case j.SenderID != s.Self.ID || !s.Peer(j.PrinterOwnerID).PrintCancelSupported:
+		return i18n.T("对方版本不支持远程取消打印")
+	default:
+		return ""
+	}
+}
 func printStatusPresentation(status string) (string, string) {
 	switch status {
 	case domain.PrintStatusSending:
@@ -456,6 +477,8 @@ func printStatusPresentation(status string) (string, string) {
 		return i18n.T("接收中"), "active"
 	case domain.PrintStatusSubmitting:
 		return i18n.T("提交队列中"), "active"
+	case domain.PrintStatusCancelled:
+		return i18n.T("已取消"), "cancelled"
 	case domain.PrintStatusQueued:
 		return i18n.T("已提交队列"), "queued"
 	case domain.PrintStatusCompleted:
@@ -516,7 +539,7 @@ func (p *Panels) drawPrint(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.
 			panelBanner(f, theme, state.PrintError, true, nil)
 		}
 		if p.print.tab == printTabRecords && len(p.print.records) > 0 {
-			p.drawPrintRecords(f, theme, bounds.Width-2*pad, p.print.records, true)
+			p.drawPrintRecords(f, theme, bounds.Width-2*pad, p.print.records, true, submit)
 		} else {
 			ui.Scroll(f.KeyInt(700 + int(p.print.tab))).FillWidth().Grow(1).MinHeight(0).AlwaysScrollbars().Children(func() {
 				ui.Column(f).FillWidth().PadY(4).Children(func() {
@@ -584,7 +607,7 @@ func (p *Panels) drawPrintTab(f ui.C, theme ui.Theme, width float32, state domai
 		if len(p.print.records) > 0 {
 			ui.Column(f).FillWidth().PadSides(14, 0, 0, 0).Children(func() {
 				ui.Text(f, i18n.T("最近打印")).FontSize(textSize(f, 17)).Weight(gfx.WeightSemibold)
-				p.drawPrintRecords(f, theme, width, p.print.recent, false)
+				p.drawPrintRecords(f, theme, width, p.print.recent, false, submit)
 			})
 		}
 	}
@@ -709,7 +732,7 @@ func (p *Panels) drawPrintAvatar(f ui.C, card panelPrintCard, theme ui.Theme, si
 	})
 }
 
-func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records []panelPrintRecord, fullHistory bool) {
+func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records []panelPrintRecord, fullHistory bool, submit func(domain.Command)) {
 	compact := width < theme.Metrics.ScaledText(900)
 	directionWidth := float32(88)
 	sourceWidth := float32(190)
@@ -733,6 +756,7 @@ func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records
 			sort.header(f, "时间", timeWidth, apply)
 		}
 		sort.header(f, "状态", statusWidth, apply)
+		ui.Text(f, i18n.T("操作")).Width(theme.Metrics.ScaledText(76)).Muted()
 	})
 	drawRows := func() {
 		for _, record := range records {
@@ -756,6 +780,12 @@ func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records
 						if record.error != "" && record.statusKind == "failed" {
 							meta += " · " + record.error
 						}
+						if record.statusKind == "cancelled" && record.error != "" {
+							meta = i18n.T(record.error)
+						}
+						if record.job.CancelError != "" {
+							meta = i18n.T(record.job.CancelError)
+						}
 						if meta != "" {
 							ui.Text(f, meta).Muted().FontSize(textSize(f, 11)).Ellipsis()
 						}
@@ -774,6 +804,18 @@ func (p *Panels) drawPrintRecords(f ui.C, theme ui.Theme, width float32, records
 					icon, color := printStatusIcon(record.statusKind, theme)
 					ui.Icon(f, icon).Size(16, 16).Color(color)
 					ui.Text(f, record.status).FontSize(textSize(f, 12.5)).Color(color).Ellipsis()
+				})
+				ui.Row(f).Width(theme.Metrics.ScaledText(76)).Children(func() {
+					if record.job.Terminal() {
+						return
+					}
+					button := ui.Button(f.Key(record.job.ID).Part("cancel-print"), i18n.T("取消打印")).Small().Outline().Disabled(record.cancelReason != "")
+					if record.cancelReason != "" {
+						button.Tooltip(record.cancelReason)
+					}
+					if button.Clicked() {
+						submit(domain.Command{Kind: domain.CancelPrintJob, PrintJobID: record.job.ID})
+					}
 				})
 			})
 			ui.Divider(f).FillWidth()

@@ -104,6 +104,17 @@ func (System) Submit(ctx context.Context, printer, path string, options domain.P
 	return Receipt{Printer: printer, JobID: jobID}, nil
 }
 
+func (System) Cancel(ctx context.Context, receipt Receipt) error {
+	id, err := strconv.Atoi(receipt.JobID)
+	if err != nil || id <= 0 || receipt.Printer == "" {
+		return errors.New("系统打印任务编号无效")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	_, err = runPowerShellEnv(ctx, append(os.Environ(), "GOIM_PRINT_MODE=cancel", "GOIM_PRINT_PRINTER="+receipt.Printer, "GOIM_PRINT_JOB="+strconv.Itoa(id)))
+	return err
+}
+
 func (System) Status(ctx context.Context, receipt Receipt) (State, error) {
 	jobID, err := strconv.Atoi(strings.TrimSpace(receipt.JobID))
 	if err != nil || jobID <= 0 || strings.TrimSpace(receipt.Printer) == "" {

@@ -97,6 +97,22 @@ func (System) Submit(ctx context.Context, printer, path string, options domain.P
 	return Receipt{Printer: printer, JobID: jobID}, nil
 }
 
+// Cancel only the exact local request returned by lp.
+func (System) Cancel(ctx context.Context, receipt Receipt) error {
+	number, ok := strings.CutPrefix(receipt.JobID, receipt.Printer+"-")
+	id, err := strconv.Atoi(number)
+	if !ok || receipt.Printer == "" || strings.HasPrefix(receipt.Printer, "-") || err != nil || id <= 0 {
+		return errors.New("系统打印任务编号无效")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	out, err := run(ctx, "cancel", receipt.JobID)
+	if err != nil {
+		return cupsError("系统打印队列拒绝取消", out, err)
+	}
+	return nil
+}
+
 func (System) Status(ctx context.Context, receipt Receipt) (State, error) {
 	if strings.TrimSpace(receipt.Printer) == "" || strings.TrimSpace(receipt.JobID) == "" {
 		return StateUnknown, nil

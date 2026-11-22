@@ -80,11 +80,16 @@ func (u *UI) drawPrintDetail(f ui.C, job domain.PrintJob) {
 			ui.Wrap(f, job.FileName).Grow(1).FontSize(textSize(f, 17)).Weight(gfx.WeightSemibold)
 		})
 		ui.Divider(f)
-		status, _ := printStatusPresentation(job.Status)
+		status, _ := printJobPresentation(job)
 		u.fileInfoRow(f, i18n.T("打印状态"), status)
 		u.fileInfoRow(f, i18n.T("打印机"), job.PrinterName)
 		u.fileInfoRow(f, i18n.T("打印设置"), printOptionSummary(job.Options))
-		if job.Error != "" {
+		if job.CancelError != "" {
+			ui.Wrap(f, i18n.T(job.CancelError)).Color(u.theme.Danger)
+		}
+		if job.Status == domain.PrintStatusCancelled && job.Error != "" {
+			ui.Wrap(f, i18n.T(job.Error)).FontSize(textSize(f, 13)).Muted()
+		} else if job.Error != "" {
 			ui.Wrap(f, job.Error).FontSize(textSize(f, 13)).Color(u.palette.danger)
 		}
 		ui.Wrap(f, i18n.T("这是历史打印记录。打印任务的最新状态可在打印共享中查看。")).FontSize(textSize(f, 12)).Muted()

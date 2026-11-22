@@ -3,10 +3,38 @@
 package printing
 
 import (
+	"context"
+	"errors"
+	"slices"
 	"testing"
 
 	"goim/internal/domain"
 )
+
+func TestCUPSCancelUsesOnlyTheReturnedQueueJob(t *testing.T) {
+	previous := run
+	defer func() { run = previous }()
+	var calls int
+	run = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		calls++
+		if name != "cancel" || !slices.Equal(args, []string{"office-east-42"}) {
+			t.Fatal(name, args)
+		}
+		return []byte("job already completed"), errors.New("exit status 1")
+	}
+	backend := System{}
+	for _, id := range []string{"-a", "other-42", "office-east-0", "office-east-42 "} {
+		if err := backend.Cancel(context.Background(), Receipt{Printer: "office-east", JobID: id}); err == nil {
+			t.Fatal(id)
+		}
+	}
+	if calls != 0 {
+		t.Fatal("invalid receipt reached CUPS")
+	}
+	if err := backend.Cancel(context.Background(), Receipt{Printer: "office-east", JobID: "office-east-42"}); err == nil || calls != 1 {
+		t.Fatal(err, calls)
+	}
+}
 
 func TestCUPSParseCapabilities(t *testing.T) {
 	got := cupsCapabilities(`

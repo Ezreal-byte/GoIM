@@ -12,6 +12,7 @@ type Peer struct {
 	ContactHidden        bool   `json:"-"` // keeps the original group while hidden locally
 	ContactDeleted       bool   `json:"-"` // retained for history until this peer reappears
 	RecallSupported      bool   `json:"RecallSupported,omitempty"`
+	PrintCancelSupported bool   `json:"PrintCancelSupported,omitempty"`
 	PrintSupported       bool   `json:"PrintSupported,omitempty"`
 	VoiceSupported       bool   `json:",omitempty"`
 	RelaySupported       bool   `json:",omitempty"`
@@ -336,6 +337,7 @@ const (
 	PrintStatusReceiving     = "receiving"
 	PrintStatusSubmitting    = "submitting"
 	PrintStatusQueued        = "queued"
+	PrintStatusCancelled     = "cancelled"
 	PrintStatusCompleted     = "completed"
 	PrintStatusFailed        = "failed"
 	PrintPageRangeAll        = ""
@@ -407,13 +409,20 @@ type PrintJob struct {
 	Status           string // sending, receiving, submitting, queued, completed, failed
 	Error            string `json:",omitempty"`
 	LocalJobID       string `json:",omitempty"`
+	CancelRequest    string `json:",omitempty"` // Sent request awaiting the printer owner’s decision.
+	CancelError      string `json:",omitempty"`
 	SubmitKey        string `json:",omitempty"`
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
 
 func (j PrintJob) Terminal() bool {
-	return j.Status == PrintStatusCompleted || j.Status == PrintStatusFailed
+	return j.Status == PrintStatusCompleted || j.Status == PrintStatusFailed || j.Status == PrintStatusCancelled
+}
+
+// CanCancel is also checked by the owner when a remote request arrives.
+func (j PrintJob) CanCancel() bool {
+	return j.CancelRequest == "" && (j.Status == PrintStatusSending || j.Status == PrintStatusReceiving || j.Status == PrintStatusQueued)
 }
 
 type Shortcut struct {
@@ -780,6 +789,7 @@ const (
 	SendFiles            CommandKind = "send_files"
 	AcceptTransfer       CommandKind = "accept_transfer"
 	RejectTransfer       CommandKind = "reject_transfer"
+	CancelPrintJob       CommandKind = "cancel_print_job"
 	CancelTransfer       CommandKind = "cancel_transfer"
 	RetryTransfer        CommandKind = "retry_transfer"
 	CreateGroup          CommandKind = "create_group"
@@ -880,6 +890,7 @@ type Command struct {
 	Presence       Presence
 	Request        uint64
 	PrinterID      string
+	PrintJobID     string
 	PrintOptions   PrintOptions
 	CallID         string
 	ExpectedDevice *string // guard a failed device switch against a newer selection

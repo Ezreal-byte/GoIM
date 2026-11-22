@@ -131,11 +131,21 @@ func (n *Node) execute(c domain.Command) error {
 		}
 		return n.retryTransfer(t)
 	case domain.RejectTransfer, domain.CancelTransfer:
+		s := n.snapshot(false)
+		if index := printJobForTransferIndex(&s, c.TransferID); index >= 0 {
+			job := s.PrintJobs[index]
+			if job.PrinterOwnerID == s.Self.ID || s.Peer(job.PrinterOwnerID).PrintCancelSupported {
+				return n.cancelPrintJob(job.ID)
+			}
+			// Older owners only understand cancellation of the file transfer.
+			if job.Status != domain.PrintStatusSending {
+				return errors.New("对方版本不支持远程取消打印")
+			}
+		}
 		status := "cancelled"
 		if c.Kind == domain.RejectTransfer {
 			status = "rejected"
 		}
-		cancelled := false
 		var t domain.Transfer
 		err := n.durable(func(p *persisted) []pending {
 			i := transferIndex(&p.State, c.TransferID)
@@ -157,8 +167,13 @@ func (n *Node) execute(c domain.Command) error {
 				return nil
 			}
 			v.Status = status
+			if v.PrintJobID != "" {
+				if j := printJobIndex(&p.State, v.PrintJobID); j >= 0 && !p.State.PrintJobs[j].Terminal() {
+					job := &p.State.PrintJobs[j]
+					job.Status, job.Error, job.UpdatedAt = domain.PrintStatusFailed, "文件传输已取消，旧版对端无法确认打印结果", time.Now()
+				}
+			}
 			p.queuePartialCleanup(*v)
-			cancelled = true
 			v.Speed = 0
 			v.UpdatedAt = time.Now()
 			if v.Direction == "send" {
@@ -187,9 +202,6 @@ func (n *Node) execute(c domain.Command) error {
 		})
 		if err == nil && t.ID == "" {
 			return errors.New("找不到传输任务")
-		}
-		if err == nil && cancelled && t.PrintJobID != "" {
-			n.failPrintTransfer(t.ID, "打印任务已取消")
 		}
 		return err
 	case domain.SetSetting:
@@ -318,6 +330,8 @@ func (n *Node) execute(c domain.Command) error {
 		n.authenticatePrinter(c)
 	case domain.SetPrinterPinned:
 		return n.setPrinterPinned(c)
+	case domain.CancelPrintJob:
+		return n.cancelPrintJob(c.PrintJobID)
 	case domain.PrintFile:
 		return n.printFile(c)
 	case domain.GetShared:
