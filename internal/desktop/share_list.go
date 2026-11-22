@@ -81,7 +81,7 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 			drawTableSearch(f, p.ids.shareSearch, &p.shareSearch, i18n.T("搜索文件"))
 		}
 		var entries []panelShareEntry
-		separateActions := bounds.Width-2*pad < theme.Metrics.ScaledText(740)
+		separateActions := bounds.Width-2*pad < theme.Metrics.ScaledText(600)
 		drawActions := func() {
 			p.drawShareSelectionActions(f, entries, submit)
 			if namedButton(f, p.ids.sharesRefresh, i18n.T("刷新")).Icon(RefreshCw).Outline().Clicked() {
@@ -153,20 +153,34 @@ func (p *Panels) drawShareToolbar(f ui.C, theme ui.Theme, device domain.DeviceSh
 	if compact {
 		height, labelSize = 39, 13
 	}
-	ui.Row(f).FillWidth().Gap(12).Items(ui.Start).Children(func() {
-		drawPanelPageHeading(f, width, i18n.T("文件共享"), i18n.T("查看和管理你创建的分享，以及成员与你共享的文件。"))
-		label := i18n.T("设备分享主页")
-		if compact {
-			label = i18n.T("设备主页")
+	label := i18n.T("设备分享主页")
+	if compact {
+		label = i18n.T("设备主页")
+	}
+	fontSize := textSize(f, labelSize)
+	height = max(height, fontSize+14)
+	deviceWidth := float32(28+18+14+18+2) + f.Canvas().TextWidthWeight(label, fontSize, gfx.WeightMedium)
+	if device.URL != "" {
+		deviceWidth += 15
+		if !compact {
+			deviceWidth += 9 + f.Canvas().TextWidth(i18n.T("已启用"), textSize(f, 12))
 		}
-		fontSize := textSize(f, labelSize)
-		height = max(height, fontSize+14)
-		deviceWidth := float32(28+18+14+18+2) + f.Canvas().TextWidthWeight(label, fontSize, gfx.WeightMedium)
-		if device.URL != "" {
-			deviceWidth += 15
-			if !compact {
-				deviceWidth += 9 + f.Canvas().TextWidth(i18n.T("已启用"), textSize(f, 12))
-			}
+	}
+	addWidth := float32(28+17+1+14+27+2) + f.Canvas().TextWidthWeight(i18n.T("新增分享"), fontSize, gfx.WeightSemibold)
+	title := i18n.T("文件共享")
+	titleWidth := f.Canvas().TextWidthWeight(title, textSize(f, 29), gfx.WeightSemibold)
+	drawHeading := func() {
+		drawPanelPageHeading(f, width, title, i18n.T("查看和管理你创建的分享，以及成员与你共享的文件。"))
+	}
+	stacked := titleWidth+deviceWidth+addWidth+26 > width-2*panelPageInset(width)
+	if stacked {
+		ui.Row(f).FillWidth().Children(drawHeading)
+	}
+	ui.Row(f).FillWidth().Gap(12).Items(ui.Start).Children(func() {
+		if stacked {
+			ui.Spacer(f)
+		} else {
+			drawHeading()
 		}
 		deviceButton := ui.Row(f).Width(deviceWidth).Shrink(0).Height(height).Gap(9).PadX(14).Items(ui.Center).Radius(8).
 			Border(1, theme.Border).Hover(ui.Look{}.Background(theme.Hover)).
@@ -188,7 +202,6 @@ func (p *Panels) drawShareToolbar(f ui.C, theme ui.Theme, device domain.DeviceSh
 		if p.shareMenu.kind == shareMenuDevice {
 			p.shareAnchor = deviceButton
 		}
-		addWidth := float32(28+17+1+14+27+2) + f.Canvas().TextWidthWeight(i18n.T("新增分享"), fontSize, gfx.WeightSemibold)
 		addButton := ui.Row(f).Width(addWidth).Shrink(0).Height(height).Gap(9).PadX(14).Items(ui.Center).Radius(8).
 			Background(theme.Primary).Hover(ui.Look{}.Background(theme.Primary.WithAlpha(.87))).
 			HitWith(p.ids.sharesAdd, i18n.T("新增分享"), gfx.HitOptions{Role: gfx.RoleButton, Disabled: p.sharePickerOpen, Expandable: true, Expanded: p.shareMenu.kind == shareMenuAdd})
