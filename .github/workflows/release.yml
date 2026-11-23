@@ -111,6 +111,11 @@ jobs:
       - name: macOS status item regression
         if: runner.os == 'macOS'
         run: go test github.com/vivaui/viva/internal/platform/darwin -run '^TestNativeStatusItemMenuDelegateAndSelection$' -count=1 -v
+      - name: Linux tray first frame and exposure regression
+        if: runner.os == 'Linux'
+        env:
+          VIVA_TEST_NOTIFICATION_XVFB: '1'
+        run: xvfb-run -a -s '-screen 0 1280x1024x24 -noreset' go test github.com/vivaui/viva/internal/platform/linux -run '^Test(TrayWindowQueuedRedrawBeforeInput|TrayWindowRepaintsLaterExposure|ExposureDoesNotPaintHiddenOrForeignWindow)$' -count=1 -timeout=45s -v
       - name: Core and background media race tests
         if: matrix.os == 'linux' && matrix.arch == 'amd64'
         run: go test -race ./internal/core ./internal/desktop ./internal/ipmsg ./internal/neiwangtong -count=1 -timeout=180s
