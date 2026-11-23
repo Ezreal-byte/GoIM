@@ -21,5 +21,5 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
-// Build against the GoIM fork for tray updates and notification placement (Viva PRs #391 and #393).
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261123033959-00603cf13240
+// Build against the GoIM fork for tray, notification and Linux clipboard fixes (Viva PRs #391, #393 and #417).
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261123072700-c298d91b2ac0

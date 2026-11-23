@@ -26,6 +26,9 @@ func TestNativeClipboardPNGRoundTrip(t *testing.T) {
 	if err := setClipboardPNG("", encoded.Bytes()); err != nil {
 		t.Fatal(err)
 	}
+	if value, err := app.ClipboardText(); err != nil || value != "" {
+		t.Fatalf("image-only clipboard returned %d text bytes: %v", len(value), err)
+	}
 	got, err := app.ClipboardImagePNG()
 	if err != nil {
 		t.Fatal(err)
