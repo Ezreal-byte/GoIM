@@ -34,7 +34,7 @@ var searchableSettings = []settingSearchItem{
 	{panelSettingsGeneral, "关闭主窗口", "托盘 tray"},
 	{panelSettingsNotifications, "桌面通知", "消息提醒 notification"},
 	{panelSettingsNotifications, "提示音", "铃声 声音 静音 mute sound"},
-	{panelSettingsNotifications, "隐藏消息预览", "隐私 preview"},
+	{panelSettingsNotifications, "打开消息预览", "隐藏 隐私 通知 托盘 preview privacy"},
 	{panelSettingsVoice, "麦克风", "输入设备 microphone input"},
 	{panelSettingsVoice, "麦克风音量", "输入音量 input volume"},
 	{panelSettingsVoice, "扬声器", "输出设备 speaker output"},

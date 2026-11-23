@@ -22,4 +22,4 @@ require (
 )
 
 // Build against the GoIM fork for tray updates and notification placement (Viva PRs #391 and #393).
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261123030442-114563df9344
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261123033959-00603cf13240

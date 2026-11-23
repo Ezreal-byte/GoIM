@@ -375,12 +375,12 @@ func (p *Panels) drawSettingsNotifications(f ui.C, theme ui.Theme, state domain.
 				}
 			})
 		})
-		p.settingsRow(f, theme, i18n.T("隐藏消息预览"), i18n.T("通知仅提示收到新消息"), func() {
+		p.settingsRow(f, theme, i18n.T("打开消息预览"), i18n.T("在通知和托盘中显示发件人与消息内容"), func() {
 			p.settingsControl(f, 80, func() {
-				hidden := ui.State[bool](f, "notification-preview")
-				*hidden = settings.HideNotificationText
-				if ui.Switch(f, hidden, "").Hit(p.settingsExtra.notificationPrivacy, i18n.T("隐藏消息预览")).Changed() {
-					p.submitBool(submit, state, "hide_notification_text", *hidden)
+				enabled := ui.State[bool](f, "notification-preview")
+				*enabled = !settings.HideNotificationText
+				if ui.Switch(f, enabled, "").Hit(p.settingsExtra.notificationPrivacy, i18n.T("打开消息预览")).Changed() {
+					p.submitBool(submit, state, "hide_notification_text", !*enabled)
 				}
 			})
 		})
