@@ -92,34 +92,12 @@ func (r *desktopRuntime) openUnreadTrayFromClick(click app.StatusClick) bool {
 	if click.PanelDismissed {
 		return true
 	}
-	// StatusNotifier owns the Linux tooltip. Its activation is how the same
-	// interactive list can be opened on desktops without an app-owned hover.
-	if !r.trayPanelHover && r.openUnreadTrayPanel(click.Anchor, app.WindowPanel) != nil {
-		return true
-	}
-	if id := r.firstUnreadChat(); id != "" {
-		r.openUnreadChat(id)
-		return true
-	}
-	return false
+	// Activation gives mouse and keyboard users the same list as hovering.
+	return r.openUnreadTrayPanel(click.Anchor, app.WindowPanel) != nil
 }
 
 func trayConversationVisible(c domain.Conversation) bool {
 	return c.ID != "" && c.Unread > 0 && !c.Muted && !c.Hidden
-}
-
-func (r *desktopRuntime) firstUnreadChat() string {
-	u := r.ui
-	if u.lockVisible() || u.state.Settings.HideNotificationText {
-		return ""
-	}
-	var latest domain.Conversation
-	for _, c := range u.state.Conversations {
-		if trayConversationVisible(c) && (latest.ID == "" || c.UpdatedAt.After(latest.UpdatedAt)) {
-			latest = c
-		}
-	}
-	return latest.ID
 }
 
 func (r *desktopRuntime) openUnreadChat(id string) {
@@ -181,8 +159,9 @@ func (r *desktopRuntime) syncUnreadTray(unread int, force bool) {
 		if hover {
 			panel = r.showUnreadTrayPanel
 		}
-		r.trayPanelHover = r.tray.SetHoverPanel(panel)
-		if r.trayPanelHover || r.tray.SetMenuOnHover(hover) {
+		panelSupported := r.tray.SetHoverPanel(panel)
+		r.trayPanelHover = hover && panelSupported
+		if panelSupported || r.tray.SetMenuOnHover(hover) {
 			r.trayHover = hover
 		}
 	}

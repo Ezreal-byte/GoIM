@@ -67,6 +67,7 @@ func (r *desktopRuntime) openUnreadTrayPanel(anchor app.StatusAnchor, mode app.W
 		return nil
 	}
 	view.window, r.trayPanel = window, view
+	view.wake.Invalidate()
 	return window
 }
 
