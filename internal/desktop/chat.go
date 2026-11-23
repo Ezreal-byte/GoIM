@@ -719,6 +719,26 @@ func (u *UI) drawPrintMessage(f ui.C, conversation domain.Conversation, message 
 	})
 }
 
+// Focus only after an explicit chat navigation and after the composer exists.
+// Snapshot updates and ordinary paints must not take focus from other controls.
+func (u *UI) focusChatComposer(canvas *gfx.Canvas) {
+	if !u.focusChat {
+		return
+	}
+	if (!u.detachedWindow && u.section != sectionMessages) || u.modalOpen() ||
+		u.chatFind.open || u.focusSearch || u.chatReadOnlyReason(u.state.Conversation(u.selected)) != "" {
+		u.focusChat = false
+		return
+	}
+	// A contact action can change sections while the old page is being drawn.
+	// Keep the request until the following frame contains the new composer.
+	if !u.mentionEditor.Valid() || u.pendingPeer != "" || u.pendingGroup != "" {
+		return
+	}
+	u.focusChat = false
+	canvas.RequestFocus(u.ids.chatEditorField)
+}
+
 func (u *UI) drawComposer(f ui.C) {
 	u.composerBox = ui.Column(f).Fill().Children(func() {
 		u.drawComposerToolbar(f)

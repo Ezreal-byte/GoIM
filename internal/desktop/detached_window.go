@@ -32,6 +32,7 @@ func newDetachedConversationView(backend domain.Backend, conversationID string) 
 	u.detachedWindow = true
 	u.saveCurrentDraft()
 	u.selected = conversationID
+	u.focusChat = true
 	u.loadDraft(conversationID)
 	u.rebuildSelection()
 	u.chatScrollToEnd = true
@@ -94,6 +95,7 @@ func (u *UI) paintDetached(canvas *gfx.Canvas, size ui.Size) {
 
 	u.drawDetachedTitlebar(canvas, titlebar)
 	u.drawChat(canvas, body)
+	u.focusChatComposer(canvas)
 	u.hover.Paint(canvas, u.theme, body, components.TooltipOptions{Layer: 55}, 0)
 	u.drawToasts(canvas, body)
 	u.drawOverlays(canvas, body)

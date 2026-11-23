@@ -150,6 +150,9 @@ func TestDetachedConversationViewRendersOnlyItsConversation(t *testing.T) {
 	}
 	t.Cleanup(driver.Close)
 	snapshot := driver.Snapshot()
+	if snapshot.Focused != view.ids.chatEditorField {
+		t.Fatal("new detached conversation did not focus its composer")
+	}
 	foundHeader, foundMessage := false, false
 	for _, text := range snapshot.Texts {
 		foundHeader = foundHeader || text.Value == "Alice"

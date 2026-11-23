@@ -485,6 +485,7 @@ type UI struct {
 	moreOpen        bool
 	dragging        bool
 	chatScrollToEnd bool
+	focusChat       bool
 	timeline        chatTimeline
 	emojiOpen       bool
 	emojiButton     ui.Box
@@ -1418,6 +1419,7 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 
 	u.panels.dialogViewport = bounds
 	u.drawMainBody(canvas, body)
+	u.focusChatComposer(canvas)
 	u.drawConversationDragGhost(canvas, body)
 	u.drawContactDragGhost(canvas, body)
 
@@ -2408,11 +2410,13 @@ func (u *UI) selectAfterSnapshot(oldSelected string) {
 	target := u.selected
 	if c := u.state.Conversation(u.pendingGroup); c.ID != "" && !c.Hidden {
 		target, u.pendingGroup = c.ID, ""
+		u.focusChat = true
 	}
 	if u.pendingPeer != "" {
 		if convID, ok := u.directByPeer[u.pendingPeer]; ok {
 			target = convID
 			u.pendingPeer = ""
+			u.focusChat = true
 		}
 	}
 	found := false
@@ -2488,6 +2492,7 @@ func (u *UI) reconcileCompose(oldError string) {
 			u.setSection(sectionMessages)
 			for _, conversation := range u.state.Conversations {
 				if conversation.GroupID == group.ID {
+					u.focusChat = true
 					if u.selected != conversation.ID {
 						u.persistDraft(u.selected, u.chatEditor.String())
 						u.selected = conversation.ID
@@ -2570,6 +2575,7 @@ func (u *UI) selectConversation(id string) {
 	u.closeShellMenu()
 	if id == u.selected {
 		u.pendingPeer, u.pendingGroup = "", ""
+		u.focusChat = true
 		return
 	}
 	if !u.guardGroupRenameNavigation(func() { u.selectConversation(id) }) {
@@ -2585,6 +2591,7 @@ func (u *UI) selectConversation(id string) {
 	u.closeChatPickers()
 	u.resetChatSearch()
 	u.selected = id
+	u.focusChat = true
 	u.loadDraft(id)
 	u.rebuildSelection()
 	u.moreOpen = false
@@ -2637,6 +2644,7 @@ func (u *UI) setSection(section string) {
 	}
 	u.panels.closeMemberProject()
 	u.section = section
+	u.focusChat = section == sectionMessages
 	u.textSelection.clear()
 	u.state.Settings.LastSection = section
 	u.submit(domain.Command{Kind: domain.SetSetting, Setting: "last_section", Value: section})

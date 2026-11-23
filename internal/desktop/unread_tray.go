@@ -115,6 +115,8 @@ func (r *desktopRuntime) openUnreadChat(id string) {
 	}
 	r.stopAttention()
 	if detached := r.conversationWindows[id]; detached != nil {
+		detached.ui.focusChat = true
+		detached.ui.invalidator.Invalidate()
 		detached.window.Show()
 		detached.ui.SetWindowVisible(true)
 		return

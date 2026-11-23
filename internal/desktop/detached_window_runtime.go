@@ -13,6 +13,8 @@ func (r *desktopRuntime) openDetachedConversation(conversationID string) bool {
 		return false
 	}
 	if existing := r.conversationWindows[conversationID]; existing != nil {
+		existing.ui.focusChat = true
+		existing.ui.invalidator.Invalidate()
 		existing.window.Show()
 		return true
 	}
@@ -70,6 +72,8 @@ func (r *desktopRuntime) showPeerTarget(peerID string) {
 	}
 	if peerID != "" {
 		if entry := r.conversationWindows[r.ui.directByPeer[peerID]]; entry != nil {
+			entry.ui.focusChat = true
+			entry.ui.invalidator.Invalidate()
 			entry.window.Show()
 			return
 		}
