@@ -604,6 +604,7 @@ var en = map[string]string{
 	"GoIM · 局域网即时通讯":        "GoIM · LAN Messenger",
 	"暂不处理":                  "Dismiss for now",
 	"查看未读消息":                "View unread messages",
+	"新消息":                   "New message",
 	"打开 GoIM":               "Open GoIM",
 	"退出 GoIM":               "Quit GoIM",
 	"GoIM · %d 条未读消息":       "GoIM · %d unread messages",

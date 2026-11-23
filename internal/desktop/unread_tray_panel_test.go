@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,6 +105,8 @@ func TestUnreadTrayReminderDismissesUntilAnotherMessage(t *testing.T) {
 	state := shellTestState(t)
 	state.Settings.Shortcuts = nil
 	state.Settings.Sound, state.Settings.DesktopNotifications = false, false
+	// Privacy hides identities, not the hover affordance or dismiss action.
+	state.Settings.HideNotificationText = true
 	state.Conversations[1].Unread = 1
 	h := newShellTestHarness(t, state)
 	host := &trayReminderTestHost{}
@@ -196,9 +199,72 @@ func TestUnreadTrayReminderDismissesUntilAnotherMessage(t *testing.T) {
 	}
 }
 
+func TestUnreadTrayPanelMasksAlreadyCachedIdentities(t *testing.T) {
+	state := shellTestState(t)
+	state.Conversations[1].Unread = 3
+	state.Peers[0].Remark = "研发同事"
+	h := newShellTestHarness(t, state)
+	view := newUnreadTrayPanel(h.ui, h.ui.unreadTrayChats(), func(string) {}, func() {})
+	t.Cleanup(view.page.Close)
+	// Change privacy after collecting entries, before the first native paint.
+	h.ui.state.Settings.HideNotificationText = true
+	session, err := vivaheadless.Open(view.config(app.StatusAnchor{}), nil, vivaheadless.Options{Scale: 1.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+	for _, label := range []string{"新消息", "暂不处理"} {
+		if err := session.Expect("text", label); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, label := range session.Snapshot().Texts {
+		if strings.Contains(label.Value, "研发同事") || strings.Contains(label.Value, "产品讨论组") {
+			t.Fatal("private identity painted", label.Value)
+		}
+	}
+	for _, hit := range session.Snapshot().Hits {
+		if strings.Contains(hit.Label, "研发同事") || strings.Contains(hit.Label, "产品讨论组") {
+			t.Fatal("private identity exposed to accessibility", hit.Label)
+		}
+	}
+	if directory := os.Getenv("GOIM_TRAY_PANEL_QA"); directory != "" {
+		shellQAShot(t, session, directory, "unread-tray-private.png")
+	}
+}
+
 type trayReminderTestHost struct {
 	app.Host
 	tray trayReminderTestControl
+}
+
+func BenchmarkUnreadTrayPanelPaint(b *testing.B) {
+	for _, name := range []string{"public", "private"} {
+		b.Run(name, func(b *testing.B) {
+			state := domain.State{Self: domain.Peer{ID: "self"}, Settings: domain.DefaultSettings(b.TempDir()),
+				Peers:         []domain.Peer{{ID: "peer", Name: "Alice"}},
+				Conversations: []domain.Conversation{{ID: "chat", PeerID: "peer", Kind: "direct", Unread: 2}},
+			}
+			state.Settings.HideNotificationText = name == "private"
+			shell := New(newShellTestBackend(state))
+			defer shell.Close()
+			view := newUnreadTrayPanel(shell, shell.unreadTrayChats(), func(string) {}, func() {})
+			defer view.page.Close()
+			driver, err := app.NewDriver(view.config(app.StatusAnchor{}), nil)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer driver.Close()
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				view.wake.Invalidate()
+				if err := driver.Pump(); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }
 
 func (*trayReminderTestHost) SetDockBadge(string) {}

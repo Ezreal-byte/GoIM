@@ -16,9 +16,7 @@ type unreadTrayChat struct {
 }
 
 func (u *UI) unreadTrayChats() []unreadTrayChat {
-	if u.lockVisible() || u.state.Settings.HideNotificationText {
-		return nil
-	}
+	private := u.lockVisible() || u.state.Settings.HideNotificationText
 	var chats []domain.Conversation
 	groups := make(map[string]string)
 	for _, c := range u.state.Conversations {
@@ -65,6 +63,9 @@ func (u *UI) unreadTrayChats() []unreadTrayChat {
 		if sender != "" {
 			menuTitle += " · " + sender
 		}
+		if private {
+			title, menuTitle, sender, avatar = i18n.T("新消息"), i18n.T("新消息"), "", ""
+		}
 		entries = append(entries, unreadTrayChat{id: c.ID, title: title, sender: sender, avatar: avatar,
 			count: intString(c.Unread), label: fmt.Sprintf(i18n.T("%s（%d 条未读）"), menuTitle, c.Unread)})
 	}
@@ -102,7 +103,14 @@ func trayConversationVisible(c domain.Conversation) bool {
 
 func (r *desktopRuntime) openUnreadChat(id string) {
 	u := r.ui
-	if u.lockVisible() || u.state.Settings.HideNotificationText || !trayConversationVisible(u.state.Conversation(id)) {
+	if !trayConversationVisible(u.state.Conversation(id)) {
+		return
+	}
+	if u.lockVisible() {
+		if r.window != nil {
+			r.window.Show()
+		}
+		u.SetWindowVisible(true)
 		return
 	}
 	r.stopAttention()

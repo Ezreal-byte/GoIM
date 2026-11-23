@@ -47,13 +47,19 @@ func TestUnreadTrayLinksAndPrivacy(t *testing.T) {
 	}
 	h.ui.confirm.open = false
 	h.ui.state.Settings.HideNotificationText = true
-	if len(r.unreadTrayItems()) != 0 {
-		t.Fatal("sender exposed in privacy mode")
+	privateItems := r.unreadTrayItems()
+	if len(privateItems) != 3 || privateItems[0].Title != "新消息（1 条未读）" || privateItems[1].Title != "新消息（3 条未读）" {
+		t.Fatal("privacy mode must keep anonymous unread actions", privateItems)
 	}
+	privateItems[0].OnSelect()
+	if h.ui.selected != s.Conversations[0].ID {
+		t.Fatal("explicit private notification activation did not open its chat")
+	}
+	h.ui.selected = "conv-alice"
 	h.ui.state.Settings.HideNotificationText = false
 	h.ui.state.Locked = true
 	items[0].OnSelect()
-	if h.ui.selected != "conv-alice" || len(r.unreadTrayItems()) != 0 {
+	if h.ui.selected != "conv-alice" || len(r.unreadTrayItems()) != 3 {
 		t.Fatal("stale tray action bypassed lock")
 	}
 }

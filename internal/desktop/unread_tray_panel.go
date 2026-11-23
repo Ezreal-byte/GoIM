@@ -134,9 +134,6 @@ func (v *unreadTrayPanel) paint(canvas *gfx.Canvas, size gfx.Size) {
 	u := v.shell
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, u.theme.Card)
-	if u.lockVisible() || u.state.Settings.HideNotificationText {
-		return
-	}
 	v.page.Draw(canvas, bounds, func(f ui.C) {
 		ui.Column(f).Fill().Radius(9).Border(1, u.palette.border).Children(func() {
 			list := ui.Scroll(f.Part("conversations")).Grow(1).MinHeight(0).FillWidth().Pad(trayPanelListPadding)
@@ -162,6 +159,10 @@ func (v *unreadTrayPanel) paint(canvas *gfx.Canvas, size gfx.Size) {
 
 func (v *unreadTrayPanel) row(f ui.C, entry unreadTrayChat) {
 	u := v.shell
+	// Also mask an already-open panel before its cached entries are refreshed.
+	if u.lockVisible() || u.state.Settings.HideNotificationText {
+		entry.title, entry.label, entry.sender, entry.avatar = i18n.T("新消息"), i18n.T("新消息"), "", ""
+	}
 	row := ui.Row(f.Key(entry.id)).FillWidth().Height(v.rowHeight()).Radius(6).PadX(6).Gap(7).Items(ui.Center).
 		Hover(ui.Look{}.Background(u.palette.hover)).Pressed(ui.Look{}.Background(u.palette.selected)).
 		HitWith(v.tree.ID(v.rows, entry.id), entry.label, gfx.HitOptions{Role: gfx.RoleButton})
