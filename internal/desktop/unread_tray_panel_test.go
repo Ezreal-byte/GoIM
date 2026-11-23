@@ -297,6 +297,10 @@ type trayReminderTestControl struct {
 	open func(app.StatusAnchor) *app.Window
 }
 
+var _ app.StatusItemHoverControl = (*trayReminderTestControl)(nil)
+
+func (*trayReminderTestControl) SetMenuOnHover(bool) bool            { return false }
+func (*trayReminderTestControl) RefreshMenu()                        {}
 func (c *trayReminderTestControl) SetIcon(icon app.StatusIcon) error { c.icon = icon; return nil }
 func (*trayReminderTestControl) SetTooltip(string)                   {}
 func (c *trayReminderTestControl) SetHoverPanel(open func(app.StatusAnchor) *app.Window) bool {

@@ -138,6 +138,8 @@ go vet ./...
 go run ./cmd/goim
 ```
 
+Linux 开发版若需测试直接嵌入的 X11 托盘，可用 `go run -tags vivaxembed ./cmd/goim`。Linux 发布包已启用该选项，优先使用桌面的 StatusNotifier 托盘。
+
 Windows 上，运行 `pwsh -File scripts/start-temp-dev.ps1` 可构建并启动使用独立配置和下载目录的开发客户端。加上 `-Loopback` 可关闭局域网发现和旧协议互通；运行 `scripts/start-dual.ps1` 可启动通过本机回环连接的两个客户端。
 
 Windows 和 macOS 打包时，使用 CMake 3.20+ 从固定提交构建 Shotlet 的截图 SDK 助手。Windows 需要 Visual Studio 对应架构的 C++ 工具和 Windows SDK，使用 Visual Studio 2026 时需要 CMake 4.2+。macOS 需 Xcode 命令行工具。Windows Setup 另需 NSIS，可以用 `go run ./cmd/package --windows-setup` 构建。Linux 构建只需 GoIM 原有工具链，Shotlet 的 Wayland 捕获和原生选区窗口仍待实现。[Shotlet 源码](https://github.com/Ezreal-byte/shotlet)

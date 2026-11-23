@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -231,7 +232,7 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		// invalidator to a native window. Wake once after binding to collect it.
 		shell.invalidator.Invalidate()
 		show := func() { r.stopAttention(); window.Show(); shell.SetWindowVisible(true) }
-		tray, err := application.AddStatusItem(app.StatusItemConfig{PreferHoverPanel: true, Tooltip: i18n.T("GoIM · 局域网即时通讯"), Icon: statusIcon, OnClick: func(click app.StatusClick) {
+		trayConfig := app.StatusItemConfig{Tooltip: i18n.T("GoIM · 局域网即时通讯"), Icon: statusIcon, OnClick: func(click app.StatusClick) {
 			if click.Button == gfx.PointerButtonPrimary && r.openUnreadTrayFromClick(click) {
 				return
 			}
@@ -247,7 +248,12 @@ func Run(backend domain.Backend, restartArguments []string) error {
 					application.Quit()
 				}
 			}})
-		}})
+		}}
+		tray, err := application.AddStatusItem(trayConfig)
+		if runtime.GOOS == "linux" && errors.Is(err, app.ErrNoStatusArea) {
+			trayConfig.LinuxTrayBackend = app.LinuxTrayXEmbed
+			tray, err = application.AddStatusItem(trayConfig)
+		}
 		if err == nil {
 			r.tray = tray
 		} else if shell.state.Settings.CloseToTray {

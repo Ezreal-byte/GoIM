@@ -128,7 +128,12 @@ func build() error {
 		executable += ".exe"
 	}
 	ld := packageLinkerFlags(*version, sourceCommit, facts, runtime.GOOS == "windows")
-	if err := run("go", "build", "-trimpath", "-ldflags", ld, "-o", executable, "./cmd/goim"); err != nil {
+	args := []string{"build", "-trimpath", "-ldflags", ld}
+	if runtime.GOOS == "linux" {
+		args = append(args, "-tags", "vivaxembed")
+	}
+	args = append(args, "-o", executable, "./cmd/goim")
+	if err := run("go", args...); err != nil {
 		return err
 	}
 	if err := verifyArchitecture(executable); err != nil {
