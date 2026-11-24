@@ -1409,6 +1409,10 @@ func (u *UI) initIDs() {
 }
 
 func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
+	if u.lockUI.restoreMotion {
+		canvas.SetReduceMotion(false)
+		u.lockUI.restoreMotion = false
+	}
 	u.theme = themeForSettings(u.state.Settings)
 	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
@@ -1420,6 +1424,11 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	body := ui.Rect{Y: totalTitle, Width: bounds.Width, Height: max(bounds.Height-totalTitle, 0)}
 	u.lastBody = body
 	if u.lockVisible() {
+		// Drop exit snapshots from the unlocked workspace at the end of this frame.
+		if !canvas.ReduceMotion() {
+			canvas.SetReduceMotion(true)
+			u.lockUI.restoreMotion = true
+		}
 		u.drawLockTitlebar(canvas, titlebar)
 		u.drawLocked(canvas, body)
 		u.textSelection.clear()
