@@ -163,19 +163,6 @@ func (n *Node) executeLocalSend(c domain.Command) error {
 		})
 	case domain.LocalSendAnswer:
 		return s.Answer(c.TransferID, c.IDs, c.Bool)
-	case domain.LocalSendLink:
-		if !validLocalSendPIN(c.Password) {
-			return errors.New("PIN 需要 4 到 8 位数字")
-		}
-		n.async(func() {
-			if err := s.StartLink(c.Paths, c.Password, c.LocalSend.Upload, c.LocalSend.HTTPS); err != nil {
-				n.report(err)
-			}
-		})
-	case domain.LocalSendCloseLink:
-		s.StopLink()
-	case domain.LocalSendAnswerLink:
-		return s.AnswerLink(c.TransferID, c.Bool)
 	case domain.RetryTransfer:
 		return s.Retry(c.TransferID, c.Password)
 	case domain.AcceptTransfer:

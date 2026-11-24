@@ -266,7 +266,7 @@ func (s *Service) Scan() {
 		defer s.scanning.Store(false)
 		// Fallback for Wi-Fi networks which suppress multicast. Limit to one
 		// IPv4 /24 and constrain probes to the selected LAN.
-		ip := net.ParseIP(s.linkIP()).To4()
+		ip := net.ParseIP(s.networkIP()).To4()
 		if ip == nil || ip.IsLoopback() {
 			return
 		}
@@ -395,4 +395,38 @@ func (s *Service) sendAnnouncement(announce bool, destination *net.UDPAddr) {
 			_ = udp.Close()
 		}
 	}
+}
+
+func (s *Service) networkIP() string {
+	if s.options.NoDiscovery {
+		return "127.0.0.1"
+	}
+	ifaces := s.interfaces()
+	if route, err := net.DialTimeout("udp4", "192.0.2.1:9", 250*time.Millisecond); err == nil {
+		preferred := route.LocalAddr().(*net.UDPAddr).IP
+		_ = route.Close()
+		for _, iface := range ifaces {
+			a, _ := iface.Addrs()
+			for _, address := range a {
+				if ip, ok := address.(*net.IPNet); ok && ip.IP.Equal(preferred) {
+					return preferred.String()
+				}
+			}
+		}
+	}
+	fallback := ""
+	for _, iface := range ifaces {
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			if ip, ok := addr.(*net.IPNet); ok && !ip.IP.IsLoopback() {
+				if ip.IP.To4() != nil {
+					return ip.IP.String()
+				}
+				if fallback == "" && ip.IP.IsGlobalUnicast() {
+					fallback = ip.IP.String()
+				}
+			}
+		}
+	}
+	return fallback
 }

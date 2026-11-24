@@ -812,15 +812,6 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.voiceFallbackPage = page("incoming-call")
 	u.surface = u.newChatSurface(page("workspace"))
 	u.panels.Init(&u.tree, &u.invalidator)
-	u.panels.localSend.jumpToSettings = func() {
-		u.setSection(sectionSettings)
-		u.panels.settingsTab = panelSettingsNetwork
-		u.panels.search.field.SetText("")
-		u.panels.search.query = ""
-		u.panels.search.target = i18n.T("启用 LocalSend")
-		u.panels.scrollTabSet = false
-		u.invalidator.Invalidate()
-	}
 	u.panels.showIncoming = func() { u.setSection(sectionTransfers) }
 	u.panels.settingsExtra.openProfile = u.openProfile
 	u.panels.openUpdates = u.showUpdates
@@ -833,6 +824,9 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	if backend != nil {
 		u.refresh()
 		u.section = restoreMainSection(u.state.Settings.LastSection)
+		if u.section == sectionLocalSend && !u.state.Settings.LocalSend.Enabled {
+			u.section = sectionContacts
+		}
 		u.recentEmoji = append([]string(nil), u.state.Settings.RecentEmoji...)
 		u.queueMediaJobs()
 		u.refreshSectionCatalog(u.section)
@@ -974,6 +968,9 @@ func (u *UI) refresh() {
 	}
 	oldError := u.state.Error
 	u.state = u.backend.Snapshot()
+	if u.section == sectionLocalSend && !u.state.Settings.LocalSend.Enabled {
+		u.section = sectionContacts
+	}
 	u.finishChatSubmissions()
 	u.lanEndpoint = displayLANEndpoint(u.state)
 	i18n.SetLanguage(u.state.Settings.Language)
@@ -1567,11 +1564,13 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 				u.section == sectionTransfers, transferBadge, transferHint, itemHeight)
 			shares = u.railItem(f, u.ids.navShares, FolderOutput, "文件共享", u.section == sectionShares, itemHeight)
 			printShare = u.railItem(f, u.ids.navPrint, panelPrintIcon, "打印共享", u.section == sectionPrint, itemHeight)
-			pendingLocalSend := ""
-			if u.state.LocalSend.Offer.ID != "" || u.state.LocalSend.Link.RequestID != "" {
-				pendingLocalSend = "1"
+			if u.state.Settings.LocalSend.Enabled {
+				pendingLocalSend := ""
+				if u.state.LocalSend.Offer.ID != "" {
+					pendingLocalSend = "1"
+				}
+				localSend = u.railItemBadged(f, u.ids.navLocalSend, gfx.Icon{}, "LocalSend", u.section == sectionLocalSend, pendingLocalSend, i18n.T("待接收"), itemHeight)
 			}
-			localSend = u.railItemBadged(f, u.ids.navLocalSend, gfx.Icon{}, "LocalSend", u.section == sectionLocalSend, pendingLocalSend, i18n.T("待接收"), itemHeight)
 			ui.Spacer(f)
 			lock = u.railItem(f, u.ids.navLock, u.iconLock, i18n.T("锁定应用"), false, itemHeight)
 			themeIcon, themeLabel := u.iconMoon, "切换到暗色外观"
@@ -1597,7 +1596,7 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	if printShare.Clicked() {
 		u.setSection(sectionPrint)
 	}
-	if localSend.Clicked() {
+	if u.state.Settings.LocalSend.Enabled && localSend.Clicked() {
 		u.setSection(sectionLocalSend)
 	}
 	if lock.Clicked() {

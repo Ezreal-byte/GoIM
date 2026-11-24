@@ -25,10 +25,12 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"goim/internal/domain"
 )
 
 const (
-	Port         = 53317
+	Port         = domain.LocalSendDefaultPort
 	prefix       = "/api/localsend/v2/"
 	version      = "2.2"
 	maxMetadata  = 2 << 20
@@ -76,12 +78,6 @@ type prepare struct {
 type uploadGrant struct {
 	SessionID string            `json:"sessionId"`
 	Files     map[string]string `json:"files"`
-}
-
-type downloadGrant struct {
-	Info      info                `json:"info"`
-	SessionID string              `json:"sessionId"`
-	Files     map[string]fileInfo `json:"files"`
 }
 
 func newID() string {

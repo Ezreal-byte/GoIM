@@ -2,15 +2,14 @@ package domain
 
 const TransportLocalSend = "localsend"
 
+const LocalSendDefaultPort = 53317
+
 const (
-	LocalSendConfigure  CommandKind = "localsend_configure"
-	LocalSendRefresh    CommandKind = "localsend_refresh"
-	LocalSendAddDevice  CommandKind = "localsend_add_device"
-	LocalSendSend       CommandKind = "localsend_send"
-	LocalSendAnswer     CommandKind = "localsend_answer"
-	LocalSendLink       CommandKind = "localsend_link"
-	LocalSendCloseLink  CommandKind = "localsend_close_link"
-	LocalSendAnswerLink CommandKind = "localsend_answer_link"
+	LocalSendConfigure CommandKind = "localsend_configure"
+	LocalSendRefresh   CommandKind = "localsend_refresh"
+	LocalSendAddDevice CommandKind = "localsend_add_device"
+	LocalSendSend      CommandKind = "localsend_send"
+	LocalSendAnswer    CommandKind = "localsend_answer"
 )
 
 type LocalSendConfig struct {
@@ -41,13 +40,6 @@ type LocalSendOffer struct {
 	Files          []LocalSendFile
 }
 
-type LocalSendLinkState struct {
-	URL                    string
-	Upload                 bool
-	QR                     []byte
-	RequestID, RequestFrom string
-}
-
 type LocalSendStatus struct {
 	ProgressRevision uint64
 	Active           bool
@@ -57,13 +49,10 @@ type LocalSendStatus struct {
 	Alias, Problem   string
 	Devices          []LocalSendDevice
 	Offer            LocalSendOffer
-	Link             LocalSendLinkState
 }
 
 type LocalSendRequest struct {
 	SetPIN    bool
 	Config    LocalSendConfig
 	AllowHTTP bool
-	Upload    bool
-	HTTPS     bool
 }

@@ -19,7 +19,6 @@ import (
 
 type incoming struct {
 	id, ip, sender, cert string
-	link                 *webLink
 	files                map[string]*incomingFile
 	order                []string
 	text                 *string
@@ -56,12 +55,12 @@ func (s *Service) allowedReceive() bool {
 	return s.options.AllowReceive == nil || s.options.AllowReceive()
 }
 
-func (s *Service) prepareUpload(w http.ResponseWriter, r *http.Request, link *webLink) {
+func (s *Service) prepareUpload(w http.ResponseWriter, r *http.Request) {
 	if !s.allowedReceive() {
 		fail(w, http.StatusForbidden, "Receiver locked")
 		return
 	}
-	if !s.checkPIN(w, r, link) {
+	if !s.checkPIN(w, r) {
 		return
 	}
 	var payload prepare
@@ -72,12 +71,9 @@ func (s *Service) prepareUpload(w http.ResponseWriter, r *http.Request, link *we
 		fail(w, 400, "Invalid file count")
 		return
 	}
-	if !validInfo(payload.Info) {
-		// Stock browser clients may advertise port zero since they do not listen.
-		if len(payload.Info.Alias) > 256 || link == nil {
-			fail(w, 400, "Invalid sender")
-			return
-		}
+	if !validInfo(payload.Info) || payload.Info.Type == "web" {
+		fail(w, 400, "Invalid sender")
+		return
 	}
 	cert := certFingerprint(r)
 	if cert != "" && payload.Info.Protocol == "https" && !strings.EqualFold(cert, payload.Info.Fingerprint) {
@@ -90,7 +86,7 @@ func (s *Service) prepareUpload(w http.ResponseWriter, r *http.Request, link *we
 	if sender == "" {
 		sender = ip
 	}
-	in := &incoming{id: "ls-" + newID(), ip: ip, sender: sender, cert: cert, link: link, ctx: ctx, cancel: cancel, answer: make(chan []string, 1), files: make(map[string]*incomingFile)}
+	in := &incoming{id: "ls-" + newID(), ip: ip, sender: sender, cert: cert, ctx: ctx, cancel: cancel, answer: make(chan []string, 1), files: make(map[string]*incomingFile)}
 	var total int64
 	for id, f := range payload.Files {
 		if len(id) > 128 || id == "" || id != f.ID || !validFile(f) || math.MaxInt64-total < f.Size {
@@ -122,7 +118,7 @@ func (s *Service) prepareUpload(w http.ResponseWriter, r *http.Request, link *we
 	}
 	in.row = domain.Transfer{ID: in.id, Name: name, Size: total, Direction: "receive", Status: "offered", LegacyTransport: domain.TransportLocalSend, LocalSendPeer: in.sender}
 	s.mu.Lock()
-	if s.closed || link != nil && s.link != link || s.incoming != nil {
+	if s.closed || s.incoming != nil {
 		s.mu.Unlock()
 		cancel()
 		fail(w, http.StatusConflict, "Blocked by another session")
@@ -131,7 +127,7 @@ func (s *Service) prepareUpload(w http.ResponseWriter, r *http.Request, link *we
 	s.incoming = in
 	s.mu.Unlock()
 	s.update(in.row)
-	if link == nil && cert != "" && validInfo(payload.Info) && payload.Info.Protocol == "https" {
+	if cert != "" && payload.Info.Protocol == "https" {
 		s.remember(ip, payload.Info, true, false)
 	}
 	approval := time.NewTimer(approvalTime)
@@ -258,15 +254,15 @@ func (s *Service) watchIncoming(in *incoming) {
 	}
 }
 
-func (in *incoming) matches(r *http.Request, link *webLink) bool {
-	return in.link == link && in.ip == remoteIP(r) && in.cert == certFingerprint(r)
+func (in *incoming) matches(r *http.Request) bool {
+	return in.ip == remoteIP(r) && in.cert == certFingerprint(r)
 }
 
-func (s *Service) uploadFile(w http.ResponseWriter, r *http.Request, link *webLink) {
+func (s *Service) uploadFile(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	s.mu.Lock()
 	in := s.incoming
-	if in == nil || !in.approved || in.id != q.Get("sessionId") || !in.matches(r, link) {
+	if in == nil || !in.approved || in.id != q.Get("sessionId") || !in.matches(r) {
 		s.mu.Unlock()
 		fail(w, 403, "Invalid session")
 		return
@@ -325,11 +321,11 @@ func (s *Service) uploadFile(w http.ResponseWriter, r *http.Request, link *webLi
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *Service) cancelRequest(w http.ResponseWriter, r *http.Request, link *webLink) {
+func (s *Service) cancelRequest(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	in := s.incoming
 	id := r.URL.Query().Get("sessionId")
-	if in == nil || !in.matches(r, link) || (in.approved && id != in.id) || (!in.approved && id != "" && id != in.id) {
+	if in == nil || !in.matches(r) || (in.approved && id != in.id) || (!in.approved && id != "" && id != in.id) {
 		s.mu.Unlock()
 		fail(w, 403, "Invalid session")
 		return

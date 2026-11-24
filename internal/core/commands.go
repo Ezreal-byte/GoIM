@@ -25,7 +25,7 @@ func (n *Node) execute(c domain.Command) error {
 		return nil
 	}
 	switch c.Kind {
-	case domain.LocalSendConfigure, domain.LocalSendRefresh, domain.LocalSendAddDevice, domain.LocalSendSend, domain.LocalSendAnswer, domain.LocalSendLink, domain.LocalSendCloseLink, domain.LocalSendAnswerLink:
+	case domain.LocalSendConfigure, domain.LocalSendRefresh, domain.LocalSendAddDevice, domain.LocalSendSend, domain.LocalSendAnswer:
 		return n.executeLocalSend(c)
 	case domain.RefreshContacts:
 		n.mu.Lock()

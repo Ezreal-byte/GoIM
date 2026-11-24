@@ -215,6 +215,7 @@ type panelLocalAction struct {
 }
 
 type panelTransferEntry struct {
+	timeLabel                                         string
 	icon                                              *gfx.Icon
 	transfer                                          domain.Transfer
 	ids                                               transferActionIDs
@@ -387,6 +388,7 @@ func (p *Panels) Init(tree *gfx.Tree, wake *app.Invalidator) {
 	}
 	p.tree = tree
 	p.localSend.scope = tree.Feature("localsend")
+	p.localSend.recordSort = panelTableSort{column: "时间", descending: true}
 	p.shareSort = panelTableSort{column: "分享时间", descending: true}
 	p.page = ui.NewPage(ui.PageConfig{Root: "panels", Tree: tree, Theme: &p.theme, Invalidator: wake})
 	p.invalidate = wake.Invalidate
@@ -542,6 +544,7 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 		p.closeShareInteractions()
 		p.shareToast = shareToastState{}
 		p.settingsExtra.resetSecrets()
+		p.localSend.closeModal()
 		p.print.resetInteractions()
 	}
 	p.module = module
@@ -572,6 +575,7 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 				p.drawPrint(f, theme, bounds, state, submit)
 			case panelModuleLocalSend:
 				p.drawLocalSend(f, theme, bounds.Width, state, submit)
+				p.drawLocalSendDialog(f, theme, state, submit)
 			}
 		})
 	})
@@ -609,6 +613,9 @@ func (p *Panels) dialog(f ui.C, spec ui.DialogSpec) ui.Box {
 // run on the shared media worker; Draw only reads the cached result.
 func (p *Panels) OnWake(state domain.State) {
 	p.localSend.observe(state.LocalSend)
+	if state.Locked || !state.Settings.LocalSend.Enabled {
+		p.localSend.closeModal()
+	}
 	if p.refreshNetwork || p.module == panelModuleSettings && p.networkLanguage != i18n.Language() {
 		p.refreshNetworks()
 	}
@@ -865,6 +872,7 @@ func (p *Panels) rebuildTransfers(state domain.State) {
 		p.transferRows = append(p.transferRows, entry)
 	}
 	p.sortTransfers()
+	p.localSend.rebuildRecords(p.transferRows)
 	p.transferIncomingLabel = fmt.Sprintf(i18n.T("待接收 %d"), len(p.transferIncoming))
 	p.transferLabels = [5]string{
 		fmt.Sprintf(i18n.T("全部 %d"), len(p.transferRows)),

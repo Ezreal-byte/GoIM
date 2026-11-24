@@ -1,14 +1,10 @@
 package localsend
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -199,99 +195,6 @@ func TestCertificatePinRejectedWhenEndpointChanges(t *testing.T) {
 	}
 }
 
-func TestWebLinksAndSelectedUpload(t *testing.T) {
-	s := newFixture(t, "GoIM", false, false)
-	file := filepath.Join(t.TempDir(), "项目资料.pdf")
-	if err := os.WriteFile(file, []byte("test-link"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.StartLink([]string{file}, "0123", false, false); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := s.View()
-	u := strings.TrimSuffix(view.Link.URL, "/")
-	client := &http.Client{Timeout: 8 * time.Second}
-	page, err := client.Get(view.Link.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := io.ReadAll(page.Body)
-	page.Body.Close()
-	if err != nil || !strings.Contains(string(raw), "下载文件") {
-		t.Fatalf("invalid HTML: %v", err)
-	}
-	resp, err := client.Post(u+prefix+"prepare-download?pin=0100", "application/json", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 401 {
-		t.Fatalf("invalid PIN status %d", resp.StatusCode)
-	}
-	resp.Body.Close()
-	result := make(chan *http.Response, 1)
-	go func() {
-		r, _ := client.Post(u+prefix+"prepare-download?pin=0123", "application/json", nil)
-		result <- r
-	}()
-	pending := waitFor(t, func() (domain.LocalSendLinkState, bool) { v, _ := s.View(); return v.Link, v.Link.RequestID != "" })
-	if err := s.AnswerLink(pending.RequestID, true); err != nil {
-		t.Fatal(err)
-	}
-	var grant downloadGrant
-	if resp = <-result; resp == nil {
-		t.Fatal("request failed")
-	}
-	if err := readResponse(resp, &grant); err != nil {
-		t.Fatal(err)
-	}
-	for id := range grant.Files {
-		res, err := client.Get(u + prefix + "download?" + url.Values{"sessionId": {grant.SessionID}, "fileId": {id}}.Encode())
-		if err != nil {
-			t.Fatal(err)
-		}
-		raw, err := io.ReadAll(res.Body)
-		res.Body.Close()
-		if err != nil || string(raw) != "test-link" {
-			t.Fatalf("download %q: %v", raw, err)
-		}
-	}
-	s.StopLink()
-	if err := s.StartLink(nil, "", true, false); err != nil {
-		t.Fatal(err)
-	}
-	view, _ = s.View()
-	u = strings.TrimSuffix(view.Link.URL, "/")
-	payload, _ := json.Marshal(prepare{Info: info{Alias: "Safari", Version: "2.2", Type: "web", Protocol: "http", Fingerprint: "browser"},
-		Files: map[string]fileInfo{"a": {ID: "a", Name: "web.txt", Size: 3, Type: "text"}}})
-	go func() {
-		r, _ := client.Post(u+prefix+"prepare-upload", "application/json", bytes.NewReader(payload))
-		result <- r
-	}()
-	offer := s.waitOffer(t)
-	if err := s.Answer(offer.ID, []string{"a"}, true); err != nil {
-		t.Fatal(err)
-	}
-	var upload uploadGrant
-	if resp = <-result; resp == nil {
-		t.Fatal("request failed")
-	}
-	if err := readResponse(resp, &upload); err != nil {
-		t.Fatal(err)
-	}
-	q := url.Values{"sessionId": {upload.SessionID}, "fileId": {"a"}, "token": {upload.Files["a"]}}
-	resp, err = client.Post(u+prefix+"upload?"+q.Encode(), "application/octet-stream", strings.NewReader("hey"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("upload failed: %s", resp.Status)
-	}
-	if data, err := os.ReadFile(filepath.Join(s.destination, "web.txt")); err != nil || string(data) != "hey" {
-		t.Fatalf("upload %q: %v", data, err)
-	}
-}
-
 func TestPublishAvoidsOverwriteAndRejectsBadPayload(t *testing.T) {
 	dir := t.TempDir()
 	f := fileInfo{Name: "照片/文档.txt", Size: 4, Type: "text"}
@@ -319,5 +222,38 @@ func TestPublishAvoidsOverwriteAndRejectsBadPayload(t *testing.T) {
 		if validName(name) {
 			t.Errorf("accepted unsafe name %q", name)
 		}
+	}
+}
+
+func TestLocalSendNativeEndpointsOnly(t *testing.T) {
+	s := newFixture(t, "GoIM", true, false)
+	base := "http://" + s.address()
+	reqs := []struct{ method, path string }{
+		{http.MethodGet, "/"},
+		{http.MethodPost, prefix + "prepare-download"},
+		{http.MethodGet, prefix + "download"},
+	}
+	for _, request := range reqs {
+		r, err := http.NewRequest(request.method, base+request.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusNotFound {
+			t.Errorf("%s %s = %d", request.method, request.path, response.StatusCode)
+		}
+	}
+	payload := `{"info":{"alias":"Browser","version":"2.2","deviceType":"web","fingerprint":"browser","port":53317,"protocol":"http"},"files":{"id":{"id":"id","fileName":"test.txt","size":5,"fileType":"text"}}}`
+	resp, err := http.Post(base+prefix+"prepare-upload", "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("browser sender accepted: %s", resp.Status)
 	}
 }

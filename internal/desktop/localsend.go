@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/vivaui/viva/app"
@@ -51,18 +50,22 @@ type localSendDraftFile struct {
 }
 
 type localSendPanel struct {
-	scope                                                           gfx.Scope
-	jumpToSettings                                                  func()
-	tab                                                             int
-	selected, checked                                               map[string]bool
-	offerID                                                         string
-	draft                                                           []localSendDraftFile
-	manual, manualHTTP, composingText, linkOptions, showQR, picking bool
-	allowHTTP, linkHTTPS                                            bool
-	linkURL, retry, recordDetail                                    string
-	text, address, port, receivePIN, sendPIN, linkPIN               ui.Field
-	portValue                                                       int
-	qr                                                              gfx.Bitmap
+	scope                                                 gfx.Scope
+	tab                                                   int
+	selected, checked                                     map[string]bool
+	offerID                                               string
+	draft                                                 []localSendDraftFile
+	manual, manualHTTP, composingText, picking, allowHTTP bool
+	text, address                                         ui.Field
+
+	modal                     localSendModal
+	recordID                  string
+	port, receivePIN, sendPIN ui.Field
+	httpReceive, clearPIN     bool
+	recordSort                panelTableSort
+	recordFilter              localSendRecordFilter
+	recordSearch              ui.Field
+	records                   []panelTransferEntry
 }
 
 func (v *localSendPanel) observe(state domain.LocalSendStatus) {
@@ -76,86 +79,6 @@ func (v *localSendPanel) observe(state domain.LocalSendStatus) {
 			v.tab = 1
 		}
 	}
-	if state.Link.RequestID != "" {
-		v.tab = 1
-	}
-	if v.linkURL != state.Link.URL {
-		v.linkURL = state.Link.URL
-		v.showQR = false
-		v.qr = localSendBitmap(state.Link.URL, state.Link.QR)
-	}
-}
-
-func (p *Panels) localSendSettings(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
-	cfg := state.Settings.LocalSend
-	status := state.LocalSend
-	v := &p.localSend
-	if cfg.Port == 0 {
-		cfg.Port = 53317
-	}
-	if cfg.Port != v.portValue {
-		v.portValue = cfg.Port
-		v.port.SetText(strconv.Itoa(cfg.Port))
-	}
-	panelSection(f, i18n.T("LocalSend 互通"), i18n.T("开启后，可在同一局域网和手机 LocalSend 双向传送文件。默认关闭。"), func() {
-		label := i18n.T("启用 LocalSend")
-		description := i18n.T("已关闭")
-		if status.Active {
-			description = i18n.T("运行中")
-		}
-		if status.Problem != "" {
-			description = status.Problem
-		}
-		p.settingsRow(f, theme, label, description, func() {
-			p.settingsControl(f, 84, func() {
-				value := ui.State[bool](f, "localsend-enabled")
-				*value = cfg.Enabled
-				if ui.Switch(f, value, "").Hit(p.tree.ID(v.scope, "enabled"), label).Disabled(status.Unavailable).Changed() {
-					next := cfg
-					next.Enabled = *value
-					submit(domain.Command{Kind: domain.LocalSendConfigure, LocalSend: domain.LocalSendRequest{Config: next}})
-				}
-			})
-		})
-		if !cfg.Enabled {
-			return
-		}
-		p.settingsRow(f, theme, i18n.T("LocalSend 端口"), i18n.T("默认 TCP 端口 53317。发现使用 UDP 53317。"), func() {
-			ui.Row(f).Items(ui.Center).Gap(8).Children(func() {
-				field := ui.TextFieldID(f, p.tree.ID(v.scope, "port"), &v.port, i18n.T("LocalSend 端口"), "53317").Width(100)
-				port, err := strconv.Atoi(strings.TrimSpace(v.port.Text()))
-				valid := err == nil && port >= 1 && port <= 65535
-				if namedButton(f, p.tree.ID(v.scope, "save-port"), i18n.T("保存")).Outline().Disabled(!valid).Clicked() || field.Submitted() && valid {
-					next := cfg
-					next.Port = port
-					submit(domain.Command{Kind: domain.LocalSendConfigure, LocalSend: domain.LocalSendRequest{Config: next}})
-				}
-			})
-		})
-		p.settingsRow(f, theme, i18n.T("HTTP 明文接收"), i18n.T("关闭时使用 HTTPS。启用 HTTP 后，文件和 PIN 在网络上以明文传输。"), func() {
-			value := ui.State[bool](f, "localsend-http")
-			*value = cfg.HTTP
-			if ui.Switch(f, value, "").Hit(p.tree.ID(v.scope, "receive-http"), i18n.T("HTTP 明文接收")).Changed() {
-				next := cfg
-				next.HTTP = *value
-				submit(domain.Command{Kind: domain.LocalSendConfigure, LocalSend: domain.LocalSendRequest{Config: next}})
-			}
-		})
-		pinDescription := i18n.T("4–8 位数字，仅在本次运行期间有效。留空保存可清除。")
-		if status.HasPIN {
-			pinDescription = i18n.T("接收 PIN 已设置。留空保存可清除。")
-		}
-		p.settingsRow(f, theme, i18n.T("LocalSend 接收 PIN"), pinDescription, func() {
-			ui.Row(f).Items(ui.Center).Gap(8).Children(func() {
-				field := ui.TextFieldID(f, p.tree.ID(v.scope, "receive-pin"), &v.receivePIN, i18n.T("LocalSend 接收 PIN"), "PIN").Width(100)
-				if namedButton(f, p.tree.ID(v.scope, "save-pin"), i18n.T("保存")).Outline().Disabled(!status.Active).Clicked() || field.Submitted() && status.Active {
-					password := v.receivePIN.Text()
-					v.receivePIN.SetText("")
-					submit(domain.Command{Kind: domain.LocalSendConfigure, Password: password, LocalSend: domain.LocalSendRequest{Config: cfg, SetPIN: true}})
-				}
-			})
-		})
-	})
 }
 
 func (p *Panels) drawLocalSend(f ui.C, theme ui.Theme, width float32, state domain.State, submit func(domain.Command)) {
@@ -164,23 +87,17 @@ func (p *Panels) drawLocalSend(f ui.C, theme ui.Theme, width float32, state doma
 	ui.Column(f.Part("localsend-panel")).Fill().Pad(min(width/30, 26)).Gap(14).Children(func() {
 		ui.Row(f).FillWidth().Gap(12).Items(ui.Center).Children(func() {
 			drawPanelPageHeading(f, width, "LocalSend", i18n.T("与同一局域网的设备互传文件。"))
-			if status.Active && namedButton(f, p.tree.ID(v.scope, "settings"), i18n.T("模块设置")).Outline().Clicked() {
-				f.After(v.jumpToSettings)
+			if namedButton(f, p.tree.ID(v.scope, "settings"), i18n.T("模块设置")).Icon(panelIconGeneral).Outline().Clicked() {
+				v.openSettings(state.Settings.LocalSend)
 			}
 		})
 		if !status.Active {
 			ui.Column(f).Fill().Center().Gap(14).Children(func() {
 				drawLocalSendMark(f, theme, 52)
-				title := i18n.T("启用 LocalSend 兼容功能")
-				body := i18n.T("开启后，即可与手机 LocalSend 互相发现并传送文件。")
-				if state.Settings.LocalSend.Enabled && status.Problem != "" {
-					title, body = i18n.T("LocalSend 服务未启动"), status.Problem
-				}
+				title := i18n.T("LocalSend 服务未启动")
+				body := status.Problem
 				ui.Text(f, title).FontSize(textSize(f, 23)).Weight(gfx.WeightSemibold)
 				ui.Wrap(f, body).MaxWidth(470).Muted()
-				if namedButton(f, p.tree.ID(v.scope, "open-settings"), i18n.T("打开网络设置")).Clicked() {
-					f.After(v.jumpToSettings)
-				}
 			})
 			return
 		}
@@ -191,15 +108,17 @@ func (p *Panels) drawLocalSend(f ui.C, theme ui.Theme, width float32, state doma
 			ui.Wrap(f, status.Problem).Muted()
 		}
 		ui.Divider(f).FillWidth()
+		if v.tab == 2 {
+			p.drawLocalSendRecords(f, theme, width-2*min(width/30, 26), submit)
+			return
+		}
 		ui.Scroll(f.KeyInt(v.tab).Part("body")).Grow(1).MinHeight(0).FillWidth().Scrollbars().Children(func() {
 			ui.Column(f).FillWidth().Gap(14).Children(func() {
 				switch v.tab {
 				case 0:
 					p.drawLocalSendSend(f, theme, width, status, submit)
 				case 1:
-					p.drawLocalSendReceive(f, theme, width, status, state.Settings.DownloadDir, submit)
-				case 2:
-					p.drawLocalSendRecords(f, theme, width, submit)
+					p.drawLocalSendReceive(f, theme, width, status, state.LocalIP, state.Settings.DownloadDir, submit)
 				}
 			})
 		})
@@ -210,10 +129,10 @@ func (p *Panels) drawLocalSendSend(f ui.C, theme ui.Theme, width float32, status
 	v := &p.localSend
 	ui.Row(f).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 		ui.Text(f, i18n.T("选择接收设备")).Grow(1).FontSize(textSize(f, 19)).Weight(gfx.WeightSemibold)
-		if namedButton(f, p.tree.ID(v.scope, "manual"), i18n.T("按地址添加")).Outline().Clicked() {
+		if namedButton(f, p.tree.ID(v.scope, "manual"), i18n.T("按地址添加")).Icon(UserPlus).Outline().Clicked() {
 			v.manual = !v.manual
 		}
-		if namedButton(f, p.tree.ID(v.scope, "refresh"), i18n.T("刷新")).Outline().Clicked() {
+		if namedButton(f, p.tree.ID(v.scope, "refresh"), i18n.T("刷新")).Icon(RefreshCw).Outline().Clicked() {
 			submit(domain.Command{Kind: domain.LocalSendRefresh})
 		}
 	})
@@ -271,9 +190,6 @@ func (p *Panels) drawLocalSendSend(f ui.C, theme ui.Theme, width float32, status
 						}
 						ui.Text(f, meta).Muted().Ellipsis()
 					})
-					if picked {
-						ui.Text(f, "✓").Color(panelAccentText(theme))
-					}
 				})
 				if card.Clicked() {
 					picked = !picked
@@ -304,7 +220,7 @@ func (p *Panels) drawLocalSendSend(f ui.C, theme ui.Theme, width float32, status
 	if v.composingText {
 		ui.TextAreaID(f, p.tree.ID(v.scope, "message"), &v.text, i18n.T("要发送的文字"), i18n.T("输入文字")).FillWidth().Height(95)
 	} else if len(v.draft) > 0 {
-		p.localSendTable(f, theme, func() {
+		p.localSendTable(f, theme, "操作", func() {
 			for _, item := range v.draft {
 				key := f.Key(item.path)
 				p.localSendFileRow(key, theme, item.name, item.size, item.folder, func() {
@@ -341,7 +257,6 @@ func (p *Panels) drawLocalSendSend(f ui.C, theme ui.Theme, width float32, status
 			v.tab = 2
 		}
 	})
-	p.drawLocalSendLink(f, theme, status.Link, false, submit)
 }
 
 func (p *Panels) pickLocalSend(f ui.C, folder bool) {
@@ -399,24 +314,22 @@ func (v *localSendPanel) paths() []string {
 	return paths
 }
 
-func (p *Panels) drawLocalSendReceive(f ui.C, theme ui.Theme, width float32, status domain.LocalSendStatus, dir string, submit func(domain.Command)) {
+func (p *Panels) drawLocalSendReceive(f ui.C, theme ui.Theme, width float32, status domain.LocalSendStatus, address, dir string, submit func(domain.Command)) {
 	v := &p.localSend
+	if status.Offer.ID == "" {
+		p.drawLocalSendReady(f, theme, width, status, address, dir)
+		return
+	}
 	ui.Column(f).FillWidth().Items(ui.Center).Gap(12).Children(func() {
 		ui.Column(f.Part("receiver-card")).Width(min(700, width-2*min(width/30, 26))).MinWidth(0).
 			Radius(radiusCard).Border(1, theme.Border).Pad(18).Gap(12).Children(func() {
-			if status.Offer.ID == "" {
-				ui.Text(f, i18n.T("等待附近设备发送")).FontSize(textSize(f, 19)).Weight(gfx.WeightSemibold)
-				ui.Wrap(f, status.Alias+" · "+i18n.T("请在手机 LocalSend 中选择这台电脑。")).Muted()
-				ui.Wrap(f, dir).Muted()
-				return
-			}
 			offer := status.Offer
 			ui.Wrap(f, offer.From+" · "+i18n.T("接收请求")).FontSize(textSize(f, 20)).Weight(gfx.WeightSemibold)
 			c := domain.Command{Kind: domain.LocalSendAnswer, TransferID: offer.ID}
 			if offer.IsText {
 				ui.Wrap(f, offer.Text).FontSize(textSize(f, 15))
 			} else {
-				p.localSendTable(f, theme, func() {
+				p.localSendTable(f, theme, "操作", func() {
 					for _, file := range offer.Files {
 						key := f.Key(file.ID)
 						p.localSendFileRow(key, theme, file.Name, panelFormatBytes(file.Size), false, func() {
@@ -452,31 +365,14 @@ func (p *Panels) drawLocalSendReceive(f ui.C, theme ui.Theme, width float32, sta
 			})
 		})
 	})
-	p.drawLocalSendLink(f, theme, status.Link, true, submit)
-	if status.Link.RequestID != "" {
-		ui.Column(f).FillWidth().Radius(radiusCard).Border(1, theme.Border).Pad(16).Gap(8).Children(func() {
-			ui.Text(f, i18n.T("批准浏览器请求")).FontSize(textSize(f, 17)).Weight(gfx.WeightSemibold)
-			ui.Wrap(f, status.Link.RequestFrom+" · "+i18n.T("浏览器请求下载文件")).Muted()
-			ui.Row(f).FillWidth().Gap(8).Children(func() {
-				c := domain.Command{Kind: domain.LocalSendAnswerLink, TransferID: status.Link.RequestID}
-				if namedButton(f, p.tree.ID(v.scope, "deny-link"), i18n.T("拒绝")).Outline().Clicked() {
-					submit(c)
-				}
-				if namedButton(f, p.tree.ID(v.scope, "approve-link"), i18n.T("批准")).Clicked() {
-					c.Bool = true
-					submit(c)
-				}
-			})
-		})
-	}
 }
 
-func (p *Panels) localSendTable(f ui.C, theme ui.Theme, rows func()) {
+func (p *Panels) localSendTable(f ui.C, theme ui.Theme, trailing string, rows func()) {
 	ui.Column(f.Part("file-table")).FillWidth().Radius(radiusControl).Border(1, theme.Border).Children(func() {
 		ui.Row(f).FillWidth().Height(32).PadX(12).Items(ui.Center).Background(theme.Muted).Children(func() {
 			ui.Text(f, i18n.T("名称")).Grow(1).Muted()
 			ui.Text(f, i18n.T("大小")).Width(72).Muted()
-			ui.Text(f, i18n.T("操作")).Width(63).Muted()
+			ui.Text(f, i18n.T(trailing)).Width(63).Muted()
 		})
 		rows()
 	})
@@ -489,117 +385,6 @@ func (p *Panels) localSendFileRow(f ui.C, theme ui.Theme, name, size string, fol
 		ui.Text(f, name).Grow(1).MinWidth(0).Ellipsis()
 		ui.Text(f, size).Width(72).Muted().Ellipsis()
 		ui.Row(f).Width(60).Items(ui.Center).Children(actions)
-	})
-}
-
-func (p *Panels) drawLocalSendRecords(f ui.C, theme ui.Theme, width float32, submit func(domain.Command)) {
-	v := &p.localSend
-	columns := measureTransferColumns(width)
-	if width < 630 {
-		columns.peer, columns.source, columns.status, columns.actions = 60, 55, 92, 72
-	}
-	found := false
-	for i := range p.transferRows {
-		if p.transferRows[i].transfer.LegacyTransport == domain.TransportLocalSend {
-			found = true
-			break
-		}
-	}
-	if !found {
-		panelEmpty(f, theme, i18n.T("暂无 LocalSend 记录"), i18n.T("发送和接收进度会显示在这里。"))
-		return
-	}
-	for i := range p.transferRows {
-		entry := &p.transferRows[i]
-		if entry.transfer.LegacyTransport != domain.TransportLocalSend {
-			continue
-		}
-		ui.Column(f.Key(entry.transfer.ID)).FillWidth().Children(func() {
-			p.drawTransferRow(f, theme, columns, entry, submit)
-			if len(entry.transfer.LocalSendItems) > 0 {
-				if namedButton(f.Part("details"), p.tree.ID(v.scope, "details:"+entry.transfer.ID), i18n.T("文件清单")).Small().Outline().Clicked() {
-					if v.recordDetail == entry.transfer.ID {
-						v.recordDetail = ""
-					} else {
-						v.recordDetail = entry.transfer.ID
-					}
-				}
-				if v.recordDetail == entry.transfer.ID {
-					p.localSendTable(f, theme, func() {
-						for _, item := range entry.transfer.LocalSendItems {
-							key := f.Key(item.ID)
-							p.localSendFileRow(key, theme, item.Name, panelFormatBytes(item.Size), false, func() {
-								ui.Text(key, panelTransferStatus(item.Status, entry.transfer.Direction)).FontSize(textSize(key, 12)).Ellipsis()
-							})
-						}
-					})
-				}
-			}
-			if entry.transfer.LocalSendNeedsPIN || entry.transfer.ID == v.retry {
-				ui.Row(f).FillWidth().PadX(14).Gap(8).Items(ui.Center).Children(func() {
-					if v.retry != entry.transfer.ID {
-						if namedButton(f, p.tree.ID(v.scope, "request-pin:"+entry.transfer.ID), i18n.T("输入对方 PIN")).Outline().Clicked() {
-							v.retry = entry.transfer.ID
-							v.sendPIN.SetText("")
-						}
-						return
-					}
-					ui.TextFieldID(f, p.tree.ID(v.scope, "send-pin"), &v.sendPIN, i18n.T("对方 PIN"), "PIN").Width(130)
-					if namedButton(f, p.tree.ID(v.scope, "retry-with-pin"), i18n.T("继续发送")).Clicked() {
-						submit(domain.Command{Kind: domain.RetryTransfer, TransferID: entry.transfer.ID, Password: v.sendPIN.Text()})
-						v.retry = ""
-						v.sendPIN.SetText("")
-					}
-				})
-			}
-		})
-	}
-}
-
-func (p *Panels) drawLocalSendLink(f ui.C, theme ui.Theme, link domain.LocalSendLinkState, upload bool, submit func(domain.Command)) {
-	v := &p.localSend
-	title := i18n.T("创建下载链接")
-	if upload {
-		title = i18n.T("创建接收链接")
-	}
-	ui.Divider(f).FillWidth()
-	if link.URL != "" {
-		ui.Wrap(f, link.URL).Weight(gfx.WeightMedium)
-		ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-			if namedButton(f, p.tree.ID(v.scope, "copy-link"), i18n.T("复制链接")).Outline().Clicked() {
-				p.localSendCopy(f, link.URL)
-			}
-			if namedButton(f, p.tree.ID(v.scope, "show-qr"), i18n.T("二维码")).Outline().Clicked() {
-				v.showQR = !v.showQR
-			}
-			if namedButton(f, p.tree.ID(v.scope, "stop-link"), i18n.T("关闭链接")).Outline().Clicked() {
-				submit(domain.Command{Kind: domain.LocalSendCloseLink})
-			}
-		})
-		if v.showQR && v.qr.Width > 0 {
-			ui.Image(f, v.qr).Size(158, 158)
-		}
-		return
-	}
-	if namedButton(f, p.tree.ID(v.scope, "link-options"), title).Outline().Disabled(!upload && len(v.draft) == 0).Clicked() {
-		v.linkOptions = !v.linkOptions
-	}
-	if !v.linkOptions {
-		return
-	}
-	ui.Wrap(f, i18n.T("同一局域网的设备可用浏览器打开。链接最多保留 30 分钟，每次请求需要确认。")).Muted()
-	ui.Checkbox(f.Part("link-https"), &v.linkHTTPS, i18n.T("使用 HTTPS（浏览器可能提示自签证书）"))
-	if !v.linkHTTPS {
-		ui.Wrap(f, i18n.T("此链接使用 HTTP，文件和 PIN 将明文传输。")).Color(theme.Danger)
-	}
-	ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-		ui.TextFieldID(f, p.tree.ID(v.scope, "link-pin"), &v.linkPIN, i18n.T("链接 PIN"), i18n.T("可选 PIN")).Width(140)
-		if namedButton(f, p.tree.ID(v.scope, "start-link"), i18n.T("生成局域网链接")).Disabled(!upload && len(v.draft) == 0).Clicked() {
-			submit(domain.Command{Kind: domain.LocalSendLink, Paths: v.paths(), Password: v.linkPIN.Text(),
-				LocalSend: domain.LocalSendRequest{Upload: upload, HTTPS: v.linkHTTPS}})
-			v.linkPIN.SetText("")
-			v.linkOptions = false
-		}
 	})
 }
 

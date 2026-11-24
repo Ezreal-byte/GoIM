@@ -58,7 +58,6 @@ type Service struct {
 	incoming         *incoming
 	jobs             map[string]*outgoing
 	transfers        map[string]domain.Transfer
-	link             *webLink
 	wake             chan struct{}
 }
 
@@ -91,7 +90,7 @@ func Start(options Options) (*Service, error) {
 		usePIN: make(map[string]pinState), jobs: make(map[string]*outgoing), transfers: make(map[string]domain.Transfer),
 		wake: make(chan struct{}, 1), wake6: make(chan struct{}, 1),
 	}
-	s.server = s.httpServer(nil)
+	s.server = s.httpServer()
 	if !s.cfg.HTTP {
 		listener = tls.NewListener(listener, s.server.TLSConfig)
 	}
@@ -142,7 +141,6 @@ func (s *Service) Close() {
 	s.closed = true
 	s.stop()
 	s.mu.Unlock()
-	s.StopLink()
 	_ = s.server.Close()
 	if s.udp != nil {
 		_ = s.udp.Close()
@@ -170,7 +168,6 @@ func (s *Service) UpdateProfile(alias, network string) {
 	s.alias, s.network = alias, network
 	s.mu.Unlock()
 	if networkChanged {
-		s.StopLink()
 		s.announceChange()
 	}
 	if changed {
@@ -185,13 +182,10 @@ func (s *Service) SetPIN(pin string) {
 	clear(s.usePIN)
 }
 
-func (s *Service) checkPIN(w http.ResponseWriter, r *http.Request, link *webLink) bool {
+func (s *Service) checkPIN(w http.ResponseWriter, r *http.Request) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pin, attempts := s.cfg.PIN, s.usePIN
-	if link != nil {
-		pin, attempts = link.pin, link.attempts
-	}
 	if pin == "" {
 		return true
 	}
@@ -244,13 +238,6 @@ func (s *Service) View() (domain.LocalSendStatus, []domain.Transfer) {
 	if s.incoming != nil && !s.incoming.approved {
 		view.Offer = s.incoming.offer()
 	}
-	if s.link != nil {
-		view.Link = s.link.view
-		view.Link.QR = slices.Clone(view.Link.QR)
-		if pending := s.link.pending; pending != nil {
-			view.Link.RequestID, view.Link.RequestFrom = pending.id, pending.ip
-		}
-	}
 	rows := make([]domain.Transfer, 0, len(s.transfers))
 	for _, row := range s.transfers {
 		row.LocalSendItems = slices.Clone(row.LocalSendItems)
@@ -301,20 +288,13 @@ func terminal(status string) bool {
 	}
 }
 
-func (s *Service) httpServer(link *webLink) *http.Server {
+func (s *Service) httpServer() *http.Server {
 	mux := http.NewServeMux()
-	if link == nil {
-		mux.HandleFunc("GET "+prefix+"info", s.serveInfo)
-		mux.HandleFunc("POST "+prefix+"register", s.register)
-	}
-	if link == nil || link.view.Upload {
-		mux.HandleFunc("POST "+prefix+"prepare-upload", func(w http.ResponseWriter, r *http.Request) { s.prepareUpload(w, r, link) })
-		mux.HandleFunc("POST "+prefix+"upload", func(w http.ResponseWriter, r *http.Request) { s.uploadFile(w, r, link) })
-		mux.HandleFunc("POST "+prefix+"cancel", func(w http.ResponseWriter, r *http.Request) { s.cancelRequest(w, r, link) })
-	}
-	if link != nil {
-		s.webRoutes(mux, link)
-	}
+	mux.HandleFunc("GET "+prefix+"info", s.serveInfo)
+	mux.HandleFunc("POST "+prefix+"register", s.register)
+	mux.HandleFunc("POST "+prefix+"prepare-upload", s.prepareUpload)
+	mux.HandleFunc("POST "+prefix+"upload", s.uploadFile)
+	mux.HandleFunc("POST "+prefix+"cancel", s.cancelRequest)
 	return &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       30 * time.Second,
@@ -355,7 +335,6 @@ func cleanAlias(alias string) string {
 }
 
 func (s *Service) PauseReceive() {
-	s.StopLink()
 	s.mu.Lock()
 	in := s.incoming
 	s.mu.Unlock()
