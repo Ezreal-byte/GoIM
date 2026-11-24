@@ -129,6 +129,7 @@ func (u *UI) closeImageViewer() {
 	surface := u.surface
 	if surface.viewer.fromDraft && surface.viewer.conversationID == u.selected {
 		u.focusChat = true
+		u.invalidator.Invalidate()
 	}
 	surface.viewer.video.Stop()
 	surface.viewer.video = nil

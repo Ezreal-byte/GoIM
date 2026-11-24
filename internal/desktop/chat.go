@@ -735,6 +735,9 @@ func (u *UI) focusChatComposer(canvas *gfx.Canvas) {
 	if !u.mentionEditor.Valid() || u.pendingPeer != "" || u.pendingGroup != "" {
 		return
 	}
+	if u.revealDraftEditor(canvas) {
+		return
+	}
 	u.focusChat = false
 	canvas.RequestFocus(u.activeChatFieldID())
 }

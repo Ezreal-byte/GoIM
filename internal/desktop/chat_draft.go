@@ -306,7 +306,7 @@ func (u *UI) finishMixedChatSubmissions() {
 
 func (u *UI) drawMixedChatComposer(f ui.C, draft *mixedChatDraft) {
 	u.mentionEditor = ui.Box{}
-	ui.Scroll(f.Part("draft-scroll")).FillWidth().Grow(1).Basis(0).MinHeight(chatEditorMinHeight).Scrollbars().Children(func() {
+	u.draftScroll = ui.Scroll(f.Part("draft-scroll")).FillWidth().Grow(1).Basis(0).MinHeight(chatEditorMinHeight).Scrollbars().Children(func() {
 		ui.Flow(f.Part("draft-flow")).FillWidth().Items(ui.Center).
 			PadSides(8, chatContentInset, 8, chatContentInset).Gap(7).Children(func() {
 			width := max(float32(40), u.lastChat.Width-2*chatContentInset-16)
@@ -314,7 +314,7 @@ func (u *UI) drawMixedChatComposer(f ui.C, draft *mixedChatDraft) {
 			for index, segment := range draft.texts {
 				fieldWidth, fieldHeight := segment.dimensions(f.Canvas(), size, width)
 				editor := ui.TextAreaID(f, segment.id, &segment.field, i18n.T("消息输入框"), "").
-					Width(fieldWidth).Height(fieldHeight).MaxHeight(fieldHeight).Self(ui.Center).Pad(3).
+					Width(fieldWidth).Height(fieldHeight).MinHeight(fieldHeight).Pad(3).
 					Background(ui.Color{}).Border(0, ui.Color{}).Shadow(gfx.ShadowNone).Disabled(u.chatDraftPending())
 				if index == draft.active {
 					u.mentionEditor = editor
@@ -327,16 +327,38 @@ func (u *UI) drawMixedChatComposer(f ui.C, draft *mixedChatDraft) {
 	})
 }
 
+// The active field must enter the scroll viewport before Viva can focus it.
+func (u *UI) revealDraftEditor(canvas *gfx.Canvas) bool {
+	if u.mixedDraft(u.selected) == nil || !u.draftScroll.Valid() {
+		return false
+	}
+	viewport, editor := u.draftScroll.Rect(), u.mentionEditor.Rect()
+	scroll := u.draftScroll.ScrollState()
+	offset := scroll.Offset
+	switch {
+	case editor.Y < viewport.Y:
+		offset += editor.Y - viewport.Y
+	case editor.Bottom() > viewport.Bottom():
+		offset += min(editor.Bottom()-viewport.Bottom(), editor.Y-viewport.Y)
+	}
+	offset = min(max(offset, 0), scroll.Max())
+	if offset >= scroll.Offset-0.5 && offset <= scroll.Offset+0.5 {
+		return false
+	}
+	scroll.ScrollTo(offset)
+	canvas.RequestFrame()
+	return true
+}
+
 func (segment *draftText) dimensions(canvas *gfx.Canvas, size, limit float32) (width, height float32) {
 	value := segment.editor.String()
 	if segment.measuredText != value || segment.measuredSize != size {
 		segment.measuredText, segment.measuredSize = value, size
-		segment.lineCount = 1
-		segment.textWidth = 0
+		segment.lineCount, segment.textWidth = 0, 0
 		for line := range strings.SplitSeq(value, "\n") {
+			segment.lineCount++
 			segment.textWidth = max(segment.textWidth, canvas.TextWidth(line, size))
 		}
-		segment.lineCount += strings.Count(value, "\n")
 	}
 	width = min(limit, max(32, segment.textWidth+15))
 	if segment.lineCount > 1 {

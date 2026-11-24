@@ -461,6 +461,7 @@ type UI struct {
 	chatDrafts           map[string]*mixedChatDraft
 	pendingChatDrafts    map[string]pendingMixedChatDraft
 	chatDraftSequence    uint64
+	draftScroll          ui.Box
 	chatEditorField      ui.Field
 	requestScreenshot    func()
 	wakeViewer           func()

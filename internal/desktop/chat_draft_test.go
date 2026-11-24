@@ -148,3 +148,24 @@ func TestMixedChatDraftPastesClipboardFilesInsteadOfFilename(t *testing.T) {
 		t.Fatalf("Enter did not submit the pasted files in order: %+v", cmd)
 	}
 }
+
+func TestMixedChatDraftScrollsToCaretAfterManyAttachments(t *testing.T) {
+	h := newShellTestHarness(t, shellTestState(t))
+	h.ui.selectConversation("conv-alice")
+	path := writeExtraTestPNG(t, "attachments.png")
+	h.ui.stageChatFiles(slices.Repeat([]string{path}, 30))
+	h.settle()
+
+	id := h.ui.activeChatFieldID()
+	hit, ok := h.findHit(id)
+	if !ok || h.snapshot().Focused != id || hit.Bounds.Bottom() > h.ui.draftScroll.Rect().Bottom()+1 {
+		t.Fatalf("caret is hidden after paste: editor=%+v focus=%+v bounds=%+v", id, h.snapshot().Focused, hit.Bounds)
+	}
+	if err := h.driver.Key(gfx.KeyBackspace, 0); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if got := len(h.ui.mixedDraft("conv-alice").files); got != 29 {
+		t.Fatalf("Backspace left %d attachments, want 29", got)
+	}
+}
