@@ -29,7 +29,7 @@ jobs:
           - {runner: ubuntu-24.04, os: windows, arch: arm64}
           - {runner: ubuntu-24.04, os: linux, arch: amd64}
           - {runner: ubuntu-24.04-arm, os: linux, arch: arm64}
-          - {runner: macos-15-intel, os: darwin, arch: amd64}
+          - {runner: macos-26-intel, os: darwin, arch: amd64}
           - {runner: macos-15, os: darwin, arch: arm64}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -57,7 +57,7 @@ jobs:
           - {runner: windows-11-arm, os: windows, arch: arm64, goarch: arm64}
           - {runner: ubuntu-24.04, os: linux, arch: amd64, goarch: x64}
           - {runner: ubuntu-24.04-arm, os: linux, arch: arm64, goarch: arm64}
-          - {runner: macos-15-intel, os: darwin, arch: amd64, goarch: x64}
+          - {runner: macos-26-intel, os: darwin, arch: amd64, goarch: x64}
           - {runner: macos-15, os: darwin, arch: arm64, goarch: arm64}
     runs-on: ${{ matrix.runner }}
     defaults:
@@ -111,6 +111,9 @@ jobs:
       - name: macOS status item regression
         if: runner.os == 'macOS'
         run: go test github.com/vivaui/viva/internal/platform/darwin -run '^TestNativeStatusItemMenuDelegateAndSelection$' -count=1 -v
+      - name: macOS application startup thread guard
+        if: runner.os == 'macOS'
+        run: go test github.com/vivaui/viva/app -run '^TestNativeStartupRejectsNonMainThread$' -count=1 -timeout=45s -v
       - name: Linux tray first frame and exposure regression
         if: runner.os == 'Linux'
         env:
@@ -206,6 +209,16 @@ jobs:
           PACKAGE_OS: ${{ matrix.os }}
           PACKAGE_ARCH: ${{ matrix.arch }}
         run: bash packaging/unix.sh "${PACKAGE_VERSION#v}" "$PACKAGE_OS" "$PACKAGE_ARCH"
+      - name: Verify packaged macOS startup
+        if: runner.os == 'macOS'
+        env:
+          PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: |
+          sw_vers
+          python3 packaging/macos/smoke_startup.py \
+            "dist/GoIM_${PACKAGE_VERSION#v}_darwin_$PACKAGE_ARCH.zip" \
+            "$PACKAGE_ARCH" artifacts/startup
       - name: Linux offline file dialog and corresponding sources
         if: runner.os == 'Linux'
         env:
