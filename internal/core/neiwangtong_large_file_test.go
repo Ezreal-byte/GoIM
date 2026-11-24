@@ -37,7 +37,7 @@ func TestNeiwangtongLargeFileRoutes(t *testing.T) {
 			if err := p.neiwangtongAttachmentSizeError(tc.conv, tc.size); (err != nil) != tc.wantError {
 				t.Fatalf("admission: %v", err)
 			}
-			if tc.conv == goimGroup {
+			if tc.conv.ID == goimGroup.ID {
 				return
 			}
 			task := domain.Transfer{PeerID: native.ID, ConversationID: tc.conv.ID}

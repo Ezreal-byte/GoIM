@@ -98,7 +98,9 @@ func addMessageState(s *domain.State, m domain.Message) {
 		s.Conversations[i].Hidden = false
 		s.Conversations[i].UpdatedAt = m.CreatedAt
 		if m.SenderID == s.Self.ID {
-			s.Conversations[i].Draft = ""
+			if len(s.Conversations[i].DraftParts) == 0 {
+				s.Conversations[i].Draft = ""
+			}
 		} else {
 			s.Conversations[i].Unread++
 		}

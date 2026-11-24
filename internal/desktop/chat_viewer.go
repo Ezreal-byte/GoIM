@@ -19,7 +19,8 @@ type imageViewerState struct {
 	open           bool
 	fileID         string
 	conversationID string
-	fromTransfer   bool // images holds only the selected transfer's local file
+	fromTransfer   bool
+	fromDraft      bool // images holds the selected draft's local file
 
 	pinned        bool
 	menuOpen      bool
@@ -89,7 +90,7 @@ func (u *UI) openTransferMedia(file domain.File) {
 
 func (u *UI) viewerFile() domain.File {
 	v := &u.surface.viewer
-	if v.fromTransfer {
+	if v.fromTransfer || v.fromDraft {
 		return v.images[0]
 	}
 	return u.state.File(v.fileID)
@@ -97,7 +98,7 @@ func (u *UI) viewerFile() domain.File {
 
 func (u *UI) viewerPath() string {
 	v := &u.surface.viewer
-	if v.fromTransfer {
+	if v.fromTransfer || v.fromDraft {
 		return v.images[0].SourcePath
 	}
 	return u.fileLocalPath[v.fileID]
@@ -126,6 +127,10 @@ func (u *UI) openMediaViewer(view imageViewerState) {
 
 func (u *UI) closeImageViewer() {
 	surface := u.surface
+	if surface.viewer.fromDraft && surface.viewer.conversationID == u.selected {
+		u.focusChat = true
+		u.invalidator.Invalidate()
+	}
 	surface.viewer.video.Stop()
 	surface.viewer.video = nil
 	surface.viewer.videoFrame = gfx.Bitmap{}
@@ -138,6 +143,7 @@ func (u *UI) closeImageViewer() {
 	surface.viewer.fileID = ""
 	surface.viewer.conversationID = ""
 	surface.viewer.fromTransfer = false
+	surface.viewer.fromDraft = false
 	surface.viewer.images = surface.viewer.images[:0]
 	surface.viewer.imagesConversation = ""
 	if u.dismissViewer != nil {
@@ -146,7 +152,7 @@ func (u *UI) closeImageViewer() {
 }
 
 func (u *UI) viewerImageFiles(state *imageViewerState) []domain.File {
-	if state.fromTransfer {
+	if state.fromTransfer || state.fromDraft {
 		return state.images
 	}
 	if state.imagesConversation == state.conversationID && state.imagesRevision == u.state.Revision {

@@ -19,7 +19,7 @@ func (n *Node) execute(c domain.Command) error {
 	locked := n.data.State.Locked
 	n.mu.Unlock()
 	if locked && c.Kind != domain.UnlockApp && c.Kind != domain.UnlockAppSystem && c.Kind != domain.ReportError {
-		if c.Kind == domain.SendText && c.OnResult != nil {
+		if c.Kind == domain.SendChatDraft || c.Kind == domain.SendText && c.OnResult != nil {
 			return errors.New("应用已锁定，请解锁后发送消息。")
 		}
 		return nil
@@ -89,6 +89,8 @@ func (n *Node) execute(c domain.Command) error {
 		return n.rememberEmoji(c.Text)
 	case domain.SendText:
 		return n.sendText(c.ConversationID, c.Text)
+	case domain.SendChatDraft:
+		return n.sendChatDraft(c.ConversationID, c.DraftParts)
 	case domain.SendFiles:
 		n.async(func() {
 			for _, path := range c.Paths {
@@ -252,7 +254,7 @@ func (n *Node) execute(c domain.Command) error {
 	case domain.SetContactHidden, domain.DeleteContact:
 		return n.setContactVisibility(c)
 	case domain.TogglePin, domain.ToggleMute, domain.MarkRead, domain.SaveDraft:
-		n.change(func(s *domain.State) {
+		return n.change(func(s *domain.State) {
 			if i := convIndex(s, c.ConversationID); i >= 0 {
 				v := &s.Conversations[i]
 				switch c.Kind {
@@ -264,6 +266,7 @@ func (n *Node) execute(c domain.Command) error {
 					v.Unread = 0
 				case domain.SaveDraft:
 					v.Draft = c.Text
+					v.DraftParts = append([]domain.ChatDraftPart(nil), c.DraftParts...)
 				}
 			}
 		})
@@ -467,8 +470,12 @@ func (n *Node) updateContactGroups(c domain.Command) error {
 	return validation
 }
 func (n *Node) sendText(convID, text string) error {
+	return n.sendTextWithDraft(convID, text, nil)
+}
+
+func (n *Node) sendTextWithDraft(convID, text string, draft chatDraftStep) error {
 	text = strings.TrimSpace(text)
-	if text == "" {
+	if text == "" && draft == nil {
 		return nil
 	}
 	if len(text) > 256<<10 {
@@ -478,6 +485,13 @@ func (n *Node) sendText(convID, text string) error {
 	err := n.durable(func(p *persisted) []pending {
 		s := &p.State
 		conv := s.Conversation(convID)
+		if denied = draft.check(s, conv); denied != nil {
+			return nil
+		}
+		if text == "" {
+			draft.advance(s, convID)
+			return nil
+		}
 		targets, err := recipients(*s, conv)
 		if err != nil {
 			denied = err
@@ -500,6 +514,7 @@ func (n *Node) sendText(convID, text string) error {
 			}
 		}
 		addMessageState(s, m)
+		draft.advance(s, convID)
 		p.MessageTargets[m.ID] = targets
 		var deliveries []pending
 		for _, id := range targets {

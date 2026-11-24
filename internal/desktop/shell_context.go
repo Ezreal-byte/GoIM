@@ -351,6 +351,8 @@ func (u *UI) requestDeleteConversation(conversation domain.Conversation) {
 			u.submit(domain.Command{Kind: domain.DeleteConversation, ConversationID: conversation.ID})
 			delete(u.drafts, conversation.ID)
 			delete(u.draftSaved, conversation.ID)
+			delete(u.chatDrafts, conversation.ID)
+			delete(u.pendingChatDrafts, conversation.ID)
 			if u.selected != conversation.ID {
 				return
 			}

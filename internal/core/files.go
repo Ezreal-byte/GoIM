@@ -81,9 +81,9 @@ func fileReaderHashContext(ctx context.Context, f io.Reader) (string, error) {
 }
 func publicFile(f domain.File) domain.File { f.SourcePath = ""; return f }
 func (n *Node) sendFile(convID, path string, shared bool, target string) error {
-	return n.sendFileWithLink(convID, path, shared, target, browserShare{})
+	return n.sendFileWithLink(convID, path, shared, target, browserShare{}, nil)
 }
-func (n *Node) sendFileWithLink(convID, path string, shared bool, target string, link browserShare) error {
+func (n *Node) sendFileWithLink(convID, path string, shared bool, target string, link browserShare, draft chatDraftStep) error {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -100,7 +100,7 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 	}
 	if !info.Mode().IsRegular() {
 		if info.IsDir() && !shared {
-			return n.sendNeiwangtongDirectory(convID, path, target)
+			return n.sendNeiwangtongDirectory(convID, path, target, draft)
 		}
 		return errors.New("首期仅支持文件，请先将文件夹打包")
 	}
@@ -134,6 +134,9 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 		var targets []string
 		if !shared {
 			c := s.Conversation(convID)
+			if denied = draft.check(s, c); denied != nil {
+				return nil
+			}
 			targets, denied = attachmentRecipients(*s, c, target)
 			if denied != nil {
 				return nil
@@ -183,6 +186,7 @@ func (n *Node) sendFileWithLink(convID, path string, shared bool, target string,
 				s.Conversations[i].UpdatedAt = f.CreatedAt
 			}
 		}
+		draft.advance(s, convID)
 		var out []pending
 		for _, id := range targets {
 			out = append(out, appendFileOffer(s, id, convID, f, "", shared))

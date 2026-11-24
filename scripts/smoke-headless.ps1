@@ -124,6 +124,8 @@ try {
     [System.IO.File]::WriteAllText($taskSamplePath,'GoIM independent-process file transfer: 中文 '+[guid]::NewGuid().ToString(),[System.Text.UTF8Encoding]::new($false))
     Send-Command $taskAlice ('openfiles "'+$taskSamplePath.Replace('\','/')+'"')
     Send-Command $taskAlice 'click "发送文件"'
+    Send-Command $taskAlice 'expect exists "button:草稿附件 · 真实文件.txt" within 10000'
+    Send-Command $taskAlice 'key enter'
     Send-Command $taskBob 'waitfor "真实文件.txt" 10000'
     Send-Command $taskBob 'waitfor "查看详情" 10000'
     Send-Command $taskBob 'click "查看 真实文件.txt 详情"'
@@ -158,6 +160,8 @@ try {
     } finally { $taskGraphics.Dispose(); $taskPicture.Dispose() }
     Send-Command $taskAlice ('openfiles "'+$taskPicturePath.Replace('\','/')+'"')
     Send-Command $taskAlice 'click "发送图片"'
+    Send-Command $taskAlice 'expect exists "button:草稿附件 · 真实图片.png" within 10000'
+    Send-Command $taskAlice 'click "button:发送"'
     Wait-Control $taskBob '查看图片 真实图片.png'
     $taskImages=@(Get-ChildItem -LiteralPath (Join-Path $taskRunDir '林晓/chat-images') -Filter '*.png')
     if ($taskImages.Count -ne 1) { throw 'Expected one automatically received PNG' }

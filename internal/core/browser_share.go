@@ -96,7 +96,7 @@ func (n *Node) shareFile(path, password string) error {
 	if info.IsDir() {
 		return n.shareFolder(path, link)
 	}
-	return n.sendFileWithLink("", path, true, "", link)
+	return n.sendFileWithLink("", path, true, "", link, nil)
 }
 
 func (n *Node) updateSharePassword(id, password string) error {

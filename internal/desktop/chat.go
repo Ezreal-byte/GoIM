@@ -135,7 +135,7 @@ func (u *UI) drawChatSurface(canvas *gfx.Canvas, bounds ui.Rect, conversation do
 		defer canvas.PopLayer()
 		canvas.Rounded(overlay, radiusControl, u.palette.chat.WithAlpha(0.96))
 		canvas.DashedRoundedOutline(overlay, radiusControl, 1.5, u.theme.MutedForeground)
-		canvas.LabelCenter(i18n.T("松开以发送文件"), overlay, gfx.TextStyle{
+		canvas.LabelCenter(i18n.T("松开以添加到草稿"), overlay, gfx.TextStyle{
 			Size: u.theme.Metrics.ScaledText(16), Weight: gfx.WeightMedium, Color: u.theme.Foreground,
 		})
 	}
@@ -735,17 +735,24 @@ func (u *UI) focusChatComposer(canvas *gfx.Canvas) {
 	if !u.mentionEditor.Valid() || u.pendingPeer != "" || u.pendingGroup != "" {
 		return
 	}
+	if u.revealDraftEditor(canvas) {
+		return
+	}
 	u.focusChat = false
-	canvas.RequestFocus(u.ids.chatEditorField)
+	canvas.RequestFocus(u.activeChatFieldID())
 }
 
 func (u *UI) drawComposer(f ui.C) {
 	u.composerBox = ui.Column(f).Fill().Children(func() {
 		u.drawComposerToolbar(f)
-		u.mentionEditor = ui.TextAreaID(f, u.ids.chatEditorField, &u.chatEditorField, i18n.T("消息输入框"), "").
-			FillWidth().Grow(1).Basis(0).MinHeight(chatEditorMinHeight).
-			PadSides(8, chatContentInset, 8, chatContentInset).
-			Background(ui.Color{}).Border(0, ui.Color{}).Shadow(gfx.ShadowNone)
+		if draft := u.mixedDraft(u.selected); draft != nil {
+			u.drawMixedChatComposer(f, draft)
+		} else {
+			u.mentionEditor = ui.TextAreaID(f, u.ids.chatEditorField, &u.chatEditorField, i18n.T("消息输入框"), "").
+				FillWidth().Grow(1).Basis(0).MinHeight(chatEditorMinHeight).
+				PadSides(8, chatContentInset, 8, chatContentInset).
+				Background(ui.Color{}).Border(0, ui.Color{}).Shadow(gfx.ShadowNone)
+		}
 		u.drawComposerFooter(f)
 	})
 }
@@ -793,11 +800,11 @@ func (u *UI) drawComposerFooter(f ui.C) {
 		Items(ui.Center).Gap(12).Children(func() {
 		ui.Text(f, u.composerSendHint()).FontSize(textSize(f, 11.5)).Muted().Grow(1).Basis(0).Ellipsis()
 		label := i18n.T("发送")
-		hasText := u.chatEditor != nil && strings.TrimSpace(u.chatEditor.String()) != ""
+		hasText := u.mixedDraft(u.selected) != nil || u.chatEditor != nil && strings.TrimSpace(u.chatEditor.String()) != ""
 		background := u.palette.chat.Mix(u.theme.Foreground, 0.08)
 		foreground := u.theme.MutedForeground
 		_, waiting := u.pendingTexts[u.selected]
-		send := ui.ButtonBase(f, label).Hit(u.ids.chatSend, label).Size(76, 30).Radius(radiusControl).Disabled(!hasText || waiting)
+		send := ui.ButtonBase(f, label).Hit(u.ids.chatSend, label).Size(76, 30).Radius(radiusControl).Disabled(!hasText || waiting || u.chatDraftPending())
 		if hasText {
 			background, foreground = u.theme.Primary, u.theme.PrimaryForeground
 			send.Hover(ui.Look{}.Background(background.Mix(foreground, 0.1))).
@@ -925,13 +932,32 @@ func (u *UI) onChatTextEvent(event app.TextEvent) (app.TextState, error) {
 	if u.chatEditor == nil {
 		return app.TextState{Value: "", Selection: app.TextRange{}}, nil
 	}
-	if event.Kind == app.TextPasteNoText {
-		u.pasteClipboardImage()
-		state := app.TextStateOf(u.chatEditor)
+	editor := u.chatEditor
+	if u.chatDraftPending() {
+		return app.TextStateOf(editor), nil
+	}
+	if event.Kind == app.TextPaste || event.Kind == app.TextPasteNoText {
+		if u.canStageChatFiles() && !app.TextStateOf(editor).Composing {
+			if files, err := app.ClipboardFiles(); err == nil && len(files) > 0 {
+				u.stageChatFiles(files)
+				state := app.TextStateOf(editor)
+				state.Redraw = true
+				return state, nil
+			}
+		}
+		if event.Kind == app.TextPasteNoText {
+			u.pasteClipboardImage()
+			state := app.TextStateOf(editor)
+			state.Redraw = true
+			return state, nil
+		}
+	}
+	if event.Kind == app.TextCommandEvent && u.draftBoundaryCommand(event.Command) {
+		state := app.TextStateOf(editor)
 		state.Redraw = true
 		return state, nil
 	}
-	state := app.TextStateOf(u.chatEditor)
+	state := app.TextStateOf(editor)
 	if event.Kind == app.TextCommandEvent && event.Command == app.TextInsertNewline {
 		if state.Composing {
 			return state, nil
@@ -969,6 +995,13 @@ func (u *UI) sendChatText() {
 		u.chatReadOnlyReason(u.state.Conversation(u.selected)) != "" {
 		return
 	}
+	if _, composing := u.chatEditor.Composition(); composing {
+		return
+	}
+	if draft := u.mixedDraft(u.selected); draft != nil {
+		u.sendMixedChatDraft(draft)
+		return
+	}
 	raw := u.chatEditor.String()
 	value := strings.TrimSpace(raw)
 	if _, waiting := u.pendingTexts[u.selected]; waiting || value == "" || u.backend == nil {
@@ -997,11 +1030,15 @@ type pendingChatText struct {
 
 // Called on the window thread, including when a native dialog or a detached chat is active.
 func (u *UI) finishChatSubmissions() {
+	u.finishMixedChatSubmissions()
 	for id, pending := range u.pendingTexts {
 		select {
 		case accepted := <-pending.done:
 			delete(u.pendingTexts, id)
 			if !accepted {
+				continue
+			}
+			if u.mixedDraft(id) != nil {
 				continue
 			}
 			u.draftSaved[id] = ""
@@ -1023,7 +1060,7 @@ func (u *UI) finishChatSubmissions() {
 }
 
 func (u *UI) insertChatText(value string) {
-	if u.chatEditor == nil || u.selected == "" {
+	if u.chatEditor == nil || u.selected == "" || u.chatDraftPending() {
 		return
 	}
 	u.chatEditor.Insert(value)
@@ -1062,13 +1099,13 @@ func (u *UI) chooseChatFolder(canvas *gfx.Canvas, conversationID string) {
 			}
 			return
 		}
-		if path != "" {
-			u.submit(domain.Command{Kind: domain.SendFiles, ConversationID: conversationID, Paths: []string{path}})
+		if path != "" && u.selected == conversationID {
+			u.stageChatFiles([]string{path})
 		}
 	})
 }
 func (u *UI) chooseChatFiles(canvas *gfx.Canvas, imagesOnly bool) {
-	if u.selected == "" || u.chatReadOnlyReason(u.state.Conversation(u.selected)) != "" {
+	if !u.canStageChatFiles() {
 		return
 	}
 	conversationID := u.selected
@@ -1092,15 +1129,17 @@ func (u *UI) chooseChatFiles(canvas *gfx.Canvas, imagesOnly bool) {
 			u.showToast(i18n.T("无法选择文件"), filePickerProblem(err), components.ToastError)
 			return
 		}
-		if len(paths) == 0 {
-			return
+		if u.selected == conversationID {
+			u.stageChatFiles(paths)
 		}
-		u.submit(domain.Command{Kind: domain.SendFiles, ConversationID: conversationID, Paths: append([]string(nil), paths...)})
 	})
 }
 
 func (u *UI) pasteClipboardImage() {
-	if u.selected == "" || u.chatReadOnlyReason(u.state.Conversation(u.selected)) != "" {
+	if !u.canStageChatFiles() {
+		return
+	}
+	if _, composing := u.chatEditor.Composition(); composing {
 		return
 	}
 	readClipboard := u.clipboardImage
@@ -1135,7 +1174,7 @@ func (u *UI) pasteClipboardImage() {
 		u.reportClipboardFailure(i18n.T("无法保存剪贴板图片：") + err.Error())
 		return
 	}
-	u.submit(domain.Command{Kind: domain.SendFiles, ConversationID: u.selected, Paths: []string{path}})
+	u.stageChatFiles([]string{path})
 }
 
 func (u *UI) reportClipboardFailure(message string) {

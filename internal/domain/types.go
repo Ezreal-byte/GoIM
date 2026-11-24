@@ -143,19 +143,20 @@ func (p Peer) SupportsNeiwangtongRecall() bool {
 }
 
 type Conversation struct {
-	ID        string
-	Title     string
-	Kind      string // direct or group
-	PeerID    string
-	GroupID   string
-	Pinned    bool
-	Muted     bool
-	Hidden    bool // local session removed; a new message can restore it
-	Opened    bool `json:",omitempty"` // explicitly opened, even before the first message
-	Unread    int
-	Draft     string
-	Preview   string
-	UpdatedAt time.Time
+	ID         string
+	Title      string
+	Kind       string // direct or group
+	PeerID     string
+	GroupID    string
+	Pinned     bool
+	Muted      bool
+	Hidden     bool // local session removed; a new message can restore it
+	Opened     bool `json:",omitempty"` // explicitly opened, even before the first message
+	Unread     int
+	Draft      string
+	DraftParts []ChatDraftPart `json:",omitempty"`
+	Preview    string
+	UpdatedAt  time.Time
 }
 
 type Message struct {
@@ -834,6 +835,7 @@ const (
 	UnlockAppSystem      CommandKind = "unlock_app_system"
 	MarkRead             CommandKind = "mark_read"
 	SaveDraft            CommandKind = "save_draft"
+	SendChatDraft        CommandKind = "send_chat_draft"
 	ShareFiles           CommandKind = "share_files"
 	SetWebUploadApproval CommandKind = "set_web_upload_approval"
 	SetDeviceShare       CommandKind = "set_device_share"
@@ -869,6 +871,7 @@ const (
 
 type Command struct {
 	LocalSend      LocalSendRequest
+	DraftParts     []ChatDraftPart
 	ShareDownloads []ShareDownload `json:"-"`
 	// OnResult reports local command completion. Callbacks must not block or mutate window state.
 	OnResult       func(error) `json:"-"`

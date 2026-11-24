@@ -49,7 +49,7 @@ func TestComposerVoiceActionIsTrailingAndDropHintStaysInComposer(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, label := range h.snapshot().Texts {
-		if label.Value == "松开以发送文件" && (label.Bounds.Y < composer.Y || label.Bounds.Bottom() > composer.Bottom()) {
+		if label.Value == "松开以添加到草稿" && (label.Bounds.Y < composer.Y || label.Bounds.Bottom() > composer.Bottom()) {
 			t.Fatal("drop hint covered the chat history")
 		}
 	}
