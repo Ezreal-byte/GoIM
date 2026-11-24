@@ -7,3 +7,9 @@ Core/network/storage is owned by the root GPT-6.1 Sol agent. WorkBuddy UI worker
 Use `internal/domain` as the shared contract. Desktop code depends on its Backend interface, not core internals. Never treat demo data as proof of real networking. All keys, database records and test data must stay outside committed source. Native integration tests use isolated data directories, not HOME overrides.
 
 Before handoff, format changed Go files, run `go vet ./...` and `go test ./... -count=1`, and verify desktop changes in the headless harness. Record the checks performed in the local checkpoint at `docs/implementation/checkpoint.md` when available. Keep private design and implementation records outside Git.
+
+## Viva dependency for GoIM releases
+
+1. Sync `Ezreal-byte/viva`'s `main` with the latest `vivaui/viva` `main` and layer on the fork's PRs that are still pending upstream. Take merged changes from upstream on the next sync.
+2. Before tagging a GoIM release, pin that exact fork `main` commit in the `go.mod` replacement for `github.com/vivaui/viva`, update `go.sum`, and verify the module with `GOWORK=off`.
+3. The release workflow checks the pin against the current Viva fork `main` before building. Every platform builds with the same pinned commit. Refresh the pin before tagging if the fork `main` has advanced.
