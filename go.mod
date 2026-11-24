@@ -22,4 +22,4 @@ require (
 )
 
 // Use the GoIM fork for tray integration and the macOS startup guard.
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261124045312-752a82b3ca19
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261124063117-10b612bfce94
