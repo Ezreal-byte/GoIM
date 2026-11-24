@@ -72,6 +72,10 @@ func TestLocalSendVisuals(t *testing.T) {
 				{ID: "text", Name: "发布说明.txt", Size: 12288},
 			}}
 			backend.setState(state)
+			shell.invalidator.Invalidate()
+			if err := session.Expect("text", "接收请求", "within", "2000"); err != nil {
+				t.Fatal(err)
+			}
 			shot("receive")
 
 			click := func(label string) {
@@ -100,7 +104,10 @@ func TestLocalSendVisuals(t *testing.T) {
 				{ID: "ls-3", LegacyTransport: domain.TransportLocalSend, LocalSendPeer: "会议室电脑", Name: "演示材料.zip", Direction: "send", Status: "transferring", Size: 15039400, Done: 7602400, Speed: 10229760, UpdatedAt: now.Add(-6 * time.Minute)},
 			}
 			backend.setState(state)
-			if err := session.Wait(150 * time.Millisecond); err != nil {
+			// State arrives through a background watcher in the app. Wake the
+			// headless driver before advancing its virtual animation clock.
+			shell.invalidator.Invalidate()
+			if err := session.Expect("text", "可接收", "within", "2000"); err != nil {
 				t.Fatal(err)
 			}
 			shot("ready")
