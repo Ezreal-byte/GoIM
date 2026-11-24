@@ -63,7 +63,8 @@ func TestNeiwangtongFolderPickerAndGroupAvatarCapabilities(t *testing.T) {
 	}
 	h.clickID(h.ui.ids.chatFolder)
 	cmd := h.lastCommand()
-	if cmd.Kind != domain.SendFiles || cmd.ConversationID != "conv-group" || len(cmd.Paths) != 1 || cmd.Paths[0] != path {
+	if cmd.Kind != domain.SaveDraft || cmd.ConversationID != "conv-group" ||
+		len(cmd.DraftParts) != 1 || cmd.DraftParts[0].Path != path {
 		t.Fatalf("bad folder selection: %+v", cmd)
 	}
 	h.clickID(h.ui.ids.chatHeaderMembers)

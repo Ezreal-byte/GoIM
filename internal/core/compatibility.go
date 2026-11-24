@@ -455,7 +455,7 @@ func (n *Node) hideUnusedDirectConversations() {
 	}
 	for i := range s.Conversations {
 		c := &s.Conversations[i]
-		if c.Kind == "direct" && !c.Opened && !used[c.ID] && c.Draft == "" &&
+		if c.Kind == "direct" && !c.Opened && !used[c.ID] && c.Draft == "" && len(c.DraftParts) == 0 &&
 			c.Preview == "" && !c.Pinned && !c.Muted && c.Unread == 0 {
 			c.Hidden = true
 		}

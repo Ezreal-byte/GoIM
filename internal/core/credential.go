@@ -153,6 +153,7 @@ func (n *Node) deleteConversation(id string) error {
 		}
 		c := &s.Conversations[i]
 		c.Hidden, c.Pinned, c.Unread, c.Draft, c.Preview = true, false, 0, "", ""
+		c.DraftParts = nil
 		messages := s.Messages[:0]
 		for _, m := range s.Messages {
 			if m.ConversationID != id {

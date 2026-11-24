@@ -19,7 +19,7 @@ func (n *Node) execute(c domain.Command) error {
 	locked := n.data.State.Locked
 	n.mu.Unlock()
 	if locked && c.Kind != domain.UnlockApp && c.Kind != domain.UnlockAppSystem && c.Kind != domain.ReportError {
-		if c.Kind == domain.SendText && c.OnResult != nil {
+		if c.Kind == domain.SendChatDraft || c.Kind == domain.SendText && c.OnResult != nil {
 			return errors.New("应用已锁定，请解锁后发送消息。")
 		}
 		return nil
@@ -89,6 +89,8 @@ func (n *Node) execute(c domain.Command) error {
 		return n.rememberEmoji(c.Text)
 	case domain.SendText:
 		return n.sendText(c.ConversationID, c.Text)
+	case domain.SendChatDraft:
+		return n.sendChatDraft(c.ConversationID, c.DraftParts)
 	case domain.SendFiles:
 		n.async(func() {
 			for _, path := range c.Paths {
@@ -264,6 +266,7 @@ func (n *Node) execute(c domain.Command) error {
 					v.Unread = 0
 				case domain.SaveDraft:
 					v.Draft = c.Text
+					v.DraftParts = append([]domain.ChatDraftPart(nil), c.DraftParts...)
 				}
 			}
 		})

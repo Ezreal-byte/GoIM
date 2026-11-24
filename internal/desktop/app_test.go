@@ -957,7 +957,7 @@ func TestImageMessageOpensImageViewer(t *testing.T) {
 	requireShellLayout(t, harness.snapshot())
 }
 
-func TestFileDropSendsPathsToTheVisibleConversation(t *testing.T) {
+func TestFileDropAddsPathToTheVisibleConversationDraft(t *testing.T) {
 	harness := newShellTestHarness(t, shellTestState(t))
 	path := filepath.Join(t.TempDir(), "说明.txt")
 	if err := os.WriteFile(path, []byte("content"), 0o600); err != nil {
@@ -985,9 +985,12 @@ func TestFileDropSendsPathsToTheVisibleConversation(t *testing.T) {
 		t.Fatal("dropping files on the chat was not accepted")
 	}
 	command := harness.lastCommand()
-	if command.Kind != domain.SendFiles || command.ConversationID != "conv-group" ||
-		!slices.Equal(command.Paths, []string{path}) {
-		t.Fatalf("file-drop command = %+v", command)
+	if command.Kind != domain.SaveDraft || command.ConversationID != "conv-group" ||
+		!slices.Equal(command.DraftParts, []domain.ChatDraftPart{{Path: path}}) {
+		t.Fatalf("file-drop draft = %+v", command)
+	}
+	if hasCommandKind(harness.backend.commandLog(), domain.SendFiles) {
+		t.Fatal("dropping a file sent it before the draft was submitted")
 	}
 }
 
@@ -1616,7 +1619,7 @@ func TestRailBadgesUpdateInSettings(t *testing.T) {
 	}
 }
 
-func TestClipboardImagePasteReportsFailuresAndSendsSuccess(t *testing.T) {
+func TestClipboardImagePasteStagesSuccessAndReportsFailures(t *testing.T) {
 	t.Run("driver image success", func(t *testing.T) {
 		harness := newShellTestHarness(t, shellTestState(t))
 		pngPath := writeExtraTestPNG(t, "clipboard.png")
@@ -1634,10 +1637,12 @@ func TestClipboardImagePasteReportsFailuresAndSendsSuccess(t *testing.T) {
 			t.Fatal(err)
 		}
 		command := harness.lastCommand()
-		if command.Kind != domain.SendFiles || len(command.Paths) != 1 {
-			t.Fatalf("clipboard-image command = %+v", command)
+		if command.Kind != domain.SaveDraft || len(command.DraftParts) != 1 ||
+			hasCommandKind(harness.backend.commandLog(), domain.SendFiles) ||
+			hasCommandKind(harness.backend.commandLog(), domain.SendChatDraft) {
+			t.Fatalf("clipboard image did not stay in the draft: %+v", command)
 		}
-		if _, err := os.Stat(command.Paths[0]); err != nil {
+		if _, err := os.Stat(command.DraftParts[0].Path); err != nil {
 			t.Fatalf("clipboard image was not written: %v", err)
 		}
 	})
@@ -1701,9 +1706,13 @@ func TestOfflinePeerImageSelectionRendersWithoutReopeningPicker(t *testing.T) {
 	h.clickID(h.ui.ids.chatImage)
 	h.settle()
 
-	send := h.lastCommand()
-	if send.Kind != domain.SendFiles || send.ConversationID != "conv-alice" ||
-		!slices.Equal(send.Paths, []string{imagePath}) {
+	if hasCommandKind(h.backend.commandLog(), domain.SendChatDraft) {
+		t.Fatal("file selection sent the draft")
+	}
+	h.clickID(h.ui.ids.chatSend)
+	send, _ := findShellCommand(h.backend.commandLog(), domain.SendChatDraft)
+	if send.ConversationID != "conv-alice" ||
+		!slices.Equal(send.DraftParts, []domain.ChatDraftPart{{Path: imagePath}}) {
 		t.Fatalf("offline image command = %+v", send)
 	}
 
@@ -1733,7 +1742,7 @@ func TestOfflinePeerImageSelectionRendersWithoutReopeningPicker(t *testing.T) {
 
 	count := 0
 	for _, command := range h.backend.commandLog() {
-		if command.Kind == domain.SendFiles {
+		if command.Kind == domain.SendChatDraft {
 			count++
 		}
 	}

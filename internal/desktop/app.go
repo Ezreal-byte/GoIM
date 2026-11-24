@@ -457,6 +457,10 @@ type UI struct {
 	contactRefreshToast     shellNotice
 
 	chatEditor           *text.Editor
+	chatPlainEditor      *text.Editor
+	chatDrafts           map[string]*mixedChatDraft
+	pendingChatDrafts    map[string]pendingMixedChatDraft
+	chatDraftSequence    uint64
 	chatEditorField      ui.Field
 	requestScreenshot    func()
 	wakeViewer           func()
@@ -792,6 +796,9 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 		iconVolume:        Volume2,
 		iconVolumeX:       VolumeX,
 	}
+	u.chatPlainEditor = u.chatEditor
+	u.chatDrafts = make(map[string]*mixedChatDraft)
+	u.pendingChatDrafts = make(map[string]pendingMixedChatDraft)
 	u.chatEditorField.Bind(u.chatEditor)
 	u.acceptContactDrop, u.moveDroppedContact = u.canDropContact, u.dropContact
 	u.drawTextSelection = u.paintMessageSelection
@@ -2558,9 +2565,10 @@ func (u *UI) reconcileCompose(oldError string) {
 }
 
 func (u *UI) loadDraft(conversationID string) {
-	if u.chatEditor == nil {
+	if u.chatPlainEditor == nil {
 		return
 	}
+	u.chatEditor = u.chatPlainEditor
 	if conversationID == "" {
 		u.setChatEditorText("")
 		return
@@ -2571,6 +2579,13 @@ func (u *UI) loadDraft(conversationID string) {
 		draft = conversation.Draft
 		u.drafts[conversationID] = draft
 		u.draftSaved[conversationID] = draft
+		u.restoreMixedDraft(conversationID, conversation.DraftParts)
+	}
+	if mixed := u.mixedDraft(conversationID); mixed != nil {
+		u.chatEditor = mixed.texts[mixed.active].editor
+		u.closeMention()
+		u.syncChatInput(true)
+		return
 	}
 	u.setChatEditorText(draft)
 }
@@ -2584,6 +2599,14 @@ func (u *UI) saveCurrentDraft() {
 
 func (u *UI) persistDraft(conversationID, value string) {
 	if conversationID == "" {
+		return
+	}
+	if _, waiting := u.pendingChatDrafts[conversationID]; waiting {
+		return
+	}
+	if draft := u.mixedDraft(conversationID); draft != nil {
+		parts := draft.parts()
+		u.submit(domain.Command{Kind: domain.SaveDraft, ConversationID: conversationID, Text: domain.ChatDraftText(parts), DraftParts: parts})
 		return
 	}
 	if saved, ok := u.draftSaved[conversationID]; ok && saved == value {
@@ -2917,7 +2940,7 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 	}
 	input := u.chatPage.TextInput(context)
 	if input != nil {
-		if input.Editor == u.chatEditor {
+		if u.matchDraftEditor(input.Editor) {
 			return u.chatTextInput()
 		}
 		if input := u.chatSearchTextInput(context); input != nil {
@@ -3021,7 +3044,7 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if u.contactDrag.Dragging() && event.Key == gfx.KeyEscape {
 		return u.sidebarPage.Key(event)
 	}
-	if u.mention.open && u.fieldFocused(&u.chatEditorField) && !event.Release &&
+	if u.mention.open && u.fieldFocused(u.activeChatField()) && !event.Release &&
 		event.Modifiers == 0 && u.chatEditor != nil {
 		if _, composing := u.chatEditor.Composition(); !composing {
 			switch event.Key {
@@ -3142,7 +3165,7 @@ func (u *UI) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 		}
 	}
 	control := event.Modifiers&gfx.ModifierControl != 0 || event.Modifiers&gfx.ModifierMeta != 0
-	if event.Key == gfx.KeyEnter && control && u.fieldFocused(&u.chatEditorField) && u.selected != "" {
+	if event.Key == gfx.KeyEnter && control && u.fieldFocused(u.activeChatField()) && u.selected != "" {
 		if u.chatEditor == nil {
 			return gfx.EventResult{}
 		}
@@ -3207,7 +3230,7 @@ func (u *UI) onFileDrop(event gfx.FileDropEvent) gfx.EventResult {
 	case gfx.FileDropDrop:
 		u.dragging = false
 		if u.chatDropReady() && len(event.Paths) > 0 && pointInside(event.X, event.Y, u.lastChat) {
-			u.submit(domain.Command{Kind: domain.SendFiles, ConversationID: u.selected, Paths: append([]string(nil), event.Paths...)})
+			u.stageChatFiles(event.Paths)
 			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 	}
@@ -3215,9 +3238,11 @@ func (u *UI) onFileDrop(event gfx.FileDropEvent) gfx.EventResult {
 }
 
 func (u *UI) chatDropReady() bool {
-	return u.selected != "" && !u.isPanelSection() && u.drawer == "" &&
-		!u.modalOpen() && !u.shellMenu.open &&
-		u.chatReadOnlyReason(u.state.Conversation(u.selected)) == ""
+	if !u.canStageChatFiles() || u.isPanelSection() || u.drawer != "" || u.modalOpen() || u.shellMenu.open {
+		return false
+	}
+	_, composing := u.chatEditor.Composition()
+	return !composing
 }
 
 func (u *UI) ensureStateIDs() {
@@ -3346,6 +3371,13 @@ func (u *UI) refreshImages() {
 	for _, file := range u.files {
 		if fileIsImage(file) {
 			u.markImage(u.fileLocalPath[file.ID])
+		}
+	}
+	if draft := u.mixedDraft(u.selected); draft != nil {
+		for _, attachment := range draft.files {
+			if fileIsImage(attachment.file) {
+				u.markImage(attachment.file.SourcePath)
+			}
 		}
 	}
 	if viewer := &u.surface.viewer; viewer.open {

@@ -492,18 +492,27 @@ func (n *Node) commandLoop() {
 	for {
 		select {
 		case c := <-n.commands:
-			err := n.execute(c)
-			if err != nil {
-				n.report(err)
+			if c.Kind == domain.SendChatDraft {
+				if !n.async(func() { n.completeCommand(c, n.execute(c)) }) {
+					n.completeCommand(c, context.Canceled)
+				}
+				continue
 			}
-			if c.OnResult != nil {
-				c.OnResult(err)
-			}
+			n.completeCommand(c, n.execute(c))
 		case <-n.ctx.Done():
 			return
 		}
 	}
 }
+func (n *Node) completeCommand(c domain.Command, err error) {
+	if err != nil {
+		n.report(err)
+	}
+	if c.OnResult != nil {
+		c.OnResult(err)
+	}
+}
+
 func (n *Node) acceptLoop() {
 	defer n.wg.Done()
 	for {
