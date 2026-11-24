@@ -25,6 +25,8 @@ func (n *Node) execute(c domain.Command) error {
 		return nil
 	}
 	switch c.Kind {
+	case domain.LocalSendConfigure, domain.LocalSendRefresh, domain.LocalSendAddDevice, domain.LocalSendSend, domain.LocalSendAnswer:
+		return n.executeLocalSend(c)
 	case domain.RefreshContacts:
 		n.mu.Lock()
 		if !n.contactRefresh.Pending {
@@ -108,6 +110,9 @@ func (n *Node) execute(c domain.Command) error {
 	case domain.SetGroupNickname:
 		return n.setGroupNickname(c.GroupID, c.Value)
 	case domain.AcceptTransfer:
+		if strings.HasPrefix(c.TransferID, "ls-") {
+			return n.executeLocalSend(c)
+		}
 		if n.isWebUpload(c.TransferID) {
 			return n.approveWebUpload(c.TransferID)
 		}
@@ -117,6 +122,9 @@ func (n *Node) execute(c domain.Command) error {
 		}
 		n.startReceive(c.TransferID, path)
 	case domain.RetryTransfer:
+		if strings.HasPrefix(c.TransferID, "ls-") {
+			return n.executeLocalSend(c)
+		}
 		s := n.snapshot(false)
 		i := transferIndex(&s, c.TransferID)
 		if i < 0 {
@@ -131,6 +139,9 @@ func (n *Node) execute(c domain.Command) error {
 		}
 		return n.retryTransfer(t)
 	case domain.RejectTransfer, domain.CancelTransfer:
+		if strings.HasPrefix(c.TransferID, "ls-") {
+			return n.executeLocalSend(c)
+		}
 		s := n.snapshot(false)
 		if index := printJobForTransferIndex(&s, c.TransferID); index >= 0 {
 			job := s.PrintJobs[index]
@@ -210,6 +221,9 @@ func (n *Node) execute(c domain.Command) error {
 		return n.updateProfile(c.Name, c.Value, c.AvatarBGRA, c.AvatarSize, c.Signature, c.Presence, c.ProfileDetails, c.RemoveAvatar)
 	case domain.SetLockPassword, domain.SetSystemUnlock, domain.LockApp, domain.UnlockApp, domain.UnlockAppSystem:
 		err := n.updateLock(c)
+		if err == nil && c.Kind == domain.LockApp {
+			n.lockLocalSend()
+		}
 		if c.Request == 0 {
 			return err
 		}
@@ -584,7 +598,7 @@ func (n *Node) setting(c domain.Command) error {
 		settings.Theme = c.Value
 	case "last_section":
 		switch c.Value {
-		case "messages", "contacts", "transfers", "shares", "print", "settings":
+		case "messages", "contacts", "transfers", "shares", "print", "localsend", "settings":
 			settings.LastSection = c.Value
 		default:
 			return errors.New("无效的启动页面")
@@ -636,7 +650,7 @@ func (n *Node) setting(c domain.Command) error {
 		settings.HideTitleGitHub = !c.Bool
 	case "close_to_tray":
 		settings.CloseToTray = c.Bool
-	case "download_dir":
+	case "download_dir", "localsend_download_dir":
 		if c.Value == "" {
 			return errors.New("请选择保存目录")
 		}
@@ -650,7 +664,11 @@ func (n *Node) setting(c domain.Command) error {
 		path := f.Name()
 		f.Close()
 		_ = os.Remove(path)
-		settings.DownloadDir = c.Value
+		if c.Setting == "localsend_download_dir" {
+			settings.LocalSendDownloadDir = c.Value
+		} else {
+			settings.DownloadDir = c.Value
+		}
 	case "duplicate_policy":
 		if c.Value != "rename" && c.Value != "ask" {
 			return errors.New("无效的同名文件策略")

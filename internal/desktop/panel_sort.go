@@ -64,8 +64,7 @@ func (s panelTableSort) order(value int) int {
 	return value
 }
 
-func (p *Panels) sortTransfers() {
-	sort := p.transferSort
+func sortTransferEntries(entries []panelTransferEntry, sort panelTableSort) {
 	compare := func(a, b panelTransferEntry) int {
 		var order int
 		switch sort.column {
@@ -75,6 +74,10 @@ func (p *Panels) sortTransfers() {
 			order = cmp.Compare(a.peer, b.peer)
 		case "来源":
 			order = cmp.Compare(a.source, b.source)
+		case "方向":
+			order = cmp.Compare(a.transfer.Direction, b.transfer.Direction)
+		case "时间":
+			order = a.updated.Compare(b.updated)
 		case "大小":
 			order = cmp.Compare(a.transfer.Size, b.transfer.Size)
 		case "状态":
@@ -82,7 +85,11 @@ func (p *Panels) sortTransfers() {
 		}
 		return cmp.Or(sort.order(order), b.updated.Compare(a.updated), cmp.Compare(a.transfer.ID, b.transfer.ID))
 	}
-	slices.SortStableFunc(p.transferRows, compare)
+	slices.SortStableFunc(entries, compare)
+}
+
+func (p *Panels) sortTransfers() {
+	sortTransferEntries(p.transferRows, p.transferSort)
 	p.transferIncoming = p.transferIncoming[:0]
 	p.transferReceived = p.transferReceived[:0]
 	p.transferPending = p.transferPending[:0]

@@ -35,6 +35,7 @@ const (
 	sectionTransfers  = "transfers"
 	sectionShares     = "shares"
 	sectionPrint      = "print"
+	sectionLocalSend  = "localsend"
 	sectionSettings   = "settings"
 	titlebarHeight    = float32(42)
 	railWidth         = float32(68)
@@ -195,6 +196,7 @@ type appIDs struct {
 	navTransfers  gfx.ID
 	navShares     gfx.ID
 	navPrint      gfx.ID
+	navLocalSend  gfx.ID
 	navLock       gfx.ID
 	navTheme      gfx.ID
 	navSettings   gfx.ID
@@ -822,6 +824,9 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	if backend != nil {
 		u.refresh()
 		u.section = restoreMainSection(u.state.Settings.LastSection)
+		if u.section == sectionLocalSend && !u.state.Settings.LocalSend.Enabled {
+			u.section = sectionContacts
+		}
 		u.recentEmoji = append([]string(nil), u.state.Settings.RecentEmoji...)
 		u.queueMediaJobs()
 		u.refreshSectionCatalog(u.section)
@@ -963,6 +968,9 @@ func (u *UI) refresh() {
 	}
 	oldError := u.state.Error
 	u.state = u.backend.Snapshot()
+	if u.section == sectionLocalSend && !u.state.Settings.LocalSend.Enabled {
+		u.section = sectionContacts
+	}
 	u.finishChatSubmissions()
 	u.lanEndpoint = displayLANEndpoint(u.state)
 	i18n.SetLanguage(u.state.Settings.Language)
@@ -1202,6 +1210,7 @@ func (u *UI) initIDs() {
 	u.ids.navTransfers = u.tree.ID(u.ids.nav, "transfers")
 	u.ids.navShares = u.tree.ID(u.ids.nav, "shares")
 	u.ids.navPrint = u.tree.ID(u.ids.nav, "print")
+	u.ids.navLocalSend = u.tree.ID(u.ids.nav, "localsend")
 	u.ids.navLock = u.tree.ID(u.ids.nav, "lock")
 	u.ids.navTheme = u.tree.ID(u.ids.nav, "appearance")
 	u.ids.navSettings = u.tree.ID(u.ids.nav, "settings")
@@ -1447,7 +1456,7 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 
 func (u *UI) isPanelSection() bool {
 	return u.section == sectionSettings || u.section == sectionTransfers ||
-		u.section == sectionShares || u.section == sectionPrint
+		u.section == sectionShares || u.section == sectionPrint || u.section == sectionLocalSend
 }
 
 func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
@@ -1497,7 +1506,7 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 
 func restoreMainSection(section string) string {
 	switch section {
-	case sectionMessages, sectionContacts, sectionTransfers, sectionShares, sectionPrint, sectionSettings:
+	case sectionMessages, sectionContacts, sectionTransfers, sectionShares, sectionPrint, sectionLocalSend, sectionSettings:
 		return section
 	default:
 		return sectionContacts
@@ -1522,7 +1531,7 @@ func (u *UI) toggleMainPinned() {
 func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	canvas.Fill(bounds, u.palette.rail)
 	var avatarSlot ui.Box
-	var messages, contacts, transfers, shares, printShare, lock, themeToggle, settings ui.Box
+	var messages, contacts, transfers, shares, printShare, localSend, lock, themeToggle, settings ui.Box
 	itemHeight, itemGap, railPadding, avatarSize, avatarGap := float32(58), float32(5), float32(14), float32(42), float32(10)
 	if bounds.Height < 660 {
 		itemHeight, itemGap, railPadding, avatarSize, avatarGap = 48, 2, 8, 36, 4
@@ -1555,6 +1564,13 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 				u.section == sectionTransfers, transferBadge, transferHint, itemHeight)
 			shares = u.railItem(f, u.ids.navShares, FolderOutput, "文件共享", u.section == sectionShares, itemHeight)
 			printShare = u.railItem(f, u.ids.navPrint, panelPrintIcon, "打印共享", u.section == sectionPrint, itemHeight)
+			if u.state.Settings.LocalSend.Enabled {
+				pendingLocalSend := ""
+				if u.state.LocalSend.Offer.ID != "" {
+					pendingLocalSend = "1"
+				}
+				localSend = u.railItemBadged(f, u.ids.navLocalSend, gfx.Icon{}, "LocalSend", u.section == sectionLocalSend, pendingLocalSend, i18n.T("待接收"), itemHeight)
+			}
 			ui.Spacer(f)
 			lock = u.railItem(f, u.ids.navLock, u.iconLock, i18n.T("锁定应用"), false, itemHeight)
 			themeIcon, themeLabel := u.iconMoon, "切换到暗色外观"
@@ -1579,6 +1595,9 @@ func (u *UI) drawRail(canvas *gfx.Canvas, bounds ui.Rect) {
 	}
 	if printShare.Clicked() {
 		u.setSection(sectionPrint)
+	}
+	if u.state.Settings.LocalSend.Enabled && localSend.Clicked() {
+		u.setSection(sectionLocalSend)
 	}
 	if lock.Clicked() {
 		u.requestLock()
@@ -1634,7 +1653,11 @@ func (u *UI) railItemBadged(f ui.C, id gfx.ID, icon gfx.Icon, label string,
 			badgeHeight := max(float32(16), u.theme.Metrics.ScaledText(9)+7)
 			ui.Stack(f).Width(max(36, badgeHeight+20)).Height(max(24, badgeHeight)).Children(func() {
 				ui.Stack(f).Size(21, 21).Absolute().Left(7).Top(2).Children(func() {
-					ui.Icon(f, icon).Size(21, 21).Color(foreground)
+					if id == u.ids.navLocalSend {
+						drawLocalSendMark(f, u.theme, 21)
+					} else {
+						ui.Icon(f, icon).Size(21, 21).Color(foreground)
+					}
 				})
 				if badge != "" {
 					ui.Row(f).MinWidth(badgeHeight).Height(badgeHeight).PadX(4).Radius(badgeHeight / 2).Absolute().Right(0).Top(0).

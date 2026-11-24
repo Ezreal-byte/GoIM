@@ -43,6 +43,7 @@ var searchableSettings = []settingSearchItem{
 	{panelSettingsNetwork, "使用的网络", "网卡 适配器 接口 adapter interface"},
 	{panelSettingsNetwork, "自动发现联系人", "局域网 LAN discovery"},
 	{panelSettingsNetwork, "手动连接", "地址 IP address"},
+	{panelSettingsNetwork, "启用 LocalSend", "手机 Android iOS 协议 端口 pin 局域网 compat"},
 	{panelSettingsNetwork, "内网通互通", "协议 端口 UDP TCP neiwangtong port"},
 	{panelSettingsNetwork, "飞鸽／飞秋互通", "协议 端口 UDP TCP IPMSG FeiQ port"},
 	{panelSettingsNetwork, "DNS 服务器", "高级网络设置 跨网段发现 discovery server"},

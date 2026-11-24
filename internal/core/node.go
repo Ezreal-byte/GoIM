@@ -19,6 +19,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 	"goim/internal/domain"
 	ipmsgproto "goim/internal/ipmsg"
+	"goim/internal/localsend"
 	"goim/internal/neiwangtong"
 	"goim/internal/printing"
 	"goim/internal/systemauth"
@@ -110,6 +111,10 @@ type Node struct {
 	printAuthResults      map[string]domain.PrinterAuthResult
 	printAuthAfter        map[string]time.Time
 	voice                 *voiceSession
+
+	localSend                      atomic.Pointer[localsend.Service]
+	localSendMu                    sync.Mutex
+	localSendPIN, localSendProblem string
 }
 
 func New(opts Options) (*Node, error) {
@@ -241,6 +246,13 @@ func New(opts Options) (*Node, error) {
 	}
 	for i := range n.data.State.Transfers {
 		t := &n.data.State.Transfers[i]
+		if t.LegacyTransport == domain.TransportLocalSend {
+			t.LocalSendCanRetry, t.LocalSendNeedsPIN = false, false
+			if t.Status == "offered" || t.Status == "transferring" || t.Status == "waiting" {
+				t.Status, t.Error, t.Speed = "failed", "应用退出，传输已中断", 0
+			}
+			continue
+		}
 		if t.WebSender != "" {
 			recoverWebUpload(t)
 			continue
@@ -272,6 +284,9 @@ func New(opts Options) (*Node, error) {
 		}
 	}
 	n.initializeCompatibility()
+	if settings.LocalSend.Enabled {
+		_ = n.applyLocalSend(settings.LocalSend)
+	}
 	n.wg.Add(3)
 	go n.acceptLoop()
 	go n.commandLoop()
@@ -320,6 +335,7 @@ func (n *Node) snapshot(urls bool) domain.State {
 		peer.ContactDeleted = n.data.ContactVisibility[id] == contactDeleted
 	}
 	s.ContactRefresh = n.contactRefresh
+	n.addLocalSendSnapshot(&s)
 	s.DiscoveryDisabled = !n.discovery
 	s.LockResult = n.lockResult
 	s.ConnectionFeedback = n.connectionFeedback
@@ -448,6 +464,7 @@ func (n *Node) Close() error {
 	for _, server := range memberServers {
 		_ = server.Close()
 	}
+	n.stopLocalSend()
 	n.wg.Wait()
 	n.workers.Wait()
 	n.mu.Lock()

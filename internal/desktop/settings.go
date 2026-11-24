@@ -728,22 +728,26 @@ func panelKeyboardConfirm(f ui.C, theme ui.Theme, text string, cancelID, confirm
 
 func (p *Panels) chooseDownloadDirectory(canvas *gfx.Canvas, submit func(domain.Command), state domain.State) {
 	canvas.AfterPaint(func() {
-		path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: i18n.T("选择默认保存位置")})
-		switch {
-		case errors.Is(err, app.ErrCanceled):
-			p.localError = ""
-			return
-		case err != nil:
-			p.localError = i18n.T("无法选择保存位置：") + filePickerProblem(err)
-			return
+		path, problem := pickWritableDownloadDirectory(i18n.T("选择默认保存位置"))
+		p.localError = problem
+		if path != "" {
+			p.submitString(submit, state, "download_dir", path)
 		}
-		if err := panelWritableDirectory(path); err != nil {
-			p.localError = i18n.T("保存位置不可写：") + err.Error()
-			return
-		}
-		p.localError = ""
-		p.submitString(submit, state, "download_dir", path)
 	})
+}
+
+func pickWritableDownloadDirectory(title string) (path, problem string) {
+	path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: title})
+	switch {
+	case errors.Is(err, app.ErrCanceled):
+		return "", ""
+	case err != nil:
+		return "", i18n.T("无法选择保存位置：") + filePickerProblem(err)
+	}
+	if err := panelWritableDirectory(path); err != nil {
+		return "", i18n.T("保存位置不可写：") + err.Error()
+	}
+	return path, ""
 }
 
 func panelWritableDirectory(path string) error {

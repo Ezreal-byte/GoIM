@@ -298,7 +298,11 @@ func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, columns panelTableColum
 	if entry.progress != "" {
 		tooltip += "\n" + entry.progress
 	}
-	row := ui.Row(f).FillWidth().MinHeight(panelTableRowHeight).PadSides(4, 15, 4, 15).Gap(12).Items(ui.Center).Radius(radiusControl).
+	rowHeight := panelTableRowHeight
+	if p.module == panelModuleLocalSend {
+		rowHeight = 47
+	}
+	row := ui.Row(f).FillWidth().MinHeight(rowHeight).PadSides(4, 15, 4, 15).Gap(12).Items(ui.Center).Radius(radiusControl).
 		Hover(ui.Look{}.Background(theme.Hover)).
 		HitWith(rowID, entry.name, gfx.HitOptions{Role: gfx.RoleButton, Hint: hint}).
 		Tooltip(tooltip)
@@ -311,6 +315,9 @@ func (p *Panels) drawTransferRow(f ui.C, theme ui.Theme, columns panelTableColum
 		ui.Text(f, entry.peer).Width(columns.peer).FontSize(textSize(f, 13)).Ellipsis()
 		ui.Text(f, entry.source).Width(columns.source).FontSize(textSize(f, 13)).Ellipsis()
 		ui.Text(f, entry.size).Width(columns.size).FontSize(textSize(f, 13)).Ellipsis()
+		if columns.date > 0 {
+			ui.Text(f, entry.timeLabel).Width(columns.date).FontSize(textSize(f, 13)).Muted().Ellipsis()
+		}
 		drawTransferStatus(f, theme, entry, columns.status)
 		p.drawTransferActions(f, theme, columns, entry, submit)
 	})
@@ -347,6 +354,9 @@ func drawTransferStatus(f ui.C, theme ui.Theme, entry *panelTransferEntry, width
 
 func (p *Panels) drawTransferActions(f ui.C, theme ui.Theme, columns panelTableColumns, entry *panelTransferEntry, submit func(domain.Command)) {
 	ui.Row(f).Width(columns.actions).Gap(5).Items(ui.Center).Justify(ui.End).Children(func() {
+		if p.module == panelModuleLocalSend {
+			p.drawLocalSendRecordActions(f, theme, entry)
+		}
 		if entry.accept && namedButton(f, entry.ids.accept, i18n.T("接收")).Small().Clicked() {
 			submit(domain.Command{Kind: domain.AcceptTransfer, TransferID: entry.transfer.ID})
 		}
