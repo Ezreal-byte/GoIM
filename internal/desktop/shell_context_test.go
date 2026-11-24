@@ -749,6 +749,27 @@ func TestPasswordKeysInSecuritySettingsAndUnlock(t *testing.T) {
 	}
 }
 
+func TestLockScreenMasksRevealedPasswordWhenWindowDeactivates(t *testing.T) {
+	state := shellMinimalState(t)
+	state.Locked = true
+	state.Settings.HasLockPassword = true
+	h := newShellTestHarness(t, state)
+	lock := &h.ui.lockUI
+
+	typePasswordKeys(t, h, lock.focus, "Pass-123!")
+	h.clickID(lock.revealButton)
+	h.settle()
+	if editor := h.snapshot().Editor; !lock.revealed || editor == nil || editor.Secure {
+		t.Fatal("revealing the password did not restore focus to a visible editor")
+	}
+	if !h.ui.windowDeactivated().Repaint || lock.revealed || !lock.field.Secure {
+		t.Fatal("deactivating the window did not remask the password")
+	}
+	if lock.field.Text() != "Pass-123!" {
+		t.Fatal("the password changed when switching visibility")
+	}
+}
+
 func TestSecuritySettingsConfirmsSystemUnlockWithPassword(t *testing.T) {
 	state := shellMinimalState(t)
 	state.Settings.HasLockPassword = true
@@ -811,8 +832,11 @@ func TestLockScreenUsesSystemVerificationWithPasswordFallback(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		h := newShellTestHarness(t, state)
-		if !h.hasHit(h.ui.lockUI.systemButton) || !h.hasText("使用系统验证") {
-			t.Fatal("the lock screen did not offer system verification")
+		h.ui.lockUI.method = systemauth.TouchID
+		h.ui.invalidator.Invalidate()
+		h.settle()
+		if !h.hasHit(h.ui.lockUI.systemButton) || !h.hasText("使用 Touch ID 解锁") {
+			t.Fatal("the lock screen did not offer Touch ID")
 		}
 		h.ui.lockUI.systemAuth = func(string) error { return nil }
 		h.clickID(h.ui.lockUI.systemButton)
@@ -828,6 +852,12 @@ func TestLockScreenUsesSystemVerificationWithPasswordFallback(t *testing.T) {
 
 	t.Run("failure keeps lock and password", func(t *testing.T) {
 		h := newShellTestHarness(t, state)
+		h.ui.lockUI.method = systemauth.WindowsHello
+		h.ui.invalidator.Invalidate()
+		h.settle()
+		if !h.hasHit(h.ui.lockUI.systemButton) || !h.hasText("使用 Windows Hello 解锁") {
+			t.Fatal("the lock screen did not offer Windows Hello")
+		}
 		h.ui.lockUI.systemAuth = func(string) error { return systemauth.ErrCanceled }
 		h.clickID(h.ui.lockUI.systemButton)
 		h.waitFor(func() bool { return !h.ui.lockUI.systemBusy && h.ui.lockUI.systemErr != "" })
@@ -851,8 +881,21 @@ func TestLockScreenUsesSystemVerificationWithPasswordFallback(t *testing.T) {
 		disabled := state
 		disabled.Settings.SystemUnlock = false
 		h := newShellTestHarness(t, disabled)
-		if h.hasHit(h.ui.lockUI.systemButton) || h.hasText("使用系统验证") {
+		h.ui.lockUI.method = systemauth.TouchID
+		h.ui.invalidator.Invalidate()
+		h.settle()
+		if h.hasHit(h.ui.lockUI.systemButton) {
 			t.Fatal("the lock screen offered system verification while it was disabled")
+		}
+	})
+
+	t.Run("unsupported platform", func(t *testing.T) {
+		h := newShellTestHarness(t, state)
+		h.ui.lockUI.method = systemauth.Unsupported
+		h.ui.invalidator.Invalidate()
+		h.settle()
+		if h.hasHit(h.ui.lockUI.systemButton) || !h.hasHit(h.ui.lockUI.submit) {
+			t.Fatal("the lock screen did not keep password-only unlock on an unsupported platform")
 		}
 	})
 }

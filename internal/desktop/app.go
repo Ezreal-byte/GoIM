@@ -851,6 +851,9 @@ func (u *UI) Config() app.Config {
 		TitlebarHeight: titlebarHeight,
 		ClearColor:     clear,
 		WindowBorderColor: func() app.Color {
+			if u.lockConcealsShell() {
+				return colorToApp(lockBackground)
+			}
 			return colorToApp(u.palette.rail)
 		},
 		Tree:           &u.tree,
@@ -881,7 +884,7 @@ func (u *UI) Close() {
 		u.voiceAudio.close()
 		for _, page := range []*ui.Page{
 			u.titlePage, u.railPage, u.sidebarPage, u.chatPage, u.drawerPage,
-			u.dialogPage, u.mentionPage, u.emojiPage, u.surface.workspace, u.panels.page, u.voiceFallbackPage,
+			u.dialogPage, u.mentionPage, u.emojiPage, u.surface.workspace, u.panels.page, u.voiceFallbackPage, u.lockUI.page,
 		} {
 			page.Close()
 		}
@@ -955,7 +958,7 @@ func (u *UI) windowActivated() {
 
 func (u *UI) windowDeactivated() gfx.EventResult {
 	u.windowFocusKnown, u.windowActive = true, false
-	return gfx.EventResult{}
+	return gfx.EventResult{Repaint: u.lockUI.hidePassword()}
 }
 
 func (u *UI) foreground(window windowGeometry) bool {
@@ -1409,7 +1412,6 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	u.theme = themeForSettings(u.state.Settings)
 	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
-	canvas.Fill(bounds, u.palette.rail)
 	u.focusedID = canvas.Focused()
 	u.emojiButton, u.mentionEditor, u.composerBox = ui.Box{}, ui.Box{}, ui.Box{}
 
@@ -1417,15 +1419,17 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	titlebar := ui.Rect{Width: bounds.Width, Height: totalTitle}
 	body := ui.Rect{Y: totalTitle, Width: bounds.Width, Height: max(bounds.Height-totalTitle, 0)}
 	u.lastBody = body
-	u.drawTitlebar(canvas, titlebar)
 	if u.lockVisible() {
-		u.drawLocked(canvas, body.Inset(gfx.Insets{Left: workspaceInset, Right: workspaceInset, Bottom: workspaceInset}))
+		u.drawLockTitlebar(canvas, titlebar)
+		u.drawLocked(canvas, body)
 		u.textSelection.clear()
-		u.drawToasts(canvas, body)
+		clear(u.toasts[:])
 		u.markSelectedConversationRead()
 		return
 	}
 
+	canvas.Fill(bounds, u.palette.rail)
+	u.drawTitlebar(canvas, titlebar)
 	u.panels.dialogViewport = bounds
 	u.drawMainBody(canvas, body)
 	u.focusChatComposer(canvas)
@@ -2888,8 +2892,11 @@ func (u *UI) drawOverlays(canvas *gfx.Canvas, viewport ui.Rect) {
 }
 
 func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
-	if u.detachedWindow && u.lockVisible() {
-		return nil
+	if u.lockVisible() {
+		if u.detachedWindow {
+			return nil
+		}
+		return u.lockUI.page.TextInput(context)
 	}
 	if u.shellMenu.open {
 		return nil
@@ -3706,6 +3713,9 @@ func paletteFor(theme ui.Theme, scheme string) palette {
 }
 
 func (u *UI) windowControls() app.WindowControlsStyle {
+	if u.lockConcealsShell() {
+		return windowControlsFor(palette{icon: lockMuted, hover: ui.RGB(35, 47, 66), selected: ui.RGB(47, 63, 87)})
+	}
 	return windowControlsFor(u.palette)
 }
 

@@ -10,7 +10,7 @@ import (
 	"image/png"
 )
 
-//go:embed assets/goim-48.png assets/goim-64.png assets/goim-96.png assets/goim-256.png assets/goim-tray-mac-44.png
+//go:embed assets/goim-48.png assets/goim-64.png assets/goim-128.png assets/goim-256.png assets/goim-tray-mac-44.png
 var assets embed.FS
 
 // PNG returns an embedded runtime representation of the logo.

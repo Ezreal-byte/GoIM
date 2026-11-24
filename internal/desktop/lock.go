@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
@@ -19,18 +20,21 @@ var lockRequests atomic.Uint64
 func nextLockRequest() uint64 { return lockRequests.Add(1) }
 
 type lockUIState struct {
-	scope                            gfx.Scope
-	focus, confirmID, submit, cancel gfx.ID
-	systemButton                     gfx.ID
-	field, confirmation              ui.Field
-	setup, pending, focused          bool
-	request                          uint64
-	err                              string
-	systemBusy                       bool
-	systemRequest                    uint64
-	systemErr                        string
-	systemResults                    chan systemAuthResult
-	systemAuth                       func(string) error
+	scope                             gfx.Scope
+	page                              *ui.Page
+	theme                             ui.Theme
+	focus, confirmID, submit, cancel  gfx.ID
+	systemButton, revealButton        gfx.ID
+	field, confirmation               ui.Field
+	setup, pending, focused, revealed bool
+	request                           uint64
+	err                               string
+	systemBusy                        bool
+	systemRequest                     uint64
+	systemErr                         string
+	systemResults                     chan systemAuthResult
+	systemAuth                        func(string) error
+	method                            systemauth.Kind
 }
 
 type systemAuthResult struct {
@@ -39,8 +43,15 @@ type systemAuthResult struct {
 }
 
 func (u *UI) initSystemUnlock() {
-	u.lockUI.systemAuth = systemauth.Verify
-	u.lockUI.systemResults = make(chan systemAuthResult, 2)
+	s := &u.lockUI
+	s.systemAuth = systemauth.Verify
+	s.systemResults = make(chan systemAuthResult, 2)
+	s.method = systemauth.Method()
+	s.theme = ui.DarkTheme()
+	s.theme.Background, s.theme.Foreground, s.theme.MutedForeground = lockBackground, lockInk, lockMuted
+	s.theme.Primary, s.theme.PrimaryForeground = lockPrimary, lockBackground
+	s.theme.Border, s.theme.Input, s.theme.Hover, s.theme.Ring = lockOutline, lockInput, lockHover, lockMuted
+	s.page = ui.NewPage(ui.PageConfig{Root: "lock-screen", Tree: &u.tree, Theme: &s.theme})
 }
 
 func (u *UI) requestLock() {
@@ -53,6 +64,7 @@ func (u *UI) requestLock() {
 	u.panels.closeShareInteractions()
 	s := &u.lockUI
 	s.setup, s.pending, s.focused, s.err = !u.state.Settings.HasLockPassword, u.state.Settings.HasLockPassword, false, ""
+	s.revealed = false
 	s.field, s.confirmation = ui.Field{Secure: true}, ui.Field{Secure: true}
 	if s.systemBusy {
 		s.systemRequest++
@@ -82,8 +94,37 @@ func (u *UI) lockVisible() bool {
 	}
 	if !u.state.Locked && !s.setup && !s.pending {
 		s.focused = false
+		s.hidePassword()
 	}
-	return u.state.Locked || s.setup || s.pending || u.detachedConcealed
+	return u.lockConcealsShell()
+}
+
+func (u *UI) lockConcealsShell() bool {
+	return u.state.Locked || u.lockUI.setup || u.lockUI.pending || u.detachedConcealed
+}
+
+var (
+	lockBackground  = ui.RGB(10, 18, 31)
+	lockTitle       = ui.RGB(13, 20, 32)
+	lockInk         = ui.RGB(244, 247, 253)
+	lockMuted       = ui.RGB(171, 184, 207)
+	lockPrimary     = ui.RGB(210, 224, 254)
+	lockInput       = ui.RGB(21, 31, 48)
+	lockHover       = ui.RGB(34, 48, 70)
+	lockFieldEdge   = ui.RGB(77, 91, 115)
+	lockOutline     = ui.RGB(131, 151, 181)
+	lockDivider     = ui.RGB(92, 107, 130)
+	lockTitleBorder = ui.RGB(62, 68, 79)
+)
+
+func (u *UI) drawLockTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
+	canvas.Fill(bounds, lockTitle)
+	canvas.Fill(ui.Rect{Y: bounds.Bottom() - 1, Width: bounds.Width, Height: 1}, lockTitleBorder)
+	u.titlePage.Draw(canvas, bounds, func(f ui.C) {
+		ui.Row(f).Fill().MovesWindow().Center().Children(func() {
+			ui.Text(f, "GoIM").FontSize(min(textSize(f, 20), 28)).Weight(gfx.WeightSemibold).Color(lockInk)
+		})
+	})
 }
 
 func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {
@@ -96,70 +137,181 @@ func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {
 		s.cancel = u.tree.ID(s.scope, "cancel")
 		s.systemButton = u.tree.ID(s.scope, "system-verify")
 	}
-	canvas.Rounded(bounds, radiusCard, u.palette.chat)
-	width := min(454, max(0, bounds.Width-28))
-	height := min(350, max(0, bounds.Height-28))
+	canvas.Fill(bounds, lockBackground)
+	s.theme.Metrics = u.theme.Metrics
+	title, description := i18n.T("GoIM 已锁定"), i18n.T("验证身份，返回会话")
 	if s.setup {
-		height = min(430, max(0, bounds.Height-28))
-	} else if u.state.Settings.SystemUnlock || s.systemErr != "" {
-		height = min(438, max(0, bounds.Height-28))
+		title = i18n.T("设置锁定密码")
+		description = i18n.T("密码至少 6 个字符。可在设置 → 安全中更改。")
 	}
-	panel := ui.Rect{X: bounds.X + (bounds.Width-width)/2, Y: bounds.Y + (bounds.Height-height)/2, Width: width, Height: height}
-	s.field.Secure, s.confirmation.Secure = true, true
-	var logo ui.Box
-	u.dialogPage.Draw(canvas, panel, func(f ui.C) {
-		ui.Column(f).Fill().Pad(30).Gap(12).Radius(20).Border(1, u.theme.Border).Background(u.theme.Background).Children(func() {
-			title, description, action, label := i18n.T("GoIM 已锁定"), i18n.T("输入密码以恢复你的会话。"), i18n.T("解锁"), i18n.T("锁定密码")
-			if s.setup {
-				title, description, action, label = i18n.T("设置锁定密码"), i18n.T("密码至少 6 个字符。可在设置 → 安全中更改。"), i18n.T("设置并锁定"), i18n.T("新密码")
-			} else if u.state.Settings.SystemUnlock {
-				description = i18n.T("输入 GoIM 密码，或使用系统验证解锁。")
-			}
-			logo = ui.Slot(f).Size(44, 44)
-			ui.Text(f, title).FontSize(textSize(f, 26)).Weight(gfx.WeightSemibold)
-			ui.Paragraph(f, description, 2).Muted().FontSize(textSize(f, 13))
-			field := ui.TextFieldID(f, s.focus, &s.field, label, label).Height(52).FillWidth().Disabled(s.pending || s.systemBusy)
-			submitted := field.Submitted()
-			if s.setup {
-				submitted = ui.TextFieldID(f, s.confirmID, &s.confirmation, i18n.T("确认新密码"), i18n.T("再输入一次新密码")).
-					Height(52).FillWidth().Disabled(s.pending).Submitted() || submitted
-			}
-			if s.err != "" {
-				ui.Paragraph(f, s.err, 2).FontSize(textSize(f, 12)).Color(u.theme.Danger)
-			}
-			if s.systemErr != "" {
-				ui.Paragraph(f, s.systemErr, 2).FontSize(textSize(f, 12)).Color(u.theme.Danger)
-			}
-			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-				if s.setup && namedButton(f, s.cancel, i18n.T("取消")).Height(48).Outline().Disabled(s.pending).Clicked() {
-					u.cancelLockSetup()
-				}
-				if s.pending {
-					action = i18n.T("正在验证…")
-				}
-				if namedButton(f, s.submit, action).Grow(1).Height(48).Disabled(s.pending || s.systemBusy).Clicked() || submitted && !s.pending && !s.systemBusy {
-					u.submitLock()
-				}
+	busy := s.pending || s.systemBusy
+	s.field.Secure, s.confirmation.Secure = !s.revealed || busy || s.setup, true
+	// At the design viewport (1487×1058), the mark starts 112 pixels below the
+	// titlebar and the form is 596 pixels wide. Shrink the layout on short screens.
+	scale := min(float32(1), bounds.Height/1016)
+	zoom := min(float32(1.55), s.theme.Metrics.ScaledText(1))
+	s.theme.Metrics.PadControlX = 26*scale + 1
+	width := min(596*scale*max(1, min(zoom, 1.24)), max(0, bounds.Width-48))
+	top := 112*scale + max(0, bounds.Height-1016)*.35
+	markSize := 116 * scale
+	mark := ui.Rect{X: bounds.X + (bounds.Width-markSize)/2, Y: bounds.Y + top, Width: markSize, Height: markSize}
+	canvas.Shadow(mark, 36*scale, gfx.ShadowStyle{Blur: 98 * scale, Spread: 41 * scale},
+		ui.RGB(52, 88, 179).WithAlpha(.3))
+	s.page.Draw(canvas, bounds, func(f ui.C) {
+		ui.Column(f).Fill().PadTop(top).Items(ui.Center).Children(func() {
+			ui.Column(f).Width(width).Items(ui.Center).Children(func() {
+				ui.Slot(f).Size(markSize, markSize)
+				ui.Row(f).Height(31 * scale)
+				ui.Row(f).FillWidth().Height(max(64, 61*zoom) * scale).Center().Children(func() {
+					ui.Text(f, title).FontSize(min(50*zoom, 65) * scale).Weight(gfx.WeightSemibold)
+				})
+				ui.Row(f).Height(12 * scale)
+				ui.Paragraph(f, description, 2).FillWidth().TextCenter().FontSize(24 * scale * zoom).Color(lockMuted)
+				ui.Row(f).Height(48 * scale)
+				u.drawLockForm(f, scale, zoom, busy)
 			})
-			if !s.setup && u.state.Settings.SystemUnlock {
-				systemAction := i18n.T("使用系统验证")
-				if s.systemBusy {
-					systemAction = i18n.T("正在等待系统验证…")
-				}
-				if namedButton(f, s.systemButton, systemAction).Height(44).Outline().FillWidth().
-					Disabled(s.pending || s.systemBusy).Clicked() {
-					u.beginSystemUnlock()
-				}
+			if !s.setup {
+				ui.Row(f).Absolute().Left(0).Right(0).Bottom(65 * scale).Height(42 * scale).Gap(14 * scale).Center().Children(func() {
+					ui.Row(f).Size(15*scale, 15*scale).Radius(8 * scale).Background(lockMuted)
+					ui.Text(f, i18n.T("锁定期间仍可接收消息和文件")).FontSize(21 * scale * zoom).Color(lockMuted)
+				})
 			}
 		})
 	})
-	paintGoIMMark(canvas, logo.Rect(), lockMark)
-	if !s.focused && !s.pending && !s.systemBusy {
+	canvas.RoundedBorder(mark, 27*scale, 1.5*scale, ui.RGB(105, 123, 160), ui.RGB(0, 0, 0))
+	paintGoIMMark(canvas, mark.Inset(gfx.Insets{Top: -6 * scale, Right: -6 * scale, Bottom: -6 * scale, Left: -6 * scale}), lockMark)
+	if !s.focused && !busy {
 		s.focused = canvas.Focused() == s.focus || canvas.Focused() == s.confirmID
 		if !s.focused {
 			canvas.RequestFocus(s.focus)
 		}
 	}
+}
+
+func (u *UI) drawLockForm(f ui.C, scale, zoom float32, busy bool) {
+	s := &u.lockUI
+	label, placeholder, action := i18n.T("锁定密码"), i18n.T("请输入锁定密码"), i18n.T("使用密码解锁")
+	if s.setup {
+		label, placeholder, action = i18n.T("新密码"), i18n.T("至少 6 个字符"), i18n.T("设置并锁定")
+	}
+	if s.pending {
+		action = i18n.T("正在验证…")
+	}
+	hasSystem := !s.setup && u.state.Settings.SystemUnlock && s.method != systemauth.Unsupported
+	if hasSystem {
+		u.drawLockSystemAction(f, scale, zoom, busy)
+		ui.Row(f).FillWidth().Height(96 * scale).Gap(26 * scale).Items(ui.Center).Children(func() {
+			ui.Row(f).Grow(1).Height(1).Background(lockDivider)
+			ui.Text(f, i18n.T("或使用锁定密码")).FontSize(21 * scale * zoom).Color(lockMuted)
+			ui.Row(f).Grow(1).Height(1).Background(lockDivider)
+		})
+	}
+	field := drawLockField(f, s.focus, &s.field, label, placeholder, scale, zoom, busy)
+	submitted := field.Submitted()
+	if !s.setup {
+		icon, reveal := Eye, i18n.T("显示密码")
+		if s.revealed {
+			icon, reveal = lockPasswordHiddenIcon, i18n.T("隐藏密码")
+		}
+		s.revealButton = field.ActionID()
+		field.Addons().SetEnd(components.InputGroupSlot{
+			Kind: components.InputGroupSlotButton, ID: s.revealButton, Icon: icon, Label: reveal,
+			ButtonSize: components.InputGroupButtonIconSM, Width: 72 * scale,
+			IconTransform: gfx.IconTransform{Scale: 1.65 * scale},
+		})
+		if field.ActionClicked() {
+			s.revealed = !s.revealed
+			u.invalidator.Invalidate()
+		}
+	} else {
+		ui.Row(f).Height(16 * scale)
+		submitted = drawLockField(f, s.confirmID, &s.confirmation, i18n.T("确认新密码"),
+			i18n.T("再输入一次新密码"), scale, zoom, busy).Submitted() || submitted
+	}
+	ui.Row(f).Height(24 * scale)
+	ui.Row(f).FillWidth().Gap(12 * scale).Children(func() {
+		height := 65 * scale
+		if s.setup && namedButton(f, s.cancel, i18n.T("取消")).Outline().Height(height).
+			FontSize(23*scale*zoom).Radius(13*scale).ButtonRecipe(lockButtonLook).Disabled(busy).Clicked() {
+			u.cancelLockSetup()
+		}
+		button := namedButton(f, s.submit, action).Grow(1).Height(height).FontSize(24 * scale * zoom).
+			Weight(gfx.WeightSemibold).Radius(13 * scale).ButtonRecipe(lockButtonLook).Disabled(busy)
+		if hasSystem {
+			button = button.Outline()
+		}
+		if !busy && (button.Clicked() || submitted) {
+			u.submitLock()
+		}
+	})
+	for _, errorText := range [...]string{s.err, s.systemErr} {
+		if errorText != "" {
+			ui.Row(f).Height(10 * scale)
+			ui.Paragraph(f, errorText, 2).FillWidth().FontSize(18 * scale * zoom).Color(s.theme.Danger)
+		}
+	}
+}
+
+func drawLockField(f ui.C, id gfx.ID, field *ui.Field, label, placeholder string, scale, zoom float32, disabled bool) ui.Box {
+	ui.Row(f).FillWidth().Height(max(37, 32*zoom) * scale).Items(ui.Start).Children(func() {
+		ui.Text(f, label).FontSize(22 * scale * zoom).Weight(gfx.WeightSemibold)
+	})
+	return ui.TextFieldID(f, id, field, label, placeholder).FillWidth().Height(66*scale).
+		FontSize(23*scale*zoom).Radius(13*scale).Background(lockInput).
+		Border(1.5*scale, lockFieldEdge).Disabled(disabled)
+}
+
+func lockSystemAction(method systemauth.Kind) (string, gfx.Icon) {
+	switch method {
+	case systemauth.TouchID:
+		return i18n.T("使用 Touch ID 解锁"), lockTouchIDIcon
+	case systemauth.WindowsHello:
+		return i18n.T("使用 Windows Hello 解锁"), lockWindowsHelloIcon
+	default:
+		return "", gfx.Icon{}
+	}
+}
+
+func (u *UI) drawLockSystemAction(f ui.C, scale, zoom float32, busy bool) {
+	s := &u.lockUI
+	action, icon := lockSystemAction(s.method)
+	if s.systemBusy {
+		action = i18n.T("正在等待系统验证…")
+	}
+	button := namedButton(f, s.systemButton, action).FillWidth().Height(75 * scale).Radius(14 * scale).
+		ButtonRecipe(lockButtonLook).Disabled(busy)
+	button.Center().Children(func() {
+		ui.Row(f).Gap(23 * scale).Center().Children(func() {
+			ui.Icon(f, icon).Size(39*scale, 39*scale).Color(lockBackground)
+			ui.Text(f, action).FontSize(28 * scale * zoom).Weight(gfx.WeightSemibold).Color(lockBackground)
+		})
+	})
+	if button.Clicked() {
+		u.beginSystemUnlock()
+	}
+}
+
+func lockButtonLook(theme gfx.Theme, variant components.ButtonVariant, state gfx.State) components.ButtonLook {
+	look := components.ButtonRecipe(theme, variant, state)
+	look.Shadow = gfx.ShadowNone
+	if variant == components.ButtonOutline {
+		look.Background, look.Filled = lockBackground, true
+		if !state.FocusVisible {
+			look.Border = lockOutline
+		}
+		if state.Disabled {
+			look.Border = look.Border.WithAlpha(.5)
+		} else if state.Hovered || state.Pressed {
+			look.Background = lockHover
+		}
+	}
+	return look
+}
+
+func (s *lockUIState) hidePassword() bool {
+	revealed := s.revealed
+	s.revealed, s.field.Secure = false, true
+	return revealed
 }
 
 func (u *UI) submitLock() {
@@ -180,6 +332,7 @@ func (u *UI) submitLock() {
 	}
 	s.pending, s.err = true, ""
 	s.systemErr = ""
+	s.hidePassword()
 	s.request = nextLockRequest()
 	s.field.SetText("")
 	s.confirmation.SetText("")
@@ -193,7 +346,7 @@ func (u *UI) submitLock() {
 
 func (u *UI) beginSystemUnlock() {
 	s := &u.lockUI
-	if s.setup || s.pending || s.systemBusy || !u.state.Locked || !u.state.Settings.SystemUnlock {
+	if s.setup || s.pending || s.systemBusy || !u.state.Locked || !u.state.Settings.SystemUnlock || s.method == systemauth.Unsupported {
 		return
 	}
 	auth := s.systemAuth
@@ -207,6 +360,7 @@ func (u *UI) beginSystemUnlock() {
 	s.systemRequest++
 	request := s.systemRequest
 	s.systemBusy, s.systemErr, s.err, s.focused = true, "", "", false
+	s.hidePassword()
 	reason := i18n.T("验证身份以解锁 GoIM")
 	go func() {
 		results <- systemAuthResult{request: request, err: auth(reason)}

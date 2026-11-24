@@ -12,7 +12,7 @@ import (
 
 var (
 	titleMark = logoBitmap("goim-48")
-	lockMark  = logoBitmap("goim-96")
+	lockMark  = logoBitmap("goim-128")
 )
 
 func logoBitmap(name string) gfx.Bitmap {

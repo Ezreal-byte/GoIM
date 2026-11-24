@@ -17,6 +17,15 @@ var (
 	ErrFailed           = errors.New("system verification failed")
 )
 
+// Kind identifies the system verification method for presentation.
+type Kind uint8
+
+const (
+	Unsupported Kind = iota
+	TouchID
+	WindowsHello
+)
+
 // Verify presents the platform's own authentication UI for reason. A nil
 // result means the operating system confirmed the current user.
 func Verify(reason string) error {
@@ -27,7 +36,19 @@ func Verify(reason string) error {
 }
 
 func Supported() bool {
-	return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+	return Method() != Unsupported
+}
+
+// Method identifies the system verification offered by the current platform.
+func Method() Kind {
+	switch runtime.GOOS {
+	case "darwin":
+		return TouchID
+	case "windows":
+		return WindowsHello
+	default:
+		return Unsupported
+	}
 }
 
 // Description names the verification methods the current platform offers.
