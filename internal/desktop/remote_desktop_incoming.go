@@ -13,7 +13,7 @@ import (
 func (v *remoteDesktopView) incomingConfig() app.Config {
 	scale := max(float32(1), v.theme.Metrics.ScaledText(1))
 	width := int(math.Ceil(float64(408 * scale)))
-	height := int(math.Ceil(float64(202 * scale)))
+	height := int(math.Ceil(float64(218 * scale)))
 	return app.Config{
 		Title: i18n.T("远程协助请求") + " · GoIM", Class: "GoIM.IncomingRemoteDesktop", Icon: windowIcon(),
 		Width: width, Height: height, MinWidth: width, MinHeight: height,
