@@ -3,22 +3,16 @@ package localsend
 
 import (
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -88,73 +82,6 @@ func randomBytes(size int) []byte {
 	b := make([]byte, size)
 	rand.Read(b)
 	return b
-}
-
-func fingerprint(der []byte) string {
-	sum := sha256.Sum256(der)
-	return strings.ToUpper(hex.EncodeToString(sum[:]))
-}
-
-func certFingerprint(r *http.Request) string {
-	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
-		return fingerprint(r.TLS.PeerCertificates[0].Raw)
-	}
-	return ""
-}
-
-func identity(dir string) (tls.Certificate, error) {
-	path := filepath.Join(dir, "localsend-tls.pem")
-	if data, err := os.ReadFile(path); err == nil {
-		return tls.X509KeyPair(data, data)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return tls.Certificate{}, err
-	}
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	serial := new(big.Int).SetBytes(randomBytes(16))
-	serial.SetBit(serial, 0, 1)
-	accept := &x509.Certificate{
-		Subject: pkix.Name{CommonName: "LocalSend User"}, SerialNumber: serial, NotBefore: time.Now().Add(-time.Hour),
-		NotAfter:    time.Now().AddDate(20, 0, 0),
-		KeyUsage:    x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-	}
-	der, err := x509.CreateCertificate(rand.Reader, accept, accept, &key.PublicKey, key)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	return saveIdentity(path, der, key)
-}
-
-func clientTLS(cert tls.Certificate, expected string, observed *string) *tls.Config {
-	// LocalSend certificates are self-signed and identify devices by DER hash.
-	// VerifyConnection replaces host/CA validation with the protocol identity check.
-	return &tls.Config{
-		MinVersion: tls.VersionTLS12, GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) { return &cert, nil },
-		InsecureSkipVerify: true,
-		VerifyConnection: func(state tls.ConnectionState) error {
-			if len(state.PeerCertificates) == 0 {
-				return errors.New("LocalSend 设备未提供证书")
-			}
-			leaf := state.PeerCertificates[0]
-			if now := time.Now(); now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
-				return errors.New("LocalSend 设备证书已过期或尚未生效")
-			}
-			if err := leaf.CheckSignature(leaf.SignatureAlgorithm, leaf.RawTBSCertificate, leaf.Signature); err != nil {
-				return errors.New("LocalSend 设备证书签名无效")
-			}
-			actual := fingerprint(leaf.Raw)
-			if expected != "" && !strings.EqualFold(expected, actual) {
-				return errors.New("LocalSend 设备证书已变更")
-			}
-			if observed != nil {
-				*observed = actual
-			}
-			return nil
-		},
-	}
 }
 
 func decode(w http.ResponseWriter, r *http.Request, dst any) bool {

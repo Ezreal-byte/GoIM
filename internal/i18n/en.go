@@ -1,9 +1,11 @@
 package i18n
 
 var en = map[string]string{
-	"LocalSend 设置": "LocalSend settings",
-	"输入新 PIN":      "Enter a new PIN",
-	"清除当前 PIN":     "Clear current PIN",
+	"更改目录":              "Change folder",
+	"选择 LocalSend 接收目录": "Choose the LocalSend receive folder",
+	"LocalSend 设置":      "LocalSend settings",
+	"输入新 PIN":           "Enter a new PIN",
+	"清除当前 PIN":          "Clear current PIN",
 	"PIN 使用 4–8 位数字，仅在本次运行期间有效。":     "Use 4–8 digits. The PIN is valid until the app quits.",
 	"在同一 Wi-Fi 的 LocalSend 中选择这台设备。": "Choose this device in LocalSend on the same Wi-Fi.",
 	"复制接收地址":           "Copy receive address",

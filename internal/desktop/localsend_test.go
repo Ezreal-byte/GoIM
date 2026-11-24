@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -132,5 +133,59 @@ func TestLocalSendReceiveSelectionInClassicThemes(t *testing.T) {
 				t.Fatalf("unexpected approval: %+v", c)
 			}
 		})
+	}
+}
+
+func TestLocalSendReceiveFolderPicker(t *testing.T) {
+	state := shellMinimalState(t)
+	state.Settings.LastSection = sectionLocalSend
+	state.Settings.LocalSend.Enabled = true
+	state.LocalSend = domain.LocalSendStatus{Active: true, Alias: "GoIM QA", Port: 53317}
+	h := newShellTestHarnessAtSize(t, state, 760, 650)
+	h.clickLabel("接收")
+	folder := t.TempDir()
+	if err := h.driver.QueueOpenDirectory(folder, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.clickID(h.ui.tree.ID(h.ui.panels.localSend.scope, "choose-receive-directory"))
+	command := h.lastCommand()
+	if command.Kind != domain.SetSetting || command.Setting != "localsend_download_dir" || command.Value != folder {
+		t.Fatalf("unexpected receive folder command: %+v", command)
+	}
+	state.Revision++
+	state.Settings.LocalSendDownloadDir = folder
+	h.publish(state)
+	if !h.hasText(folder) {
+		t.Fatal("new destination not displayed")
+	}
+}
+
+func TestLocalSendReceiveFolderSaveFailure(t *testing.T) {
+	state := shellMinimalState(t)
+	state.Settings.LastSection = sectionLocalSend
+	state.Settings.LocalSend.Enabled = true
+	state.LocalSend = domain.LocalSendStatus{Active: true, Offer: domain.LocalSendOffer{
+		ID: "offer", From: "Phone", Files: []domain.LocalSendFile{{ID: "file", Name: "receipt.pdf", Size: 1}},
+	}}
+	h := newShellTestHarnessAtSize(t, state, 760, 650)
+	h.backend.deferCommandResult = true
+	panel := &h.ui.panels.localSend
+	if err := h.driver.QueueOpenDirectory(t.TempDir(), nil); err != nil {
+		t.Fatal(err)
+	}
+	h.clickID(h.ui.tree.ID(panel.scope, "choose-receive-directory"))
+	acceptID := h.ui.tree.ID(panel.scope, "accept")
+	if hit, ok := h.findHit(acceptID); !ok || !hit.Disabled {
+		t.Fatal("file acceptance must wait until the new directory is saved")
+	}
+
+	const problem = "cannot save receive directory"
+	h.lastCommand().OnResult(errors.New(problem))
+	h.settle()
+	if h.ui.toasts[0].message.Description != problem || !h.hasText(state.Settings.DownloadDir) {
+		t.Fatal("save failure should report the error and keep showing the old directory")
+	}
+	if hit, ok := h.findHit(acceptID); !ok || hit.Disabled {
+		t.Fatal("acceptance with the displayed directory should be available again")
 	}
 }

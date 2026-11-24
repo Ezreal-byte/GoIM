@@ -2,15 +2,10 @@ package localsend
 
 import (
 	"context"
-	"crypto/rsa"
 	"crypto/subtle"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
-	"errors"
 	"net"
 	"net/http"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -100,26 +95,6 @@ func Start(options Options) (*Service, error) {
 		s.startIPv6Discovery()
 	}
 	return s, nil
-}
-
-func saveIdentity(path string, der []byte, key *rsa.PrivateKey) (tls.Certificate, error) {
-	privateKey, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	data := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
-		pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKey})...)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	_, err = f.Write(data)
-	closeErr := f.Close()
-	if err = errors.Join(err, closeErr); err != nil {
-		_ = os.Remove(path)
-		return tls.Certificate{}, err
-	}
-	return tls.X509KeyPair(data, data)
 }
 
 func (s *Service) spawn(fn func()) bool {
@@ -299,7 +274,7 @@ func (s *Service) httpServer() *http.Server {
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       30 * time.Second,
 		MaxHeaderBytes:    24 << 10,
-		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{s.cert}, ClientAuth: tls.RequestClientCert},
+		TLSConfig:         serverTLS(s.cert),
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			s.mu.Lock()
 			if s.closed {

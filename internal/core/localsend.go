@@ -33,7 +33,7 @@ func (n *Node) applyLocalSend(cfg domain.LocalSendConfig) error {
 		DownloadDir: func() string {
 			n.mu.Lock()
 			defer n.mu.Unlock()
-			return n.data.State.Settings.DownloadDir
+			return n.data.State.Settings.LocalSendReceiveDirectory()
 		},
 		AllowReceive: func() bool {
 			n.mu.Lock()

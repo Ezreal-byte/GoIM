@@ -650,7 +650,7 @@ func (n *Node) setting(c domain.Command) error {
 		settings.HideTitleGitHub = !c.Bool
 	case "close_to_tray":
 		settings.CloseToTray = c.Bool
-	case "download_dir":
+	case "download_dir", "localsend_download_dir":
 		if c.Value == "" {
 			return errors.New("请选择保存目录")
 		}
@@ -664,7 +664,11 @@ func (n *Node) setting(c domain.Command) error {
 		path := f.Name()
 		f.Close()
 		_ = os.Remove(path)
-		settings.DownloadDir = c.Value
+		if c.Setting == "localsend_download_dir" {
+			settings.LocalSendDownloadDir = c.Value
+		} else {
+			settings.DownloadDir = c.Value
+		}
 	case "duplicate_policy":
 		if c.Value != "rename" && c.Value != "ask" {
 			return errors.New("无效的同名文件策略")

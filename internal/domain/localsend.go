@@ -4,6 +4,15 @@ const TransportLocalSend = "localsend"
 
 const LocalSendDefaultPort = 53317
 
+// LocalSendReceiveDirectory inherits the configured GoIM destination until a
+// user selects a separate LocalSend folder.
+func (s Settings) LocalSendReceiveDirectory() string {
+	if s.LocalSendDownloadDir != "" {
+		return s.LocalSendDownloadDir
+	}
+	return s.DownloadDir
+}
+
 const (
 	LocalSendConfigure CommandKind = "localsend_configure"
 	LocalSendRefresh   CommandKind = "localsend_refresh"

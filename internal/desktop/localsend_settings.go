@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 	"goim/internal/domain"
@@ -154,49 +155,119 @@ func (p *Panels) drawLocalSendSettingsDialog(f ui.C, theme ui.Theme, state domai
 	}
 }
 
-func (p *Panels) drawLocalSendReady(f ui.C, theme ui.Theme, width float32, status domain.LocalSendStatus, address, dir string) {
-	cardWidth := min(590, max(0, width-2*min(width/30, 26)))
+func (p *Panels) drawLocalSendReady(f ui.C, theme ui.Theme, width float32, state domain.State, submit func(domain.Command)) {
+	status := state.LocalSend
+	cardWidth := min(610, width)
 	name := status.Alias
 	if name == "" {
 		name = "GoIM"
 	}
-	ui.Column(f.Part("receiver-ready")).FillWidth().Items(ui.Center).PadY(32).Gap(14).Children(func() {
+	ui.Column(f.Part("receiver-ready")).FillWidth().Items(ui.Center).PadY(22).Children(func() {
 		ui.Column(f).Width(cardWidth).MinWidth(0).Radius(radiusCard).Border(1, theme.Border).
-			Background(theme.Background).Items(ui.Center).PadSides(26, 24, 23, 24).Gap(12).Children(func() {
-			ui.Stack(f).Size(78, 78).Radius(39).Background(panelAccentSurface(theme)).Center().Children(func() {
-				ui.Stack(f).Size(55, 55).Radius(28).Background(theme.Background).Center().Children(func() {
-					drawLocalSendMark(f, theme, 32)
+			Background(theme.Background).Clip().Children(func() {
+			tint := localSendReceiveGreen(theme)
+			ui.Column(f.Part("identity")).FillWidth().Items(ui.Center).PadSides(26, 20, 24, 20).Gap(10).
+				Background(panelTint(tint, .045, theme.Background)).Children(func() {
+				healthy := panelStatusColor(theme, "completed")
+				ui.Row(f).Items(ui.Center).Gap(6).PadX(10).Height(27).Radius(14).
+					Background(panelTint(healthy, .10, theme.Background)).Children(func() {
+					ui.Row(f).Size(7, 7).Radius(4).Background(healthy)
+					ui.Text(f, i18n.T("可接收")).FontSize(textSize(f, 13)).Weight(gfx.WeightMedium).Color(healthy)
 				})
-			})
-			ui.Row(f).Items(ui.Center).Gap(6).Children(func() {
-				ui.Row(f).Size(7, 7).Radius(4).Background(panelStatusColor(theme, "completed"))
-				ui.Text(f, i18n.T("可接收")).FontSize(textSize(f, 13)).Weight(gfx.WeightMedium).Color(panelStatusColor(theme, "completed"))
-			})
-			ui.Text(f, name).MaxWidth(max(0, cardWidth-55)).FontSize(textSize(f, 28)).Weight(gfx.WeightSemibold).Ellipsis()
-			ui.Wrap(f, i18n.T("在同一 Wi-Fi 的 LocalSend 中选择这台设备。")).Muted()
-			if address != "" && status.Port != 0 {
-				endpoint := net.JoinHostPort(address, strconv.Itoa(status.Port))
-				label := i18n.T("复制接收地址")
-				id := p.tree.ID(p.localSend.scope, "copy-receive-address")
-				copyAddress := ui.Row(f).Height(31).PadX(10).Items(ui.Center).Gap(8).Radius(radiusControl).
-					Border(1, theme.Border).Hover(ui.Look{}.Background(theme.Hover)).
-					HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: endpoint}).Tooltip(label)
-				copyAddress.Children(func() {
-					ui.Text(f, endpoint).FontSize(textSize(f, 13)).Weight(gfx.WeightMedium)
-					ui.Icon(f, Copy).Size(14, 14).Color(theme.MutedForeground)
+				ui.Stack(f).Size(92, 92).Radius(46).Center().Border(1, panelTint(tint, .18, theme.Background)).Children(func() {
+					ui.Stack(f).Size(71, 71).Radius(36).Center().Background(panelTint(tint, .12, theme.Background)).Children(func() {
+						p.drawLocalSendReceiveLogo(f, theme)
+					})
 				})
-				if copyAddress.Clicked() {
-					p.localSendCopy(f, endpoint)
+				ui.Text(f, name).MaxWidth(max(0, cardWidth-40)).FontSize(textSize(f, 28)).Weight(gfx.WeightSemibold).Ellipsis()
+				ui.Wrap(f, i18n.T("在同一 Wi-Fi 的 LocalSend 中选择这台设备。")).Muted()
+				if state.LocalIP != "" && status.Port != 0 {
+					p.drawLocalSendReceiveAddress(f, theme, net.JoinHostPort(state.LocalIP, strconv.Itoa(status.Port)))
 				}
-			}
-			if dir != "" {
-				ui.Divider(f).FillWidth()
-				ui.Row(f).FillWidth().Items(ui.Center).Gap(9).Children(func() {
-					ui.Icon(f, FolderOpen).Size(16, 16).Color(theme.MutedForeground)
-					ui.Text(f, i18n.T("接收目录")).FontSize(textSize(f, 13)).Muted()
-					ui.Text(f, dir).Grow(1).MinWidth(0).FontSize(textSize(f, 13)).Ellipsis()
-				})
-			}
+			})
+			ui.Divider(f).FillWidth()
+			p.drawLocalSendDestination(f, theme, state, submit)
 		})
 	})
+}
+
+func (p *Panels) drawLocalSendReceiveAddress(f ui.C, theme ui.Theme, endpoint string) {
+	label := i18n.T("复制接收地址")
+	id := p.tree.ID(p.localSend.scope, "copy-receive-address")
+	copyAddress := ui.Row(f).Height(32).PadX(10).Items(ui.Center).Gap(8).Radius(radiusControl).
+		Border(1, theme.Border).Background(theme.Background).Hover(ui.Look{}.Background(theme.Hover)).
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: endpoint}).Tooltip(label)
+	copyAddress.Children(func() {
+		ui.Text(f, endpoint).FontSize(textSize(f, 13)).Weight(gfx.WeightMedium)
+		ui.Icon(f, Copy).Size(14, 14).Color(theme.MutedForeground)
+	})
+	if copyAddress.Clicked() {
+		p.localSendCopy(f, endpoint)
+	}
+}
+
+func (p *Panels) drawLocalSendDestination(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+	v := &p.localSend
+	dir := state.Settings.LocalSendReceiveDirectory()
+	ui.Row(f.Part("receive-destination")).FillWidth().Items(ui.Center).Gap(11).PadSides(12, 16, 12, 16).Children(func() {
+		ui.Stack(f).Size(36, 36).Radius(radiusControl).Background(theme.Muted).Center().Children(func() {
+			ui.Icon(f, FolderOpen).Size(19, 19).Color(theme.MutedForeground)
+		})
+		ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
+			ui.Text(f, i18n.T("接收目录")).FontSize(textSize(f, 13)).Weight(gfx.WeightSemibold)
+			ui.Text(f, dir).FontSize(textSize(f, 13)).Muted().Ellipsis()
+		})
+		if namedButton(f, p.tree.ID(v.scope, "choose-receive-directory"), i18n.T("更改目录")).Small().Outline().Disabled(v.choosingDir || v.directoryChange != nil).Clicked() {
+			v.choosingDir = true
+			f.After(func() {
+				defer func() { v.choosingDir = false }()
+				path, problem := pickWritableDownloadDirectory(i18n.T("选择 LocalSend 接收目录"))
+				if problem != "" && p.toast != nil {
+					p.toast("LocalSend", problem, components.ToastError)
+				}
+				if path != "" && path != state.Settings.LocalSendDownloadDir {
+					p.saveLocalSendDirectory(submit, path)
+				}
+			})
+		}
+	})
+}
+
+type localSendDirectoryChange struct {
+	path   string
+	result <-chan error
+}
+
+func (p *Panels) saveLocalSendDirectory(submit func(domain.Command), path string) {
+	result := make(chan error, 1)
+	p.localSend.directoryChange = &localSendDirectoryChange{path: path, result: result}
+	wake := p.invalidate
+	submit(domain.Command{
+		Kind: domain.SetSetting, Setting: "localsend_download_dir", Value: path,
+		OnResult: func(err error) {
+			result <- err
+			wake()
+		},
+	})
+}
+
+func (p *Panels) observeLocalSendDirectory(settings domain.Settings) {
+	change := p.localSend.directoryChange
+	if change == nil {
+		return
+	}
+	if settings.LocalSendDownloadDir == change.path {
+		p.localSend.directoryChange = nil
+		return
+	}
+	select {
+	case err := <-change.result:
+		if err != nil {
+			p.localSend.directoryChange = nil
+			if p.toast != nil {
+				p.toast("LocalSend", i18n.T(err.Error()), components.ToastError)
+			}
+		}
+	default:
+	}
 }

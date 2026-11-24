@@ -71,7 +71,7 @@ func TestUserDataResetWaitsForExitAndPreservesUserFiles(t *testing.T) {
 	if err := node.execute(domain.Command{Kind: domain.SetLockPassword, Text: "private-passphrase"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"avatars/private.png", "chat-images/private.png", "print-jobs/private.pdf", "downloads/keep.txt", "unrelated/keep.txt"} {
+	for _, name := range []string{"avatars/private.png", "chat-images/private.png", "print-jobs/private.pdf", "cache/.localsend-tls-interrupted", "downloads/keep.txt", "unrelated/keep.txt"} {
 		path := filepath.Join(directory, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
@@ -93,7 +93,7 @@ func TestUserDataResetWaitsForExitAndPreservesUserFiles(t *testing.T) {
 	if err := node.Close(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"goim.db", "identity.key", "avatars", "chat-images", "print-jobs", resetMarker} {
+	for _, name := range []string{"goim.db", "identity.key", "avatars", "chat-images", "print-jobs", "cache", resetMarker} {
 		if _, err := os.Lstat(filepath.Join(directory, name)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("private data %q remained: %v", name, err)
 		}

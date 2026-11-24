@@ -440,6 +440,7 @@ type Shortcut struct {
 const ShortcutScreenshot = "截图标注"
 
 type Settings struct {
+	LocalSendDownloadDir         string `json:",omitempty"`
 	LocalSend                    LocalSendConfig
 	PinnedPrinters               []string `json:",omitempty"`
 	IPMSG                        CompatibilityConfig

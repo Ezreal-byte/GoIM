@@ -4,7 +4,7 @@ Copyright (c) 2026 Ezreal-byte. GoIM is licensed under the [Apache License, Vers
 
 | Material | Version / source | License text |
 | --- | --- | --- |
-| LocalSend navigation marks | [LocalSend v1.18.2](https://github.com/localsend/localsend/tree/v1.18.2/app/assets/img), black and white logo assets | [Apache-2.0](https://github.com/localsend/localsend/blob/v1.18.2/LICENSE) |
+| LocalSend logo artwork | Black and white logo assets from [LocalSend v1.18.2](https://github.com/localsend/localsend/tree/v1.18.2/app/assets/img). Copyright 2022–2026 Tien Do Nam | [Apache-2.0](licenses/LocalSend-Apache-2.0.txt) |
 | Viva | See go.mod | licenses/Viva-Apache-2.0.txt, Viva-NOTICE.txt, Viva-third-party.md |
 | bbolt | 1.5.0 | licenses/bbolt-MIT.txt |
 | purego | 0.11.1 | licenses/purego-Apache-2.0.txt |

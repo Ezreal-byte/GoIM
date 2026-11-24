@@ -613,6 +613,10 @@ func (p *Panels) dialog(f ui.C, spec ui.DialogSpec) ui.Box {
 // run on the shared media worker; Draw only reads the cached result.
 func (p *Panels) OnWake(state domain.State) {
 	p.localSend.observe(state.LocalSend)
+	p.observeLocalSendDirectory(state.Settings)
+	if state.LocalSend.Active && p.localSend.logoAtlases[0].Width == 0 {
+		p.localSend.logoAtlases = localSendReceiveAtlases()
+	}
 	if state.Locked || !state.Settings.LocalSend.Enabled {
 		p.localSend.closeModal()
 	}

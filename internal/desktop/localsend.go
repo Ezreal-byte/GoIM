@@ -58,6 +58,10 @@ type localSendPanel struct {
 	manual, manualHTTP, composingText, picking, allowHTTP bool
 	text, address                                         ui.Field
 
+	choosingDir, animateLogo bool
+	directoryChange          *localSendDirectoryChange
+	logoAtlases              [2]gfx.Bitmap
+
 	modal                     localSendModal
 	recordID                  string
 	port, receivePIN, sendPIN ui.Field
@@ -84,10 +88,18 @@ func (v *localSendPanel) observe(state domain.LocalSendStatus) {
 func (p *Panels) drawLocalSend(f ui.C, theme ui.Theme, width float32, state domain.State, submit func(domain.Command)) {
 	v := &p.localSend
 	status := state.LocalSend
-	ui.Column(f.Part("localsend-panel")).Fill().Pad(min(width/30, 26)).Gap(14).Children(func() {
-		ui.Row(f).FillWidth().Gap(12).Items(ui.Center).Children(func() {
+	pad := panelPageInset(width)
+	bodyWidth := width - 2*pad
+	ui.Column(f.Part("localsend-panel")).Fill().PadSides(panelPageTop, pad, 18, pad).Children(func() {
+		ui.Row(f).FillWidth().Gap(12).Items(ui.Start).Children(func() {
 			drawPanelPageHeading(f, width, "LocalSend", i18n.T("与同一局域网的设备互传文件。"))
-			if namedButton(f, p.tree.ID(v.scope, "settings"), i18n.T("模块设置")).Icon(panelIconGeneral).Outline().Clicked() {
+			height, labelSize := float32(45), float32(15)
+			if width < 760 {
+				height, labelSize = 39, 13
+			}
+			fontSize := textSize(f, labelSize)
+			if namedButton(f, p.tree.ID(v.scope, "settings"), i18n.T("模块设置")).
+				Icon(panelIconGeneral).Outline().FontSize(fontSize).Height(max(height, fontSize+14)).Clicked() {
 				v.openSettings(state.Settings.LocalSend)
 			}
 		})
@@ -103,23 +115,30 @@ func (p *Panels) drawLocalSend(f ui.C, theme ui.Theme, width float32, state doma
 		}
 		tabs := [...]int{0, 1, 2}
 		labels := [...]string{i18n.T("发送"), i18n.T("接收"), i18n.T("记录")}
-		ui.Tabs(f.Part("localsend-tabs"), &v.tab, tabs[:], func(i int) string { return labels[i] }).Line().Width(242)
-		if status.Problem != "" {
-			ui.Wrap(f, status.Problem).Muted()
-		}
+		ui.Row(f).FillWidth().PadSides(6, 0, 0, 0).Items(ui.Center).Children(func() {
+			if ui.Tabs(f.Part("localsend-tabs"), &v.tab, tabs[:], func(i int) string { return labels[i] }).
+				Line().FontSize(textSize(f, panelTabFontSize)).Changed() {
+				p.transferMenu = ""
+			}
+		})
 		ui.Divider(f).FillWidth()
-		if v.tab == 2 {
-			p.drawLocalSendRecords(f, theme, width-2*min(width/30, 26), submit)
-			return
-		}
-		ui.Scroll(f.KeyInt(v.tab).Part("body")).Grow(1).MinHeight(0).FillWidth().Scrollbars().Children(func() {
-			ui.Column(f).FillWidth().Gap(14).Children(func() {
-				switch v.tab {
-				case 0:
-					p.drawLocalSendSend(f, theme, width, status, submit)
-				case 1:
-					p.drawLocalSendReceive(f, theme, width, status, state.LocalIP, state.Settings.DownloadDir, submit)
-				}
+		ui.Column(f).FillWidth().Grow(1).MinHeight(0).PadY(14).Gap(14).Children(func() {
+			if status.Problem != "" {
+				ui.Wrap(f, status.Problem).Muted()
+			}
+			if v.tab == 2 {
+				p.drawLocalSendRecords(f, theme, bodyWidth, submit)
+				return
+			}
+			ui.Scroll(f.KeyInt(v.tab).Part("body")).Grow(1).MinHeight(0).FillWidth().Scrollbars().Children(func() {
+				ui.Column(f).FillWidth().Gap(14).Children(func() {
+					switch v.tab {
+					case 0:
+						p.drawLocalSendSend(f, theme, bodyWidth, status, submit)
+					case 1:
+						p.drawLocalSendReceive(f, theme, bodyWidth, state, submit)
+					}
+				})
 			})
 		})
 	})
@@ -151,8 +170,10 @@ func (p *Panels) drawLocalSendSend(f ui.C, theme ui.Theme, width float32, status
 	var ids []string
 	cleartext := false
 	if len(status.Devices) == 0 {
-		ui.Column(f).FillWidth().Height(196).Center().Gap(10).Radius(radiusCard).Background(theme.Muted).Children(func() {
-			drawLocalSendMark(f, theme, 38)
+		ui.Column(f).FillWidth().Height(190).Center().Gap(10).Radius(radiusCard).Background(theme.Background).Border(1, theme.Border).Children(func() {
+			ui.Stack(f).Size(56, 56).Center().Radius(28).Background(panelAccentSurface(theme)).Children(func() {
+				ui.Icon(f, Wifi).Size(25, 25).Color(panelAccentText(theme))
+			})
 			ui.Text(f, i18n.T("暂未找到附近设备")).FontSize(textSize(f, 18)).Weight(gfx.WeightSemibold)
 			ui.Wrap(f, i18n.T("让两台设备连接同一 Wi-Fi，并在手机上打开 LocalSend。")).Muted().MaxWidth(400)
 		})
@@ -168,28 +189,40 @@ func (p *Panels) drawLocalSendSend(f ui.C, theme ui.Theme, width float32, status
 		ui.Row(f.KeyInt(index)).FillWidth().Items(ui.Stretch).Gap(12).Children(func() {
 			for _, device := range status.Devices[index:min(index+columns, len(status.Devices))] {
 				picked := v.selected[device.ID]
-				card := ui.Row(f.Key(device.ID)).Grow(1).MinWidth(0).MinHeight(68).Pad(12).Gap(10).Items(ui.Center).
-					Radius(radiusCard).Border(1, theme.Border).Hover(ui.Look{}.Background(theme.Hover)).
+				card := ui.Row(f.Key(device.ID)).Grow(1).MinWidth(0).MinHeight(76).Pad(12).Gap(11).Items(ui.Center).
+					Radius(radiusCard).Border(1, theme.Border).Background(theme.Background).Hover(ui.Look{}.Background(theme.Hover)).
 					HitWith(p.tree.ID(v.scope, "device:"+device.ID), device.Name, gfx.HitOptions{Role: gfx.RoleButton, Selected: picked, Disabled: device.Changed})
 				if picked {
 					card = card.Background(panelAccentSurface(theme))
 				}
 				card.Children(func() {
-					drawLocalSendMark(f, theme, 25)
-					ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
+					glyph := Wifi
+					if device.Type == "mobile" {
+						glyph = Phone
+					}
+					ui.Stack(f).Size(40, 40).Radius(radiusControl).Background(theme.Muted).Center().Children(func() {
+						ui.Icon(f, glyph).Size(20, 20).Color(theme.MutedForeground)
+					})
+					ui.Column(f).Grow(1).MinWidth(0).Gap(4).Children(func() {
 						ui.Text(f, device.Name).Weight(gfx.WeightSemibold).Ellipsis()
 						meta := device.Address
 						if device.Model != "" {
 							meta = device.Model + " · " + meta
 						}
-						if device.Plain {
-							meta += " · HTTP"
-						}
 						if device.Changed {
 							meta = i18n.T("设备证书已变更，请核对后重新添加。")
 						}
-						ui.Text(f, meta).Muted().Ellipsis()
+						ui.Text(f, meta).FontSize(textSize(f, 13)).Muted().Ellipsis()
 					})
+					if !device.Changed && width >= 380 {
+						protocol := "HTTPS"
+						if device.Plain {
+							protocol = "HTTP"
+						}
+						ui.Row(f).Height(23).PadX(7).Items(ui.Center).Radius(radiusControl).Background(theme.Muted).Children(func() {
+							ui.Text(f, protocol).FontSize(textSize(f, 11)).Muted()
+						})
+					}
 				})
 				if card.Clicked() {
 					picked = !picked
@@ -207,13 +240,13 @@ func (p *Panels) drawLocalSendSend(f ui.C, theme ui.Theme, width float32, status
 	}
 
 	ui.Row(f).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-		if namedButton(f, p.tree.ID(v.scope, "pick-files"), i18n.T("选择文件")).Outline().Disabled(v.picking).Clicked() {
+		if namedButton(f, p.tree.ID(v.scope, "pick-files"), i18n.T("选择文件")).Icon(File).Outline().Disabled(v.picking).Clicked() {
 			p.pickLocalSend(f, false)
 		}
-		if namedButton(f, p.tree.ID(v.scope, "pick-folder"), i18n.T("选择文件夹")).Outline().Disabled(v.picking).Clicked() {
+		if namedButton(f, p.tree.ID(v.scope, "pick-folder"), i18n.T("选择文件夹")).Icon(Folder).Outline().Disabled(v.picking).Clicked() {
 			p.pickLocalSend(f, true)
 		}
-		if namedButton(f, p.tree.ID(v.scope, "write-text"), i18n.T("发送文字")).Outline().Clicked() {
+		if namedButton(f, p.tree.ID(v.scope, "write-text"), i18n.T("发送文字")).Icon(MessageSquare).Outline().Clicked() {
 			v.composingText = !v.composingText
 		}
 	})
@@ -244,7 +277,7 @@ func (p *Panels) drawLocalSendSend(f ui.C, theme ui.Theme, width float32, status
 	}
 	ui.Row(f).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 		ui.Text(f, i18n.T("已选设备")+" "+intString(len(ids))).Grow(1).Muted()
-		if namedButton(f, p.tree.ID(v.scope, "send"), i18n.T("发送")).Disabled(len(ids) == 0 ||
+		if namedButton(f, p.tree.ID(v.scope, "send"), i18n.T("发送")).Icon(Send).Disabled(len(ids) == 0 ||
 			v.composingText && v.text.Text() == "" || !v.composingText && len(v.draft) == 0 || cleartext && !v.allowHTTP).Clicked() {
 			c := domain.Command{Kind: domain.LocalSendSend, IDs: ids, LocalSend: domain.LocalSendRequest{AllowHTTP: v.allowHTTP}}
 			if v.composingText {
@@ -314,17 +347,26 @@ func (v *localSendPanel) paths() []string {
 	return paths
 }
 
-func (p *Panels) drawLocalSendReceive(f ui.C, theme ui.Theme, width float32, status domain.LocalSendStatus, address, dir string, submit func(domain.Command)) {
+func (p *Panels) drawLocalSendReceive(f ui.C, theme ui.Theme, width float32, state domain.State, submit func(domain.Command)) {
 	v := &p.localSend
+	status := state.LocalSend
 	if status.Offer.ID == "" {
-		p.drawLocalSendReady(f, theme, width, status, address, dir)
+		p.drawLocalSendReady(f, theme, width, state, submit)
 		return
 	}
 	ui.Column(f).FillWidth().Items(ui.Center).Gap(12).Children(func() {
-		ui.Column(f.Part("receiver-card")).Width(min(700, width-2*min(width/30, 26))).MinWidth(0).
-			Radius(radiusCard).Border(1, theme.Border).Pad(18).Gap(12).Children(func() {
+		ui.Column(f.Part("receiver-card")).Width(min(700, width)).MinWidth(0).
+			Radius(radiusCard).Border(1, theme.Border).Background(theme.Background).Pad(18).Gap(12).Children(func() {
 			offer := status.Offer
-			ui.Wrap(f, offer.From+" · "+i18n.T("接收请求")).FontSize(textSize(f, 20)).Weight(gfx.WeightSemibold)
+			ui.Row(f).FillWidth().Items(ui.Center).Gap(12).Children(func() {
+				ui.Stack(f).Size(42, 42).Radius(radiusControl).Background(panelAccentSurface(theme)).Center().Children(func() {
+					ui.Icon(f, Inbox).Size(22, 22).Color(panelAccentText(theme))
+				})
+				ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
+					ui.Text(f, offer.From).FontSize(textSize(f, 20)).Weight(gfx.WeightSemibold).Ellipsis()
+					ui.Text(f, i18n.T("接收请求")).FontSize(textSize(f, 13)).Muted()
+				})
+			})
 			c := domain.Command{Kind: domain.LocalSendAnswer, TransferID: offer.ID}
 			if offer.IsText {
 				ui.Wrap(f, offer.Text).FontSize(textSize(f, 15))
@@ -345,6 +387,9 @@ func (p *Panels) drawLocalSendReceive(f ui.C, theme ui.Theme, width float32, sta
 						c.IDs = append(c.IDs, file.ID)
 					}
 				}
+				ui.Column(f).FillWidth().Radius(radiusControl).Background(theme.Muted).Children(func() {
+					p.drawLocalSendDestination(f, theme, state, submit)
+				})
 			}
 			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				ui.Spacer(f)
@@ -355,7 +400,8 @@ func (p *Panels) drawLocalSendReceive(f ui.C, theme ui.Theme, width float32, sta
 				if offer.IsText {
 					label = i18n.T("接收并复制")
 				}
-				if namedButton(f, p.tree.ID(v.scope, "accept"), label).Disabled(!offer.IsText && len(c.IDs) == 0).Clicked() {
+				canAccept := offer.IsText || len(c.IDs) > 0 && v.directoryChange == nil
+				if namedButton(f, p.tree.ID(v.scope, "accept"), label).Disabled(!canAccept).Clicked() {
 					c.Bool = true
 					submit(c)
 					if offer.IsText {

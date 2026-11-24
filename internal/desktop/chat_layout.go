@@ -103,6 +103,7 @@ func (u *UI) drawMainBody(canvas *gfx.Canvas, body ui.Rect) {
 		return
 	}
 	if u.isPanelSection() {
+		u.panels.localSend.animateLogo = u.windowVisible.Load()
 		u.panels.Draw(canvas, u.theme, workspace, u.section, u.state, u.submit)
 	} else {
 		u.drawChatWorkspace(canvas, workspace)

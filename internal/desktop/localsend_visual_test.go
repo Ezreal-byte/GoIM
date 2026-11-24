@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -103,6 +104,39 @@ func TestLocalSendVisuals(t *testing.T) {
 				t.Fatal(err)
 			}
 			shot("ready")
+
+			moving, err := session.Image()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := session.Wait(250 * time.Millisecond); err != nil {
+				t.Fatal(err)
+			}
+			next, err := session.Image()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Equal(moving.Pix, next.Pix) {
+				t.Fatal("receive logo did not rotate")
+			}
+			if err := session.Wait(localSendLogoTurn); err != nil {
+				t.Fatal(err)
+			}
+			still, err := session.Image()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := session.Wait(300 * time.Millisecond); err != nil {
+				t.Fatal(err)
+			}
+			settled, err := session.Image()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(still.Pix, settled.Pix) {
+				t.Fatal("receive logo continued to animate after the entrance turn")
+			}
+
 			click("模块设置")
 			shot("settings")
 			scope := shell.tree.Sub(shell.panels.localSend.scope, shell.tree.Name("settings-dialog"))
