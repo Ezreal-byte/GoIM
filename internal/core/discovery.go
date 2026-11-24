@@ -181,6 +181,9 @@ func (n *Node) discoveryLoop() {
 		previousNetwork = network
 		refresh(enabled, network)
 		n.tickDNSDiscovery(network, force)
+		if service := n.localSend.Load(); service != nil {
+			service.UpdateProfile(s.Settings.Nickname, s.Settings.Network)
+		}
 		if enabled {
 			p := s.Self
 			p.Avatar = ""

@@ -147,6 +147,7 @@ func (e *compatibilityEditor) init(tree *gfx.Tree, scope gfx.Scope) {
 }
 
 func (p *Panels) drawCompatibility(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+	p.localSendSettings(f, theme, state, submit)
 	p.compatibilitySection(f, theme, &p.settingsExtra.compat[0], domain.TransportNeiwangtong,
 		"内网通互通", "UDP 发现端口；控制和传输使用独立端点。", domain.NeiwangtongDiscoveryPort,
 		state.Settings.Neiwangtong, state.NeiwangtongStatus, submit)

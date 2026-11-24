@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoIM 文件分享</title>
+<style>
+:root{color-scheme:light dark;--bg:#f5f6f9;--surface:#fff;--ink:#172231;--muted:#586779;--line:#dce3ea;--accent:#164bd9}
+@media(prefers-color-scheme:dark){:root{--bg:#1b222c;--surface:#242e3a;--ink:#edf3fc;--muted:#b7c3d2;--line:#435265;--accent:#abc0ff}}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,sans-serif}
+header{background:var(--surface);border-bottom:1px solid var(--line);font-weight:750}
+header div,main{max-width:760px;margin:auto;padding:16px 22px}
+main{padding-top:38px}h1{font-size:30px;margin:0}p{color:var(--muted);margin:6px 0 20px}
+section{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px}
+form{display:flex;gap:10px;flex-wrap:wrap;align-items:end}label{display:grid;gap:5px;font-size:14px}
+input,button{font:inherit;border-radius:7px;border:1px solid var(--line);padding:9px 12px;min-width:0}
+input{background:var(--surface)}button{background:#164bd9;color:white;border-color:#164bd9;font-weight:650;cursor:pointer}button:disabled{opacity:.55}
+a{color:var(--accent);overflow-wrap:anywhere}ul{padding:0;margin:0;list-style:none}li{min-height:44px;display:flex;gap:12px;align-items:center;border-top:1px solid var(--line);overflow-wrap:anywhere}
+li:first-child{border-top:0}.item{flex:1}.size{font-size:13px;color:var(--muted);white-space:nowrap}
+#status{margin:12px 0 0;min-height:1.5em} input[type=file]{max-width:100%}
+</style>
+</head>
+<body data-upload="{{.Upload}}">
+<header><div>GoIM · 文件分享</div></header>
+<main><h1>{{if .Upload}}上传文件{{else}}下载文件{{end}}</h1>
+<p>连接同一局域网，提交请求后等待分享方确认。</p>
+<section>
+<form id="request">
+{{if .Upload}}<label>文件<input id="files" type="file" multiple required></label>{{end}}
+<label>PIN<input id="pin" type="password" inputmode="numeric" placeholder="如有要求" autocomplete="off"></label>
+<button id="submit" type="submit">提交{{if .Upload}}上传{{else}}下载{{end}}请求</button>
+</form>
+<p id="status" role="status"></p>
+<ul id="list"></ul>
+</section>
+</main>
+<script>
+const base='/api/localsend/v2/';
+const uploading=document.body.dataset.upload==='true';
+const form=document.getElementById('request'), button=document.getElementById('submit');
+const status=document.getElementById('status'), list=document.getElementById('list');
+const input=document.getElementById('files'), pin=document.getElementById('pin');
+const labels={401:'请输入正确的 PIN。',403:'请求已被拒绝，或链接已关闭。',409:'对方正在接收文件，请稍后重试。',429:'尝试次数过多，请稍后重试。'};
+const size=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?(n/1024).toFixed(1)+' KB':n+' B';
+function item(name,bytes){
+  const li=document.createElement('li'), title=document.createElement('span'), meta=document.createElement('span');
+  title.className='item'; title.textContent=name; meta.className='size'; meta.textContent=size(bytes);
+  li.append(title,meta); list.append(li); return li;
+}
+if(input) input.addEventListener('change',()=>{
+  list.replaceChildren();
+  for(const file of input.files) item(file.name,file.size);
+});
+function route(name,values){const q=new URLSearchParams(values);return base+name+'?'+q;}
+async function post(name,values,body,contentType){
+  const res=await fetch(route(name,values),{method:'POST',body,headers:contentType?{'Content-Type':contentType}:{}});
+  if(!res.ok) throw Error(labels[res.status]||'请求失败，请核对局域网连接后重试。');
+  return res;
+}
+form.addEventListener('submit',async event=>{
+  event.preventDefault(); button.disabled=true; status.textContent='正在等待对方批准…';
+  const options=pin.value?{pin:pin.value}:{};
+  try{
+    if(!uploading){
+      const res=await post('prepare-download',options);
+      const grant=await res.json();
+      list.replaceChildren();
+      for(const file of Object.values(grant.files)){
+        const row=item(file.fileName,file.size);
+        const a=document.createElement('a');
+        a.href=route('download',{sessionId:grant.sessionId,fileId:file.id});
+        a.textContent='下载'; a.download=file.fileName.split('/').pop(); row.append(a);
+      }
+      status.textContent='对方已批准。选择要下载的文件。';
+      return;
+    }
+    const files=Array.from(input.files), map={};
+    files.forEach((f,index)=>{const id=String(index+1);map[id]={id,fileName:f.name,size:f.size,fileType:'other'};});
+    const info={alias:'手机浏览器',version:'2.2',deviceType:'web',fingerprint:'browser',port:Number(location.port)||80,protocol:location.protocol.slice(0,-1),download:false};
+    const approval=await post('prepare-upload',options,JSON.stringify({info,files:map}),'application/json');
+    const grant=await approval.json();
+    const accepted=Object.entries(grant.files);
+    let ok=0,failed=0;
+    for(const [fileId,token] of accepted){
+      status.textContent='正在上传 '+(ok+failed+1)+' / '+accepted.length+'…';
+      try {await post('upload',{sessionId:grant.sessionId,fileId,token},files[Number(fileId)-1],'application/octet-stream');ok++;}
+      catch {failed++;}
+    }
+    status.textContent='已上传 '+ok+' 个，失败 '+failed+' 个，未获批准 '+(files.length-accepted.length)+' 个。';
+  }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+});
+</script>
+</body>
+</html>

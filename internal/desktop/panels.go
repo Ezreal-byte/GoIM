@@ -24,6 +24,7 @@ const (
 	panelModuleTransfers = "transfers"
 	panelModuleShares    = "shares"
 	panelModulePrint     = "print"
+	panelModuleLocalSend = "localsend"
 
 	panelSettingsWidth = 300
 )
@@ -273,13 +274,15 @@ type panelPendingSetting struct {
 // Panels owns the settings, transfers, and file-sharing surfaces. Init must be
 // called with the application's tree before Draw.
 type Panels struct {
-	firewall       firewallPanel
-	memberProject  *memberProjectView
-	dialogViewport ui.Rect
-	tree           *gfx.Tree
-	page           *ui.Page
-	theme          ui.Theme
-	ids            panelIDs
+	localSend             localSendPanel
+	listLocalSendRevision uint64
+	firewall              firewallPanel
+	memberProject         *memberProjectView
+	dialogViewport        ui.Rect
+	tree                  *gfx.Tree
+	page                  *ui.Page
+	theme                 ui.Theme
+	ids                   panelIDs
 
 	module string
 
@@ -383,6 +386,7 @@ func (p *Panels) Init(tree *gfx.Tree, wake *app.Invalidator) {
 		return
 	}
 	p.tree = tree
+	p.localSend.scope = tree.Feature("localsend")
 	p.shareSort = panelTableSort{column: "分享时间", descending: true}
 	p.page = ui.NewPage(ui.PageConfig{Root: "panels", Tree: tree, Theme: &p.theme, Invalidator: wake})
 	p.invalidate = wake.Invalidate
@@ -566,6 +570,8 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 				p.drawShares(f, theme, bounds, state, submit)
 			case panelModulePrint:
 				p.drawPrint(f, theme, bounds, state, submit)
+			case panelModuleLocalSend:
+				p.drawLocalSend(f, theme, bounds.Width, state, submit)
 			}
 		})
 	})
@@ -573,7 +579,7 @@ func (p *Panels) Draw(canvas *gfx.Canvas, theme ui.Theme, bounds ui.Rect, module
 	if module == panelModuleShares {
 		p.drawShareMenu(canvas, theme, bounds, state.DeviceShare, submit)
 		p.drawShareToast(canvas, theme, bounds, state.ShareFeedback)
-	} else if module == panelModuleTransfers {
+	} else if module == panelModuleTransfers || module == panelModuleLocalSend {
 		p.drawTransferMenu(canvas, theme, bounds, submit)
 	}
 	if settingsScroll.Valid() {
@@ -602,6 +608,7 @@ func (p *Panels) dialog(f ui.C, spec ui.DialogSpec) ui.Box {
 // OnWake resolves local paths from the detached snapshot. Filesystem probes
 // run on the shared media worker; Draw only reads the cached result.
 func (p *Panels) OnWake(state domain.State) {
+	p.localSend.observe(state.LocalSend)
 	if p.refreshNetwork || p.module == panelModuleSettings && p.networkLanguage != i18n.Language() {
 		p.refreshNetworks()
 	}
@@ -829,13 +836,14 @@ func (p *Panels) submitResetShortcuts(submit func(domain.Command), state domain.
 // updateLists runs after the snapshot and any media results have been applied.
 func (p *Panels) updateLists(state domain.State) {
 	language := i18n.Language()
-	if !p.listDirty && p.listRevision == state.Revision && p.listLanguage == language {
+	if !p.listDirty && p.listRevision == state.Revision && p.listLocalSendRevision == state.LocalSend.ProgressRevision && p.listLanguage == language {
 		return
 	}
 	p.rebuildTransfers(state)
 	p.rebuildShares(state)
 	p.print.rebuild(state)
 	p.listRevision, p.listLanguage, p.listDirty = state.Revision, language, false
+	p.listLocalSendRevision = state.LocalSend.ProgressRevision
 }
 
 func (p *Panels) rebuildTransfers(state domain.State) {
@@ -870,6 +878,9 @@ func (p *Panels) rebuildTransfers(state domain.State) {
 func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domain.File) panelTransferEntry {
 	peer := state.Peer(transfer.PeerID)
 	name := peer.Name
+	if transfer.LegacyTransport == domain.TransportLocalSend {
+		name = transfer.LocalSendPeer
+	}
 	if transfer.WebSender != "" {
 		name = transfer.WebSender
 	}
@@ -897,6 +908,12 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domai
 	}
 	if transfer.WebSender != "" {
 		entry.source = i18n.T("网页接收")
+	}
+	if transfer.LegacyTransport == domain.TransportLocalSend {
+		entry.source = "LocalSend"
+		if transfer.LocalSendDirectory {
+			file.Folder = true
+		}
 	}
 	entry.path = transfer.Path
 	if transfer.ShareFolder {
@@ -940,6 +957,12 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domai
 		entry.status = size + " · " + entry.status
 	}
 
+	if transfer.LegacyTransport == domain.TransportLocalSend {
+		entry.cancel = transfer.Status == "offered" || transfer.Status == "transferring"
+		entry.retry = transfer.LocalSendCanRetry && !transfer.LocalSendNeedsPIN
+		entry.open, entry.reveal = entry.path != "", entry.path != ""
+		return entry
+	}
 	switch transfer.Status {
 	case "offered":
 		if transfer.Direction == "receive" {
@@ -963,7 +986,7 @@ func panelBuildTransfer(state domain.State, transfer domain.Transfer, file domai
 
 func panelTransferIsFinished(status string) bool {
 	switch status {
-	case "completed", "rejected", "cancelled", "failed":
+	case "completed", "rejected", "cancelled", "failed", "partial":
 		return true
 	default:
 		return false
@@ -997,6 +1020,8 @@ func panelTransferStatus(status, direction string) string {
 		return i18n.T("已取消")
 	case "failed":
 		return i18n.T("失败")
+	case "partial":
+		return i18n.T("部分完成")
 	case "":
 		return i18n.T("状态未知")
 	default:

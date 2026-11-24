@@ -305,6 +305,12 @@ type Transfer struct {
 	FileStage         string `json:",omitempty"` // resumable Neiwangtong file beside its destination
 	RemotePeerID      string `json:",omitempty"` // wire identity of an existing compatibility transfer
 	PrintJobID        string `json:",omitempty"` // local print task served by this transfer
+
+	LocalSendPeer      string                  `json:",omitempty"`
+	LocalSendNeedsPIN  bool                    `json:",omitempty"`
+	LocalSendCanRetry  bool                    `json:",omitempty"`
+	LocalSendDirectory bool                    `json:",omitempty"`
+	LocalSendItems     []LocalSendTransferItem `json:",omitempty"`
 }
 
 func (t Transfer) CanRelocateFailedReceive() bool {
@@ -434,6 +440,7 @@ type Shortcut struct {
 const ShortcutScreenshot = "截图标注"
 
 type Settings struct {
+	LocalSend                    LocalSendConfig
 	PinnedPrinters               []string `json:",omitempty"`
 	IPMSG                        CompatibilityConfig
 	Neiwangtong                  CompatibilityConfig
@@ -635,6 +642,7 @@ func (s *Settings) EnsureDefaultShortcuts() {
 }
 
 type State struct {
+	LocalSend          LocalSendStatus     `json:"-"`
 	ContactRefresh     ContactRefresh      `json:"-"`
 	DiscoveryDisabled  bool                `json:"-"`
 	IPMSGStatus        CompatibilityStatus `json:"-"`
@@ -859,6 +867,7 @@ const (
 )
 
 type Command struct {
+	LocalSend      LocalSendRequest
 	ShareDownloads []ShareDownload `json:"-"`
 	// OnResult reports local command completion. Callbacks must not block or mutate window state.
 	OnResult       func(error) `json:"-"`

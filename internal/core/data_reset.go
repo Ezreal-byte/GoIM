@@ -14,7 +14,7 @@ const resetMarker = ".goim-reset-pending"
 const resetMarkerContent = "GoIM user data reset v1\n"
 
 var ownedDataEntries = []string{
-	"goim.db", "identity.key", "avatars", "backgrounds", "chat-images", "group-avatars",
+	"goim.db", "identity.key", "localsend-tls.pem", "avatars", "backgrounds", "chat-images", "group-avatars",
 	"partials", "nwt-partials", "print-jobs", "diagnostics", "cache", "window-layout.json",
 }
 

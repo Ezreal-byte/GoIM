@@ -141,7 +141,7 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y fonts-noto-cjk
       - name: Run the race detector
-        run: go test -race ./internal/core ./internal/desktop ./internal/ipmsg ./internal/neiwangtong -count=1 -timeout=300s
+        run: go test -race ./internal/core ./internal/desktop ./internal/ipmsg ./internal/neiwangtong ./internal/localsend -count=1 -timeout=300s
 
   macos-typography:
     name: macOS desktop build and typography
