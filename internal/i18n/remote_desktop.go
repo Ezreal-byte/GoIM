@@ -2,9 +2,15 @@ package i18n
 
 func init() {
 	for label, english := range map[string]string{
-		"远程桌面":      "Remote desktop",
-		"远程协助":      "Remote assistance",
-		"远程桌面 · %s": "Remote desktop · %s",
+		"远程桌面":           "Remote desktop",
+		"发起远程桌面":         "Outgoing remote desktop",
+		"收到远程协助请求":       "Incoming remote assistance",
+		"协助已结束":          "Assistance ended",
+		"协助已取消":          "Assistance canceled",
+		"请求已拒绝":          "Request declined",
+		"请求已超时":          "Request timed out",
+		"远程协助":           "Remote assistance",
+		"远程桌面 · %s":      "Remote desktop · %s",
 		"当前构建未提供远程桌面助手":  "This build does not include the remote desktop helper.",
 		"请先解锁 GoIM":      "Unlock GoIM first.",
 		"请先结束当前远程协助":     "End the current remote assistance session first.",

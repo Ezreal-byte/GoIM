@@ -34,16 +34,18 @@ type remoteDesktopSignal struct {
 
 // All fields except the channels and context are protected by Node.mu.
 type remoteSession struct {
-	view     domain.RemoteDesktopSession
-	peer     *peerConn
-	ctx      context.Context
-	cancel   context.CancelFunc
-	timer    *time.Timer
-	expires  time.Time
-	grant    string
-	attached bool
-	frames   chan domain.RemoteDesktopFrame
-	input    chan domain.RemoteDesktopInput
+	view        domain.RemoteDesktopSession
+	connectedAt time.Time
+	peer        *peerConn
+	ctx         context.Context
+	cancel      context.CancelFunc
+	timer       *time.Timer
+	expires     time.Time
+	grant       string
+	attached    bool
+	setupSent   chan struct{}
+	frames      chan domain.RemoteDesktopFrame
+	input       chan domain.RemoteDesktopInput
 }
 
 func validRemoteID(s string) bool {
@@ -110,9 +112,10 @@ func (n *Node) startRemoteDesktop(peerID string) error {
 		return errors.New("当前已有远程桌面会话")
 	}
 	s := n.newRemoteDesktopLocked(newID(), peer, false)
+	n.sendRemoteSetupLocked(s, remoteDesktopSignal{ID: s.view.ID, Action: "invite"})
 	n.mu.Unlock()
 	n.signal()
-	return n.sendRemoteSignal(s, remoteDesktopSignal{ID: s.view.ID, Action: "invite"})
+	return nil
 }
 
 func (n *Node) acceptRemoteDesktop(id string, control, audio bool) error {
@@ -127,18 +130,24 @@ func (n *Node) acceptRemoteDesktop(id string, control, audio bool) error {
 	s.view.Control, s.view.Audio = control, audio
 	s.view.Status = domain.RemoteDesktopConnecting
 	n.remoteDeadlineLocked(s, remoteSetupTimeout, "failed")
-	signal := remoteDesktopSignal{ID: id, Action: "accept", Grant: s.grant, Control: control, Audio: audio}
+	n.sendRemoteSetupLocked(s, remoteDesktopSignal{ID: id, Action: "accept", Grant: s.grant, Control: control, Audio: audio})
 	n.mu.Unlock()
 	n.signal()
-	return n.sendRemoteSignal(s, signal)
+	return nil
 }
 
-func (n *Node) sendRemoteSignal(s *remoteSession, signal remoteDesktopSignal) error {
-	if err := s.peer.send(envelope{Type: "remote_desktop_signal", RemoteDesktop: &signal}); err != nil {
-		n.finishRemoteDesktop(s, "disconnected", false)
-		return err
-	}
-	return nil
+func (n *Node) sendRemoteSetupLocked(s *remoteSession, signal remoteDesktopSignal) {
+	// Socket writes must not block the command loop behind an invite or grant.
+	done := make(chan struct{})
+	s.setupSent = done
+	n.workers.Add(1)
+	go func() {
+		defer n.workers.Done()
+		defer close(done)
+		if err := s.peer.sendContext(s.ctx, envelope{Type: "remote_desktop_signal", RemoteDesktop: &signal}); err != nil {
+			n.finishRemoteDesktop(s, "disconnected", false)
+		}
+	}()
 }
 
 func (n *Node) receiveRemoteDesktop(peerID string, source *peerConn, msg *remoteDesktopSignal) {
@@ -228,7 +237,16 @@ func (n *Node) endRemoteDesktopForLock() {
 
 func (n *Node) sendRemoteStop(s *remoteSession, reason string) {
 	n.async(func() {
-		_ = n.sendRemoteSignal(s, remoteDesktopSignal{ID: s.view.ID, Action: "stop", Reason: reason})
+		if s.setupSent != nil {
+			// A stop cannot overtake an invite or grant that already started writing.
+			select {
+			case <-s.setupSent:
+			case <-n.ctx.Done():
+				return
+			}
+		}
+		stop := remoteDesktopSignal{ID: s.view.ID, Action: "stop", Reason: reason}
+		_ = s.peer.sendContext(n.ctx, envelope{Type: "remote_desktop_signal", RemoteDesktop: &stop})
 	})
 }
 
@@ -257,6 +275,9 @@ func (n *Node) endRemoteDesktopLocked(reason string) {
 		return
 	}
 	s.view.Status = domain.RemoteDesktopEnded
+	if reason == "ended" && s.connectedAt.IsZero() {
+		reason = "cancelled"
+	}
 	s.view.Reason = reason
 	s.grant = ""
 	if s.timer != nil {
@@ -268,6 +289,7 @@ func (n *Node) endRemoteDesktopLocked(reason string) {
 	default:
 	}
 	close(s.frames)
+	n.recordRemoteDesktopHistoryLocked(s)
 	n.signal()
 }
 
@@ -363,6 +385,7 @@ func (n *Node) runRemoteDesktop(s *remoteSession, conn net.Conn, role string) {
 		if n.remoteDesktop == s && s.view.Status == domain.RemoteDesktopConnecting &&
 			!n.data.State.Locked && !n.closing && time.Now().Before(s.expires) {
 			s.view.Status = domain.RemoteDesktopActive
+			s.connectedAt = time.Now()
 			s.timer.Stop()
 			n.signal()
 		}

@@ -2,17 +2,20 @@
 package remotedesktop
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"goim/internal/domain"
@@ -26,10 +29,11 @@ const (
 	tunnelPacket  = 2
 	pixelPacket   = 3
 
-	maxControl = 16 << 10
-	maxTunnel  = 64 << 10
-	maxWidth   = 3840
-	maxHeight  = 2160
+	maxControl           = 16 << 10
+	maxTunnel            = 64 << 10
+	maxWidth             = 3840
+	maxHeight            = 2160
+	maxHelperDiagnostics = 8 << 10
 )
 
 type Start struct {
@@ -119,13 +123,25 @@ type event struct {
 	Devices []string `json:"devices"`
 }
 
+type helperDiagnostics struct {
+	buf bytes.Buffer
+}
+
+func (d *helperDiagnostics) Write(p []byte) (int, error) {
+	remaining := min(len(p), maxHelperDiagnostics-d.buf.Len())
+	_, _ = d.buf.Write(p[:remaining])
+	return len(p), nil
+}
+
 func localEngine(path string) Engine {
-	return func(ctx context.Context, tunnel net.Conn, grant Start, input <-chan domain.RemoteDesktopInput, events Events) error {
-		ctx, cancel := context.WithCancel(ctx)
+	return func(session context.Context, tunnel net.Conn, grant Start, input <-chan domain.RemoteDesktopInput, events Events) error {
+		ctx, cancel := context.WithCancel(session)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, path, "--goim-remote")
 		cmd.Dir = filepath.Dir(path)
 		configureProcess(cmd)
+		var diagnostics helperDiagnostics
+		cmd.Stderr = &diagnostics
 		stdin, err := cmd.StdinPipe()
 		if err != nil {
 			return err
@@ -140,7 +156,10 @@ func localEngine(path string) Engine {
 		// before a wedged process is killed. The network must not hold it open.
 		cmd.Cancel = func() error {
 			_ = tunnel.SetDeadline(time.Now())
-			return stdin.Close()
+			// A blocked Windows pipe writer can delay Close. Let os/exec's
+			// kill deadline start even while that write is still pending.
+			go stdin.Close()
+			return nil
 		}
 		cmd.WaitDelay = 2 * time.Second
 		if err = cmd.Start(); err != nil {
@@ -159,9 +178,24 @@ func localEngine(path string) Engine {
 		cancel()
 		_ = tunnel.SetDeadline(time.Now())
 		<-writeDone
-		_ = cmd.Wait()
+		waitErr := cmd.Wait()
+		if result != nil && session.Err() == nil {
+			stderr := strings.TrimSpace(diagnostics.buf.String())
+			if stderr != "" {
+				log.Printf("remote desktop helper: %s", stderr)
+			}
+			if errors.Is(result, io.EOF) && waitErr != nil && missingHelperRuntime(stderr) {
+				return engineError("unsupported")
+			}
+		}
 		return result
 	}
+}
+
+func missingHelperRuntime(diagnostics string) bool {
+	return strings.Contains(diagnostics, "error while loading shared libraries") ||
+		strings.Contains(diagnostics, "not found") &&
+			(strings.Contains(diagnostics, "GLIBC_") || strings.Contains(diagnostics, "GLIBCXX_") || strings.Contains(diagnostics, "CXXABI_"))
 }
 
 func writeChild(ctx context.Context, w io.Writer, tunnel net.Conn, grant Start, input <-chan domain.RemoteDesktopInput) error {

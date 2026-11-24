@@ -1,5 +1,7 @@
 package domain
 
+import "fmt"
+
 const (
 	StartRemoteDesktop  CommandKind = "start_remote_desktop"
 	AcceptRemoteDesktop CommandKind = "accept_remote_desktop"
@@ -26,6 +28,43 @@ type RemoteDesktopSession struct {
 	Control       bool
 	Audio         bool
 	OutputDevices []string
+}
+
+// RemoteDesktopRecord is the local chat history of a finished session.
+type RemoteDesktopRecord struct {
+	Incoming        bool
+	Reason          string
+	Connected       bool
+	DurationSeconds int
+}
+
+func (r RemoteDesktopRecord) Outcome() string {
+	switch r.Reason {
+	case "ended":
+		return "协助已结束"
+	case "cancelled":
+		return "协助已取消"
+	case "declined":
+		return "请求已拒绝"
+	case "no_answer":
+		return "请求已超时"
+	case "disconnected":
+		return "远程桌面连接已断开"
+	case "permission":
+		return "系统未授予屏幕或控制权限"
+	case "unsupported":
+		return "当前桌面环境不支持远程协助"
+	case "busy":
+		return "对方正在进行远程协助"
+	case "locked":
+		return "应用锁定，远程协助已结束"
+	default:
+		return "未能建立远程桌面连接"
+	}
+}
+
+func (r RemoteDesktopRecord) Duration() string {
+	return fmt.Sprintf("%02d:%02d", r.DurationSeconds/60, r.DurationSeconds%60)
 }
 
 type RemoteDesktopFrame struct {

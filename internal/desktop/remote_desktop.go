@@ -118,6 +118,9 @@ func (v *remoteDesktopView) update(state domain.State) {
 }
 
 func (v *remoteDesktopView) config() app.Config {
+	if v.mode == remoteDesktopWindowConsent {
+		return v.incomingConfig()
+	}
 	config := app.Config{
 		Title: i18n.T("远程桌面") + " · GoIM", Class: "GoIM.RemoteDesktop", Icon: windowIcon(),
 		Width: 490, Height: 310, MinWidth: 420, MinHeight: 280,
@@ -129,6 +132,11 @@ func (v *remoteDesktopView) config() app.Config {
 	switch v.mode {
 	case remoteDesktopWindowProgress:
 		config.Height, config.MinHeight = 260, 240
+		if !v.session.Incoming {
+			config.Width, config.MinWidth = 460, 410
+			config.Height, config.MinHeight = 278, 252
+			config.Paint = v.paintWaiting
+		}
 	case remoteDesktopWindowSharing:
 		config.Height, config.MinHeight = 220, 200
 	case remoteDesktopWindowViewing:
@@ -154,17 +162,8 @@ func (v *remoteDesktopView) paint(canvas *gfx.Canvas, size gfx.Size) {
 			})
 			ui.Text(f, v.peerName).FillWidth().Weight(gfx.WeightSemibold).Ellipsis()
 			switch v.mode {
-			case remoteDesktopWindowConsent:
-				ui.Paragraph(f, i18n.T("仅查看会共享屏幕。允许控制还会让对方操作本机的键盘和鼠标。"), 3).Muted()
-				ui.Checkbox(f.Part("share-audio"), &v.consentAudio, i18n.T("共享本机系统声音")).Disabled(v.decisionSent)
-				ui.Spacer(f)
-				v.drawConsentActions(f)
 			case remoteDesktopWindowProgress:
-				progress := i18n.T("等待对方确认远程协助…")
-				if v.session.Status == domain.RemoteDesktopConnecting {
-					progress = i18n.T("正在建立远程协助…")
-				}
-				ui.Paragraph(f, progress, 2).Muted()
+				ui.Paragraph(f, i18n.T("正在建立远程协助…"), 2).Muted()
 				ui.Spacer(f)
 				v.drawStop(f, i18n.T("取消"))
 			case remoteDesktopWindowSharing:
@@ -186,8 +185,6 @@ func (v *remoteDesktopView) paint(canvas *gfx.Canvas, size gfx.Size) {
 
 func (v *remoteDesktopView) windowHeading() string {
 	switch v.mode {
-	case remoteDesktopWindowConsent:
-		return i18n.T("远程协助请求")
 	case remoteDesktopWindowSharing:
 		return i18n.T("正在共享屏幕")
 	default:
@@ -296,6 +293,9 @@ func (r *desktopRuntime) syncRemoteDesktop(state domain.State, locked bool) {
 		}
 		view.dispose()
 	}
+	if mode == remoteDesktopWindowProgress && !session.Incoming {
+		centerRemoteDesktopWaiting(&config, r.window)
+	}
 	handle, err := r.application.OpenWindow(config, nil)
 	if err != nil {
 		view.dispose()
@@ -308,7 +308,12 @@ func (r *desktopRuntime) syncRemoteDesktop(state domain.State, locked bool) {
 		// the Stop sharing action available.
 		_ = handle.SetAlwaysOnTop(true)
 	}
-	handle.Show()
+	if mode == remoteDesktopWindowConsent {
+		// Viva maps incoming notifications without activating GoIM.
+		view.wake.Invalidate()
+	} else {
+		handle.Show()
+	}
 	if view.viewer != nil {
 		view.viewer.start()
 	}
@@ -378,7 +383,7 @@ func (v *remoteDesktopView) dispose() {
 
 func remoteDesktopSessionNotice(reason string, incoming bool) string {
 	switch reason {
-	case "ended", "":
+	case "ended", "cancelled", "":
 		return ""
 	case "declined":
 		if incoming {

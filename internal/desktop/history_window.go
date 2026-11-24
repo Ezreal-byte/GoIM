@@ -170,6 +170,9 @@ func (v *historyWindowView) refresh() {
 		case isVoiceRecord(m):
 			r.text = voiceRecordLabel(m)
 			r.icon = Phone
+		case m.RemoteDesktop != nil:
+			r.text = remoteDesktopRecordLabel(*m.RemoteDesktop)
+			r.icon = remoteDesktopIcon
 		case m.Kind == "print":
 			job := v.state.PrintJob(m.PrintJobID)
 			r.text = job.FileName

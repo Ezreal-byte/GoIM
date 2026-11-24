@@ -123,8 +123,15 @@ func readFrame(r io.Reader) (envelope, error) {
 	return e, nil
 }
 func (p *peerConn) send(e envelope) error {
+	return p.sendContext(context.Background(), e)
+}
+
+func (p *peerConn) sendContext(ctx context.Context, e envelope) error {
 	p.write.Lock()
 	defer p.write.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	_ = p.conn.SetWriteDeadline(time.Now().Add(8 * time.Second))
 	return writeFrame(p.conn, e)
 }
@@ -749,7 +756,7 @@ func (n *Node) receiveMessage(peer string, e envelope) error {
 	m.Deleted, m.Recalled = false, false
 	// Text envelopes cannot attach authority over file or print records.
 	m.FileID, m.PrintJobID = "", ""
-	if m.ID == "" || m.SenderID != peer || m.Kind != "text" || len(m.Text) > 256<<10 {
+	if m.ID == "" || m.SenderID != peer || m.Kind != "text" || m.RemoteDesktop != nil || len(m.Text) > 256<<10 {
 		return errors.New("无效聊天消息")
 	}
 	m.Status = "delivered"

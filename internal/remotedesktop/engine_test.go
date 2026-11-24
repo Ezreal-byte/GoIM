@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -28,8 +29,19 @@ func TestMain(m *testing.M) {
 		body := make([]byte, length)
 		var start command
 		if _, err := io.ReadFull(os.Stdin, body); err != nil ||
-			json.Unmarshal(body, &start) != nil || start.Type != "start" ||
-			start.Role != "viewer" || !start.Audio || start.Control {
+			json.Unmarshal(body, &start) != nil || start.Type != "start" {
+			os.Exit(2)
+		}
+		if start.Role == "host" {
+			fmt.Fprintln(os.Stderr, "goim-rd: libc.so.6: version GLIBC_2.34 not found")
+			os.Exit(127)
+		}
+		if start.Role == "viewer" && start.Control && !start.Audio {
+			_ = writePacket(os.Stdout, controlPacket, []byte(`{"type":"ready"}`))
+			time.Sleep(30 * time.Second)
+			os.Exit(0)
+		}
+		if start.Role != "viewer" || !start.Audio || start.Control {
 			os.Exit(2)
 		}
 		if writePacket(os.Stdout, controlPacket, []byte(`{"type":"ready"}`)) != nil ||
@@ -44,6 +56,63 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
+}
+
+func TestRemoteDesktopReportsMissingHelperRuntime(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tunnel, peer := net.Pipe()
+	defer tunnel.Close()
+	defer peer.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = localEngine(exe)(ctx, tunnel, Start{Role: "host"}, nil, Events{})
+	if Reason(err) != "unsupported" {
+		t.Fatalf("expected a missing runtime reason, got %v", err)
+	}
+}
+
+func TestRemoteDesktopCancellationUnblocksChildPipe(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tunnel, peer := net.Pipe()
+	defer tunnel.Close()
+	defer peer.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := make(chan struct{})
+	stopped := make(chan error, 1)
+	go func() {
+		stopped <- localEngine(exe)(ctx, tunnel, Start{Role: "viewer", Control: true}, nil,
+			Events{Ready: func() { close(ready) }})
+	}()
+	select {
+	case <-ready:
+	case err := <-stopped:
+		t.Fatalf("fixture exited before ready: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("fixture did not become ready")
+	}
+	blocked := make(chan struct{})
+	go func() {
+		_, _ = peer.Write(make([]byte, 4*maxTunnel))
+		close(blocked)
+	}()
+	select {
+	case <-blocked:
+		t.Fatal("fixture drained the data that should block its input pipe")
+	case <-time.After(100 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a full child input pipe prevented cancellation")
+	}
 }
 
 func TestRemoteDesktopPrivatePipesAndCancellation(t *testing.T) {

@@ -73,6 +73,34 @@ func (u *UI) drawVoiceRecordDetail(f ui.C, message domain.Message) {
 	})
 }
 
+func remoteDesktopRecordLabel(record domain.RemoteDesktopRecord) string {
+	direction := i18n.T("发起远程桌面")
+	if record.Incoming {
+		direction = i18n.T("收到远程协助请求")
+	}
+	label := direction + " · " + i18n.T(record.Outcome())
+	if record.Connected {
+		label += " · " + record.Duration()
+	}
+	return label
+}
+
+func (u *UI) drawRemoteDesktopRecord(f ui.C, message domain.Message) {
+	record := *message.RemoteDesktop
+	color := u.palette.secondaryText
+	if record.Connected {
+		color = u.palette.success
+	}
+	ui.Row(f).FillWidth().Justify(ui.Center).Children(func() {
+		ui.Row(f).MaxWidthPercent(90).PadSides(10, 14, 10, 14).Radius(10).Gap(10).Items(ui.Center).
+			Background(u.palette.incoming).Children(func() {
+			ui.Icon(f, remoteDesktopIcon).Size(18, 18).Color(color)
+			ui.Wrap(f, remoteDesktopRecordLabel(record)).FontSize(textSize(f, 13)).Color(color)
+			ui.Text(f, shortTime(message.CreatedAt)).FontSize(textSize(f, 11)).Muted()
+		})
+	})
+}
+
 func (u *UI) drawPrintDetail(f ui.C, job domain.PrintJob) {
 	ui.Scroll(f.Part("print-record-detail")).Fill().Scrollbars().Gap(16).Children(func() {
 		ui.Row(f).Gap(12).Items(ui.Center).Children(func() {

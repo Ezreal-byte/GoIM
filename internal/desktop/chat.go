@@ -368,6 +368,10 @@ func (u *UI) drawMessage(f ui.C, conversation domain.Conversation, message domai
 		u.drawVoiceRecord(f, message)
 		return
 	}
+	if message.RemoteDesktop != nil {
+		u.drawRemoteDesktopRecord(f, message)
+		return
+	}
 	if message.Kind == "system" {
 		ui.Row(f).FillWidth().Justify(ui.Center).Children(func() {
 			ui.Column(f).MaxWidthPercent(80).PadSides(7, 12, 7, 12).Radius(8).
