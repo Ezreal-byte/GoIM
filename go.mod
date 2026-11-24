@@ -21,5 +21,5 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
-// Use the GoIM fork for tray integration and the macOS startup guard.
+// Pin the reviewed commit from the GoIM Viva fork's main branch.
 replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261124063117-10b612bfce94
