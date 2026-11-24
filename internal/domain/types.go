@@ -31,6 +31,8 @@ type Peer struct {
 	Transport            string         `json:",omitempty"` // empty for GoIM TLS
 	ClientType           ClientType     `json:",omitempty"`
 	CompatibilityAliasOf string         `json:",omitempty"` // local contact linkage; never an authenticated identity
+
+	RemoteDesktopSupported bool `json:"-"`
 }
 
 func (p Peer) DisplayName() string {
@@ -681,6 +683,9 @@ type State struct {
 	Version            string
 	Revision           uint64
 	GroupNicknames     []GroupNickname
+
+	RemoteDesktopAvailable bool                 `json:"-"`
+	RemoteDesktop          RemoteDesktopSession `json:"-"`
 }
 
 type LockResult struct {
@@ -907,6 +912,10 @@ type Command struct {
 	PrintOptions   PrintOptions
 	CallID         string
 	ExpectedDevice *string // guard a failed device switch against a newer selection
+
+	RemoteDesktopID    string
+	AllowRemoteControl bool
+	ShareRemoteAudio   bool
 }
 
 // Backend snapshots are detached copies. Submit queues work, never blocks the UI.

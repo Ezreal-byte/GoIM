@@ -23,6 +23,7 @@ import (
 	"goim/internal/localsend"
 	"goim/internal/neiwangtong"
 	"goim/internal/printing"
+	"goim/internal/remotedesktop"
 	"goim/internal/systemauth"
 )
 
@@ -113,6 +114,8 @@ type Node struct {
 	printAuthResults      map[string]domain.PrinterAuthResult
 	printAuthAfter        map[string]time.Time
 	voice                 *voiceSession
+	remoteEngine          remotedesktop.Engine
+	remoteDesktop         *remoteSession
 
 	localSend                      atomic.Pointer[localsend.Service]
 	localSendMu                    sync.Mutex
@@ -120,6 +123,10 @@ type Node struct {
 }
 
 func New(opts Options) (*Node, error) {
+	return newNode(opts, remotedesktop.Discover())
+}
+
+func newNode(opts Options, remoteEngine remotedesktop.Engine) (*Node, error) {
 	directory, err := ResolveDataDirectory(opts.DataDir)
 	if err != nil {
 		return nil, err
@@ -176,6 +183,7 @@ func New(opts Options) (*Node, error) {
 		printBackend: printBackend, printPollDelay: 900 * time.Millisecond,
 		printPollLimit: 30 * time.Minute, printPolls: make(map[string]bool),
 		printSubmitTokens: make(chan struct{}, 2),
+		remoteEngine:      remoteEngine,
 	}
 	n.hydrateGroupAvatars(&n.data.State)
 	newSettings := n.data.State.Settings.Theme == ""
@@ -331,6 +339,9 @@ func (n *Node) snapshot(urls bool) domain.State {
 		peer.Remark = n.data.PeerRemarks[id]
 		peer.ContactHidden = n.data.ContactVisibility[id] == contactHidden
 		peer.ContactDeleted = n.data.ContactVisibility[id] == contactDeleted
+		if pc := n.connections[peer.ID]; pc != nil {
+			peer.RemoteDesktopSupported = pc.peer.RemoteDesktopSupported
+		}
 	}
 	s.ContactRefresh = n.contactRefresh
 	n.addLocalSendSnapshot(&s)
@@ -374,6 +385,11 @@ func (n *Node) snapshot(urls bool) domain.State {
 	}
 	if n.voice != nil {
 		s.VoiceCall = n.voice.call
+	}
+	s.RemoteDesktopAvailable = n.remoteEngine != nil
+	if n.remoteDesktop != nil {
+		s.RemoteDesktop = n.remoteDesktop.view
+		s.RemoteDesktop.OutputDevices = slices.Clone(s.RemoteDesktop.OutputDevices)
 	}
 	return s
 }
@@ -463,6 +479,7 @@ func (n *Node) Close() error {
 		cancel()
 	}
 	n.closeVoiceLocked()
+	n.endRemoteDesktopLocked("ended")
 	legacy := n.legacy
 	if n.legacyLive != nil {
 		n.legacyLive.Store(false)

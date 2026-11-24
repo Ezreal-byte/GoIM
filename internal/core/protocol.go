@@ -65,6 +65,8 @@ type envelope struct {
 	Voice                domain.VoiceSignal
 	CallID               string
 	Audio                []byte
+	RemoteDesktopVersion int                  `json:",omitempty"`
+	RemoteDesktop        *remoteDesktopSignal `json:",omitempty"`
 }
 type peerConn struct {
 	dnsRequestDirectory *dnsDirectory
@@ -134,6 +136,9 @@ func (n *Node) hello() envelope {
 	e.PrintSupported = true
 	e.PrintCancelSupported = true
 	e.RelaySupported = true
+	if n.remoteEngine != nil {
+		e.RemoteDesktopVersion = remoteDesktopVersion
+	}
 	return e
 }
 func (n *Node) advertisedAddress() string {
@@ -191,6 +196,13 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 		n.serveFile(conn, hello, hello.Peer.ID)
 		return
 	}
+	if hello.Type == "remote_desktop_stream" {
+		defer conn.Close()
+		if !outbound {
+			n.serveRemoteDesktop(conn, hello.Peer.ID, hello.RemoteDesktop)
+		}
+		return
+	}
 	if hello.Type != "hello" {
 		conn.Close()
 		return
@@ -202,6 +214,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 	hello.Peer.PrintSupported = hello.PrintSupported
 	hello.Peer.PrintCancelSupported = hello.PrintCancelSupported
 	hello.Peer.RelaySupported = hello.RelaySupported
+	hello.Peer.RemoteDesktopSupported = hello.RemoteDesktopVersion == remoteDesktopVersion
 	if len(hello.Avatar) > 0 {
 		path, err := n.cacheAvatar(hello.Peer.ID, hello.Avatar)
 		if err != nil {
@@ -240,6 +253,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 			return
 		}
 		old.conn.Close()
+		n.remotePeerDisconnectedLocked(old)
 	}
 	if n.closing {
 		n.mu.Unlock()
@@ -281,6 +295,7 @@ func (n *Node) establishWithResult(ctx context.Context, conn *tls.Conn, outbound
 		if current {
 			delete(n.connections, pc.peer.ID)
 			delete(n.relayRoutes, pc.peer.ID)
+			n.remotePeerDisconnectedLocked(pc)
 		}
 		n.mu.Unlock()
 		if current {
@@ -582,6 +597,10 @@ func (n *Node) receive(peer string, e envelope) error {
 }
 
 func (n *Node) receiveFrom(peer string, e envelope, source *peerConn) error {
+	if e.Type == "remote_desktop_signal" {
+		n.receiveRemoteDesktop(peer, source, e.RemoteDesktop)
+		return nil
+	}
 	if e.Type == "peer_routes" {
 		return n.receivePeerRoutes(peer, e.Peers)
 	}

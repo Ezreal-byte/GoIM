@@ -12,6 +12,12 @@ output=${4:-dist}
 output=$(cd "$output" && pwd)
 name="GoIM_${version}_${platform}_${arch}"
 payload="$output/$name"
+remote_preview=false
+if [[ $version == *-rd-preview.* ]]; then
+    remote_preview=true
+    test -s "$payload/licenses/rustdesk/LICENSE"
+    test -s "$payload/licenses/rustdesk/manifest.json"
+fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/goim-package.XXXXXX")
 mounted=
 cleanup() {
@@ -32,7 +38,13 @@ case "$platform" in
         test -x "$payload/lib/goim/file-dialog/bin/zenity"
         [[ $(cat "$payload/lib/goim/file-dialog/architecture") == "$arch" ]]
         cp -R "$payload/lib" "$root/usr/"
+        if $remote_preview; then
+            test -x "$payload/lib/goim/remote/goim-rd"
+        fi
         update_key=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["update_public_key"])' "$payload/build-info.json")
+        if $remote_preview; then
+            [[ -z $update_key ]]
+        fi
         (cd "$script_dir/.." && GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -trimpath \
             -ldflags "-s -w -X goim/internal/buildinfo.UpdatePublicKey=$update_key" \
             -o "$root/usr/lib/goim/deb-update" ./cmd/goim-deb-update)
@@ -68,6 +80,11 @@ EOF
         cmp "$payload/GoIM" "$work/check/usr/bin/GoIM"
         cmp "$payload/goim-media" "$work/check/usr/bin/goim-media"
         cmp "$payload/goim-snip" "$work/check/usr/bin/goim-snip"
+        if $remote_preview; then
+            cmp "$payload/lib/goim/remote/goim-rd" "$work/check/usr/lib/goim/remote/goim-rd"
+            test -x "$work/check/usr/lib/goim/remote/goim-rd"
+            diff -r "$payload/licenses/rustdesk" "$work/check/usr/share/doc/goim/licenses/rustdesk"
+        fi
         test -x "$work/check/usr/lib/goim/deb-update"
         diff -r "$payload/lib/goim/file-dialog" "$work/check/usr/lib/goim/file-dialog"
         test -x "$work/check/usr/lib/goim/file-dialog/bin/zenity"
@@ -83,6 +100,12 @@ EOF
         codesign --verify --deep --strict "$online"
         [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$online/Contents/Info.plist") == dev.goim.desktop ]]
         [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$online/Contents/Info.plist") == "${version%%-*}" ]]
+        if $remote_preview; then
+            helper=Contents/Helpers/GoIMRemote.app
+            codesign --verify --strict "$online/$helper"
+            [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$online/$helper/Contents/Info.plist") == dev.goim.desktop.remote-desktop ]]
+            test -x "$online/$helper/Contents/MacOS/goim-rd"
+        fi
         mkdir "$work/image" "$work/mount"
         ditto "$payload/GoIM.app" "$work/image/GoIM.app"
         cp "$payload/README.md" "$payload/LICENSE" "$payload/THIRD_PARTY_NOTICES.md" "$payload/build-info.json" "$work/image/"
@@ -99,6 +122,12 @@ EOF
         shotlet=GoIM.app/Contents/Helpers/ShotletCapture.app/Contents/MacOS/ShotletCapture
         cmp "$payload/$shotlet" "$mounted/$shotlet"
         test -x "$mounted/$shotlet"
+        if $remote_preview; then
+            remote=GoIM.app/$helper/Contents/MacOS/goim-rd
+            cmp "$payload/$remote" "$mounted/$remote"
+            test -x "$mounted/$remote"
+            diff -r "$payload/licenses/rustdesk" "$mounted/licenses/rustdesk"
+        fi
         test "$(readlink "$mounted/Applications")" = /Applications
         hdiutil detach "$mounted"
         mounted=

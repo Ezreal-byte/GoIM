@@ -67,6 +67,7 @@ func (n *Node) updateLock(c domain.Command) error {
 			return nil
 		})
 		if err == nil && c.Bool {
+			n.endRemoteDesktopForLock()
 			n.endVoiceBeforeLock()
 		}
 		return err
@@ -100,9 +101,11 @@ func (n *Node) updateLock(c domain.Command) error {
 		if !old.set() {
 			return errors.New("请先设置锁定密码")
 		}
+		n.endRemoteDesktopForLock()
 		n.endVoiceBeforeLock()
 		return n.change(func(s *domain.State) {
 			s.Locked = true
+			n.endRemoteDesktopLocked("locked")
 			s.Error, s.Notice = "", ""
 		})
 	case domain.UnlockApp:

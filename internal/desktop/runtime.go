@@ -71,6 +71,10 @@ type desktopRuntime struct {
 	voiceDismissedID    string
 	voicePopupFailed    string
 	systemInvitation    *systemCallInvitation
+
+	remoteDesktopView        *remoteDesktopView
+	remoteDesktopDismissedID string
+	remoteDesktopNotifiedID  string
 }
 
 type detachedConversationWindow struct {
@@ -181,6 +185,7 @@ func Run(backend domain.Backend, restartArguments []string, reopen <-chan struct
 				r.voiceWindow.Close()
 			}
 			r.closeViewer()
+			r.closeRemoteDesktop()
 			r.closeUnreadTrayPanel()
 			r.closeDetachedConversations()
 			r.closePrintWindows()
@@ -243,7 +248,8 @@ func Run(backend domain.Backend, restartArguments []string, reopen <-chan struct
 			}
 			show()
 		}, Menu: func() []app.MenuItem {
-			items := append(r.voiceTrayItems(), r.unreadTrayItems()...)
+			items := append(r.voiceTrayItems(), r.remoteDesktopTrayItems()...)
+			items = append(items, r.unreadTrayItems()...)
 			return append(items, app.MenuItem{Title: i18n.T("打开 GoIM"), OnSelect: show}, app.MenuItem{Separator: true}, app.MenuItem{Title: i18n.T("退出 GoIM"), OnSelect: func() {
 				if hasActiveTransfers(shell.state.Transfers) && !shell.state.Locked {
 					show()
@@ -329,6 +335,7 @@ func (r *desktopRuntime) observe() {
 	}
 	r.applyGlobal(s)
 	r.syncVoiceWindow(s, locked)
+	r.syncRemoteDesktop(s, locked)
 	attention := false
 	unread := 0
 	for _, c := range s.Conversations {

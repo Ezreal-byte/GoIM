@@ -791,6 +791,7 @@ func (u *UI) drawComposerToolbar(f ui.C) {
 			if call.Clicked() {
 				u.startVoiceCall(conversation.PeerID)
 			}
+			u.drawRemoteDesktopButton(f, peer)
 		}
 	})
 }

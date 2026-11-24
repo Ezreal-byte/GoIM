@@ -226,7 +226,7 @@ type appIDs struct {
 	chatHeaderSearch                                                       gfx.ID
 	chatHeaderMembers                                                      gfx.ID
 	chatHeaderMore                                                         gfx.ID
-	chatHeaderCall                                                         gfx.ID
+	chatHeaderCall, chatRemoteDesktop                                      gfx.ID
 	chatSearchField                                                        gfx.ID
 	chatSearchClose                                                        gfx.ID
 	chatEmptyConnect                                                       gfx.ID
@@ -1262,6 +1262,7 @@ func (u *UI) initIDs() {
 	u.ids.chatHeaderMembers = u.tree.ID(u.ids.chat, "header-members")
 	u.ids.chatHeaderMore = u.tree.ID(u.ids.chat, "header-more")
 	u.ids.chatHeaderCall = u.tree.ID(u.ids.chat, "header-call")
+	u.ids.chatRemoteDesktop = u.tree.ID(u.ids.chat, "remote-desktop")
 	u.ids.chatSearchField = u.tree.ID(u.ids.chat, "find-field")
 	u.ids.chatSearchClose = u.tree.ID(u.ids.chat, "find-close")
 	u.ids.chatEmptyConnect = u.tree.ID(u.ids.chat, "empty-connect")

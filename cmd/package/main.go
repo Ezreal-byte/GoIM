@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -63,7 +64,12 @@ func build() error {
 	stamp := flag.String("stamp-windows", "", "apply the Windows icon and metadata to an existing GoIM executable")
 	stageCapture := flag.String("stage-shotlet", "", "build and stage the Shotlet helper beside a Windows development build")
 	mediaDir := flag.String("stage-media", "", "stage the offline media decoder for a development build")
+	remoteDesktopDir := flag.String("remote-desktop-bundle", "", "include a local RustDesk helper bundle in an rd-preview package")
+	remoteDesktopSHA := flag.String("remote-desktop-manifest-sha256", "", "expected SHA-256 of the preview helper's manifest.json")
 	flag.Parse()
+	if (*remoteDesktopDir != "" || *remoteDesktopSHA != "") && (*mediaDir != "" || *stamp != "" || *stageCapture != "") {
+		return fmt.Errorf("remote desktop preview requires a full package build")
+	}
 	if *mediaDir != "" {
 		return stageMedia(*mediaDir, *mediaDir)
 	}
@@ -79,6 +85,18 @@ func build() error {
 	}
 	if *windowsSetup && runtime.GOOS != "windows" {
 		return fmt.Errorf("--windows-setup requires a native Windows build")
+	}
+	preview, err := openRemoteDesktopBundle(*remoteDesktopDir, *remoteDesktopSHA, *version)
+	if err != nil {
+		return err
+	}
+	if preview != nil {
+		defer preview.root.Close()
+		if strings.TrimSpace(os.Getenv("GOIM_UPDATE_PUBLIC_KEY")) != "" {
+			return fmt.Errorf("unset GOIM_UPDATE_PUBLIC_KEY when building a remote desktop preview")
+		}
+	} else if remoteDesktopPreviewVersion(*version) {
+		return fmt.Errorf("remote desktop preview requires a verified helper bundle")
 	}
 	sourceCommit := strings.TrimSpace(*commit)
 	if sourceCommit == "" {
@@ -120,14 +138,29 @@ func build() error {
 	}
 	name := "GoIM_" + *version + "_" + runtime.GOOS + "_" + runtime.GOARCH
 	staging := filepath.Join(*out, name)
-	if err := os.MkdirAll(staging, 0755); err != nil {
+	if preview != nil {
+		if err := os.MkdirAll(*out, 0755); err != nil {
+			return err
+		}
+		if err := os.Mkdir(staging, 0755); err != nil {
+			return fmt.Errorf("create a fresh remote desktop preview staging directory: %w", err)
+		}
+	} else if err := os.MkdirAll(staging, 0755); err != nil {
 		return err
+	}
+	if preview != nil && runtime.GOOS != "darwin" {
+		if err := preview.stage(staging, platformVersion); err != nil {
+			return fmt.Errorf("stage remote desktop preview: %w", err)
+		}
 	}
 	executable := filepath.Join(staging, "GoIM")
 	if runtime.GOOS == "windows" {
 		executable += ".exe"
 	}
 	ld := packageLinkerFlags(*version, sourceCommit, facts, runtime.GOOS == "windows")
+	if preview != nil {
+		ld += " -X goim/internal/remotedesktop.ValidationBuild=1"
+	}
 	args := []string{"build", "-trimpath", "-ldflags", ld}
 	if runtime.GOOS == "linux" {
 		args = append(args, "-tags", "vivaxembed")
@@ -202,6 +235,11 @@ func build() error {
 		if err = stageMedia(filepath.Join(bundle, "Contents", "Resources"), filepath.Join(bundle, "Contents", "MacOS")); err != nil {
 			return err
 		}
+		if preview != nil {
+			if err := preview.stage(staging, platformVersion); err != nil {
+				return fmt.Errorf("stage remote desktop preview: %w", err)
+			}
+		}
 		if err = run("codesign", "--force", "--sign", "-", bundle); err != nil {
 			return err
 		}
@@ -251,6 +289,11 @@ func build() error {
 		"source": facts.source, "source_ref": facts.ciRef, "run_id": facts.ciRunID,
 		"build_time": facts.buildTime, "ci_url": facts.ciURL, "update_public_key": facts.updateKey,
 		"desktop_validation": "Windows loopback and offscreen tests; native shortcut lifecycle tests; physical multi-device desktop validation pending",
+	}
+	if preview != nil {
+		if err := preview.recordProvenance(staging, info); err != nil {
+			return fmt.Errorf("record remote desktop helper provenance: %w", err)
+		}
 	}
 	b, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
@@ -505,20 +548,30 @@ func verifyPortableLinuxBinary(path string) error {
 	if runtime.GOOS != "linux" {
 		return nil
 	}
-	f, err := elf.Open(path)
+	libraries, versions, err := readLinuxDynamicRequirements(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	libraries, err := f.ImportedLibraries()
+	return verifyLinuxDynamicRequirements(filepath.Base(path), libraries, versions)
+}
+
+func readLinuxDynamicRequirements(path string) (libraries, versions []string, err error) {
+	f, err := elf.Open(path)
 	if err != nil {
-		return fmt.Errorf("inspect Linux dynamic dependencies: %w", err)
+		return nil, nil, err
+	}
+	defer f.Close()
+	libraries, err = f.ImportedLibraries()
+	if err != nil {
+		return nil, nil, fmt.Errorf("inspect Linux dynamic dependencies: %w", err)
 	}
 	symbols, err := f.ImportedSymbols()
-	if err != nil {
-		return fmt.Errorf("inspect Linux dynamic symbols: %w", err)
+	if errors.Is(err, elf.ErrNoSymbols) && len(libraries) == 0 {
+		return nil, nil, nil
 	}
-	var versions []string
+	if err != nil {
+		return nil, nil, fmt.Errorf("inspect Linux dynamic symbols: %w", err)
+	}
 	seen := make(map[string]bool)
 	for _, symbol := range symbols {
 		if strings.HasPrefix(symbol.Version, "GLIBC_") && !seen[symbol.Version] {
@@ -526,7 +579,7 @@ func verifyPortableLinuxBinary(path string) error {
 			versions = append(versions, symbol.Version)
 		}
 	}
-	return verifyLinuxDynamicRequirements(filepath.Base(path), libraries, versions)
+	return libraries, versions, nil
 }
 
 func verifyLinuxDynamicRequirements(name string, libraries, versions []string) error {
@@ -545,7 +598,10 @@ func verifyLinuxDynamicRequirements(name string, libraries, versions []string) e
 		sort.Strings(unexpected)
 		return fmt.Errorf("%s links libraries outside the Linux baseline (%s)", name, strings.Join(unexpected, ", "))
 	}
+	return verifyLinuxGLIBC(name, versions)
+}
 
+func verifyLinuxGLIBC(name string, versions []string) error {
 	const maximum = "2.31"
 	var newer []string
 	for _, requirement := range versions {

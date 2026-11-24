@@ -1,0 +1,55 @@
+package i18n
+
+func init() {
+	for label, english := range map[string]string{
+		"远程桌面":      "Remote desktop",
+		"远程协助":      "Remote assistance",
+		"远程桌面 · %s": "Remote desktop · %s",
+		"当前构建未提供远程桌面助手":  "This build does not include the remote desktop helper.",
+		"请先解锁 GoIM":      "Unlock GoIM first.",
+		"请先结束当前远程协助":     "End the current remote assistance session first.",
+		"联系人上线后即可请求远程协助": "Request remote assistance when the contact is online.",
+		"对方客户端不支持远程桌面":   "The other client does not support remote desktop.",
+		"远程协助请求":         "Remote assistance request",
+		"仅查看":            "View only",
+		"允许控制":           "Allow control",
+		"仅查看会共享屏幕。允许控制还会让对方操作本机的键盘和鼠标。": "View only shares your screen. Allow control also lets the other person use your keyboard and mouse.",
+		"共享本机系统声音":                       "Share system audio",
+		"正在共享系统声音":                       "Sharing system audio",
+		"等待对方确认远程协助…":                    "Waiting for the other person to accept…",
+		"正在建立远程协助…":                      "Connecting to the remote desktop…",
+		"正在共享屏幕":                         "Sharing your screen",
+		"停止共享":                           "Stop sharing",
+		"对方正在查看你的屏幕":                     "The other person can see your screen.",
+		"对方可以操作本机的键盘和鼠标":                 "The other person can use your keyboard and mouse.",
+		"无法打开远程桌面窗口":                     "Could not open the remote desktop window",
+		"对方已拒绝远程协助":                      "The other person declined remote assistance.",
+		"远程协助请求已过期":                      "The remote assistance request expired.",
+		"远程桌面连接已断开":                      "The remote desktop disconnected.",
+		"系统未授予屏幕或控制权限":                   "The system did not grant screen sharing or control permission.",
+		"当前桌面环境不支持远程协助":                  "This desktop environment does not support remote assistance.",
+		"对方正在进行远程协助":                     "The other person is already in a remote assistance session.",
+		"应用锁定，远程协助已结束":                   "Remote assistance ended when GoIM locked.",
+		"未能建立远程桌面连接":                     "Could not connect to the remote desktop.",
+		"远程屏幕":                           "Remote screen",
+		"点击画面以控制。按 Ctrl+Shift+F12 释放键鼠。": "Click the screen to take control. Press Ctrl+Shift+F12 to release the keyboard and mouse.",
+		"正在等待远程画面…":                      "Waiting for the remote screen…",
+		"正在控制":                           "Controlling",
+		"点击画面以控制":                        "Click the screen to take control",
+		"当前窗口无法切换全屏":                     "This window cannot switch to full screen.",
+		"未能发送远程控制指令":                     "Could not send the remote desktop command.",
+		"切换远端应用":                         "Switch remote apps",
+		"关闭远端窗口":                         "Close remote window",
+		"释放键鼠":                           "Release input",
+		"声音":                             "Sound",
+		"静音":                             "Mute",
+		"取消静音":                           "Unmute",
+		"全屏":                             "Full screen",
+		"退出全屏":                           "Exit full screen",
+		"结束协助":                           "End assistance",
+	} {
+		if _, exists := en[label]; !exists {
+			en[label] = english
+		}
+	}
+}

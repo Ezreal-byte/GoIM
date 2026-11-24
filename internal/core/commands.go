@@ -373,6 +373,14 @@ func (n *Node) execute(c domain.Command) error {
 		n.change(func(s *domain.State) { s.Error = c.Text })
 	case domain.StartVoiceCall:
 		return n.startVoiceCall(c.PeerID)
+	case domain.StartRemoteDesktop:
+		return n.startRemoteDesktop(c.PeerID)
+	case domain.AcceptRemoteDesktop:
+		return n.acceptRemoteDesktop(c.RemoteDesktopID, c.AllowRemoteControl, c.ShareRemoteAudio)
+	case domain.RejectRemoteDesktop:
+		return n.stopRemoteDesktop(c.RemoteDesktopID, "declined")
+	case domain.EndRemoteDesktop:
+		return n.stopRemoteDesktop(c.RemoteDesktopID, "ended")
 	case domain.AcceptVoiceCall:
 		return n.acceptVoiceCall(c.CallID)
 	case domain.RejectVoiceCall:
