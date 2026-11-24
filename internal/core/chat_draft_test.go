@@ -51,3 +51,38 @@ func TestMixedChatDraftDeliversInOrderAndKeepsUnsentSuffix(t *testing.T) {
 		}
 	}
 }
+
+func TestMixedChatDraftPreservesNewerDraftAndStopsWhenLocked(t *testing.T) {
+	sender, receiver := testNode(t, "sender"), testNode(t, "receiver")
+	connectNodes(t, sender, receiver)
+	id := direct(t, sender, receiver)
+	path := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(path, []byte("attachment"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	step := chatDraftStep{{Path: path}}
+	newer := []domain.ChatDraftPart{{Text: "另一窗口正在编辑"}, {Path: path}}
+	if err := sender.execute(domain.Command{Kind: domain.SaveDraft, ConversationID: id, Text: domain.ChatDraftText(newer), DraftParts: newer}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.sendChatDraft(id, step); err == nil {
+		t.Fatal("stale draft passed the batch submission check")
+	}
+	// The other window may edit after a batch starts, while this file is read.
+	if err := sender.sendFileWithLink(id, path, false, "", browserShare{}, step); err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.change(func(s *domain.State) { s.Locked = true }); err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.sendFileWithLink(id, path, false, "", browserShare{}, chatDraftStep(newer[1:])); err == nil {
+		t.Fatal("the pending attachment was accepted after the application locked")
+	}
+	snapshot := sender.Snapshot()
+	if got := snapshot.Conversation(id).DraftParts; !slices.Equal(got, newer) {
+		t.Fatalf("pending send changed the newer draft: %+v", got)
+	}
+	if got := snapshot.ChatMessages(id); len(got) != 1 {
+		t.Fatalf("message committed after lock: %+v", got)
+	}
+}

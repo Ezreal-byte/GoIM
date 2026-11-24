@@ -169,3 +169,33 @@ func TestMixedChatDraftScrollsToCaretAfterManyAttachments(t *testing.T) {
 		t.Fatalf("Backspace left %d attachments, want 29", got)
 	}
 }
+
+func TestMixedChatDraftDoesNotSaveUnchangedDraftFromAnotherWindow(t *testing.T) {
+	state := shellTestState(t)
+	path := filepath.Join(t.TempDir(), "report.pdf")
+	for index := range state.Conversations {
+		if state.Conversations[index].ID == "conv-alice" {
+			state.Conversations[index].DraftParts = []domain.ChatDraftPart{{Path: path}}
+		}
+	}
+	h := newShellTestHarness(t, state)
+	h.ui.selectConversation("conv-alice")
+	h.settle()
+
+	before := len(h.backend.commandLog())
+	h.ui.saveCurrentDraft()
+	if hasCommandKind(h.backend.commandLog()[before:], domain.SaveDraft) {
+		t.Fatal("an untouched draft was written back from a second window")
+	}
+	h.backend.deferCommandResult = true
+	h.clickID(h.ui.ids.chatSend)
+	command, _ := findShellCommand(h.backend.commandLog(), domain.SendChatDraft)
+	command.OnResult(nil)
+	h.ui.onWake()
+	if h.ui.mixedDraft("conv-alice") != nil {
+		t.Fatal("sent draft is still visible")
+	}
+	if hasCommandKind(h.backend.commandLog()[before:], domain.SaveDraft) {
+		t.Fatal("send completion overwrote the persisted draft")
+	}
+}

@@ -23,6 +23,7 @@ type mixedChatDraft struct {
 	texts  []*draftText
 	files  []draftFile
 	active int
+	saved  []domain.ChatDraftPart
 }
 
 type draftText struct {
@@ -224,7 +225,7 @@ func (draft *mixedChatDraft) parts() []domain.ChatDraftPart {
 }
 
 func (u *UI) restoreMixedDraft(id string, parts []domain.ChatDraftPart) *mixedChatDraft {
-	draft := &mixedChatDraft{}
+	draft := &mixedChatDraft{saved: parts}
 	var value strings.Builder
 	for _, part := range parts {
 		if part.Path == "" {
@@ -290,15 +291,14 @@ func (u *UI) finishMixedChatSubmissions() {
 			}
 			remaining := pending.parts[accepted:]
 			delete(u.chatDrafts, id)
-			delete(u.draftSaved, id)
 			u.drafts[id] = domain.ChatDraftText(remaining)
+			u.draftSaved[id] = u.drafts[id]
 			u.restoreMixedDraft(id, remaining)
 			if id == u.selected {
 				u.loadDraft(id)
 				u.focusChat = true
 				u.chatScrollToEnd = true
 			}
-			u.persistDraft(id, u.drafts[id])
 		default:
 		}
 	}

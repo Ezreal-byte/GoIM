@@ -30,7 +30,7 @@ func nativeGroupFolderStage(task domain.Transfer) string {
 	return stage
 }
 
-func (n *Node) sendNeiwangtongDirectory(conversationID, path, target string) error {
+func (n *Node) sendNeiwangtongDirectory(conversationID, path, target string, draft chatDraftStep) error {
 	dir, err := neiwangtong.InspectDirectory(path)
 	if err != nil {
 		return err
@@ -42,6 +42,9 @@ func (n *Node) sendNeiwangtongDirectory(conversationID, path, target string) err
 	err = n.durable(func(p *persisted) []pending {
 		s := &p.State
 		c := s.Conversation(conversationID)
+		if denied = draft.check(s, c); denied != nil {
+			return nil
+		}
 		nativeGroup := c.Kind == "group" && p.NativeGroups[c.GroupID].WireID != ""
 		if !nativeGroup && (c.Kind != "direct" || s.Peer(c.PeerID).Transport != transportNWT) {
 			denied = errors.New("文件夹直传目前仅支持内网通会话")
@@ -62,6 +65,7 @@ func (n *Node) sendNeiwangtongDirectory(conversationID, path, target string) err
 		s.Files = append(s.Files, f)
 		addMessageState(s, domain.Message{ID: f.ID, FileID: f.ID, Kind: "file", Text: attachmentPreview(f),
 			ConversationID: conversationID, SenderID: f.SenderID, CreatedAt: now, Status: "sent"})
+		draft.advance(s, conversationID)
 		p.MessageTargets[f.ID] = targets
 		var offers []pending
 		for _, peer := range targets {

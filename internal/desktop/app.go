@@ -12,6 +12,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -2607,7 +2608,10 @@ func (u *UI) persistDraft(conversationID, value string) {
 	}
 	if draft := u.mixedDraft(conversationID); draft != nil {
 		parts := draft.parts()
-		u.submit(domain.Command{Kind: domain.SaveDraft, ConversationID: conversationID, Text: domain.ChatDraftText(parts), DraftParts: parts})
+		if !slices.Equal(draft.saved, parts) {
+			draft.saved = parts
+			u.submit(domain.Command{Kind: domain.SaveDraft, ConversationID: conversationID, Text: domain.ChatDraftText(parts), DraftParts: parts})
+		}
 		return
 	}
 	if saved, ok := u.draftSaved[conversationID]; ok && saved == value {

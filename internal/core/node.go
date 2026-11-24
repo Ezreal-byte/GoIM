@@ -63,6 +63,7 @@ type Node struct {
 	closing               bool
 	shareSessions         map[string]domain.ShareSession
 	shareWorker           bool
+	chatDraftsSending     map[string]bool // protected by mu
 	transfers             map[string]context.CancelFunc
 	discovery             bool
 	discoveryWake         chan struct{}
