@@ -21,5 +21,5 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
-// Use the GoIM fork for the status item hover contract (Viva PR #391).
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261123092052-5d519d2dafb8
+// Use the GoIM fork for tray integration and the macOS startup guard.
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261124045312-752a82b3ca19
