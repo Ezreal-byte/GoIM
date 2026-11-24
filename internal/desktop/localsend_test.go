@@ -155,13 +155,21 @@ func TestLocalSendReceiveFolderPicker(t *testing.T) {
 	state.Revision++
 	state.Settings.LocalSendDownloadDir = folder
 	h.publish(state)
-	if !h.hasText(folder) {
-		t.Fatal("new destination not displayed")
+	for _, text := range h.snapshot().Texts {
+		if text.Value == folder {
+			return
+		}
+		// Narrow windows may paint only the start of the temporary path.
+		if before, shortened := strings.CutSuffix(text.Value, "…"); shortened && before != "" && strings.HasPrefix(folder, before) {
+			return
+		}
 	}
+	t.Fatal("new destination not displayed")
 }
 
 func TestLocalSendReceiveFolderSaveFailure(t *testing.T) {
 	state := shellMinimalState(t)
+	state.Settings.DownloadDir = "Original downloads"
 	state.Settings.LastSection = sectionLocalSend
 	state.Settings.LocalSend.Enabled = true
 	state.LocalSend = domain.LocalSendStatus{Active: true, Offer: domain.LocalSendOffer{
@@ -181,8 +189,8 @@ func TestLocalSendReceiveFolderSaveFailure(t *testing.T) {
 
 	const problem = "cannot save receive directory"
 	h.lastCommand().OnResult(errors.New(problem))
-	h.settle()
-	if h.ui.toasts[0].message.Description != problem || !h.hasText(state.Settings.DownloadDir) {
+	h.waitFor(func() bool { return h.ui.toasts[0].message.Description == problem })
+	if !h.hasText(state.Settings.DownloadDir) {
 		t.Fatal("save failure should report the error and keep showing the old directory")
 	}
 	if hit, ok := h.findHit(acceptID); !ok || hit.Disabled {
