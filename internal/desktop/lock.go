@@ -27,6 +27,7 @@ type lockUIState struct {
 	systemButton, revealButton        gfx.ID
 	field, confirmation               ui.Field
 	setup, pending, focused, revealed bool
+	restoreMotion                     bool
 	request                           uint64
 	err                               string
 	systemBusy                        bool

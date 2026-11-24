@@ -120,3 +120,24 @@ func TestSuccessNoticeUsesToastAndIsCleared(t *testing.T) {
 		t.Fatal("success notice was rendered as a persistent page banner")
 	}
 }
+
+func TestLockScreenSuppressesExitingToast(t *testing.T) {
+	state := shellMinimalState(t)
+	state.Settings.HasLockPassword = true
+	h := newShellTestHarness(t, state)
+	state.Notice = "锁定前的会话提示"
+	state.Revision++
+	h.publish(state)
+	h.settle()
+	if !h.hasText(state.Notice) {
+		t.Fatal("the test toast was not visible before locking")
+	}
+
+	state.Locked = true
+	state.Notice = ""
+	state.Revision++
+	h.publish(state)
+	if h.hasText("锁定前的会话提示") {
+		t.Fatal("the locked screen replayed a toast from the unlocked workspace")
+	}
+}
