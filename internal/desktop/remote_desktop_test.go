@@ -60,49 +60,6 @@ func TestRemoteDesktopButtonFollowsVoiceInDirectChat(t *testing.T) {
 	}
 }
 
-func TestRemoteDesktopConsentRequiresSeparateAudioChoice(t *testing.T) {
-	for _, tc := range []struct {
-		name, button string
-		control      bool
-		audio        bool
-	}{
-		{name: "view only", button: "仅查看"},
-		{name: "allow control", button: "允许控制", control: true},
-		{name: "allow control and audio", button: "允许控制", control: true, audio: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			state := remoteDesktopTestState(t)
-			state.RemoteDesktop = domain.RemoteDesktopSession{
-				ID: "incoming", Incoming: true, PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopPending,
-			}
-			view := newRemoteDesktopView(state)
-			var gotControl, gotAudio bool
-			decisions := 0
-			view.stop = func() {}
-			view.accept = func(control, audio bool) {
-				decisions++
-				gotControl, gotAudio = control, audio
-			}
-			driver := newRemoteDesktopTestDriver(t, view.config())
-			t.Cleanup(view.dispose)
-			if decisions != 0 || view.consentAudio {
-				t.Fatal("consent was granted automatically")
-			}
-			if tc.audio {
-				clickRemoteDesktopControl(t, driver, "共享本机系统声音")
-			}
-			clickRemoteDesktopControl(t, driver, tc.button)
-			if decisions != 1 || gotControl != tc.control || gotAudio != tc.audio {
-				t.Fatalf("decisions=%d, control=%t, audio=%t", decisions, gotControl, gotAudio)
-			}
-			clickRemoteDesktopControl(t, driver, tc.button)
-			if decisions != 1 {
-				t.Fatal("consent was sent twice")
-			}
-		})
-	}
-}
-
 func TestRemoteDesktopConsentFitsLargeText(t *testing.T) {
 	previous := i18n.Language()
 	t.Cleanup(func() { i18n.SetLanguage(previous) })
@@ -115,6 +72,7 @@ func TestRemoteDesktopConsentFitsLargeText(t *testing.T) {
 				ID: "large-consent", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopPending, Incoming: true,
 			}
 			view := newRemoteDesktopView(state)
+			view.avatarShell = &UI{theme: view.theme, palette: paletteFor(view.theme, state.Settings.ColorScheme)}
 			t.Cleanup(view.dispose)
 			config := view.config()
 			config.Width, config.Height = config.MinWidth, config.MinHeight

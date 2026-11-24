@@ -12,7 +12,11 @@ import (
 )
 
 func (u *UI) voiceInvitationSize() (int, int) {
-	scale := max(float32(1), u.theme.Metrics.ScaledText(1))
+	return invitationSize(u.theme)
+}
+
+func invitationSize(theme ui.Theme) (int, int) {
+	scale := max(float32(1), theme.Metrics.ScaledText(1))
 	return int(math.Ceil(float64(368 * scale))), int(math.Ceil(float64(92 * scale)))
 }
 
@@ -73,15 +77,18 @@ func invitationCaller(state domain.State, locked bool) (name, avatar, body strin
 }
 
 func invitationButton(f ui.C, id gfx.ID, label string, color ui.Color, rotation float32) ui.Box {
+	return invitationAction(f, id, label, color).Children(func() {
+		ui.Icon(f, Phone).Size(22, 22).Color(ui.RGB(255, 255, 255)).IconTransform(gfx.IconTransform{Rotate: rotation})
+	})
+}
+
+func invitationAction(f ui.C, id gfx.ID, label string, color ui.Color) ui.Box {
 	const diameter = 44
 	ink := ui.RGB(0, 0, 0)
 	return ui.Row(f).Size(diameter, diameter).Shrink(0).Radius(diameter/2).Background(color).
 		Items(ui.Center).Justify(ui.Center).
 		Hover(ui.Look{}.Background(color.Mix(ink, .10))).Pressed(ui.Look{}.Background(color.Mix(ink, .20))).
-		Focus(ui.Look{}.Ring(2, f.Theme().Ring)).HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton}).
-		Children(func() {
-			ui.Icon(f, Phone).Size(22, 22).Color(ui.RGB(255, 255, 255)).IconTransform(gfx.IconTransform{Rotate: rotation})
-		})
+		Focus(ui.Look{}.Ring(2, f.Theme().Ring)).HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton})
 }
 
 // The tray gives keyboard users the same guarded actions as the non-focusable

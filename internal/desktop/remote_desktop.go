@@ -83,15 +83,18 @@ type remoteDesktopView struct {
 	session      domain.RemoteDesktopSession
 	mode         remoteDesktopWindowMode
 	peerName     string
+	peerAvatar   string
+	avatarID     uint64
+	avatarShell  *UI
 	theme        ui.Theme
 	tree         gfx.Tree
 	page         *ui.Page
 	wake         app.Invalidator
 	stopID       gfx.ID
+	acceptID     gfx.ID
 	handle       *app.Window
-	accept       func(control, audio bool)
+	accept       func()
 	stop         func()
-	consentAudio bool
 	decisionSent bool
 	viewer       *remoteDesktopViewer
 }
@@ -103,15 +106,24 @@ func newRemoteDesktopView(state domain.State) *remoteDesktopView {
 	}
 	view.update(state)
 	view.page = ui.NewPage(ui.PageConfig{Root: "remote-desktop", Tree: &view.tree, Theme: &view.theme})
-	view.stopID = view.tree.ID(view.tree.Feature("remote-desktop-actions"), "stop")
+	actions := view.tree.Feature("remote-desktop-actions")
+	view.stopID = view.tree.ID(actions, "stop")
+	if view.mode == remoteDesktopWindowConsent {
+		view.acceptID = view.tree.ID(actions, "accept-control")
+	}
 	return view
 }
 
 func (v *remoteDesktopView) update(state domain.State) {
 	v.session = state.RemoteDesktop
 	name := v.session.PeerName
+	v.peerAvatar = ""
 	if peer, ok := state.LookupPeer(v.session.PeerID); ok {
 		name = defaultIfEmpty(peer.DisplayName(), name)
+		v.peerAvatar = peer.Avatar
+	}
+	if v.avatarShell != nil {
+		v.avatarID = v.avatarShell.avatarBitmap(v.peerAvatar).ID
 	}
 	v.peerName = defaultIfEmpty(name, i18n.T("未知联系人"))
 	v.theme = themeForSettings(state.Settings)
@@ -192,29 +204,6 @@ func (v *remoteDesktopView) windowHeading() string {
 	}
 }
 
-func (v *remoteDesktopView) drawConsentActions(f ui.C) {
-	ui.Row(f).FillWidth().Justify(ui.End).Items(ui.Center).Gap(8).Children(func() {
-		if namedButton(f, v.stopID, i18n.T("拒绝")).Outline().Clicked() {
-			f.After(v.stop)
-		}
-		if ui.Button(f.Part("view-only"), i18n.T("仅查看")).Outline().Disabled(v.decisionSent).Clicked() {
-			v.allow(f, false)
-		}
-		if ui.Button(f.Part("allow-control"), i18n.T("允许控制")).Disabled(v.decisionSent).Clicked() {
-			v.allow(f, true)
-		}
-	})
-}
-
-func (v *remoteDesktopView) allow(f ui.C, control bool) {
-	if v.decisionSent || v.accept == nil {
-		return
-	}
-	v.decisionSent = true
-	audio := v.consentAudio
-	f.After(func() { v.accept(control, audio) })
-}
-
 func (v *remoteDesktopView) drawStop(f ui.C, label string) {
 	ui.Row(f).FillWidth().Justify(ui.End).Children(func() {
 		if namedButton(f, v.stopID, label).Outline().Clicked() {
@@ -245,29 +234,24 @@ func (r *desktopRuntime) syncRemoteDesktop(state domain.State, locked bool) {
 	if r.remoteDesktopView != nil {
 		view := r.remoteDesktopView
 		oldSession, oldName, oldTheme := view.session, view.peerName, view.theme
+		oldAvatar := view.avatarID
 		view.update(state)
 		devicesChanged := !slices.Equal(oldSession.OutputDevices, view.session.OutputDevices)
 		if view.viewer != nil && devicesChanged {
 			view.viewer.setDevices(view.session.OutputDevices)
 		}
 		if oldSession.Status != view.session.Status || oldSession.Control != view.session.Control || oldSession.Audio != view.session.Audio ||
-			oldName != view.peerName || oldTheme != view.theme || devicesChanged {
+			oldName != view.peerName || oldTheme != view.theme || oldAvatar != view.avatarID || devicesChanged {
 			view.wake.Invalidate()
 		}
 		return
 	}
 
 	view := newRemoteDesktopView(state)
-	view.accept = func(control, audio bool) {
-		current := r.backend.Snapshot()
-		if current.Locked || r.ui.lockVisible() || current.RemoteDesktop.ID != session.ID ||
-			remoteDesktopWindowFor(current.RemoteDesktop) != remoteDesktopWindowConsent {
-			return
-		}
-		r.backend.Submit(domain.Command{
-			Kind: domain.AcceptRemoteDesktop, RemoteDesktopID: session.ID,
-			AllowRemoteControl: control, ShareRemoteAudio: audio,
-		})
+	if mode == remoteDesktopWindowConsent {
+		view.avatarShell = r.ui
+		view.avatarID = r.ui.avatarBitmap(view.peerAvatar).ID
+		view.accept = func() { r.acceptRemoteDesktopInvitation(session.ID) }
 	}
 	view.stop = func() { r.dismissRemoteDesktop(view) }
 	if mode == remoteDesktopWindowViewing {
@@ -317,6 +301,17 @@ func (r *desktopRuntime) syncRemoteDesktop(state domain.State, locked bool) {
 	if view.viewer != nil {
 		view.viewer.start()
 	}
+}
+
+func (r *desktopRuntime) acceptRemoteDesktopInvitation(id string) {
+	current := r.backend.Snapshot()
+	if current.Locked || r.ui.lockVisible() || current.RemoteDesktop.ID != id ||
+		remoteDesktopWindowFor(current.RemoteDesktop) != remoteDesktopWindowConsent {
+		return
+	}
+	r.backend.Submit(domain.Command{
+		Kind: domain.AcceptRemoteDesktop, RemoteDesktopID: id, AllowRemoteControl: true,
+	})
 }
 
 func (r *desktopRuntime) failRemoteDesktopWindow(view *remoteDesktopView, detail string) {
