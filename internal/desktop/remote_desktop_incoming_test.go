@@ -100,30 +100,35 @@ func TestRemoteDesktopConsentScreenshotQA(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			state := remoteDesktopTestState(t)
 			state.Settings.Language, state.Settings.Theme, state.Settings.InterfaceFontSize = tc.lang, tc.theme, tc.font
-			state.Peers[0].Avatar = filepath.Join(t.TempDir(), "avatar.png")
-			writePromoAvatar(t, state.Peers[0].Avatar, 1)
 			state.RemoteDesktop = domain.RemoteDesktopSession{
 				ID: "incoming", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopPending, Incoming: true,
 			}
-			shell := newUIShell(newShellTestBackend(state), false)
-			t.Cleanup(shell.Close)
-			view := newRemoteDesktopView(state)
-			view.avatarShell = shell
-			t.Cleanup(view.dispose)
-			session, err := vivaheadless.Open(view.config(), nil, vivaheadless.Options{Scale: 1})
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(session.Close)
-			if err := session.WaitFor(func(_ app.Snapshot) bool {
-				shell.applyMediaResults()
-				return bitmapReady(shell.avatarBitmap(view.peerAvatar))
-			}, time.Second); err != nil {
-				t.Fatal(err)
-			}
-			view.wake.Invalidate()
-			requireShellLayout(t, session.Snapshot())
-			shellQAShot(t, session, directory, "remote-incoming-"+tc.name+".png")
+			captureRemoteDesktopNotification(t, state, directory, "remote-incoming-"+tc.name+".png")
 		})
 	}
+}
+
+func captureRemoteDesktopNotification(t *testing.T, state domain.State, directory, filename string) {
+	t.Helper()
+	state.Peers[0].Avatar = filepath.Join(t.TempDir(), "avatar.png")
+	writePromoAvatar(t, state.Peers[0].Avatar, 1)
+	shell := newUIShell(newShellTestBackend(state), false)
+	t.Cleanup(shell.Close)
+	view := newRemoteDesktopView(state)
+	view.avatarShell = shell
+	t.Cleanup(view.dispose)
+	session, err := vivaheadless.Open(view.config(), nil, vivaheadless.Options{Scale: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+	if err := session.WaitFor(func(_ app.Snapshot) bool {
+		shell.applyMediaResults()
+		return bitmapReady(shell.avatarBitmap(view.peerAvatar))
+	}, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	view.wake.Invalidate()
+	requireShellLayout(t, session.Snapshot())
+	shellQAShot(t, session, directory, filename)
 }

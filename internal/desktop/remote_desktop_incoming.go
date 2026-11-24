@@ -9,13 +9,17 @@ import (
 )
 
 func (v *remoteDesktopView) incomingConfig() app.Config {
+	return v.notificationConfig(i18n.T("远程协助请求"), "GoIM.IncomingRemoteDesktop", v.paintIncoming)
+}
+
+func (v *remoteDesktopView) notificationConfig(title, class string, paint func(*gfx.Canvas, gfx.Size)) app.Config {
 	width, height := invitationSize(v.theme)
 	return app.Config{
-		Title: i18n.T("远程协助请求") + " · GoIM", Class: "GoIM.IncomingRemoteDesktop", Icon: windowIcon(),
+		Title: title + " · GoIM", Class: class, Icon: windowIcon(),
 		Width: width, Height: height, MinWidth: width, MinHeight: height,
 		WindowMode: app.WindowNotification, Tree: &v.tree, Invalidator: &v.wake,
 		ClearColor: colorToApp(v.theme.Background),
-		OnPointer:  v.page.Pointer, OnKey: v.page.Key, Paint: v.paintIncoming,
+		OnPointer:  v.page.Pointer, OnKey: v.page.Key, Paint: paint,
 		OnWake: func() {
 			if v.avatarShell != nil {
 				v.avatarShell.applyMediaResults()
@@ -25,6 +29,26 @@ func (v *remoteDesktopView) incomingConfig() app.Config {
 }
 
 func (v *remoteDesktopView) paintIncoming(canvas *gfx.Canvas, size gfx.Size) {
+	v.paintNotification(canvas, size, i18n.T("请求控制你的电脑"), "", func(f ui.C) {
+		reject := i18n.T("拒绝")
+		if invitationAction(f, v.stopID, reject, ui.RGB(211, 55, 65)).Tooltip(reject).
+			Children(func() {
+				ui.Icon(f, X).Size(22, 22).Color(ui.RGB(255, 255, 255))
+			}).Clicked() {
+			f.After(v.stop)
+		}
+		accept := i18n.T("允许控制")
+		if invitationAction(f, v.acceptID, accept, ui.RGB(20, 144, 83)).Tooltip(accept).
+			Disabled(v.decisionSent).Children(func() {
+			ui.Icon(f, Check).Size(22, 22).Color(ui.RGB(255, 255, 255))
+		}).Clicked() && !v.decisionSent && v.accept != nil {
+			v.decisionSent = true
+			f.After(v.accept)
+		}
+	})
+}
+
+func (v *remoteDesktopView) paintNotification(canvas *gfx.Canvas, size gfx.Size, status, detail string, actions func(ui.C)) {
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.RoundedBorder(bounds, app.PanelCornerRadius(), 1, v.theme.Border, v.theme.Background)
 	v.page.Draw(canvas, bounds, func(f ui.C) {
@@ -35,23 +59,12 @@ func (v *remoteDesktopView) paintIncoming(canvas *gfx.Canvas, size gfx.Size) {
 			}
 			ui.Column(f).Grow(1).MinWidth(0).Gap(3).Children(func() {
 				ui.Text(f, v.peerName).FillWidth().Weight(gfx.WeightSemibold).FontSize(textSize(f, 16)).Ellipsis()
-				ui.Paragraph(f, i18n.T("请求控制你的电脑"), 2).FillWidth().Muted().FontSize(textSize(f, 13))
+				ui.Paragraph(f, status, 2).FillWidth().Muted().FontSize(textSize(f, 13))
+				if detail != "" {
+					ui.Text(f, detail).FillWidth().Muted().FontSize(textSize(f, 12)).Ellipsis()
+				}
 			})
-			reject := i18n.T("拒绝")
-			if invitationAction(f, v.stopID, reject, ui.RGB(211, 55, 65)).Tooltip(reject).
-				Children(func() {
-					ui.Icon(f, X).Size(22, 22).Color(ui.RGB(255, 255, 255))
-				}).Clicked() {
-				f.After(v.stop)
-			}
-			accept := i18n.T("允许控制")
-			if invitationAction(f, v.acceptID, accept, ui.RGB(20, 144, 83)).Tooltip(accept).
-				Disabled(v.decisionSent).Children(func() {
-				ui.Icon(f, Check).Size(22, 22).Color(ui.RGB(255, 255, 255))
-			}).Clicked() && !v.decisionSent && v.accept != nil {
-				v.decisionSent = true
-				f.After(v.accept)
-			}
+			actions(f)
 		})
 	})
 }

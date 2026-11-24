@@ -130,8 +130,11 @@ func (v *remoteDesktopView) update(state domain.State) {
 }
 
 func (v *remoteDesktopView) config() app.Config {
-	if v.mode == remoteDesktopWindowConsent {
+	switch v.mode {
+	case remoteDesktopWindowConsent:
 		return v.incomingConfig()
+	case remoteDesktopWindowSharing:
+		return v.sharingConfig()
 	}
 	config := app.Config{
 		Title: i18n.T("远程桌面") + " · GoIM", Class: "GoIM.RemoteDesktop", Icon: windowIcon(),
@@ -139,7 +142,7 @@ func (v *remoteDesktopView) config() app.Config {
 		WindowMode: app.WindowTitled, Tree: &v.tree, Invalidator: &v.wake,
 		ClearColor: colorToApp(v.theme.Background),
 		OnPointer:  v.page.Pointer, OnScroll: v.page.Wheel, OnKey: v.page.Key,
-		TextInput: v.page.TextInput, Paint: v.paint,
+		TextInput: v.page.TextInput, Paint: v.paintConnecting,
 	}
 	switch v.mode {
 	case remoteDesktopWindowProgress:
@@ -149,8 +152,6 @@ func (v *remoteDesktopView) config() app.Config {
 			config.Height, config.MinHeight = 278, 252
 			config.Paint = v.paintWaiting
 		}
-	case remoteDesktopWindowSharing:
-		config.Height, config.MinHeight = 220, 200
 	case remoteDesktopWindowViewing:
 		v.viewer.configure(&config)
 		return config
@@ -163,52 +164,25 @@ func (v *remoteDesktopView) config() app.Config {
 	return config
 }
 
-func (v *remoteDesktopView) paint(canvas *gfx.Canvas, size gfx.Size) {
+func (v *remoteDesktopView) paintConnecting(canvas *gfx.Canvas, size gfx.Size) {
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, v.theme.Background)
 	v.page.Draw(canvas, bounds, func(f ui.C) {
 		ui.Column(f).Fill().Pad(22).Gap(10).Children(func() {
 			ui.Row(f).FillWidth().Gap(9).Items(ui.Center).Children(func() {
 				ui.Icon(f, remoteDesktopIcon).Size(20, 20).Color(v.theme.Primary)
-				ui.Text(f, v.windowHeading()).Grow(1).Weight(gfx.WeightSemibold).FontSize(textSize(f, 17)).Ellipsis()
+				ui.Text(f, i18n.T("远程协助")).Grow(1).Weight(gfx.WeightSemibold).FontSize(textSize(f, 17)).Ellipsis()
 			})
 			ui.Text(f, v.peerName).FillWidth().Weight(gfx.WeightSemibold).Ellipsis()
-			switch v.mode {
-			case remoteDesktopWindowProgress:
-				ui.Paragraph(f, i18n.T("正在建立远程协助…"), 2).Muted()
-				ui.Spacer(f)
-				v.drawStop(f, i18n.T("取消"))
-			case remoteDesktopWindowSharing:
-				message := i18n.T("对方正在查看你的屏幕")
-				if v.session.Control {
-					message = i18n.T("对方可以操作本机的键盘和鼠标")
+			ui.Paragraph(f, i18n.T("正在建立远程协助…"), 2).Muted()
+			ui.Spacer(f)
+			ui.Row(f).FillWidth().Justify(ui.End).Children(func() {
+				if namedButton(f, v.stopID, i18n.T("取消")).Outline().Clicked() {
+					f.After(v.stop)
 				}
-				ui.Paragraph(f, message, 2).Muted()
-				if v.session.Audio {
-					ui.Text(f, i18n.T("正在共享系统声音")).Muted()
-				}
-				ui.Spacer(f)
-				v.drawStop(f, i18n.T("停止共享"))
-			}
+			})
 		})
 		canvas.SetInitialFocus(v.stopID)
-	})
-}
-
-func (v *remoteDesktopView) windowHeading() string {
-	switch v.mode {
-	case remoteDesktopWindowSharing:
-		return i18n.T("正在共享屏幕")
-	default:
-		return i18n.T("远程协助")
-	}
-}
-
-func (v *remoteDesktopView) drawStop(f ui.C, label string) {
-	ui.Row(f).FillWidth().Justify(ui.End).Children(func() {
-		if namedButton(f, v.stopID, label).Outline().Clicked() {
-			f.After(v.stop)
-		}
 	})
 }
 
@@ -249,8 +223,6 @@ func (r *desktopRuntime) syncRemoteDesktop(state domain.State, locked bool) {
 
 	view := newRemoteDesktopView(state)
 	if mode == remoteDesktopWindowConsent {
-		view.avatarShell = r.ui
-		view.avatarID = r.ui.avatarBitmap(view.peerAvatar).ID
 		view.accept = func() { r.acceptRemoteDesktopInvitation(session.ID) }
 	}
 	view.stop = func() { r.dismissRemoteDesktop(view) }
@@ -263,6 +235,10 @@ func (r *desktopRuntime) syncRemoteDesktop(state domain.State, locked bool) {
 		view.viewer = newRemoteDesktopViewer(view, backend)
 	}
 	config := view.config()
+	if config.WindowMode == app.WindowNotification {
+		view.avatarShell = r.ui
+		view.avatarID = r.ui.avatarBitmap(view.peerAvatar).ID
+	}
 	config.OnCloseRequest = func(allow func()) {
 		if view.viewer != nil {
 			view.viewer.releaseInput()
@@ -287,13 +263,8 @@ func (r *desktopRuntime) syncRemoteDesktop(state domain.State, locked bool) {
 		return
 	}
 	view.handle, r.remoteDesktopView = handle, view
-	if mode == remoteDesktopWindowSharing {
-		// On compositors that reserve stacking decisions, the tray also keeps
-		// the Stop sharing action available.
-		_ = handle.SetAlwaysOnTop(true)
-	}
-	if mode == remoteDesktopWindowConsent {
-		// Viva maps incoming notifications without activating GoIM.
+	if config.WindowMode == app.WindowNotification {
+		// Viva maps desktop notifications above normal windows without activating GoIM.
 		view.wake.Invalidate()
 	} else {
 		handle.Show()
