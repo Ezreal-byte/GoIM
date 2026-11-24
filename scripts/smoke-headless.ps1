@@ -160,6 +160,8 @@ try {
     } finally { $taskGraphics.Dispose(); $taskPicture.Dispose() }
     Send-Command $taskAlice ('openfiles "'+$taskPicturePath.Replace('\','/')+'"')
     Send-Command $taskAlice 'click "发送图片"'
+    Send-Command $taskAlice 'expect exists "button:草稿附件 · 真实图片.png" within 10000'
+    Send-Command $taskAlice 'click "button:发送"'
     Wait-Control $taskBob '查看图片 真实图片.png'
     $taskImages=@(Get-ChildItem -LiteralPath (Join-Path $taskRunDir '林晓/chat-images') -Filter '*.png')
     if ($taskImages.Count -ne 1) { throw 'Expected one automatically received PNG' }
