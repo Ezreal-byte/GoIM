@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -322,9 +323,7 @@ func (n *Node) snapshot(urls bool) domain.State {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	// Snapshots are refreshed at event boundaries, never from the painter.
-	b, _ := json.Marshal(n.data.State)
-	var s domain.State
-	_ = json.Unmarshal(b, &s)
+	s := cloneSnapshotState(n.data.State)
 	for i := range s.Peers {
 		peer := &s.Peers[i]
 		id := peer.ID
@@ -380,6 +379,31 @@ func (n *Node) snapshot(urls bool) domain.State {
 	}
 	return s
 }
+
+func cloneSnapshotState(state domain.State) domain.State {
+	// History is the largest part of a busy snapshot. Copy messages directly
+	// and keep the JSON projection for the rest of the state, which omits
+	// transient fields and applies the stored settings' normalization.
+	messages := state.Messages
+	state.Messages = nil
+	var snapshot domain.State
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		return snapshot
+	}
+	_ = json.Unmarshal(encoded, &snapshot)
+	snapshot.Messages = slices.Clone(messages)
+	for i := range snapshot.Messages {
+		message := &snapshot.Messages[i]
+		message.CreatedAt = message.CreatedAt.Round(0) // JSON snapshots omit monotonic time.
+		if message.Voice != nil {
+			voice := *message.Voice
+			message.Voice = &voice
+		}
+	}
+	return snapshot
+}
+
 func (n *Node) Submit(c domain.Command) {
 	var err error
 	select {
