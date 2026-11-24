@@ -57,7 +57,7 @@ jobs:
           - {runner: ubuntu-24.04, os: windows, arch: arm64}
           - {runner: ubuntu-24.04, os: linux, arch: amd64}
           - {runner: ubuntu-24.04-arm, os: linux, arch: arm64}
-          - {runner: macos-26-intel, os: darwin, arch: amd64}
+          - {runner: macos-15-intel, os: darwin, arch: amd64}
           - {runner: macos-15, os: darwin, arch: arm64}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -85,7 +85,7 @@ jobs:
           - {runner: windows-11-arm, os: windows, arch: arm64, goarch: arm64}
           - {runner: ubuntu-24.04, os: linux, arch: amd64, goarch: x64}
           - {runner: ubuntu-24.04-arm, os: linux, arch: arm64, goarch: arm64}
-          - {runner: macos-26-intel, os: darwin, arch: amd64, goarch: x64}
+          - {runner: macos-15-intel, os: darwin, arch: amd64, goarch: x64}
           - {runner: macos-15, os: darwin, arch: arm64, goarch: arm64}
     runs-on: ${{ matrix.runner }}
     defaults:
@@ -196,12 +196,30 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $nsis = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
-          if (!(Get-Command makensis.exe -ErrorAction SilentlyContinue) -and !(Test-Path -LiteralPath (Join-Path $nsis 'makensis.exe'))) {
-            choco install nsis --yes --no-progress
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $compiler = Get-Command makensis.exe -ErrorAction SilentlyContinue
+          if ($compiler) { return }
+
+          $nsis = Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) 'NSIS'
+          if (!(Test-Path -LiteralPath (Join-Path $nsis 'makensis.exe'))) {
+            # Download the portable archive directly to avoid the Chocolatey metadata service.
+            $tools = Join-Path $env:RUNNER_TEMP 'goim-nsis'
+            New-Item -ItemType Directory -Path $tools | Out-Null
+            $package = Join-Path $tools 'nsis.portable.zip'
+            Invoke-WebRequest -Uri 'https://packages.chocolatey.org/nsis.portable.3.13.0.nupkg' -OutFile $package -TimeoutSec 40 -MaximumRetryCount 3 -RetryIntervalSec 3
+            Expand-Archive -LiteralPath $package -DestinationPath $tools
+            $archive = Join-Path $tools 'tools/nsis-3.13.zip'
+            $expected = 'BA63DFFC4410EE89193E1CB5A41989991BD77C61068DA17E3156D136B7B0B3D8'
+            if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) {
+              throw 'The portable NSIS archive does not match the official checksum.'
+            }
+            Expand-Archive -LiteralPath $archive -DestinationPath $tools
+            $nsis = Join-Path $tools 'nsis-3.13'
           }
-          if (Test-Path -LiteralPath (Join-Path $nsis 'makensis.exe')) { "NSIS_HOME=$nsis" >> $env:GITHUB_ENV }
+
+          & (Join-Path $nsis 'makensis.exe') /VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "NSIS_HOME=$nsis" >> $env:GITHUB_ENV
+          $nsis >> $env:GITHUB_PATH
       - name: Verify Windows installer exit guard compiles
         if: runner.os == 'Windows'
         env:
