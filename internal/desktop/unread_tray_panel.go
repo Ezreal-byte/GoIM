@@ -35,17 +35,34 @@ func newUnreadTrayPanel(shell *UI, entries []unreadTrayChat, onChat func(string)
 	return v
 }
 
-func (r *desktopRuntime) showUnreadTrayPanel(anchor app.StatusAnchor) *app.Window {
-	return r.openUnreadTrayPanel(anchor, app.WindowNotification)
+func (r *desktopRuntime) unreadTrayPreview() app.StatusPreview {
+	view, config := r.prepareUnreadTrayPanel(app.StatusAnchor{})
+	if view == nil {
+		return app.StatusPreview{}
+	}
+	return app.StatusPreview{Config: config, Opened: func(window *app.Window) {
+		r.bindUnreadTrayPanel(view, window)
+	}}
 }
 
 func (r *desktopRuntime) openUnreadTrayPanel(anchor app.StatusAnchor, mode app.WindowMode) *app.Window {
-	if r.trayReminderPaused {
+	view, config := r.prepareUnreadTrayPanel(anchor)
+	if view == nil {
 		return nil
+	}
+	config.WindowMode = mode
+	window, _ := r.application.OpenWindow(config, nil)
+	r.bindUnreadTrayPanel(view, window)
+	return window
+}
+
+func (r *desktopRuntime) prepareUnreadTrayPanel(anchor app.StatusAnchor) (*unreadTrayPanel, app.Config) {
+	if r.trayReminderPaused {
+		return nil, app.Config{}
 	}
 	entries := r.ui.unreadTrayChats()
 	if len(entries) == 0 {
-		return nil
+		return nil, app.Config{}
 	}
 	r.closeUnreadTrayPanel()
 	r.ui.applyMediaResults()
@@ -54,21 +71,22 @@ func (r *desktopRuntime) openUnreadTrayPanel(anchor app.StatusAnchor, mode app.W
 		r.openUnreadChat(id)
 	}, r.dismissUnreadTrayReminder)
 	config := view.config(anchor)
-	config.WindowMode = mode
 	config.OnClosed = func() {
 		view.page.Close()
 		if r.trayPanel == view {
 			r.trayPanel = nil
 		}
 	}
-	window, err := r.application.OpenWindow(config, nil)
-	if err != nil {
+	return view, config
+}
+
+func (r *desktopRuntime) bindUnreadTrayPanel(view *unreadTrayPanel, window *app.Window) {
+	if window == nil {
 		view.page.Close()
-		return nil
+		return
 	}
 	view.window, r.trayPanel = window, view
 	view.wake.Invalidate()
-	return window
 }
 
 func (r *desktopRuntime) closeUnreadTrayPanel() {

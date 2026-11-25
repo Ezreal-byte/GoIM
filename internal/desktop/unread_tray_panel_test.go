@@ -145,26 +145,27 @@ func TestUnreadTrayReminderDismissesUntilAnotherMessage(t *testing.T) {
 		}
 
 		arrive("first-new")
-		if host.tray.open == nil || !r.flashOn {
+		if host.tray.hover == nil || !r.flashOn {
 			t.Fatal("incoming message did not enable hover and flashing")
 		}
-		if host.tray.open(app.StatusAnchor{}) == nil || r.trayPanel == nil {
+		host.tray.hover(app.StatusAnchor{}, true)
+		if r.trayPanel == nil {
 			t.Fatal("enabled hover did not open the unread panel")
 		}
 		r.trayPanel.dismiss()
-		if r.trayPanel != nil || host.tray.open != nil || r.flashOn || !r.flashDue.IsZero() || host.tray.icon.RGBA[3] != 255 {
+		if r.trayPanel != nil || host.tray.hover != nil || r.flashOn || !r.flashDue.IsZero() || host.tray.icon.RGBA[3] != 255 {
 			t.Fatal("dismissing did not disable hover and restore the tray icon")
 		}
-		if r.showUnreadTrayPanel(app.StatusAnchor{}) != nil || len(r.unreadTrayItems()) == 0 {
+		if r.unreadTrayPreview().Config.Paint != nil || len(r.unreadTrayItems()) == 0 {
 			t.Fatal("dismissing must suppress stale hover without clearing unread menu entries")
 		}
 		h.ui.state.Revision++
 		r.observe()
-		if host.tray.open != nil || r.flashOn {
+		if host.tray.hover != nil || r.flashOn {
 			t.Fatal("an unrelated state update reactivated the reminder")
 		}
 		arrive("second-new")
-		if host.tray.open == nil || !r.flashOn {
+		if host.tray.hover == nil || !r.flashOn {
 			t.Fatal("a new incoming message did not reactivate hover and flashing")
 		}
 		click := app.NewStatusClick(gfx.PointerButtonPrimary)
@@ -293,17 +294,16 @@ func (trayReminderTestWindow) Frame() (gfx.Rect, bool) { return gfx.Rect{}, fals
 
 type trayReminderTestControl struct {
 	app.StatusItemControl
-	icon app.StatusIcon
-	open func(app.StatusAnchor) *app.Window
+	icon  app.StatusIcon
+	hover func(app.StatusAnchor, bool)
 }
 
-var _ app.StatusItemHoverControl = (*trayReminderTestControl)(nil)
+var _ app.StatusHoverControl = (*trayReminderTestControl)(nil)
 
-func (*trayReminderTestControl) SetMenuOnHover(bool) bool            { return false }
 func (*trayReminderTestControl) RefreshMenu()                        {}
 func (c *trayReminderTestControl) SetIcon(icon app.StatusIcon) error { c.icon = icon; return nil }
 func (*trayReminderTestControl) SetTooltip(string)                   {}
-func (c *trayReminderTestControl) SetHoverPanel(open func(app.StatusAnchor) *app.Window) bool {
-	c.open = open
+func (c *trayReminderTestControl) SetStatusHover(handler func(app.StatusAnchor, bool)) bool {
+	c.hover = handler
 	return true
 }

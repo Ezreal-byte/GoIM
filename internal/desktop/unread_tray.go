@@ -78,7 +78,7 @@ func (r *desktopRuntime) unreadTrayItems() []app.MenuItem {
 		return nil
 	}
 	items := make([]app.MenuItem, 0, len(entries)+2)
-	if !r.trayPanelHover && !r.trayReminderPaused {
+	if !r.trayReminderPaused {
 		items = append(items, app.MenuItem{ID: "goim-unread-panel", Title: i18n.T("查看未读消息"), OnSelect: func() {
 			r.openUnreadTrayPanel(app.StatusAnchor{}, app.WindowPanel)
 		}})
@@ -164,16 +164,13 @@ func (r *desktopRuntime) syncUnreadTray(unread int, force bool) {
 		entries = u.unreadTrayChats()
 	}
 	hover := len(entries) > 0
-	if hover != r.trayHover {
-		var panel func(app.StatusAnchor) *app.Window
+	if hover != r.trayHover || hover && force {
+		var panel func() app.StatusPreview
 		if hover {
-			panel = r.showUnreadTrayPanel
+			panel = r.unreadTrayPreview
 		}
-		panelSupported := r.tray.SetHoverPanel(panel)
-		r.trayPanelHover = hover && panelSupported
-		if panelSupported || r.tray.SetMenuOnHover(hover) {
-			r.trayHover = hover
-		}
+		r.trayHover = hover
+		r.trayPanelHover = r.tray.SetHoverPreview(panel) && hover
 	}
 	if !r.trayPanelHover {
 		for _, entry := range entries[:min(3, len(entries))] {

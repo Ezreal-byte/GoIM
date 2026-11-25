@@ -3,7 +3,6 @@ package desktop
 import (
 	"context"
 	"errors"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -261,10 +260,6 @@ func Run(backend domain.Backend, restartArguments []string, reopen <-chan struct
 			}})
 		}}
 		tray, err := application.AddStatusItem(trayConfig)
-		if runtime.GOOS == "linux" && errors.Is(err, app.ErrNoStatusArea) {
-			trayConfig.LinuxTrayBackend = app.LinuxTrayXEmbed
-			tray, err = application.AddStatusItem(trayConfig)
-		}
 		if err == nil {
 			r.tray = tray
 		} else if shell.state.Settings.CloseToTray {

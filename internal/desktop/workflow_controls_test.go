@@ -18,15 +18,16 @@ func TestUnreadTrayLinksAndPrivacy(t *testing.T) {
 	r := desktopRuntime{ui: h.ui, trayPanelHover: true}
 	h.ui.section = sectionSettings
 	items := r.unreadTrayItems()
-	if len(items) != 3 || !strings.Contains(items[0].Title, "产品讨论组 · 研发同事") || !strings.Contains(items[1].Title, "研发同事（3 条未读）") {
+	if len(items) != 4 || items[0].ID != "goim-unread-panel" || !strings.Contains(items[1].Title, "产品讨论组 · 研发同事") || !strings.Contains(items[2].Title, "研发同事（3 条未读）") {
 		t.Fatal(items)
 	}
+	items = items[1:]
 	items[1].OnSelect()
 	if h.ui.selected != "conv-alice" || h.ui.section != sectionMessages {
 		t.Fatal("wrong tray target")
 	}
 	h.ui.state.Conversations[0].Muted = true
-	if len(r.unreadTrayItems()) != 2 {
+	if len(r.unreadTrayItems()) != 3 {
 		t.Fatal("muted group still shown")
 	}
 	items[0].OnSelect()
@@ -47,7 +48,7 @@ func TestUnreadTrayLinksAndPrivacy(t *testing.T) {
 	}
 	h.ui.confirm.open = false
 	h.ui.state.Settings.HideNotificationText = true
-	privateItems := r.unreadTrayItems()
+	privateItems := r.unreadTrayItems()[1:]
 	if len(privateItems) != 3 || privateItems[0].Title != "新消息（1 条未读）" || privateItems[1].Title != "新消息（3 条未读）" {
 		t.Fatal("privacy mode must keep anonymous unread actions", privateItems)
 	}
@@ -59,7 +60,7 @@ func TestUnreadTrayLinksAndPrivacy(t *testing.T) {
 	h.ui.state.Settings.HideNotificationText = false
 	h.ui.state.Locked = true
 	items[0].OnSelect()
-	if h.ui.selected != "conv-alice" || len(r.unreadTrayItems()) != 3 {
+	if h.ui.selected != "conv-alice" || len(r.unreadTrayItems()) != 4 {
 		t.Fatal("stale tray action bypassed lock")
 	}
 }

@@ -22,4 +22,4 @@ require (
 )
 
 // Pin the reviewed commit from the GoIM Viva fork's main branch.
-replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261124063117-10b612bfce94
+replace github.com/vivaui/viva => github.com/Ezreal-byte/viva v0.1.1-0.20261125022837-c4943f9ee416

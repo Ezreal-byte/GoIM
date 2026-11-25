@@ -162,9 +162,6 @@ func build() error {
 		ld += " -X goim/internal/remotedesktop.ValidationBuild=1"
 	}
 	args := []string{"build", "-trimpath", "-ldflags", ld}
-	if runtime.GOOS == "linux" {
-		args = append(args, "-tags", "vivaxembed")
-	}
 	args = append(args, "-o", executable, "./cmd/goim")
 	if err := run("go", args...); err != nil {
 		return err
