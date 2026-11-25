@@ -8,6 +8,7 @@ import (
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
+	"goim/internal/domain"
 	"goim/internal/i18n"
 )
 
@@ -40,8 +41,8 @@ func (r *desktopRuntime) unreadTrayPreview() app.StatusPreview {
 	if view == nil {
 		return app.StatusPreview{}
 	}
-	return app.StatusPreview{Config: config, Opened: func(window *app.Window) {
-		r.bindUnreadTrayPanel(view, window)
+	return app.StatusPreview{Config: config, Opened: func(window *app.Window, err error) {
+		r.bindUnreadTrayPanel(view, window, err)
 	}}
 }
 
@@ -51,8 +52,8 @@ func (r *desktopRuntime) openUnreadTrayPanel(anchor app.StatusAnchor, mode app.W
 		return nil
 	}
 	config.WindowMode = mode
-	window, _ := r.application.OpenWindow(config, nil)
-	r.bindUnreadTrayPanel(view, window)
+	window, err := r.application.OpenWindow(config, nil)
+	r.bindUnreadTrayPanel(view, window, err)
 	return window
 }
 
@@ -80,9 +81,12 @@ func (r *desktopRuntime) prepareUnreadTrayPanel(anchor app.StatusAnchor) (*unrea
 	return view, config
 }
 
-func (r *desktopRuntime) bindUnreadTrayPanel(view *unreadTrayPanel, window *app.Window) {
+func (r *desktopRuntime) bindUnreadTrayPanel(view *unreadTrayPanel, window *app.Window, err error) {
 	if window == nil {
 		view.page.Close()
+		if err != nil {
+			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("无法打开未读消息窗口：") + err.Error()})
+		}
 		return
 	}
 	view.window, r.trayPanel = window, view

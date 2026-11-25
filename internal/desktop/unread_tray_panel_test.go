@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -97,6 +98,38 @@ func TestUnreadTrayPanelFitsLargestInterfaceText(t *testing.T) {
 	}
 	t.Cleanup(session.Close)
 	if err := session.Expect("layout", "clean"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUnreadTrayPreviewReportsOpenFailureAndRetries(t *testing.T) {
+	h := newShellTestHarness(t, shellTestState(t))
+	host := &trayReminderTestHost{}
+	app.UseApplicationRunner(func(start func(app.Host) error) error { return start(host) })
+	t.Cleanup(func() { app.UseApplicationRunner(nil) })
+	if err := app.RunApplication(func(application *app.Application) error {
+		main, err := application.OpenWindow(app.Config{}, nil)
+		if err != nil {
+			return err
+		}
+		defer main.Close()
+		r := desktopRuntime{ui: h.ui, backend: h.backend, application: application}
+		h.backend.clearCommands()
+		host.openError = errors.New("preview rejected")
+		if r.openUnreadTrayPanel(app.StatusAnchor{}, app.WindowPanel) != nil || r.trayPanel != nil {
+			t.Fatal("a rejected preview left a live panel")
+		}
+		commands := h.backend.commandLog()
+		if len(commands) != 1 || commands[0].Kind != domain.ReportError || !strings.Contains(commands[0].Text, "preview rejected") {
+			t.Fatalf("failed preview was not reported: %+v", commands)
+		}
+		host.openError = nil
+		if r.openUnreadTrayPanel(app.StatusAnchor{}, app.WindowPanel) == nil || r.trayPanel == nil {
+			t.Fatal("a failed preview could not be retried")
+		}
+		r.closeUnreadTrayPanel()
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -236,7 +269,8 @@ func TestUnreadTrayPanelMasksAlreadyCachedIdentities(t *testing.T) {
 
 type trayReminderTestHost struct {
 	app.Host
-	tray trayReminderTestControl
+	tray      trayReminderTestControl
+	openError error
 }
 
 func BenchmarkUnreadTrayPanelPaint(b *testing.B) {
@@ -270,7 +304,10 @@ func BenchmarkUnreadTrayPanelPaint(b *testing.B) {
 
 func (*trayReminderTestHost) SetDockBadge(string) {}
 func (*trayReminderTestHost) SetProgress(float32) {}
-func (*trayReminderTestHost) OpenWindow(config app.Config, _ *gfx.Canvas, closed func()) (app.WindowControl, error) {
+func (h *trayReminderTestHost) OpenWindow(config app.Config, _ *gfx.Canvas, closed func()) (app.WindowControl, error) {
+	if h.openError != nil {
+		return nil, h.openError
+	}
 	return trayReminderTestWindow{closed: func() {
 		if config.OnClosed != nil {
 			config.OnClosed()
@@ -297,8 +334,6 @@ type trayReminderTestControl struct {
 	icon  app.StatusIcon
 	hover func(app.StatusAnchor, bool)
 }
-
-var _ app.StatusHoverControl = (*trayReminderTestControl)(nil)
 
 func (*trayReminderTestControl) RefreshMenu()                        {}
 func (c *trayReminderTestControl) SetIcon(icon app.StatusIcon) error { c.icon = icon; return nil }

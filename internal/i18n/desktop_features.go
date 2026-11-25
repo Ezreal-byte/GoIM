@@ -61,11 +61,12 @@ func init() {
 		"搜索结果":          "Search results",
 		"没有匹配的设置":       "No matching settings",
 
-		"打印能力":       "Capabilities",
-		"点击升序排列":     "Sort ascending",
-		"点击降序排列":     "Sort descending",
-		"返回":         "Back",
-		"找不到图片剪贴板工具": "Image clipboard helper not found",
+		"打印能力":        "Capabilities",
+		"点击升序排列":      "Sort ascending",
+		"点击降序排列":      "Sort descending",
+		"返回":          "Back",
+		"无法打开未读消息窗口：": "Could not open the unread messages window: ",
+		"找不到图片剪贴板工具":  "Image clipboard helper not found",
 
 		"网页接收":       "Web upload",
 		"管理共享下载统计":   "Manage shared download statistics",
