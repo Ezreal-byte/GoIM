@@ -216,7 +216,10 @@ func (v *remoteDesktopViewer) imageRect(size gfx.Size) ui.Rect {
 		return ui.Rect{}
 	}
 	scale := min(area.Width/float32(v.bitmap.Width), area.Height/float32(v.bitmap.Height))
-	width, height := float32(v.bitmap.Width)*scale, float32(v.bitmap.Height)*scale
+	// Clamp the rounded image dimensions before centering. On ARM64, a fused
+	// multiply and subtract can otherwise move the image above the titlebar.
+	width := min(area.Width, float32(v.bitmap.Width)*scale)
+	height := min(area.Height, float32(v.bitmap.Height)*scale)
 	return ui.Rect{X: area.X + (area.Width-width)/2, Y: area.Y + (area.Height-height)/2, Width: width, Height: height}
 }
 
