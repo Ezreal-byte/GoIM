@@ -389,7 +389,7 @@ jobs:
               assert manifest['version'] == helper_component['version']
               assert manifest['recipe_sha256'] == helper_component['recipe_sha256']
               if target[0] == 'darwin':
-                  helper_plist = prefix+'Contents/Helpers/GoIMRemote.app/Contents/Info.plist'
+                  helper_plist = prefix+path.rsplit('/MacOS/', 1)[0]+'/Info.plist'
                   assert plistlib.loads(read(helper_plist))['CFBundleShortVersionString'] == helper_component['version']
               license = read(source_root+'LICENSE')
               assert b'GNU AFFERO GENERAL PUBLIC LICENSE' in license
