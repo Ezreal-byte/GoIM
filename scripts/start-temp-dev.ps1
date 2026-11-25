@@ -102,10 +102,15 @@ function Start-Client([string]$Folder, [string]$ClientName, [string]$Address, [s
 
     $bindHost, $bindPort = $Address -split ':(?=\d+$)', 2
     $bindHost = $bindHost.Trim([char[]]'[]')
+    $activationPath = Join-Path $data '.goim-activation.json'
+    $activationPort = if (Test-Path -LiteralPath $activationPath) {
+        $activation = Get-Content -Raw -LiteralPath $activationPath | ConvertFrom-Json
+        if ($activation.PID -eq $process.Id) { $activation.Port }
+    }
     $listener = Get-NetTCPConnection -State Listen -OwningProcess $process.Id -ErrorAction SilentlyContinue |
         Where-Object {
             ($_.LocalAddress -eq $bindHost -or ($bindHost -eq '0.0.0.0' -and $_.LocalAddress -eq '::')) -and
-            ($_.LocalPort -eq $bindPort -or ($bindPort -eq '0' -and $_.LocalPort -notin 2425, 9013))
+            ($_.LocalPort -eq $bindPort -or ($bindPort -eq '0' -and $_.LocalPort -notin 2425, 9013, $activationPort))
         } | Select-Object -First 1
     $endpoint = if ($listener) { "${bindHost}:$($listener.LocalPort)" } else { $Address }
     @(
