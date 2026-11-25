@@ -98,6 +98,48 @@ func TestShareDownloadStatsAreOptInAndShowFolderFiles(t *testing.T) {
 	}
 }
 
+func TestOwnedShareAccessIconOpensBrowser(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		link                   string
+		protected, unavailable bool
+		wantOpen               bool
+	}{
+		{name: "public folder", link: "http://192.0.2.1/s/public", wantOpen: true},
+		{name: "password protected", link: "http://192.0.2.1/s/locked", protected: true, wantOpen: true},
+		{name: "unavailable", link: "http://192.0.2.1/s/outdated", unavailable: true},
+		{name: "members only"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := panelTestDefaultState(t)
+			state.Files = []domain.File{{
+				ID: "own", Name: "交付资料", SenderID: state.Self.ID, Shared: true, ShareFolder: true,
+				ShareURL: tc.link, ShareProtected: tc.protected, ShareUnavailable: tc.unavailable,
+			}}
+			h := panelTestNewHarness(t, panelModuleShares, state)
+			h.clickLabelRole(h.panels.shareLabels[panelSharesMine], gfx.RoleTab)
+			if _, got := h.findHitLabelRole("在浏览器中打开", gfx.RoleLink); got != tc.wantOpen {
+				t.Fatalf("browser shortcut available = %v, want %v", got, tc.wantOpen)
+			}
+			if !tc.wantOpen {
+				return
+			}
+			h.clickLabelRole("在浏览器中打开", gfx.RoleLink)
+			if opened, ok := h.driver.LastOpenedURL(); !ok || opened != tc.link {
+				t.Fatalf("opened URL = %q, want %q", opened, tc.link)
+			}
+			if h.panels.memberProject != nil || len(h.commands) != 0 {
+				t.Fatal("opening the browser performed a member share action")
+			}
+			h.requireLayout()
+			h.click(h.panels.sharesMine[0].copyID)
+			if copied := h.driver.Clipboard(); copied != tc.link {
+				t.Fatalf("copied URL = %q, want %q", copied, tc.link)
+			}
+		})
+	}
+}
+
 func TestShareListUsesNativePickersAndKeepsPasswordOptional(t *testing.T) {
 	state := panelTestDefaultState(t)
 	h := panelTestNewHarness(t, panelModuleShares, state)

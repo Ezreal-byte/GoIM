@@ -298,7 +298,7 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 			ui.Text(f, entry.title).FontSize(textSize(f, 15)).Weight(gfx.WeightMedium).MinWidth(0).Ellipsis()
 		})
 		ui.Text(f, entry.meta).Width(columns.size).FontSize(textSize(f, 13)).Ellipsis()
-		ui.Row(f).Width(columns.access).Gap(7).Items(ui.Center).Children(func() {
+		ui.Row(f).Width(columns.access).Gap(3).Items(ui.Center).Children(func() {
 			icon, color := Users, theme.MutedForeground
 			if entry.file.ShareUnavailable {
 				icon, color = X, theme.Danger
@@ -307,7 +307,27 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 			} else if entry.file.ShareURL != "" {
 				icon, color = Link, theme.Success
 			}
-			ui.Icon(f, icon).Size(16, 16).Color(color)
+			accessIcon := ui.Row(f).Size(26, 28).Shrink(0).Items(ui.Center).Justify(ui.Center)
+			link := entry.file.ShareURL
+			openable := entry.own && !entry.file.ShareUnavailable && link != ""
+			if openable {
+				id := ui.ID(f.Key(entry.file.ID).Part("open-share-link"))
+				label := i18n.T("在浏览器中打开")
+				accessIcon.Radius(radiusControl).Hover(ui.Look{}.Background(theme.Hover)).
+					HitWith(id, label, gfx.HitOptions{Role: gfx.RoleLink, Cursor: gfx.PointerCursorHand}).Tooltip(label)
+				if canvas.FocusVisible() == id {
+					accessIcon.Stroke(1.5, theme.Ring)
+				}
+			}
+			accessIcon.Children(func() { ui.Icon(f, icon).Size(16, 16).Color(color) })
+			if openable && accessIcon.Clicked() {
+				canvas.AfterPaint(func() {
+					if err := app.OpenURL(link); err != nil {
+						p.setShareToast("无法打开链接", err.Error(), components.ToastError)
+						canvas.RequestFrame()
+					}
+				})
+			}
 			ui.Text(f, entry.access).FontSize(textSize(f, 13)).MinWidth(0).Ellipsis()
 		})
 		if columns.date > 0 {
