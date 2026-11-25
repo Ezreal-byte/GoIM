@@ -78,7 +78,7 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 	width := bounds.Width - 2*pad
 	ui.Column(f).Fill().PadSides(panelPageTop, pad, 18, pad).Children(func() {
 		p.drawShareToolbar(f, theme, state.DeviceShare, bounds.Width)
-		if p.memberProject == nil && p.shareStats.projectID == "" {
+		if p.memberProject == nil && p.ownedShare == nil {
 			drawTableSearch(f, p.ids.shareSearch, &p.shareSearch, i18n.T("搜索文件"))
 		}
 		var entries []panelShareEntry
@@ -94,7 +94,7 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 				func(filter shareFilter) string { return p.shareLabels[filter] }).Line().
 				FontSize(textSize(f, panelTabFontSize)).Changed() {
 				p.closeMemberProject()
-				p.shareStats = shareStatsView{}
+				p.ownedShare = nil
 				p.shareSelected = ""
 				clear(p.shareChecked)
 				p.shareMenu = shareMenuState{}
@@ -125,9 +125,9 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 			p.drawShareDialogs(f, theme, submit)
 			return
 		}
-		if p.shareStats.projectID != "" && p.shareFilter == panelSharesMine {
-			if entry, ok := p.shareEntry(p.shareStats.projectID); ok {
-				p.drawShareStats(f, theme, entry, submit)
+		if v := p.ownedShare; v != nil && p.shareFilter == panelSharesMine {
+			if entry, ok := p.shareEntry(v.projectID); ok {
+				p.drawOwnedShare(f, theme, entry, submit)
 				p.drawShareDialogs(f, theme, submit)
 				return
 			}
@@ -152,7 +152,7 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 					return
 				}
 				for _, entry := range entries {
-					p.drawShareProjectRow(f, theme, columns, entry, submit)
+					p.drawShareProjectRow(f, theme, columns, entry, state.Settings.ShareDownloadStats, submit)
 				}
 			})
 		})
@@ -278,10 +278,13 @@ func panelActionIcon(f ui.C, theme ui.Theme, id gfx.ID, icon gfx.Icon, label str
 	return box.Children(func() { ui.Icon(f, icon).Size(18, 18).Color(color) })
 }
 
-func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumns, entry panelShareEntry, submit func(domain.Command)) {
+func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumns, entry panelShareEntry, stats bool, submit func(domain.Command)) {
 	selected := p.shareSelected == entry.file.ID
 	menuOpen := p.shareMenu.kind == shareMenuProject && p.shareMenu.project == entry.file.ID
 	canvas := f.Canvas()
+	openFolder := func() {
+		canvas.AfterPaint(func() { p.openOwnedShare(entry, stats) })
+	}
 	row := ui.Row(f).FillWidth().Height(panelTableRowHeight).PadX(15).Gap(12).Items(ui.Center).Radius(radiusControl).
 		Hover(ui.Look{}.Background(theme.Hover)).
 		HitWith(entry.rowID, entry.title, gfx.HitOptions{Role: gfx.RoleButton, Selected: selected, Hint: entry.title}).
@@ -338,11 +341,10 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 				FontSize(textSize(f, 13)).Ellipsis()
 		}
 		ui.Row(f).Width(columns.actions).Gap(5).Items(ui.Center).Justify(ui.End).Children(func() {
-			if columns.downloads > 0 && entry.file.ShareFolder && !entry.file.ShareUnavailable {
-				id := ui.ID(f.Key(entry.file.ID).Part("download-stats"))
-				if panelActionIcon(f, theme, id, FolderOpen, i18n.T("查看文件下载次数"), false, false).Clicked() {
-					p.shareStats = shareStatsView{projectID: entry.file.ID}
-					p.shareStats.update(entry.file.ShareDownloadFiles)
+			if entry.canBrowseOwnedFolder() {
+				id := ui.ID(f.Key(entry.file.ID).Part("open-owned-folder"))
+				if panelActionIcon(f, theme, id, FolderOpen, i18n.T("打开共享"), false, false).Clicked() {
+					openFolder()
 				}
 			}
 			if entry.memberWebProject() {
@@ -378,7 +380,9 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 	})
 	if row.Clicked() {
 		p.shareSelected = entry.file.ID
-		if entry.memberWebProject() && entry.online && entry.file.MemberURL != "" {
+		if entry.canBrowseOwnedFolder() && row.DoubleClicked() {
+			openFolder()
+		} else if entry.memberWebProject() && entry.online && entry.file.MemberURL != "" {
 			p.openMemberProject(entry.file)
 		}
 	}
@@ -594,6 +598,10 @@ func (p *Panels) chooseShareSource(c *gfx.Canvas, folder bool, replace string, s
 		}
 		p.openShareDialogFor(paths, folder)
 	})
+}
+
+func (entry panelShareEntry) canBrowseOwnedFolder() bool {
+	return entry.own && entry.file.ShareFolder && !entry.file.ShareUnavailable
 }
 
 func (entry panelShareEntry) memberWebProject() bool {

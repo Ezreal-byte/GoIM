@@ -455,7 +455,7 @@ func (p *Panels) drawSettingsShares(f ui.C, theme ui.Theme, state domain.State, 
 			p.settingsControl(f, 80, func() {
 				enabled := ui.State[bool](f, "share-download-stats")
 				*enabled = state.Settings.ShareDownloadStats
-				if ui.Switch(f.Part("share-download-stats"), enabled, label).Changed() {
+				if ui.Switch(f, enabled, "").Hit(ui.ID(f.Part("share-download-stats")), label).Changed() {
 					p.submitBool(submit, state, "share_download_stats", *enabled)
 				}
 			})

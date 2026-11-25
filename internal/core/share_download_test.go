@@ -117,9 +117,19 @@ func TestMemberBatchDownloadKeepsFoldersAndTransferHistory(t *testing.T) {
 		counts := make(map[string]uint64)
 		for _, f := range state.Files {
 			counts[f.Name] = f.ShareDownloadCount
-			if f.ShareFolder && (len(f.ShareDownloadFiles) != 1 ||
-				f.ShareDownloadFiles[0] != (domain.ShareFileDownloads{Path: "子目录/明细.txt", Count: 2})) {
-				return false
+			if f.ShareFolder {
+				var found bool
+				for entry := range f.ShareContents.All() {
+					if !entry.Folder {
+						if found || entry.Path != "子目录/明细.txt" || entry.Downloads != 2 {
+							return false
+						}
+						found = true
+					}
+				}
+				if !found {
+					return false
+				}
 			}
 		}
 		return counts["公开.txt"] == 1 && counts["加密.txt"] == 1 && counts["资料"] == 2

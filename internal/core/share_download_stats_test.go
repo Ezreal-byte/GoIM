@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"goim/internal/domain"
@@ -74,4 +75,53 @@ func TestShareDownloadStatsToggleAndPersistence(t *testing.T) {
 		t.Fatal("statistics setting was lost after restarting")
 	}
 	check(1)
+}
+
+func TestOwnedFolderContentsStayAvailableWithoutStatistics(t *testing.T) {
+	n := testNode(t, "owner")
+	source := t.TempDir()
+	if err := os.Mkdir(filepath.Join(source, "empty"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(source, "notes.txt")
+	if err := os.WriteFile(filePath, []byte("notes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.shareFile(source, "folder-password"); err != nil {
+		t.Fatal(err)
+	}
+	f := n.Snapshot().Files[0]
+	if f.ShareContents == nil || f.ShareEntryCount != 2 || f.Size != 5 || !f.ShareProtected {
+		t.Fatalf("unexpected owned folder summary: %+v", f)
+	}
+	entries := slices.Collect(f.ShareContents.All())
+	if len(entries) != 2 || !entries[0].Folder || entries[0].Path != "empty" ||
+		entries[1].Folder || entries[1].Path != "notes.txt" || entries[1].Size != 5 || entries[1].Downloads != 0 {
+		t.Fatalf("unexpected folder entries with statistics disabled: %+v", entries)
+	}
+	if next := n.Snapshot().File(f.ID).ShareContents; next != f.ShareContents {
+		t.Fatal("unchanged snapshot rebuilt the folder contents")
+	}
+	if n.snapshot(false).File(f.ID).ShareContents != nil {
+		t.Fatal("internal snapshot exposed local catalog contents")
+	}
+	if err := n.execute(domain.Command{Kind: domain.SetSetting, Setting: "share_download_stats", Bool: true}); err != nil {
+		t.Fatal(err)
+	}
+	n.recordShareDownloads(map[string][]int{f.ID: {entries[1].ID}})
+	counted := slices.Collect(n.Snapshot().File(f.ID).ShareContents.All())
+	if len(counted) != 2 || counted[1].Downloads != 1 || slices.Collect(f.ShareContents.All())[1].Downloads != 0 {
+		t.Fatalf("the new count did not reach a fresh snapshot: %+v", counted)
+	}
+	if err := os.Remove(filePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "report.txt"), []byte("new content"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	n.refreshShareSources([]string{f.ID}, checkShareTree)
+	updated := slices.Collect(n.Snapshot().File(f.ID).ShareContents.All())
+	if len(updated) != 2 || updated[1].Path != "report.txt" || updated[1].Downloads != 0 {
+		t.Fatalf("the live catalog did not change: %+v", updated)
+	}
 }

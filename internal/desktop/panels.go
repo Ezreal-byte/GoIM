@@ -359,7 +359,7 @@ type Panels struct {
 	sharesMine            []panelShareEntry
 	sharesRemote          []panelShareEntry
 	shareLabels           [2]string
-	shareStats            shareStatsView
+	ownedShare            *ownedShareFolder
 
 	shareQRWorker shareQRWorker
 	shareMenu     shareMenuState
@@ -722,6 +722,11 @@ func (p *Panels) TextInput(context app.TextInputContext) *app.TextInput {
 // Config.OnKey and Config.OnShortcut (Shortcut is an alias for convenience).
 // It consumes only shortcut recording and Escape on its own detail pages.
 func (p *Panels) Key(event gfx.KeyEvent) gfx.EventResult {
+	if !event.Release && event.Key == gfx.KeyEscape && p.module == panelModuleShares &&
+		p.ownedShare != nil && p.shareMenu.kind == shareMenuClosed && !p.shareModalOpen() {
+		p.backOwnedShare()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	}
 	if !event.Release && event.Key == gfx.KeyEscape && p.memberProject != nil && p.shareMenu.kind == shareMenuClosed && !p.shareModalOpen() {
 		p.backMemberProject()
 		return gfx.EventResult{Handled: true, Repaint: true}
@@ -1172,12 +1177,12 @@ func (p *Panels) rebuildShares(state domain.State) {
 		}
 	}
 	p.sortShares()
-	if p.shareStats.projectID != "" {
-		entry, ok := p.shareEntry(p.shareStats.projectID)
-		if !state.Settings.ShareDownloadStats || !ok || !entry.own || !entry.file.ShareFolder {
-			p.shareStats = shareStatsView{}
+	if v := p.ownedShare; v != nil {
+		entry, ok := p.shareEntry(v.projectID)
+		if !ok || !entry.own || !entry.file.ShareFolder {
+			p.ownedShare = nil
 		} else {
-			p.shareStats.update(entry.file.ShareDownloadFiles)
+			v.update(entry, state.Settings.ShareDownloadStats)
 		}
 	}
 	p.shareLabels = [2]string{

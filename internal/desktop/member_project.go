@@ -160,12 +160,7 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry 
 	}
 	ui.Column(f.Part("member-folder")).FillWidth().Grow(1).MinHeight(0).PadSides(8, 0, 0, 0).Gap(8).Children(func() {
 		header := func() {
-			if ui.Button(f.Part("back-projects"), i18n.T("返回")).Icon(viewerBackIcon).Small().Outline().Disabled(v.busy && v.page.ParentURL != "").Clicked() {
-				p.backMemberProject()
-			}
-			ui.Row(f).Width(1).Height(theme.Metrics.ScaledText(18)).Background(theme.Border)
-			ui.Text(f, location).MinWidth(0).Grow(1).Ellipsis().Weight(gfx.WeightMedium).
-				HitWith(p.ids.shareLocation, location, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).Tooltip(location)
+			drawShareFolderHeading(f, p.ids.shareLocation, location, v.busy && v.page.ParentURL != "", p.backMemberProject)
 		}
 		actions := func() {
 			available := !v.busy && !v.page.Locked && len(v.page.Items) > 0

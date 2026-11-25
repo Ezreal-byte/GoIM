@@ -50,18 +50,32 @@ func BenchmarkSharePagePaint(b *testing.B) {
 
 func TestShareDownloadStatsAreOptInAndShowFolderFiles(t *testing.T) {
 	state := panelTestDefaultState(t)
+	contents := []domain.ShareFolderEntry{
+		{ID: 1, Path: "子目录", Folder: true},
+		{ID: 2, Parent: 1, Path: "子目录/清单.txt", Size: 1024, Downloads: 12},
+		{ID: 3, Path: "封面.png", Size: 200},
+		{ID: 4, Parent: 1, Path: "子目录/空目录", Folder: true},
+		{ID: 5, Parent: 1, Path: "子目录/日志.txt", Size: 4096, Downloads: 2},
+	}
 	state.Files = []domain.File{
 		{ID: "folder", Name: "交付资料", SenderID: state.Self.ID, Shared: true, ShareFolder: true,
-			ShareDownloadCount: 12, ShareDownloadFiles: []domain.ShareFileDownloads{
-				{Path: "子目录/清单.txt", Count: 12},
-				{Path: "封面.png"},
-			}},
+			ShareDownloadCount: 12, ShareContents: domain.NewShareFolderContents(contents)},
 		{ID: "file", Name: "交付稿.pdf", SenderID: state.Self.ID, Shared: true, ShareDownloadCount: 7},
 	}
 	h := panelTestNewHarness(t, panelModuleSettings, state)
 	p := h.panels
 	h.click(p.ids.settingsCategories.At(int(panelSettingsShares)))
-	h.clickLabelRole("统计共享文件下载次数", gfx.RoleSwitch)
+	const settingLabel = "统计共享文件下载次数"
+	count := 0
+	for _, label := range h.driver.Snapshot().Labels {
+		if label.Value == settingLabel {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("statistics setting label drawn %d times, want 1", count)
+	}
+	h.clickLabelRole(settingLabel, gfx.RoleSwitch)
 	if cmd := h.requireLastCommand(); cmd.Kind != domain.SetSetting || cmd.Setting != "share_download_stats" || !cmd.Bool {
 		t.Fatalf("unexpected statistics setting command: %+v", cmd)
 	}
@@ -70,6 +84,28 @@ func TestShareDownloadStatsAreOptInAndShowFolderFiles(t *testing.T) {
 	if h.hasText("下载次数") {
 		t.Fatal("download column was shown without opt-in")
 	}
+	folderRow, ok := h.findHitLabelRole("交付资料", gfx.RoleButton)
+	if !ok {
+		t.Fatal("owned folder row is missing")
+	}
+	h.click(folderRow.ID)
+	if p.ownedShare != nil {
+		t.Fatal("a single click should select the share")
+	}
+	if err := h.driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.DoubleClick(folderRow.Bounds.X+80, folderRow.Bounds.Y+folderRow.Bounds.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	if p.ownedShare == nil || !h.hasText("封面.png") || h.hasText("下载次数") {
+		t.Fatal("double-click did not open the folder with statistics disabled")
+	}
+	h.clickLabelRole("刷新", gfx.RoleButton)
+	if cmd := h.requireLastCommand(); cmd.Kind != domain.RefreshShares {
+		t.Fatalf("unexpected refresh command: %+v", cmd)
+	}
+	h.clickLabelRole("返回", gfx.RoleButton)
 	state.Settings.ShareDownloadStats = true
 	state.Revision++
 	h.publish(state)
@@ -80,17 +116,52 @@ func TestShareDownloadStatsAreOptInAndShowFolderFiles(t *testing.T) {
 	if p.sharesMine[0].file.ID != "file" {
 		t.Fatal("download column did not sort by its numeric value")
 	}
-	h.clickLabelRole("查看文件下载次数", gfx.RoleButton)
-	if !h.hasText("子目录/清单.txt") || !h.hasText("封面.png") || !h.hasText("0") {
-		t.Fatal("folder statistics did not show all files and their counts")
+	h.clickLabelRole("打开共享", gfx.RoleButton)
+	if !h.hasText("子目录") || !h.hasText("封面.png") || !h.hasText("0") || h.hasText("清单.txt") {
+		t.Fatal("the folder view should show only its direct children")
 	}
 	h.requireLayout()
-	state.Files[0].ShareDownloadFiles[0].Count = 13
+
+	nested, ok := h.findHitLabelRole("子目录", gfx.RoleOption)
+	if !ok {
+		t.Fatal("nested folder row is missing")
+	}
+	if err := h.driver.DoubleClick(nested.Bounds.X+80, nested.Bounds.Y+nested.Bounds.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	if !h.hasText("交付资料 / 子目录") || !h.hasText("清单.txt") || !h.hasText("12") || !h.hasText("1.00 KB") {
+		t.Fatal("the nested directory did not show file names, sizes and counts")
+	}
+	h.clickLabelRole("下载次数", gfx.RoleButton)
+	if rows := p.ownedShare.rows; len(rows) != 3 || rows[1].name != "日志.txt" || rows[2].name != "清单.txt" {
+		t.Fatal("download counts did not sort by number")
+	}
+	contents[1].Downloads = 13
+	state.Files[0].ShareContents = domain.NewShareFolderContents(contents)
 	state.Revision++
 	h.publish(state)
 	if !h.hasText("13") {
 		t.Fatal("folder statistics did not update")
 	}
+	state.Settings.ShareDownloadStats = false
+	state.Revision++
+	h.publish(state)
+	if h.hasText("下载次数") || h.hasText("13") || !h.hasText("清单.txt") {
+		t.Fatal("disabling statistics must hide counts while keeping the directory open")
+	}
+
+	empty, ok := h.findHitLabelRole("空目录", gfx.RoleOption)
+	if !ok {
+		t.Fatal("empty folder row is missing")
+	}
+	if err := h.driver.DoubleClick(empty.Bounds.X+80, empty.Bounds.Y+empty.Bounds.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	if !h.hasText("这个文件夹是空的") {
+		t.Fatal("empty folder did not open")
+	}
+	h.clickLabelRole("返回", gfx.RoleButton)
+	h.clickLabelRole("返回", gfx.RoleButton)
 	h.clickLabelRole("返回", gfx.RoleButton)
 	h.clickLabelRole(p.shareLabels[panelSharesRemote], gfx.RoleTab)
 	if h.hasText("下载次数") {

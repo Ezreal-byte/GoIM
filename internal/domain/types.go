@@ -259,13 +259,7 @@ type File struct {
 	ShareEntryCount  int    `json:"-"`
 
 	ShareDownloadCount uint64               `json:"-"`
-	ShareDownloadFiles []ShareFileDownloads `json:"-"`
-}
-
-// ShareFileDownloads is the owner's local statistics for a file in a shared folder.
-type ShareFileDownloads struct {
-	Path  string
-	Count uint64
+	ShareContents      *ShareFolderContents `json:"-"`
 }
 
 // ShareSession carries an unlocked member session only between local commands.

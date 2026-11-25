@@ -42,11 +42,13 @@ type browserShare struct {
 }
 
 type shareLink struct {
-	URL     string
-	QR      []byte
-	version uint64
-	entries int
-	size    int64
+	URL        string
+	QR         []byte
+	version    uint64
+	statistics bool
+	downloads  uint64
+	contents   *domain.ShareFolderContents
+	size       int64
 }
 
 func publicSharedFile(p *persisted, f domain.File) bool {
@@ -154,6 +156,7 @@ func (n *Node) attachShareLinks(s *domain.State, urls bool) {
 		n.attachDeviceShare(s)
 	}
 	if len(n.data.BrowserShares) == 0 {
+		clear(n.webLinks)
 		return
 	}
 	if n.webLinks == nil {
@@ -172,42 +175,54 @@ func (n *Node) attachShareLinks(s *domain.State, urls bool) {
 		}
 		f.ShareUnavailable = record.Unavailable
 		f.ShareProtected = record.Password.set()
-		if urls && s.Settings.ShareDownloadStats {
-			f.ShareDownloadCount = record.Downloads
-			if f.ShareFolder && len(record.Entries) > 0 {
-				f.ShareDownloadFiles = make([]domain.ShareFileDownloads, 0, len(record.Entries))
-				for i, entry := range record.Entries {
-					if !entry.Folder {
-						f.ShareDownloadFiles = append(f.ShareDownloadFiles, domain.ShareFileDownloads{
-							Path: entry.Path, Count: record.EntryDownloads[record.entryID(i)],
-						})
-					}
-				}
-			}
-		}
-		if !urls || n.webAddress == "" || record.Token == "" || record.Unavailable {
+		if !urls {
 			continue
 		}
-		url := "http://" + n.webAddress + "/s/" + record.Token
+		stats := s.Settings.ShareDownloadStats
+		if stats {
+			f.ShareDownloadCount = record.Downloads
+		}
+		if record.Unavailable {
+			delete(n.webLinks, f.ID)
+			continue
+		}
 		link := n.webLinks[f.ID]
-		newURL := link.URL != url
-		if newURL {
-			link = shareLink{URL: url}
-			link.QR, _ = qrcode.Encode(url, qrcode.Medium, 224)
-		}
-		if newURL || link.version != record.Version {
-			link.version = record.Version
-			link.entries, link.size = len(record.Entries), 0
-			for _, entry := range record.Entries {
-				link.size += entry.Size
-			}
-			n.webLinks[f.ID] = link
-		}
 		if f.ShareFolder {
-			f.ShareEntryCount, f.Size = link.entries, link.size
+			link.updateContents(record, stats)
+			f.ShareContents = link.contents
+			f.ShareEntryCount, f.Size = len(record.Entries), link.size
 		}
-		f.ShareURL, f.ShareQR = url, append([]byte(nil), link.QR...)
+		if n.webAddress != "" && record.Token != "" {
+			url := "http://" + n.webAddress + "/s/" + record.Token
+			if link.URL != url {
+				link.URL = url
+				link.QR, _ = qrcode.Encode(url, qrcode.Medium, 224)
+			}
+			f.ShareURL, f.ShareQR = url, append([]byte(nil), link.QR...)
+		}
+		n.webLinks[f.ID] = link
 	}
+}
+
+func (link *shareLink) updateContents(record browserShare, statistics bool) {
+	if link.contents != nil && link.version == record.Version &&
+		link.statistics == statistics && (!statistics || link.downloads == record.Downloads) {
+		return
+	}
+	rows := make([]domain.ShareFolderEntry, 0, len(record.Entries))
+	var size int64
+	for i, entry := range record.Entries {
+		row := domain.ShareFolderEntry{
+			ID: record.entryID(i), Parent: entry.Parent, Path: entry.Path, Folder: entry.Folder, Size: entry.Size,
+		}
+		if statistics && !row.Folder {
+			row.Downloads = record.EntryDownloads[row.ID]
+		}
+		rows = append(rows, row)
+		size += row.Size
+	}
+	link.contents = domain.NewShareFolderContents(rows)
+	link.version, link.statistics, link.downloads, link.size = record.Version, statistics, record.Downloads, size
 }
 
 // revokeShareGrants runs inside the same durable mutation as access changes.

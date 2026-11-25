@@ -137,8 +137,10 @@ func TestBrowserBatchDownload(t *testing.T) {
 		state := n.Snapshot()
 		f := state.File(folder.ID)
 		counts := make(map[string]uint64)
-		for _, stat := range f.ShareDownloadFiles {
-			counts[stat.Path] = stat.Count
+		for entry := range f.ShareContents.All() {
+			if !entry.Folder {
+				counts[entry.Path] = entry.Downloads
+			}
 		}
 		return state.File(first.ID).ShareDownloadCount == 1 && state.File(second.ID).ShareDownloadCount == 1 &&
 			f.ShareDownloadCount == 5 && maps.Equal(counts, map[string]uint64{"说明.txt": 2, "图片/图.png": 3})
