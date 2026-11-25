@@ -28,11 +28,13 @@ const (
 	controlPacket = 1
 	tunnelPacket  = 2
 	pixelPacket   = 3
+	cursorPacket  = 4
 
 	maxControl           = 16 << 10
 	maxTunnel            = 64 << 10
 	maxWidth             = 3840
 	maxHeight            = 2160
+	maxCursorSize        = 256
 	maxHelperDiagnostics = 8 << 10
 )
 
@@ -45,10 +47,11 @@ type Start struct {
 type Events struct {
 	Ready        func()
 	Frame        func(domain.RemoteDesktopFrame)
+	Cursor       func(domain.RemoteDesktopCursor)
 	AudioDevices func([]string)
 }
 
-type Engine func(ctx context.Context, tunnel net.Conn, grant Start, input <-chan domain.RemoteDesktopInput, events Events) error
+type Engine func(ctx context.Context, tunnel net.Conn, grant Start, input *InputQueue, events Events) error
 
 type engineError string
 
@@ -110,10 +113,11 @@ func helperFile(name string) bool {
 }
 
 type command struct {
-	Type    string `json:"type"`
-	Role    string `json:"role,omitempty"`
-	Control bool   `json:"control"`
-	Audio   bool   `json:"audio"`
+	Type           string `json:"type"`
+	Role           string `json:"role,omitempty"`
+	Control        bool   `json:"control"`
+	Audio          bool   `json:"audio"`
+	SeparateCursor bool   `json:"separate_cursor,omitempty"`
 	domain.RemoteDesktopInput
 }
 
@@ -134,7 +138,7 @@ func (d *helperDiagnostics) Write(p []byte) (int, error) {
 }
 
 func localEngine(path string) Engine {
-	return func(session context.Context, tunnel net.Conn, grant Start, input <-chan domain.RemoteDesktopInput, events Events) error {
+	return func(session context.Context, tunnel net.Conn, grant Start, input *InputQueue, events Events) error {
 		ctx, cancel := context.WithCancel(session)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, path, "--goim-remote")
@@ -170,7 +174,7 @@ func localEngine(path string) Engine {
 		go func() {
 			defer close(writeDone)
 			defer stdin.Close()
-			if err := writeChild(ctx, stdin, tunnel, grant, input); err != nil {
+			if err := writeChild(ctx, stdin, tunnel, grant, input, events.Cursor != nil); err != nil {
 				cancel()
 			}
 		}()
@@ -198,8 +202,12 @@ func missingHelperRuntime(diagnostics string) bool {
 			(strings.Contains(diagnostics, "GLIBC_") || strings.Contains(diagnostics, "GLIBCXX_") || strings.Contains(diagnostics, "CXXABI_"))
 }
 
-func writeChild(ctx context.Context, w io.Writer, tunnel net.Conn, grant Start, input <-chan domain.RemoteDesktopInput) error {
-	if err := writeControl(w, command{Type: "start", Role: grant.Role, Control: grant.Control, Audio: grant.Audio}); err != nil {
+func writeChild(ctx context.Context, w io.Writer, tunnel net.Conn, grant Start, input *InputQueue, separateCursor bool) error {
+	start := command{
+		Type: "start", Role: grant.Role, Control: grant.Control, Audio: grant.Audio,
+		SeparateCursor: grant.Role == "viewer" && separateCursor,
+	}
+	if err := writeControl(w, start); err != nil {
 		return err
 	}
 	// A single writer owns the pipe. Limit networking to one pending chunk
@@ -246,9 +254,9 @@ func writeChild(ctx context.Context, w io.Writer, tunnel net.Conn, grant Start, 
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case control, ok := <-input:
+		case <-input.Ready():
+			control, ok := input.Pop()
 			if !ok {
-				input = nil
 				continue
 			}
 			if err := writeControl(w, command{Type: "input", RemoteDesktopInput: control}); err != nil {
@@ -359,6 +367,13 @@ func readChild(r io.Reader, tunnel net.Conn, grant Start, events Events) error {
 			if err := readFrame(r, size, events.Frame); err != nil {
 				return err
 			}
+		case cursorPacket:
+			if grant.Role != "viewer" || !active || events.Cursor == nil {
+				return errors.New("unexpected viewer cursor")
+			}
+			if err := readCursor(r, size, events.Cursor); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unexpected engine packet type %d", header[0])
 		}
@@ -382,5 +397,32 @@ func readFrame(r io.Reader, size uint32, frame func(domain.RemoteDesktopFrame)) 
 		return err
 	}
 	frame(domain.RemoteDesktopFrame{Width: int(w), Height: int(h), BGRA: pixels})
+	return nil
+}
+
+func readCursor(r io.Reader, size uint32, cursor func(domain.RemoteDesktopCursor)) error {
+	if size < 8 || size > 8+4*maxCursorSize*maxCursorSize {
+		return errors.New("invalid viewer cursor length")
+	}
+	var header [8]byte
+	if _, err := io.ReadFull(r, header[:]); err != nil {
+		return err
+	}
+	width, height := uint32(binary.BigEndian.Uint16(header[4:6])), uint32(binary.BigEndian.Uint16(header[6:8]))
+	if width == 0 && height == 0 && size == 8 {
+		cursor(domain.RemoteDesktopCursor{})
+		return nil
+	}
+	if width == 0 || height == 0 || width > maxCursorSize || height > maxCursorSize || size-8 != 4*width*height {
+		return errors.New("invalid viewer cursor dimensions")
+	}
+	pixels := make([]byte, size-8)
+	if _, err := io.ReadFull(r, pixels); err != nil {
+		return err
+	}
+	cursor(domain.RemoteDesktopCursor{
+		X: int(int16(binary.BigEndian.Uint16(header[0:2]))), Y: int(int16(binary.BigEndian.Uint16(header[2:4]))),
+		Width: int(width), Height: int(height), BGRA: pixels,
+	})
 	return nil
 }

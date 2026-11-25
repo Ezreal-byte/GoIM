@@ -17,10 +17,11 @@ func TestCloneSnapshotStatePreservesJSONView(t *testing.T) {
 	}{
 		{"nil history", nil},
 		{"empty history", []domain.Message{}},
-		{"text and voice", []domain.Message{
+		{"text, voice and remote desktop", []domain.Message{
 			{ID: "text", Text: "你好", CreatedAt: created},
 			{ID: "voice", Voice: &domain.VoiceRecord{Connected: true, DurationSeconds: 21}},
 			{ID: "empty record", Voice: &domain.VoiceRecord{}},
+			{ID: "remote desktop", RemoteDesktop: &domain.RemoteDesktopRecord{Connected: true, DurationSeconds: 35}},
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -58,10 +59,11 @@ func TestCloneSnapshotStatePreservesJSONView(t *testing.T) {
 
 func TestSnapshotKeepsChatHistoryIndependent(t *testing.T) {
 	voice := &domain.VoiceRecord{Connected: true, DurationSeconds: 21}
+	remoteDesktop := &domain.RemoteDesktopRecord{Connected: true, DurationSeconds: 35}
 	now := time.Now()
 	node := &Node{data: persisted{State: domain.State{Messages: []domain.Message{
-		{ID: "message", Text: "original", CreatedAt: now, Voice: voice},
-		{ID: "second", Voice: voice},
+		{ID: "message", Text: "original", CreatedAt: now, Voice: voice, RemoteDesktop: remoteDesktop},
+		{ID: "second", Voice: voice, RemoteDesktop: remoteDesktop},
 	}}}}
 	first, second := node.Snapshot(), node.Snapshot()
 	if first.Messages[0].CreatedAt != now.Round(0) {
@@ -69,9 +71,14 @@ func TestSnapshotKeepsChatHistoryIndependent(t *testing.T) {
 	}
 	first.Messages[0].Text = "edited"
 	first.Messages[0].Voice.DurationSeconds = 1
+	first.Messages[0].RemoteDesktop.DurationSeconds = 2
 	if second.Messages[0].Text != "original" || second.Messages[0].Voice.DurationSeconds != 21 ||
 		first.Messages[1].Voice.DurationSeconds != 21 || voice.DurationSeconds != 21 {
 		t.Fatal("editing one snapshot changed another message or the stored state")
+	}
+	if second.Messages[0].RemoteDesktop.DurationSeconds != 35 ||
+		first.Messages[1].RemoteDesktop.DurationSeconds != 35 || remoteDesktop.DurationSeconds != 35 {
+		t.Fatal("editing one snapshot changed remote desktop history elsewhere")
 	}
 	node.data.State.Messages[0].Text = "new state"
 	if node.Snapshot().Messages[0].Text != "new state" || second.Messages[0].Text != "original" {

@@ -73,6 +73,15 @@ type RemoteDesktopFrame struct {
 	BGRA []byte
 }
 
+// RemoteDesktopCursor coordinates are the top left of the cursor bitmap in
+// the original remote frame. A zero width and height hide the cursor.
+type RemoteDesktopCursor struct {
+	X, Y          int
+	Width, Height int
+	// BGRA is a tightly packed, immutable buffer with premultiplied alpha.
+	BGRA []byte
+}
+
 // RemoteDesktopInput is local viewer input. The helper's wire grammar is
 // intentionally independent of desktop UI and framework types.
 type RemoteDesktopInput struct {
@@ -95,4 +104,9 @@ type RemoteDesktopInput struct {
 type RemoteDesktopBackend interface {
 	RemoteDesktopFrames(id string) <-chan RemoteDesktopFrame
 	SendRemoteDesktopInput(id string, input RemoteDesktopInput) error
+}
+
+// RemoteDesktopCursorBackend supplies cursor updates independently of video.
+type RemoteDesktopCursorBackend interface {
+	RemoteDesktopCursors(id string) <-chan RemoteDesktopCursor
 }

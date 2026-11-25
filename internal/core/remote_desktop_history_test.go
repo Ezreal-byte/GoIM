@@ -10,7 +10,7 @@ import (
 )
 
 func TestRemoteDesktopHistoryKeepsDraftAndSurvivesRestart(t *testing.T) {
-	engine := func(ctx context.Context, _ net.Conn, _ remotedesktop.Start, _ <-chan domain.RemoteDesktopInput, events remotedesktop.Events) error {
+	engine := func(ctx context.Context, _ net.Conn, _ remotedesktop.Start, _ *remotedesktop.InputQueue, events remotedesktop.Events) error {
 		events.Ready()
 		<-ctx.Done()
 		return nil

@@ -414,6 +414,10 @@ func cloneSnapshotState(state domain.State) domain.State {
 			voice := *message.Voice
 			message.Voice = &voice
 		}
+		if message.RemoteDesktop != nil {
+			remoteDesktop := *message.RemoteDesktop
+			message.RemoteDesktop = &remoteDesktop
+		}
 	}
 	return snapshot
 }

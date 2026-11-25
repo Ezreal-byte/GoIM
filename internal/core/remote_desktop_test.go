@@ -53,7 +53,8 @@ func waitFrame(t *testing.T, frames <-chan domain.RemoteDesktopFrame) domain.Rem
 func TestRemoteDesktopRequiresConsentAndUsesDirectTLS(t *testing.T) {
 	var starts atomic.Int32
 	stopped := make(chan struct{}, 2)
-	viewer := remoteTestNode(t, "viewer", func(ctx context.Context, conn net.Conn, start remotedesktop.Start, input <-chan domain.RemoteDesktopInput, events remotedesktop.Events) error {
+	cursorUpdatesSent := make(chan struct{})
+	viewer := remoteTestNode(t, "viewer", func(ctx context.Context, conn net.Conn, start remotedesktop.Start, input *remotedesktop.InputQueue, events remotedesktop.Events) error {
 		starts.Add(1)
 		defer func() { stopped <- struct{}{} }()
 		if start.Role != "viewer" || start.Control || !start.Audio {
@@ -65,17 +66,21 @@ func TestRemoteDesktopRequiresConsentAndUsesDirectTLS(t *testing.T) {
 		}
 		events.Ready()
 		events.Frame(domain.RemoteDesktopFrame{Width: 1, Height: 1, BGRA: pixels[:]})
+		events.Cursor(domain.RemoteDesktopCursor{X: -2, Y: 3, Width: 1, Height: 1, BGRA: []byte{0, 0, 0, 255}})
+		events.Cursor(domain.RemoteDesktopCursor{X: 1, Y: -1, Width: 1, Height: 1, BGRA: []byte{0, 0, 0, 255}})
+		close(cursorUpdatesSent)
 		select {
 		case <-ctx.Done():
-		case command := <-input:
-			if command.Action != "audio" || command.Volume != 63 {
+		case <-input.Ready():
+			command, ok := input.Pop()
+			if !ok || command.Action != "audio" || command.Volume != 63 {
 				t.Error("input permission leaked or volume corrupted", command)
 			}
 			<-ctx.Done()
 		}
 		return nil
 	})
-	host := remoteTestNode(t, "host", func(ctx context.Context, conn net.Conn, start remotedesktop.Start, _ <-chan domain.RemoteDesktopInput, events remotedesktop.Events) error {
+	host := remoteTestNode(t, "host", func(ctx context.Context, conn net.Conn, start remotedesktop.Start, _ *remotedesktop.InputQueue, events remotedesktop.Events) error {
 		starts.Add(1)
 		defer func() { stopped <- struct{}{} }()
 		if start.Role != "host" || start.Control || !start.Audio {
@@ -121,6 +126,23 @@ func TestRemoteDesktopRequiresConsentAndUsesDirectTLS(t *testing.T) {
 	if got := waitFrame(t, frames); got.Width != 1 || got.BGRA[2] != 9 {
 		t.Fatal("dedicated TLS connection did not carry the helper's data", got)
 	}
+	cursors := viewer.RemoteDesktopCursors(active.ID)
+	select {
+	case <-cursorUpdatesSent:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the viewer did not publish cursor updates")
+	}
+	select {
+	case cursor := <-cursors:
+		if cursor.X != 1 || cursor.Y != -1 || cursor.Width != 1 {
+			t.Fatal("cursor queue retained a stale update", cursor)
+		}
+	default:
+		t.Fatal("a cursor update was lost")
+	}
+	if host.RemoteDesktopCursors(active.ID) != nil {
+		t.Fatal("an incoming session exposed the viewer's cursor channel")
+	}
 	if err := viewer.SendRemoteDesktopInput(active.ID, domain.RemoteDesktopInput{Action: "key", Key: "a"}); err == nil {
 		t.Fatal("view-only permission allowed remote input")
 	}
@@ -144,6 +166,9 @@ func TestRemoteDesktopRequiresConsentAndUsesDirectTLS(t *testing.T) {
 	}
 	if _, ok := <-frames; ok || starts.Load() != 2 {
 		t.Fatal("ended stream retained a frame or extra connection started a helper")
+	}
+	if _, ok := <-cursors; ok || viewer.RemoteDesktopCursors(active.ID) != nil {
+		t.Fatal("ended stream retained a cursor channel")
 	}
 }
 
@@ -180,7 +205,7 @@ func openRemoteTestStream(t *testing.T, viewer, host *Node, id, grant string) ne
 
 func TestRemoteDesktopGrantIsPeerBoundAndSingleUse(t *testing.T) {
 	stopped := make(chan struct{}, 2)
-	host := remoteTestNode(t, "host", func(ctx context.Context, _ net.Conn, _ remotedesktop.Start, _ <-chan domain.RemoteDesktopInput, events remotedesktop.Events) error {
+	host := remoteTestNode(t, "host", func(ctx context.Context, _ net.Conn, _ remotedesktop.Start, _ *remotedesktop.InputQueue, events remotedesktop.Events) error {
 		events.Ready()
 		<-ctx.Done()
 		stopped <- struct{}{}
@@ -222,7 +247,7 @@ func TestRemoteDesktopGrantIsPeerBoundAndSingleUse(t *testing.T) {
 }
 
 func TestRemoteDesktopDoesNotUseLegacyOrRelayedContacts(t *testing.T) {
-	withEngine := remoteTestNode(t, "with-engine", func(context.Context, net.Conn, remotedesktop.Start, <-chan domain.RemoteDesktopInput, remotedesktop.Events) error {
+	withEngine := remoteTestNode(t, "with-engine", func(context.Context, net.Conn, remotedesktop.Start, *remotedesktop.InputQueue, remotedesktop.Events) error {
 		t.Error("unsupported session started the engine")
 		return nil
 	})

@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bytes"
 	"math"
 	"slices"
 	"strconv"
@@ -17,15 +18,7 @@ import (
 	"goim/internal/i18n"
 )
 
-type remoteDesktopViewerPanel uint8
-
-const (
-	remoteDesktopViewerPanelNone remoteDesktopViewerPanel = iota
-	remoteDesktopViewerPanelKeys
-	remoteDesktopViewerPanelAudio
-)
-
-const remoteDesktopViewerMinTitlebarHeight = 50
+const remoteDesktopViewerMinTitlebarHeight = 42
 
 var (
 	remoteDesktopKeyboardIcon = viewerLineIcon(
@@ -46,15 +39,20 @@ var (
 )
 
 type remoteDesktopViewer struct {
-	view    *remoteDesktopView
-	backend domain.RemoteDesktopBackend
-	frameID gfx.ID
-	stop    chan struct{}
-	pending atomic.Pointer[domain.RemoteDesktopFrame]
-	bitmap  gfx.Bitmap
+	view          *remoteDesktopView
+	backend       domain.RemoteDesktopBackend
+	frameID       gfx.ID
+	stop          chan struct{}
+	pending       atomic.Pointer[domain.RemoteDesktopFrame]
+	bitmap        gfx.Bitmap
+	pendingCursor atomic.Pointer[domain.RemoteDesktopCursor]
+	cursorBitmap  gfx.Bitmap
+	cursorX       int
+	cursorY       int
 
 	input          app.TextInput
-	controls       remoteDesktopViewerPanel
+	shortcutsOpen  bool
+	audioOpen      bool
 	titlebarHeight float32
 	captured       bool
 	buttons        uint8
@@ -88,7 +86,7 @@ func (v *remoteDesktopViewer) configure(config *app.Config) {
 	config.Width, config.Height = 1050, 680
 	config.MinWidth, config.MinHeight = 640, 420
 	config.WindowMode = app.WindowCustomTitlebar
-	v.titlebarHeight = max(remoteDesktopViewerMinTitlebarHeight, v.view.theme.Metrics.ScaledText(26)+20)
+	v.titlebarHeight = max(remoteDesktopViewerMinTitlebarHeight, v.view.theme.Metrics.ScaledText(26)+14)
 	config.TitlebarHeight = v.titlebarHeight
 	config.ClearColor = colorToApp(v.view.theme.Card)
 	config.WindowBorderColor = func() app.Color { return colorToApp(v.view.theme.Card) }
@@ -124,6 +122,10 @@ func (v *remoteDesktopViewer) start() {
 	if frames == nil {
 		return
 	}
+	var cursors <-chan domain.RemoteDesktopCursor
+	if backend, ok := v.backend.(domain.RemoteDesktopCursorBackend); ok {
+		cursors = backend.RemoteDesktopCursors(v.view.session.ID)
+	}
 	go func() {
 		for {
 			select {
@@ -137,6 +139,13 @@ func (v *remoteDesktopViewer) start() {
 					v.pending.Store(&frame)
 					v.view.wake.Invalidate()
 				}
+			case cursor, ok := <-cursors:
+				if !ok {
+					cursors = nil
+					continue
+				}
+				v.pendingCursor.Store(&cursor)
+				v.view.wake.Invalidate()
 			}
 		}
 	}()
@@ -145,7 +154,9 @@ func (v *remoteDesktopViewer) start() {
 func (v *remoteDesktopViewer) close() {
 	close(v.stop)
 	v.pending.Store(nil)
+	v.pendingCursor.Store(nil)
 	v.bitmap = gfx.Bitmap{}
+	v.cursorBitmap = gfx.Bitmap{}
 }
 
 func validRemoteDesktopFrame(frame domain.RemoteDesktopFrame) bool {
@@ -155,6 +166,18 @@ func validRemoteDesktopFrame(frame domain.RemoteDesktopFrame) bool {
 }
 
 func (v *remoteDesktopViewer) nextFrame() {
+	if cursor := v.pendingCursor.Swap(nil); cursor != nil {
+		v.cursorX, v.cursorY = cursor.X, cursor.Y
+		// Motion repositions the uploaded bitmap. Upload again only when its
+		// shape changes, including after the cursor was hidden.
+		bitmap := &v.cursorBitmap
+		if cursor.Width != bitmap.Width || cursor.Height != bitmap.Height || !bytes.Equal(cursor.BGRA, bitmap.Pix) {
+			*bitmap = gfx.Bitmap{
+				ID: 2, Version: bitmap.Version + 1, Pix: cursor.BGRA,
+				Width: cursor.Width, Height: cursor.Height, Stride: cursor.Width * 4,
+			}
+		}
+	}
 	frame := v.pending.Swap(nil)
 	if frame == nil {
 		return
@@ -168,19 +191,22 @@ func (v *remoteDesktopViewer) nextFrame() {
 	}
 }
 
-func (v *remoteDesktopViewer) toolPanelHeight() float32 {
-	return 46 + max(0, v.view.theme.Metrics.ScaledText(14)-14)
-}
-
-func (v *remoteDesktopViewer) toolbarHeight() float32 {
-	if v.controls == remoteDesktopViewerPanelNone {
-		return v.titlebarHeight
+func (v *remoteDesktopViewer) drawCursor(canvas *gfx.Canvas, image ui.Rect) {
+	if !bitmapReady(v.cursorBitmap) {
+		return
 	}
-	return v.titlebarHeight + v.toolPanelHeight()
+	scale := image.Width / float32(v.bitmap.Width)
+	bounds := ui.Rect{
+		X: image.X + float32(v.cursorX)*scale, Y: image.Y + float32(v.cursorY)*scale,
+		Width: float32(v.cursorBitmap.Width) * scale, Height: float32(v.cursorBitmap.Height) * scale,
+	}
+	canvas.Clip(image)
+	canvas.DrawBitmap(v.cursorBitmap, bounds)
+	canvas.Unclip()
 }
 
 func (v *remoteDesktopViewer) stage(size gfx.Size) ui.Rect {
-	height := v.toolbarHeight()
+	height := v.titlebarHeight
 	return ui.Rect{Y: height, Width: size.Width, Height: max(0, size.Height-height)}
 }
 
@@ -199,6 +225,7 @@ func (v *remoteDesktopViewer) paint(canvas *gfx.Canvas, size gfx.Size) {
 	canvas.Fill(area, ui.RGB(22, 24, 29))
 	if image := v.imageRect(size); image.Width > 0 {
 		canvas.DrawBitmap(v.bitmap, image)
+		v.drawCursor(canvas, image)
 		if v.view.session.Control {
 			canvas.HitWithOptions(v.frameID, image, i18n.T("远程屏幕"), gfx.HitOptions{
 				Role: gfx.RoleTerminal, Hint: i18n.T("点击画面以控制。按 Ctrl+Shift+F12 释放键鼠。"),
@@ -207,11 +234,8 @@ func (v *remoteDesktopViewer) paint(canvas *gfx.Canvas, size gfx.Size) {
 	} else {
 		canvas.LabelCenter(i18n.T("正在等待远程画面…"), area, gfx.TextStyle{Size: 14, Color: ui.RGB(221, 225, 230)})
 	}
-	toolbar := ui.Rect{Width: size.Width, Height: v.toolbarHeight()}
+	toolbar := ui.Rect{Width: size.Width, Height: v.titlebarHeight}
 	canvas.Fill(toolbar, v.view.theme.Card)
-	if v.controls != remoteDesktopViewerPanelNone {
-		canvas.Fill(ui.Rect{Y: v.titlebarHeight, Width: toolbar.Width, Height: 1}, v.view.theme.Border)
-	}
 	canvas.Fill(ui.Rect{Y: toolbar.Bottom() - 1, Width: toolbar.Width, Height: 1}, v.view.theme.Border)
 	leading, trailing := canvas.TitlebarInsets()
 	if v.fullscreen {
@@ -219,56 +243,39 @@ func (v *remoteDesktopViewer) paint(canvas *gfx.Canvas, size gfx.Size) {
 	}
 	available := size.Width - leading - trailing - 24
 	compactWidth := 610 + 10*max(0, v.view.theme.Metrics.ScaledText(14)-14)
-	v.view.page.Draw(canvas, toolbar, func(f ui.C) {
-		ui.Column(f).Fill().Children(func() {
-			v.drawTitlebar(f, leading, trailing, available, available < compactWidth)
-			switch v.controls {
-			case remoteDesktopViewerPanelKeys:
-				v.drawShortcuts(f, size.Width < compactWidth)
-			case remoteDesktopViewerPanelAudio:
-				v.drawAudio(f)
-			}
-		})
+	v.view.page.Draw(canvas, ui.Rect{Width: size.Width, Height: size.Height}, func(f ui.C) {
+		v.drawTitlebar(f, leading, trailing, available, available < compactWidth)
 	})
 }
 
 func (v *remoteDesktopViewer) drawTitlebar(f ui.C, leading, trailing, available float32, compact bool) {
 	theme := v.view.theme
-	accent := theme.Primary
-	if theme.Card.Red < .5 {
-		accent = accent.Mix(theme.Foreground, .5)
-	}
 	ui.Row(f).FillWidth().Height(v.titlebarHeight).MovesWindow().
 		PadSides(0, trailing+12, 0, leading+12).Gap(10).Items(ui.Center).Children(func() {
-		if available >= 345 {
-			ui.Row(f).Size(32, 32).Shrink(0).Radius(9).Background(accent.Mix(theme.Card, .86)).
-				Center().Children(func() {
-				ui.Icon(f, remoteDesktopIcon).Size(19, 19).Color(accent)
-			})
+		if shell := v.view.avatarShell; shell != nil {
+			shell.avatarWithPresence(f, v.view.peerName, v.view.peerAvatar, 30, false, false, theme.Card)
 		}
-		ui.Column(f).Grow(1).MinWidth(0).Gap(2).Children(func() {
-			// The native caption height stays fixed while this window is open.
-			// Fit both lines if the font setting changes after it opens.
-			titleSize := min(textSize(f, 14), v.titlebarHeight*.4)
-			statusSize := min(textSize(f, 11), v.titlebarHeight*.3)
-			ui.Text(f, v.view.peerName).FillWidth().Weight(gfx.WeightSemibold).
-				FontSize(titleSize).Ellipsis()
-			label, statusColor := v.status()
-			ui.Row(f).FillWidth().Gap(6).Items(ui.Center).Children(func() {
+		ui.Row(f).Grow(1).MinWidth(0).Gap(12).Items(ui.Center).Children(func() {
+			// The native caption's height is fixed for this viewer, even if the font setting changes.
+			titleSize := min(textSize(f, 14), v.titlebarHeight*.52)
+			statusSize := min(textSize(f, 11), v.titlebarHeight*.44)
+			ui.Text(f, v.view.peerName).MinWidth(0).Shrink(1).Weight(gfx.WeightSemibold).FontSize(titleSize).Ellipsis()
+			label, statusColor := v.status(compact)
+			ui.Row(f).MaxWidth(available * .35).Shrink(0).Gap(6).Items(ui.Center).Children(func() {
 				ui.Row(f).Size(6, 6).Radius(3).Shrink(0).Background(statusColor)
-				ui.Text(f, label).Grow(1).MinWidth(0).FontSize(statusSize).Muted().Ellipsis()
+				ui.Text(f, label).MinWidth(0).Shrink(1).FontSize(statusSize).Muted().Ellipsis()
 			})
 		})
 		ui.Row(f).Gap(5).Shrink(0).Items(ui.Center).Children(func() {
 			v.drawTitlebarActions(f, compact)
 		})
 		if trailing > 0 && available >= 345 {
-			ui.Row(f).Size(1, 22).Shrink(0).Background(theme.Border)
+			ui.Row(f).Size(1, 20).Shrink(0).Background(theme.Border)
 		}
 	})
 }
 
-func (v *remoteDesktopViewer) status() (string, ui.Color) {
+func (v *remoteDesktopViewer) status(compact bool) (string, ui.Color) {
 	theme := v.view.theme
 	switch {
 	case v.fullscreenFail:
@@ -278,6 +285,9 @@ func (v *remoteDesktopViewer) status() (string, ui.Color) {
 	case v.captured:
 		return i18n.T("正在控制"), paletteFor(theme, "").success
 	case v.view.session.Control:
+		if compact {
+			return i18n.T("待控制"), theme.Primary
+		}
 		return i18n.T("点击画面以控制"), theme.Primary
 	default:
 		return i18n.T("仅查看"), theme.MutedForeground
@@ -287,12 +297,15 @@ func (v *remoteDesktopViewer) status() (string, ui.Color) {
 func (v *remoteDesktopViewer) drawTitlebarActions(f ui.C, compact bool) {
 	if v.view.session.Control {
 		button := remoteDesktopToolButton(f.Part("shortcuts"), i18n.T("快捷键"), remoteDesktopKeyboardIcon, compact)
-		if v.controls == remoteDesktopViewerPanelKeys {
+		if v.shortcutsOpen {
 			button = button.Secondary()
 		}
 		if button.Clicked() {
-			v.togglePanel(remoteDesktopViewerPanelKeys)
+			v.shortcutsOpen, v.audioOpen = !v.shortcutsOpen, false
 		}
+		ui.PopoverWith(f, button, &v.shortcutsOpen, v.toolPopover(f, 236), func() {
+			v.drawShortcuts(f)
+		})
 	}
 	if v.view.session.Audio {
 		icon := Volume2
@@ -300,12 +313,15 @@ func (v *remoteDesktopViewer) drawTitlebarActions(f ui.C, compact bool) {
 			icon = VolumeX
 		}
 		button := remoteDesktopToolButton(f.Part("audio"), i18n.T("声音"), icon, compact)
-		if v.controls == remoteDesktopViewerPanelAudio {
+		if v.audioOpen {
 			button = button.Secondary()
 		}
 		if button.Clicked() {
-			v.togglePanel(remoteDesktopViewerPanelAudio)
+			v.audioOpen, v.shortcutsOpen = !v.audioOpen, false
 		}
+		ui.PopoverWith(f, button, &v.audioOpen, v.toolPopover(f, 272), func() {
+			v.drawAudio(f)
+		})
 	}
 	fullscreen, icon := i18n.T("全屏"), viewerFullscreenIcon
 	if v.fullscreen {
@@ -332,39 +348,45 @@ func remoteDesktopToolButton(f ui.C, label string, icon gfx.Icon, compact bool) 
 	return button
 }
 
-func (v *remoteDesktopViewer) togglePanel(panel remoteDesktopViewerPanel) {
-	if v.controls == panel {
-		v.controls = remoteDesktopViewerPanelNone
-	} else {
-		v.controls = panel
+func (v *remoteDesktopViewer) toolPopover(f ui.C, width float32) ui.PopoverSpec {
+	return ui.PopoverSpec{
+		Align: ui.End, Width: max(width, textSize(f, width-48)),
+		Padding: 12, Offset: (v.titlebarHeight-34)/2 + 4, Instant: true, ConsumeOutsidePress: true,
 	}
 }
 
-func (v *remoteDesktopViewer) drawShortcuts(f ui.C, compact bool) {
-	ui.Row(f).FillWidth().Height(v.toolPanelHeight()).PadX(12).Gap(8).Items(ui.Center).Children(func() {
-		if remoteDesktopToolButton(f.Part("switch-app"), i18n.T("切换远端应用"), ArrowRightLeft, compact).Outline().Clicked() {
-			f.After(func() { v.send(domain.RemoteDesktopInput{Action: "shortcut", Key: "switch-app"}) })
-		}
-		if remoteDesktopToolButton(f.Part("close-window"), i18n.T("关闭远端窗口"), X, compact).Outline().Clicked() {
-			f.After(func() { v.send(domain.RemoteDesktopInput{Action: "shortcut", Key: "close-window"}) })
-		}
-		if remoteDesktopToolButton(f.Part("release-input"), i18n.T("释放键鼠"), Lock, compact).Outline().Clicked() {
-			f.After(func() { v.releaseInput(); v.view.wake.Invalidate() })
-		}
-		ui.Text(f, "Ctrl+Shift+F12").Grow(1).MinWidth(0).Muted().Ellipsis()
-	})
+func (v *remoteDesktopViewer) drawShortcuts(f ui.C) {
+	height := max(34, textSize(f, 14)+14)
+	if remoteDesktopShortcutAction(f.Part("switch-app"), i18n.T("切换远端应用"), ArrowRightLeft, height) {
+		v.shortcutsOpen = false
+		f.After(func() { v.send(domain.RemoteDesktopInput{Action: "shortcut", Key: "switch-app"}) })
+	}
+	if remoteDesktopShortcutAction(f.Part("close-window"), i18n.T("关闭远端窗口"), X, height) {
+		v.shortcutsOpen = false
+		f.After(func() { v.send(domain.RemoteDesktopInput{Action: "shortcut", Key: "close-window"}) })
+	}
+	if remoteDesktopShortcutAction(f.Part("release-input"), i18n.T("释放键鼠"), Lock, height) {
+		v.shortcutsOpen = false
+		f.After(func() { v.releaseInput(); v.view.wake.Invalidate() })
+	}
+	ui.Text(f, "Ctrl+Shift+F12").FillWidth().TextCenter().Muted().FontSize(textSize(f, 11))
+}
+
+func remoteDesktopShortcutAction(f ui.C, label string, icon gfx.Icon, height float32) bool {
+	return ui.Button(f, label).Ghost().FillWidth().Height(height).PadX(8).Gap(10).
+		Items(ui.Center).Justify(ui.Start).Children(func() {
+		ui.Icon(f, icon).Size(16, 16).Shrink(0).Color(f.Theme().MutedForeground)
+		ui.Text(f, label).MinWidth(0).Ellipsis()
+	}).Clicked()
 }
 
 func (v *remoteDesktopViewer) drawAudio(f ui.C) {
-	ui.Row(f).FillWidth().Height(v.toolPanelHeight()).PadX(12).Gap(10).Items(ui.Center).Children(func() {
-		label := i18n.T("静音")
-		if v.muted {
-			label = i18n.T("取消静音")
-		}
-		if ui.Button(f.Part("mute"), label).Small().Outline().Clicked() {
-			v.muted = !v.muted
-			f.After(v.updateAudio)
-		}
+	volume := i18n.T("扬声器音量")
+	ui.Row(f).FillWidth().Gap(12).Items(ui.Center).Children(func() {
+		ui.Text(f, volume).Grow(1).Weight(gfx.WeightSemibold)
+		ui.Text(f, strconv.Itoa(int(v.volume.Value))+"%").Muted()
+	})
+	ui.Row(f).FillWidth().Gap(10).Items(ui.Center).Children(func() {
 		if ui.Slider(f.Part("volume"), &v.volume).Range(0, 100).Step(1).Grow(1).Label(i18n.T("扬声器音量")).Changed() {
 			v.volumeChanged = true
 		}
@@ -372,17 +394,24 @@ func (v *remoteDesktopViewer) drawAudio(f ui.C) {
 			v.volumeChanged = false
 			f.After(v.updateAudio)
 		}
-		ui.Text(f, strconv.Itoa(int(v.volume.Value))+"%").Width(max(42, textSize(f, 34))).Muted()
-		if len(v.devices) > 1 {
-			width := max(180, textSize(f, 124))
-			if ui.Select(f.Part("audio-device"), &v.device, v.devices, remoteDesktopSpeakerLabel).
-				Width(width).Label(i18n.T("扬声器")).Changed() {
-				f.After(v.updateAudio)
-			}
-		} else {
-			ui.Text(f, i18n.T("系统默认")).Muted()
+		label := i18n.T("静音")
+		if v.muted {
+			label = i18n.T("取消静音")
+		}
+		if ui.Button(f.Part("mute"), label).Small().Outline().Height(max(34, textSize(f, 13)+14)).Clicked() {
+			v.muted = !v.muted
+			f.After(v.updateAudio)
 		}
 	})
+	ui.Text(f, i18n.T("扬声器")).Muted().FontSize(textSize(f, 12))
+	if len(v.devices) > 1 {
+		if ui.Select(f.Part("audio-device"), &v.device, v.devices, remoteDesktopSpeakerLabel).
+			FillWidth().Label(i18n.T("扬声器")).Changed() {
+			f.After(v.updateAudio)
+		}
+	} else {
+		ui.Text(f, i18n.T("系统默认")).Muted()
+	}
 }
 
 func remoteDesktopSpeakerLabel(device string) string {

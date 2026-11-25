@@ -235,7 +235,7 @@ func (r *desktopRuntime) syncRemoteDesktop(state domain.State, locked bool) {
 		view.viewer = newRemoteDesktopViewer(view, backend)
 	}
 	config := view.config()
-	if config.WindowMode == app.WindowNotification {
+	if config.WindowMode == app.WindowNotification || mode == remoteDesktopWindowViewing {
 		view.avatarShell = r.ui
 		view.avatarID = r.ui.avatarBitmap(view.peerAvatar).ID
 	}

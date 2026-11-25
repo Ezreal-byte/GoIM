@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 
 	"goim/internal/domain"
 	"goim/internal/i18n"
@@ -14,10 +15,13 @@ func TestRemoteDesktopViewerTitlebarKeepsActionsAndFrameSeparate(t *testing.T) {
 	i18n.SetLanguage(i18n.English)
 	t.Cleanup(func() { i18n.SetLanguage(language) })
 
-	view, driver, _ := remoteDesktopTestViewer(t, true, true)
+	view, driver, backend := remoteDesktopTestViewer(t, true, true)
 	config := view.config()
 	if config.WindowMode != app.WindowCustomTitlebar || config.WindowControls == nil {
 		t.Fatal("viewer did not preserve native window controls in its titlebar")
+	}
+	if config.TitlebarHeight != 42 {
+		t.Fatalf("titlebar height = %g, want 42 at the default font size", config.TitlebarHeight)
 	}
 	view.peerName = "Isolated development desktop"
 	view.theme = themeForSettings(domain.Settings{Theme: "dark", InterfaceFontSize: 28})
@@ -44,14 +48,49 @@ func TestRemoteDesktopViewerTitlebarKeepsActionsAndFrameSeparate(t *testing.T) {
 	}
 
 	clickRemoteDesktopControl(t, driver, "快捷键")
-	remoteDesktopTestHit(t, driver, "释放键鼠")
-	if screen := remoteDesktopTestHit(t, driver, "远程屏幕").Bounds; screen.Y < view.viewer.toolbarHeight() {
-		t.Fatal("expanded shortcuts cover the interactive remote screen")
+	shortcut := remoteDesktopTestHit(t, driver, "释放键鼠")
+	if shortcut.Bounds.Y < top || !view.viewer.shortcutsOpen {
+		t.Fatal("shortcuts did not open below the titlebar")
 	}
 	requireShellLayout(t, driver.Snapshot())
-	clickRemoteDesktopControl(t, driver, "快捷键")
 	if got := remoteDesktopTestHit(t, driver, "远程屏幕").Bounds; got != screen {
-		t.Fatalf("collapsing shortcuts did not restore the screen bounds: got %+v, want %+v", got, screen)
+		t.Fatalf("opening shortcuts resized the remote screen: got %+v, want %+v", got, screen)
+	}
+	if err := driver.Key(gfx.KeyEscape, 0); err != nil {
+		t.Fatal(err)
+	}
+	if view.viewer.shortcutsOpen {
+		t.Fatal("Escape did not close shortcuts")
+	}
+	view.viewer.setDevices([]string{"USB Headset"})
+	clickRemoteDesktopControl(t, driver, "声音")
+	remoteDesktopTestHit(t, driver, "静音")
+	requireShellLayout(t, driver.Snapshot())
+	clickRemoteDesktopControl(t, driver, "扬声器")
+	clickRemoteDesktopControl(t, driver, "USB Headset")
+	if len(backend.inputs) != 1 || backend.inputs[0].Action != "audio" || backend.inputs[0].Device != "USB Headset" {
+		t.Fatalf("audio popover did not select the output device: %+v", backend.inputs)
+	}
+	backend.inputs = nil
+	if got := remoteDesktopTestHit(t, driver, "远程屏幕").Bounds; got != screen {
+		t.Fatalf("opening audio resized the remote screen: got %+v, want %+v", got, screen)
+	}
+	x, y := screen.X+12, screen.Bottom()-12
+	if err := driver.Click(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if view.viewer.audioOpen || view.viewer.captured || len(backend.inputs) != 0 {
+		t.Fatalf("clicking the image to dismiss audio reached the remote desktop: %+v", backend.inputs)
+	}
+	if err := driver.Click(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if !view.viewer.captured || len(backend.inputs) != 2 {
+		t.Fatalf("clicking the image after dismissal did not capture the remote desktop: %+v", backend.inputs)
+	}
+	view.viewer.releaseInput()
+	if got := remoteDesktopTestHit(t, driver, "远程屏幕").Bounds; got != screen {
+		t.Fatalf("closing a popover resized the remote screen: got %+v, want %+v", got, screen)
 	}
 	if err := driver.SetFullscreen(true); err != nil {
 		t.Fatal(err)

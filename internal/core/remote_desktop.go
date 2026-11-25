@@ -32,7 +32,8 @@ type remoteDesktopSignal struct {
 	Reason  string `json:",omitempty"`
 }
 
-// All fields except the channels and context are protected by Node.mu.
+// Session state is protected by Node.mu. The channels, context and input
+// queue can also be used by the helper worker.
 type remoteSession struct {
 	view        domain.RemoteDesktopSession
 	connectedAt time.Time
@@ -45,7 +46,8 @@ type remoteSession struct {
 	attached    bool
 	setupSent   chan struct{}
 	frames      chan domain.RemoteDesktopFrame
-	input       chan domain.RemoteDesktopInput
+	cursors     chan domain.RemoteDesktopCursor
+	input       *remotedesktop.InputQueue
 }
 
 func validRemoteID(s string) bool {
@@ -66,7 +68,10 @@ func (n *Node) newRemoteDesktopLocked(id string, peer *peerConn, incoming bool) 
 		view: domain.RemoteDesktopSession{ID: id, PeerID: peer.peer.ID, PeerName: name, Incoming: incoming, Status: domain.RemoteDesktopPending},
 		peer: peer, ctx: ctx, cancel: cancel,
 		frames: make(chan domain.RemoteDesktopFrame, 1),
-		input:  make(chan domain.RemoteDesktopInput, 64),
+	}
+	if !incoming {
+		s.cursors = make(chan domain.RemoteDesktopCursor, 1)
+		s.input = remotedesktop.NewInputQueue()
 	}
 	n.remoteDesktop = s
 	n.remoteDeadlineLocked(s, remoteInviteTimeout, "no_answer")
@@ -289,6 +294,13 @@ func (n *Node) endRemoteDesktopLocked(reason string) {
 	default:
 	}
 	close(s.frames)
+	if s.cursors != nil {
+		select {
+		case <-s.cursors:
+		default:
+		}
+		close(s.cursors)
+	}
 	n.recordRemoteDesktopHistoryLocked(s)
 	n.signal()
 }
@@ -403,6 +415,18 @@ func (n *Node) runRemoteDesktop(s *remoteSession, conn net.Conn, role string) {
 		}
 		s.frames <- frame
 	}
+	onCursor := func(cursor domain.RemoteDesktopCursor) {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		if n.remoteDesktop != s || s.view.Status != domain.RemoteDesktopActive || s.view.Incoming {
+			return
+		}
+		select {
+		case <-s.cursors:
+		default:
+		}
+		s.cursors <- cursor
+	}
 	onDevices := func(devices []string) {
 		n.mu.Lock()
 		defer n.mu.Unlock()
@@ -411,7 +435,9 @@ func (n *Node) runRemoteDesktop(s *remoteSession, conn net.Conn, role string) {
 			n.signal()
 		}
 	}
-	result := n.remoteEngine(s.ctx, conn, start, s.input, remotedesktop.Events{Ready: onReady, Frame: onFrame, AudioDevices: onDevices})
+	result := n.remoteEngine(s.ctx, conn, start, s.input, remotedesktop.Events{
+		Ready: onReady, Frame: onFrame, Cursor: onCursor, AudioDevices: onDevices,
+	})
 	n.finishRemoteDesktop(s, remotedesktop.Reason(result), true)
 }
 
@@ -420,6 +446,15 @@ func (n *Node) RemoteDesktopFrames(id string) <-chan domain.RemoteDesktopFrame {
 	defer n.mu.Unlock()
 	if s := n.remoteDesktop; s != nil && s.view.ID == id && s.view.Status == domain.RemoteDesktopActive && !s.view.Incoming {
 		return s.frames
+	}
+	return nil
+}
+
+func (n *Node) RemoteDesktopCursors(id string) <-chan domain.RemoteDesktopCursor {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if s := n.remoteDesktop; s != nil && s.view.ID == id && s.view.Status == domain.RemoteDesktopActive && !s.view.Incoming {
+		return s.cursors
 	}
 	return nil
 }
@@ -436,20 +471,14 @@ func (n *Node) SendRemoteDesktopInput(id string, input domain.RemoteDesktopInput
 		n.mu.Unlock()
 		return errors.New("当前远程桌面会话不允许此操作")
 	}
-	select {
-	case s.input <- input:
+	if s.input.Push(input) || input.Action == "move" {
 		n.mu.Unlock()
 		return nil
-	default:
-		if input.Action == "move" {
-			n.mu.Unlock()
-			return nil
-		}
-		n.endRemoteDesktopLocked("failed")
-		n.mu.Unlock()
-		n.sendRemoteStop(s, "failed")
-		return errors.New("远程输入队列已满，会话已结束")
 	}
+	n.endRemoteDesktopLocked("failed")
+	n.mu.Unlock()
+	n.sendRemoteStop(s, "failed")
+	return errors.New("远程输入队列已满，会话已结束")
 }
 
 func validRemoteInput(view domain.RemoteDesktopSession, input domain.RemoteDesktopInput) bool {

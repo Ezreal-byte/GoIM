@@ -40,6 +40,7 @@ func init() {
 		"正在等待远程画面…":                      "Waiting for the remote screen…",
 		"正在控制":                           "Controlling",
 		"点击画面以控制":                        "Click the screen to take control",
+		"待控制":                            "Ready",
 		"当前窗口无法切换全屏":                     "This window cannot switch to full screen.",
 		"未能发送远程控制指令":                     "Could not send the remote desktop command.",
 		"切换远端应用":                         "Switch remote apps",

@@ -11,7 +11,7 @@ import (
 )
 
 func TestRemoteDesktopCanCancelWhileSignalingIsBlocked(t *testing.T) {
-	engine := func(context.Context, net.Conn, remotedesktop.Start, <-chan domain.RemoteDesktopInput, remotedesktop.Events) error {
+	engine := func(context.Context, net.Conn, remotedesktop.Start, *remotedesktop.InputQueue, remotedesktop.Events) error {
 		t.Error("helper started after a cancellation before consent was sent")
 		return nil
 	}

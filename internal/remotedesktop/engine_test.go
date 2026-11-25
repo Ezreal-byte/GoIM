@@ -52,6 +52,13 @@ func TestMain(m *testing.M) {
 		if writePacket(os.Stdout, pixelPacket, pixels) != nil {
 			os.Exit(2)
 		}
+		if start.SeparateCursor {
+			cursor := []byte{0xff, 0xf9, 0, 9, 0, 1, 0, 1, 20, 30, 40, 128}
+			if writePacket(os.Stdout, cursorPacket, cursor) != nil ||
+				writePacket(os.Stdout, cursorPacket, make([]byte, 8)) != nil {
+				os.Exit(2)
+			}
+		}
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		os.Exit(0)
 	}
@@ -127,12 +134,14 @@ func TestRemoteDesktopPrivatePipesAndCancellation(t *testing.T) {
 	defer cancel()
 	ready := make(chan struct{})
 	frames := make(chan domain.RemoteDesktopFrame, 1)
+	cursors := make(chan domain.RemoteDesktopCursor, 2)
 	devices := make(chan []string, 1)
 	stopped := make(chan error, 1)
 	go func() {
 		stopped <- localEngine(exe)(ctx, tunnel, Start{Role: "viewer", Audio: true}, nil, Events{
 			Ready:        func() { close(ready) },
 			Frame:        func(frame domain.RemoteDesktopFrame) { frames <- frame },
+			Cursor:       func(cursor domain.RemoteDesktopCursor) { cursors <- cursor },
 			AudioDevices: func(names []string) { devices <- names },
 		})
 	}()
@@ -158,6 +167,23 @@ func TestRemoteDesktopPrivatePipesAndCancellation(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("no pixel data")
+	}
+	select {
+	case cursor := <-cursors:
+		if cursor.X != -7 || cursor.Y != 9 || cursor.Width != 1 || cursor.Height != 1 ||
+			!bytes.Equal(cursor.BGRA, []byte{20, 30, 40, 128}) {
+			t.Fatal("bad separate cursor payload", cursor)
+		}
+	case <-ctx.Done():
+		t.Fatal("viewer did not negotiate separate cursor")
+	}
+	select {
+	case cursor := <-cursors:
+		if cursor.Width != 0 || cursor.Height != 0 || len(cursor.BGRA) != 0 {
+			t.Fatal("bad hidden cursor marker", cursor)
+		}
+	case <-ctx.Done():
+		t.Fatal("no hidden cursor marker")
 	}
 	cancel()
 	select {
@@ -187,5 +213,39 @@ func TestRemoteDesktopRejectsMalformedOrPrematureFrames(t *testing.T) {
 	_ = writePacket(&input, pixelPacket, []byte{0, 0, 0, 1, 0, 0, 0, 1, 1, 2, 3, 4})
 	if err := readChild(&input, nil, Start{Role: "viewer"}, Events{}); err == nil {
 		t.Fatal("helper could present a frame before ready")
+	}
+}
+
+func TestRemoteDesktopRejectsUnsolicitedAndMalformedCursors(t *testing.T) {
+	valid := []byte{0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 255}
+	for _, test := range []struct {
+		name, role string
+		ready      bool
+		optedIn    bool
+		payload    []byte
+	}{
+		{"host", "host", true, true, valid},
+		{"not ready", "viewer", false, true, valid},
+		{"no opt-in", "viewer", true, false, valid},
+		{"missing pixels", "viewer", true, true, valid[:11]},
+		{"short header", "viewer", true, true, valid[:7]},
+		{"half hidden", "viewer", true, true, []byte{0, 0, 0, 0, 0, 0, 0, 1}},
+		{"over width", "viewer", true, true, []byte{0, 0, 0, 0, 1, 1, 0, 1}},
+		{"oversized packet", "viewer", true, true, make([]byte, 9+4*maxCursorSize*maxCursorSize)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stream bytes.Buffer
+			if test.ready {
+				_ = writePacket(&stream, controlPacket, []byte(`{"type":"ready"}`))
+			}
+			_ = writePacket(&stream, cursorPacket, test.payload)
+			events := Events{Ready: func() {}}
+			if test.optedIn {
+				events.Cursor = func(domain.RemoteDesktopCursor) { t.Error("accepted invalid cursor") }
+			}
+			if err := readChild(&stream, nil, Start{Role: test.role}, events); err == nil || err == io.EOF {
+				t.Fatalf("invalid cursor was not rejected: %v", err)
+			}
+		})
 	}
 }
