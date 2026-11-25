@@ -155,8 +155,10 @@ jobs:
         with:
           go-version: '1.27.3'
           cache-dependency-path: go.sum
-      - name: Verify macOS startup thread retention
-        run: go test ./cmd/goim -count=1
+      - name: Verify macOS startup and Dock reopen
+        run: |
+          go test ./cmd/goim -count=1
+          go test github.com/vivaui/viva/internal/platform/darwin -run '^TestNativeDockReopenUsesWindowHandler$' -count=1 -timeout=90s
       - name: Build and check desktop layouts with native fonts
         run: |
           go build ./...

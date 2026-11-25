@@ -10,6 +10,21 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+// ErrDataDirectoryInUse means a running GoIM process owns the data directory.
+var ErrDataDirectoryInUse = errors.New("此数据目录已有 GoIM 实例运行")
+
+// ResolveDataDirectory returns GoIM's absolute data directory for this invocation.
+func ResolveDataDirectory(directory string) (string, error) {
+	if directory == "" {
+		root, err := os.UserConfigDir()
+		if err != nil {
+			return "", err
+		}
+		directory = filepath.Join(root, "GoIM")
+	}
+	return filepath.Abs(directory)
+}
+
 const resetMarker = ".goim-reset-pending"
 const resetMarkerContent = "GoIM user data reset v1\n"
 
@@ -28,7 +43,10 @@ func lockDataDirectory(directory string) (*os.File, error) {
 	}
 	if err := lockDataFile(file); err != nil {
 		_ = file.Close()
-		return nil, fmt.Errorf("此数据目录已有 GoIM 实例运行，请先退出：%w", err)
+		if dataLockContended(err) {
+			return nil, fmt.Errorf("%w: %w", ErrDataDirectoryInUse, err)
+		}
+		return nil, fmt.Errorf("锁定 GoIM 数据目录：%w", err)
 	}
 	return file, nil
 }

@@ -120,13 +120,11 @@ type Node struct {
 }
 
 func New(opts Options) (*Node, error) {
-	if opts.DataDir == "" {
-		root, err := os.UserConfigDir()
-		if err != nil {
-			return nil, err
-		}
-		opts.DataDir = filepath.Join(root, "GoIM")
+	directory, err := ResolveDataDirectory(opts.DataDir)
+	if err != nil {
+		return nil, err
 	}
+	opts.DataDir = directory
 	if opts.Listen == "" {
 		opts.Listen = "0.0.0.0:47842"
 	}

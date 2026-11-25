@@ -82,7 +82,7 @@ type detachedConversationWindow struct {
 
 // Run owns the native window and optional tray. The same lifecycle is exercised
 // by the vivahead runner without opening a real window or using the OS tray.
-func Run(backend domain.Backend, restartArguments []string) error {
+func Run(backend domain.Backend, restartArguments []string, reopen <-chan struct{}) error {
 	defer registerEmojiFallback()()
 	shell := newUIShell(backend, false)
 	defer shell.Close()
@@ -227,11 +227,16 @@ func Run(backend domain.Backend, restartArguments []string) error {
 		}
 		r.window = window
 		shell.attachNativeWindow(window)
-		shell.unlockForVoice = func() { window.Show(); shell.SetWindowVisible(true) }
+		show := func() {
+			r.stopAttention()
+			window.Show()
+			shell.SetWindowVisible(true)
+		}
+		shell.unlockForVoice = show
+		application.OnReopen(show)
 		// Background work can finish between constructing the UI and binding its
 		// invalidator to a native window. Wake once after binding to collect it.
 		shell.invalidator.Invalidate()
-		show := func() { r.stopAttention(); window.Show(); shell.SetWindowVisible(true) }
 		trayConfig := app.StatusItemConfig{Tooltip: i18n.T("GoIM · 局域网即时通讯"), Icon: statusIcon, OnClick: func(click app.StatusClick) {
 			if click.Button == gfx.PointerButtonPrimary && r.openUnreadTrayFromClick(click) {
 				return
@@ -260,6 +265,9 @@ func Run(backend domain.Backend, restartArguments []string) error {
 			backend.Submit(domain.Command{Kind: domain.ReportError, Text: i18n.T("系统托盘暂不可用，关闭主窗口将退出应用：") + err.Error()})
 		}
 		r.observe()
+		if reopen != nil {
+			go watchReopenRequests(reopen, shell.done, r.post, show)
+		}
 		var updateQueued atomic.Bool
 		go shell.watchUpdatesWith(func() {
 			if updateQueued.Swap(true) {
@@ -504,4 +512,28 @@ func (r *desktopRuntime) applyGlobalShortcut(action, desired string, current, re
 	*stopCurrent = stop
 	*current = desired
 	*rejected = ""
+}
+
+func watchReopenRequests(reopen <-chan struct{}, done <-chan struct{}, post func(func()), show func()) {
+	var queued atomic.Bool
+	for {
+		select {
+		case <-done:
+			return
+		case _, ok := <-reopen:
+			if !ok {
+				return
+			}
+			if !queued.Swap(true) {
+				post(func() {
+					queued.Store(false)
+					select {
+					case <-done:
+					default:
+						show()
+					}
+				})
+			}
+		}
+	}
 }

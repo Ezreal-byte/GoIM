@@ -47,8 +47,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	n, err := core.New(core.Options{
-		DataDir: *data, Listen: *listen, Name: *name,
+	directory, err := core.ResolveDataDirectory(*data)
+	if err != nil {
+		return err
+	}
+	n, err := openOrActivate(core.Options{
+		DataDir: directory, Listen: *listen, Name: *name,
 		DisableDiscovery: *noDiscovery, DisableIPMSG: *noIPMSG,
 		DisableCompatibility: *noCompatibility,
 		Version:              version, DownloadDir: *downloadDir,
@@ -56,13 +60,24 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if n == nil {
+		return nil // the running instance accepted the reopen request
+	}
 	defer n.Close()
+	var reopen <-chan struct{}
+	if activation, err := listenForActivation(n.DataDir()); err != nil {
+		log.Printf("无法启用快捷方式唤回窗口：%v", err)
+	} else {
+		defer activation.close()
+		reopen = activation.requests
+	}
+
 	for _, address := range strings.Split(*peers, ",") {
 		if strings.TrimSpace(address) != "" {
 			n.Connect(address)
 		}
 	}
-	return desktop.Run(n, restart)
+	return desktop.Run(n, restart, reopen)
 }
 
 // A replacement process can start in a different working directory. Preserve

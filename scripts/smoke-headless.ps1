@@ -62,8 +62,31 @@ function Start-Peer([string]$TaskName,[string]$TaskConnect='') {
     $null=Read-Reply $taskProcess
     return $taskProcess
 }
-function Get-PeerAddress($TaskProcess) {
-    $listeners = @(Get-NetTCPConnection -State Listen -OwningProcess $TaskProcess.Id -LocalAddress '127.0.0.1')
+function Request-PeerReopen([string]$TaskName) {
+    $info=[System.Diagnostics.ProcessStartInfo]::new()
+    $info.FileName=Join-Path $taskBinaryDir 'goim-headless.exe'
+    $info.UseShellExecute=$false
+    $info.CreateNoWindow=$true
+    $info.RedirectStandardError=$true
+    $info.Environment['VIVA_HEADLESS']='1'
+    foreach($argument in @('--data-dir',(Join-Path $taskRunDir $TaskName),'--listen','127.0.0.1:0','--no-discovery','--no-compatibility')) {
+        $info.ArgumentList.Add($argument)
+    }
+    $launcher=[System.Diagnostics.Process]::Start($info)
+    try {
+        if (!$launcher.WaitForExit(6000)) {
+            $launcher.Kill()
+            throw 'Second GoIM launch did not exit'
+        }
+        if ($launcher.ExitCode -ne 0) { throw $launcher.StandardError.ReadToEnd() }
+    } finally {
+        $launcher.Dispose()
+    }
+}
+function Get-PeerAddress($TaskProcess, [string]$TaskName) {
+    $endpoint=Get-Content -Raw -LiteralPath (Join-Path $taskRunDir $TaskName '.goim-activation.json') | ConvertFrom-Json
+    $listeners=@(Get-NetTCPConnection -State Listen -OwningProcess $TaskProcess.Id -LocalAddress '127.0.0.1' |
+        Where-Object LocalPort -ne $endpoint.Port)
     if ($listeners.Count -ne 1) { throw "Expected one loopback listener for peer $($TaskProcess.Id)" }
     return "127.0.0.1:$($listeners[0].LocalPort)"
 }
@@ -73,7 +96,7 @@ try {
     New-Item -ItemType Directory -Path $taskRunDir -Force | Out-Null
     & (Join-Path $PSScriptRoot 'build.ps1') -Headless -OutputDir $taskBinaryDir
     $taskBob=Start-Peer '林晓'
-    $taskAlice=Start-Peer '我' (Get-PeerAddress $taskBob)
+    $taskAlice=Start-Peer '我' (Get-PeerAddress $taskBob '林晓')
     Send-Command $taskAlice 'click id:goim/navigation/contacts'
     Send-Command $taskAlice 'waitfor "林晓" 10000'
     Send-Command $taskAlice 'tree' | Set-Content -LiteralPath (Join-Path $OutputDir 'initial-tree.txt')
@@ -100,6 +123,17 @@ try {
     Send-Command $taskAlice 'click "消息输入框"'
     Send-Command $taskBob 'requestclose'
     if ((Send-Command $taskBob 'windows') -notmatch 'hidden=true') { throw 'Receiver did not minimize to the tray' }
+    Request-PeerReopen '林晓'
+    $reopenDeadline=[Diagnostics.Stopwatch]::StartNew()
+    do {
+        $windowState=Send-Command $taskBob 'windows'
+        if ($windowState -match 'hidden=false') { break }
+        $null=Send-Command $taskBob 'wait 50'
+        Start-Sleep -Milliseconds 20
+    } while ($reopenDeadline.Elapsed.TotalSeconds -lt 5)
+    if ($windowState -notmatch 'hidden=false') { throw 'Second launch did not restore the same main window' }
+    Send-Command $taskBob 'requestclose'
+    if ((Send-Command $taskBob 'windows') -notmatch 'hidden=true') { throw 'Reopened window did not return to the tray' }
     Send-Command $taskAlice 'type 双端真实消息：你好，局域网！'
     Send-Command $taskAlice 'key enter'
     $taskTrayDeadline=[Diagnostics.Stopwatch]::StartNew()
@@ -209,7 +243,7 @@ try {
     }
     Send-Command $taskBob ('closewindow '+$taskViewer.Groups[1].Value)
     Send-Command $taskBob 'window 1'
-    $taskCharlie=Start-Peer '陈序' (Get-PeerAddress $taskAlice)
+    $taskCharlie=Start-Peer '陈序' (Get-PeerAddress $taskAlice '我')
 
     Send-Command $taskAlice 'click "语音通话"'
     foreach($taskPeer in @($taskAlice,$taskBob)) {
@@ -551,7 +585,7 @@ try {
         if(!$taskCanonical -or ($taskCanonical | Measure-Object Length -Maximum).Maximum -gt 180KB){throw 'Avatar was not stored as a compact PNG'}
         ('Avatar {0:N2} MiB JPEG; process working set before {1:N1} MiB, preview {2:N1} MiB; idle CPU over 850 ms {3:N1} ms.' -f ($taskPhotoSize/1MB),($taskMemoryBefore/1MB),($taskMemoryPreview/1MB),$taskAvatarCPU)
     }
-    'PASS: three independent processes, real TLS text, emoji, inline images, independent viewer and original save, live language switch, group delivery, SHA256, lock/unlock, browser project shares, incoming batch downloads, device catalog and upload.'
+    'PASS: three independent processes, second launch restores the hidden main window, real TLS text, emoji, inline images, independent viewer and original save, live language switch, group delivery, SHA256, lock/unlock, browser project shares, incoming batch downloads, device catalog and upload.'
 } catch {
     foreach ($taskProcess in $taskProcesses) {
         if (!$taskProcess.HasExited) {
