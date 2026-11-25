@@ -860,9 +860,6 @@ func (u *UI) Config() app.Config {
 		TitlebarHeight: titlebarHeight,
 		ClearColor:     clear,
 		WindowBorderColor: func() app.Color {
-			if u.lockConcealsShell() {
-				return colorToApp(lockBackground)
-			}
 			return colorToApp(u.palette.rail)
 		},
 		Tree:           &u.tree,
@@ -1433,13 +1430,17 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	titlebar := ui.Rect{Width: bounds.Width, Height: totalTitle}
 	body := ui.Rect{Y: totalTitle, Width: bounds.Width, Height: max(bounds.Height-totalTitle, 0)}
 	u.lastBody = body
-	if u.lockVisible() {
+	locked := u.lockVisible()
+	canvas.Fill(bounds, u.palette.rail)
+	if locked {
 		// Drop exit snapshots from the unlocked workspace at the end of this frame.
 		if !canvas.ReduceMotion() {
 			canvas.SetReduceMotion(true)
 			u.lockUI.restoreMotion = true
 		}
-		u.drawLockTitlebar(canvas, titlebar)
+	}
+	u.drawTitlebar(canvas, titlebar)
+	if locked {
 		u.drawLocked(canvas, body)
 		u.textSelection.clear()
 		clear(u.toasts[:])
@@ -1447,8 +1448,6 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 		return
 	}
 
-	canvas.Fill(bounds, u.palette.rail)
-	u.drawTitlebar(canvas, titlebar)
 	u.panels.dialogViewport = bounds
 	u.drawMainBody(canvas, body)
 	u.focusChatComposer(canvas)
@@ -1488,6 +1487,7 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 		return
 	}
 	canvas.Fill(bounds, u.palette.rail)
+	locked := u.lockConcealsShell()
 	var brand, status, pin ui.Box
 	var githubClicked bool
 	u.titlePage.Draw(canvas, bounds, func(f ui.C) {
@@ -1495,10 +1495,14 @@ func (u *UI) drawTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
 			PadSides(0, trailing+14, 0, leading+20).
 			Items(ui.Center).Children(func() {
 			brand = ui.Slot(f).Size(24, 24)
-			ui.Row(f).Width(9).Height(1)
-			ui.Text(f, "GoIM").FontSize(textSize(f, 16)).Weight(gfx.WeightSemibold)
+			if !locked {
+				ui.Row(f).Width(9).Height(1)
+				ui.Text(f, "GoIM").FontSize(textSize(f, 16)).Weight(gfx.WeightSemibold)
+			}
 			ui.Spacer(f)
-			u.drawUpdateTitlebar(f, bounds.Width >= 650)
+			if !locked {
+				u.drawUpdateTitlebar(f, bounds.Width >= 650)
+			}
 			status = u.drawLANStatus(f, bounds.Width >= 480)
 			pinLabel := i18n.T("窗口置顶")
 			if u.mainPinned {
@@ -2966,6 +2970,9 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 }
 
 func (u *UI) onScroll(event gfx.ScrollEvent) gfx.EventResult {
+	if u.lockConcealsShell() {
+		return gfx.EventResult{Handled: true}
+	}
 	if crop := u.activeAvatarCrop(); crop != nil {
 		state, result := crop.layout.Scroll(event, crop.state)
 		crop.state = state
@@ -2973,13 +2980,10 @@ func (u *UI) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 			return result
 		}
 	}
-	if !u.lockVisible() && u.emojiOpen && pointInside(event.X, event.Y, u.emojiPanel) {
+	if u.emojiOpen && pointInside(event.X, event.Y, u.emojiPanel) {
 		result := u.emojiPage.Wheel(event)
 		result.Handled = true
 		return result
-	}
-	if u.lockVisible() {
-		return gfx.EventResult{Handled: true}
 	}
 	if result, handled := u.chatOverlayWheel(event); handled {
 		return result
@@ -3009,8 +3013,9 @@ func (u *UI) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if event.Kind == gfx.PointerDown && !u.shellMenu.open && u.textSelection.id != event.Target {
 		u.textSelection.clear()
 	}
-	if u.detachedWindow && u.lockVisible() {
-		return gfx.EventResult{Handled: true}
+	if u.lockConcealsShell() {
+		// Use Viva's normal hit handling for the lock form and shared titlebar.
+		return gfx.EventResult{Handled: u.detachedWindow}
 	}
 	if u.voiceVisible() {
 		return gfx.EventResult{}
@@ -3038,7 +3043,7 @@ func (u *UI) onPointer(event gfx.PointerEvent) gfx.EventResult {
 			return result
 		}
 	}
-	if u.emojiOpen && !u.lockVisible() {
+	if u.emojiOpen {
 		return u.emojiPage.Pointer(event)
 	}
 	return gfx.EventResult{}
@@ -3046,8 +3051,8 @@ func (u *UI) onPointer(event gfx.PointerEvent) gfx.EventResult {
 
 func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if u.lockVisible() {
-		// The only registered hits while locked belong to the lock screen.
-		// Let Viva deliver text keys, focus traversal and Enter to those hits.
+		// Let Viva route text keys, focus traversal and activation to the lock
+		// screen and titlebar.
 		return u.lockKey(event)
 	}
 	if u.voiceVisible() {
@@ -3760,9 +3765,6 @@ func paletteFor(theme ui.Theme, scheme string) palette {
 }
 
 func (u *UI) windowControls() app.WindowControlsStyle {
-	if u.lockConcealsShell() {
-		return windowControlsFor(palette{icon: lockMuted, hover: ui.RGB(35, 47, 66), selected: ui.RGB(47, 63, 87)})
-	}
 	return windowControlsFor(u.palette)
 }
 

@@ -48,10 +48,6 @@ func (u *UI) initSystemUnlock() {
 	s.systemAuth = systemauth.Verify
 	s.systemResults = make(chan systemAuthResult, 2)
 	s.method = systemauth.Method()
-	s.theme = ui.DarkTheme()
-	s.theme.Background, s.theme.Foreground, s.theme.MutedForeground = lockBackground, lockInk, lockMuted
-	s.theme.Primary, s.theme.PrimaryForeground = lockPrimary, lockBackground
-	s.theme.Border, s.theme.Input, s.theme.Hover, s.theme.Ring = lockOutline, lockInput, lockHover, lockMuted
 	s.page = ui.NewPage(ui.PageConfig{Root: "lock-screen", Tree: &u.tree, Theme: &s.theme})
 }
 
@@ -104,30 +100,6 @@ func (u *UI) lockConcealsShell() bool {
 	return u.state.Locked || u.lockUI.setup || u.lockUI.pending || u.detachedConcealed
 }
 
-var (
-	lockBackground  = ui.RGB(10, 18, 31)
-	lockTitle       = ui.RGB(13, 20, 32)
-	lockInk         = ui.RGB(244, 247, 253)
-	lockMuted       = ui.RGB(171, 184, 207)
-	lockPrimary     = ui.RGB(210, 224, 254)
-	lockInput       = ui.RGB(21, 31, 48)
-	lockHover       = ui.RGB(34, 48, 70)
-	lockFieldEdge   = ui.RGB(77, 91, 115)
-	lockOutline     = ui.RGB(131, 151, 181)
-	lockDivider     = ui.RGB(92, 107, 130)
-	lockTitleBorder = ui.RGB(62, 68, 79)
-)
-
-func (u *UI) drawLockTitlebar(canvas *gfx.Canvas, bounds ui.Rect) {
-	canvas.Fill(bounds, lockTitle)
-	canvas.Fill(ui.Rect{Y: bounds.Bottom() - 1, Width: bounds.Width, Height: 1}, lockTitleBorder)
-	u.titlePage.Draw(canvas, bounds, func(f ui.C) {
-		ui.Row(f).Fill().MovesWindow().Center().Children(func() {
-			ui.Text(f, "GoIM").FontSize(min(textSize(f, 20), 28)).Weight(gfx.WeightSemibold).Color(lockInk)
-		})
-	})
-}
-
 func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {
 	s := &u.lockUI
 	if s.scope.IsZero() {
@@ -138,8 +110,12 @@ func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {
 		s.cancel = u.tree.ID(s.scope, "cancel")
 		s.systemButton = u.tree.ID(s.scope, "system-verify")
 	}
-	canvas.Fill(bounds, lockBackground)
-	s.theme.Metrics = u.theme.Metrics
+	s.theme = u.theme
+	s.theme.Background = u.palette.chat
+	s.theme.Border = s.theme.Background.Mix(s.theme.Foreground, .42)
+	canvas.Clip(bounds)
+	defer canvas.Unclip()
+	canvas.Fill(bounds, s.theme.Background)
 	title, description := i18n.T("GoIM 已锁定"), i18n.T("验证身份，返回会话")
 	if s.setup {
 		title = i18n.T("设置锁定密码")
@@ -157,7 +133,7 @@ func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {
 	markSize := 116 * scale
 	mark := ui.Rect{X: bounds.X + (bounds.Width-markSize)/2, Y: bounds.Y + top, Width: markSize, Height: markSize}
 	canvas.Shadow(mark, 36*scale, gfx.ShadowStyle{Blur: 98 * scale, Spread: 41 * scale},
-		ui.RGB(52, 88, 179).WithAlpha(.3))
+		s.theme.Primary.WithAlpha(.16))
 	s.page.Draw(canvas, bounds, func(f ui.C) {
 		ui.Column(f).Fill().PadTop(top).Items(ui.Center).Children(func() {
 			ui.Column(f).Width(width).Items(ui.Center).Children(func() {
@@ -167,19 +143,19 @@ func (u *UI) drawLocked(canvas *gfx.Canvas, bounds ui.Rect) {
 					ui.Text(f, title).FontSize(min(50*zoom, 65) * scale).Weight(gfx.WeightSemibold)
 				})
 				ui.Row(f).Height(12 * scale)
-				ui.Paragraph(f, description, 2).FillWidth().TextCenter().FontSize(24 * scale * zoom).Color(lockMuted)
+				ui.Paragraph(f, description, 2).FillWidth().TextCenter().FontSize(24 * scale * zoom).Muted()
 				ui.Row(f).Height(48 * scale)
 				u.drawLockForm(f, scale, zoom, busy)
 			})
 			if !s.setup {
 				ui.Row(f).Absolute().Left(0).Right(0).Bottom(65 * scale).Height(42 * scale).Gap(14 * scale).Center().Children(func() {
-					ui.Row(f).Size(15*scale, 15*scale).Radius(8 * scale).Background(lockMuted)
-					ui.Text(f, i18n.T("锁定期间仍可接收消息和文件")).FontSize(21 * scale * zoom).Color(lockMuted)
+					ui.Row(f).Size(15*scale, 15*scale).Radius(8 * scale).Background(s.theme.Primary)
+					ui.Text(f, i18n.T("锁定期间仍可接收消息和文件")).FontSize(21 * scale * zoom).Muted()
 				})
 			}
 		})
 	})
-	canvas.RoundedBorder(mark, 27*scale, 1.5*scale, ui.RGB(105, 123, 160), ui.RGB(0, 0, 0))
+	canvas.RoundedBorder(mark, 27*scale, 1.5*scale, s.theme.Border, ui.RGB(0, 0, 0))
 	paintGoIMMark(canvas, mark.Inset(gfx.Insets{Top: -6 * scale, Right: -6 * scale, Bottom: -6 * scale, Left: -6 * scale}), lockMark)
 	if !s.focused && !busy {
 		s.focused = canvas.Focused() == s.focus || canvas.Focused() == s.confirmID
@@ -202,9 +178,9 @@ func (u *UI) drawLockForm(f ui.C, scale, zoom float32, busy bool) {
 	if hasSystem {
 		u.drawLockSystemAction(f, scale, zoom, busy)
 		ui.Row(f).FillWidth().Height(96 * scale).Gap(26 * scale).Items(ui.Center).Children(func() {
-			ui.Row(f).Grow(1).Height(1).Background(lockDivider)
-			ui.Text(f, i18n.T("或使用锁定密码")).FontSize(21 * scale * zoom).Color(lockMuted)
-			ui.Row(f).Grow(1).Height(1).Background(lockDivider)
+			ui.Row(f).Grow(1).Height(1).Background(u.palette.border)
+			ui.Text(f, i18n.T("或使用锁定密码")).FontSize(21 * scale * zoom).Muted()
+			ui.Row(f).Grow(1).Height(1).Background(u.palette.border)
 		})
 	}
 	field := drawLockField(f, s.focus, &s.field, label, placeholder, scale, zoom, busy)
@@ -257,9 +233,10 @@ func drawLockField(f ui.C, id gfx.ID, field *ui.Field, label, placeholder string
 	ui.Row(f).FillWidth().Height(max(37, 32*zoom) * scale).Items(ui.Start).Children(func() {
 		ui.Text(f, label).FontSize(22 * scale * zoom).Weight(gfx.WeightSemibold)
 	})
+	theme := f.Theme()
 	return ui.TextFieldID(f, id, field, label, placeholder).FillWidth().Height(66*scale).
-		FontSize(23*scale*zoom).Radius(13*scale).Background(lockInput).
-		Border(1.5*scale, lockFieldEdge).Disabled(disabled)
+		FontSize(23*scale*zoom).Radius(13*scale).Background(theme.Card).
+		Border(1.5*scale, theme.Border).Disabled(disabled)
 }
 
 func lockSystemAction(method systemauth.Kind) (string, gfx.Icon) {
@@ -283,8 +260,12 @@ func (u *UI) drawLockSystemAction(f ui.C, scale, zoom float32, busy bool) {
 		ButtonRecipe(lockButtonLook).Disabled(busy)
 	button.Center().Children(func() {
 		ui.Row(f).Gap(23 * scale).Center().Children(func() {
-			ui.Icon(f, icon).Size(39*scale, 39*scale).Color(lockBackground)
-			ui.Text(f, action).FontSize(28 * scale * zoom).Weight(gfx.WeightSemibold).Color(lockBackground)
+			ink := s.theme.PrimaryForeground
+			if busy {
+				ink = ink.WithAlpha(.5)
+			}
+			ui.Icon(f, icon).Size(39*scale, 39*scale).Color(ink)
+			ui.Text(f, action).FontSize(28 * scale * zoom).Weight(gfx.WeightSemibold).Color(ink)
 		})
 	})
 	if button.Clicked() {
@@ -296,14 +277,14 @@ func lockButtonLook(theme gfx.Theme, variant components.ButtonVariant, state gfx
 	look := components.ButtonRecipe(theme, variant, state)
 	look.Shadow = gfx.ShadowNone
 	if variant == components.ButtonOutline {
-		look.Background, look.Filled = lockBackground, true
+		look.Background, look.Filled = theme.Background, true
 		if !state.FocusVisible {
-			look.Border = lockOutline
+			look.Border = theme.Border
 		}
 		if state.Disabled {
 			look.Border = look.Border.WithAlpha(.5)
 		} else if state.Hovered || state.Pressed {
-			look.Background = lockHover
+			look.Background = theme.Hover
 		}
 	}
 	return look
