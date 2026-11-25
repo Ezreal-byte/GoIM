@@ -307,14 +307,14 @@ func (u *UI) finishMixedChatSubmissions() {
 func (u *UI) drawMixedChatComposer(f ui.C, draft *mixedChatDraft) {
 	u.mentionEditor = ui.Box{}
 	u.draftScroll = ui.Scroll(f.Part("draft-scroll")).FillWidth().Grow(1).Basis(0).MinHeight(chatEditorMinHeight).Scrollbars().Children(func() {
-		ui.Flow(f.Part("draft-flow")).FillWidth().Items(ui.Center).
-			PadSides(8, chatContentInset, 8, chatContentInset).Gap(7).Children(func() {
+		ui.Flow(f.Part("draft-flow")).FillWidth().Items(ui.End).
+			PadSides(6, chatContentInset, 6, chatContentInset).Gap(2).LineGap(5).Children(func() {
 			width := max(float32(40), u.lastChat.Width-2*chatContentInset-16)
 			size := textSize(f, 14)
 			for index, segment := range draft.texts {
 				fieldWidth, fieldHeight := segment.dimensions(f.Canvas(), size, width)
 				editor := ui.TextAreaID(f, segment.id, &segment.field, i18n.T("消息输入框"), "").
-					Width(fieldWidth).Height(fieldHeight).MinHeight(fieldHeight).Pad(3).
+					Width(fieldWidth).Height(fieldHeight).MinHeight(fieldHeight).PadSides(2, 1, 2, 1).
 					Background(ui.Color{}).Border(0, ui.Color{}).Shadow(gfx.ShadowNone).Disabled(u.chatDraftPending())
 				if index == draft.active {
 					u.mentionEditor = editor
@@ -325,6 +325,19 @@ func (u *UI) drawMixedChatComposer(f ui.C, draft *mixedChatDraft) {
 			}
 		})
 	})
+}
+
+func (u *UI) revealDraftEditorAfterThumbnailChange(path string) {
+	draft := u.mixedDraft(u.selected)
+	if draft == nil || u.focusedID != draft.texts[draft.active].id {
+		return
+	}
+	for _, attachment := range draft.files {
+		if attachment.file.SourcePath == path {
+			u.focusChat = true
+			return
+		}
+	}
 }
 
 // The active field must enter the scroll viewport before Viva can focus it.
@@ -360,36 +373,33 @@ func (segment *draftText) dimensions(canvas *gfx.Canvas, size, limit float32) (w
 			segment.textWidth = max(segment.textWidth, canvas.TextWidth(line, size))
 		}
 	}
-	width = min(limit, max(32, segment.textWidth+15))
+	width = min(limit, max(6, segment.textWidth+5))
 	if segment.lineCount > 1 {
 		width = limit
 	}
-	lines := min(4, max(segment.lineCount, int(segment.textWidth/(width-8))+1))
-	return width, 8 + (size+9)*float32(lines)
+	lines := min(4, max(segment.lineCount, int(segment.textWidth/(width-2))+1))
+	return width, 4 + (size+6)*float32(lines)
 }
 
 func (u *UI) drawDraftFile(f ui.C, attachment draftFile, right int) {
 	file := attachment.file
 	image := fileIsImage(file)
-	width, height := float32(158), float32(35)
-	if image {
-		width, height = 94, 70
-	}
+	bitmap := u.fileBitmap(file.SourcePath)
 	label := i18n.T("草稿附件") + " · " + file.Name
-	box := ui.Row(f.Key(file.ID)).Size(width, height).Radius(radiusControl).Clip().Items(ui.Center).
+	box := ui.Row(f.Key(file.ID)).Height(u.textExtent(28, 14)).MaxWidth(158).Radius(6).Clip().Items(ui.Center).
 		Background(u.palette.fileCard).Border(1, u.palette.fileBorder).
 		Hover(ui.Look{}.Background(u.palette.selected)).
 		Focus(ui.Look{}.Ring(1.5, u.theme.Ring)).
 		HitWith(attachment.id, label, gfx.HitOptions{Role: gfx.RoleButton}).Tooltip(file.Name)
-	bitmap := u.fileBitmap(file.SourcePath)
 	if image && bitmapReady(bitmap) {
-		box.Draw(func(d *ui.DrawContext) {
+		fitted := fitDraftBitmap(bitmap, gfx.Rect{Width: 138, Height: 82})
+		box.Size(max(30, fitted.Width), max(24, fitted.Height)).Draw(func(d *ui.DrawContext) {
 			d.Canvas.DrawBitmap(bitmap, fitDraftBitmap(bitmap, d.Rect))
 		})
 	} else {
-		box.PadX(8).Gap(6).Children(func() {
-			drawFileIcon(f, u.theme, fileTypeIcon(file), 23, 15)
-			ui.Text(f, file.Name).Grow(1).MinWidth(0).FontSize(textSize(f, 12)).Ellipsis()
+		box.PadX(5).Gap(4).Children(func() {
+			drawFileIcon(f, u.theme, fileTypeIcon(file), 18, 13)
+			ui.Text(f, file.Name).MinWidth(0).FontSize(textSize(f, 12)).Ellipsis()
 		})
 	}
 	if box.Clicked() {

@@ -199,3 +199,29 @@ func TestMixedChatDraftDoesNotSaveUnchangedDraftFromAnotherWindow(t *testing.T) 
 		t.Fatal("send completion overwrote the persisted draft")
 	}
 }
+
+func TestMixedChatDraftKeepsAttachmentsCloseToEachOtherAndText(t *testing.T) {
+	h := newShellTestHarness(t, shellTestState(t))
+	h.ui.selectConversation("conv-alice")
+	dir := t.TempDir()
+	h.ui.stageChatFiles([]string{filepath.Join(dir, "a.pdf"), filepath.Join(dir, "b.pdf")})
+	h.ui.insertChatText("后文")
+	h.settle()
+
+	draft := h.ui.mixedDraft("conv-alice")
+	first, firstOK := h.findHit(draft.files[0].id)
+	second, secondOK := h.findHit(draft.files[1].id)
+	editor, editorOK := h.findHit(draft.texts[2].id)
+	if !firstOK || !secondOK || !editorOK {
+		t.Fatal("attachments and following text must remain reachable")
+	}
+	if gap := second.Bounds.X - first.Bounds.Right(); gap < 0 || gap > 12 {
+		t.Fatalf("gap between adjacent files = %v, want 0 to 12", gap)
+	}
+	if gap := editor.Bounds.X - second.Bounds.Right(); gap < 0 || gap > 6 {
+		t.Fatalf("gap between file and following text = %v, want 0 to 6", gap)
+	}
+	if first.Bounds.Width >= 100 || second.Bounds.Width >= 100 {
+		t.Fatalf("compact file labels should size to their text: %v, %v", first.Bounds, second.Bounds)
+	}
+}

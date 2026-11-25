@@ -1117,6 +1117,7 @@ func (u *UI) applyMediaBatch(batch mediaResultBatch) {
 			}
 			continue
 		}
+		u.revealDraftEditorAfterThumbnailChange(result.path)
 		if !result.decoded {
 			delete(u.imageCache, result.path)
 			delete(u.avatarCache, result.path)
