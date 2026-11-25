@@ -2,9 +2,11 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ['website/**', '.github/workflows/website.yml']
+    paths: ['website/**', 'scripts/website-release*', '.github/workflows/website.yml']
   pull_request:
-    paths: ['website/**', '.github/workflows/website.yml']
+    paths: ['website/**', 'scripts/website-release*', '.github/workflows/website.yml']
+  release:
+    types: [published, edited]
   workflow_dispatch:
 permissions:
   contents: read
@@ -16,10 +18,19 @@ concurrency:
 jobs:
   verify:
     name: Verify static website
+    if: github.event_name != 'release' || (!github.event.release.draft && !github.event.release.prerelease && startsWith(github.event.release.tag_name, 'v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.repository.default_branch || github.sha }}
+      - name: Verify release selection and sync the latest stable client
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --test scripts/website-release.test.mjs
+          node scripts/website-release.mjs
       - name: Verify local references
         run: |
           python3 - <<'PY'
@@ -77,7 +88,7 @@ jobs:
   deploy:
     name: Deploy website
     needs: verify
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'release')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:

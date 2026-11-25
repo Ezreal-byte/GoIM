@@ -10,4 +10,5 @@
 /docs/implementation/
 /design-qa.md
 /scripts/worker-*
+/website/release.json
 /*.lnk

@@ -150,6 +150,8 @@ if (tour) {
 }
 
 const downloadPage = document.querySelector(".platforms");
+let releaseRefresh;
+let lastLiveCheck = 0;
 if (downloadPage) {
   const platform = navigator.userAgentData?.platform || navigator.platform || "";
   const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -158,25 +160,43 @@ if (downloadPage) {
     const os = /Win/i.test(platform) ? "windows" : /Mac/i.test(platform) ? "macos" : /Linux/i.test(platform) ? "linux" : "";
     if (os) document.querySelector("#" + os + " h2 small").hidden = false;
   }
-  // Switch all architectures together once the latest release has every package.
-  refreshPackages().catch(() => {});
+  refreshPackages();
+  window.addEventListener("focus", refreshPackages);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshPackages();
+  });
+  // The same-origin release snapshot has no GitHub API quota or connectivity requirement.
+  window.setInterval(() => {
+    if (!document.hidden) refreshPackages();
+  }, 60000);
 }
 
-async function refreshPackages() {
-  const repo = "https://github.com/Ezreal-byte/GoIM/releases";
-  const response = await fetch("https://api.github.com/repos/Ezreal-byte/GoIM/releases/latest", {
-    signal: AbortSignal.timeout(5000),
-  });
-  if (!response.ok) return;
-  const release = await response.json();
-  if (release.draft || release.prerelease || !/^v\d+\.\d+\.\d+$/.test(release.tag_name)) return;
-  const version = release.tag_name.slice(1);
-  const assets = new Set(release.assets.map((asset) => asset.name));
-  const links = [...downloadPage.querySelectorAll(".package-link")];
-  const names = links.map((link) => "GoIM_" + version + "_" + link.dataset.package);
-  if (!names.every((name) => assets.has(name))) return;
-  links.forEach((link, index) => { link.href = repo + "/download/" + release.tag_name + "/" + names[index]; });
+function refreshPackages() {
+  if (releaseRefresh) return releaseRefresh;
+  releaseRefresh = updatePackages().catch(() => {}).finally(() => { releaseRefresh = undefined; });
+  return releaseRefresh;
+}
+
+async function updatePackages() {
+  const { fetchLatestRelease, parseRelease, releaseForPage, snapshotURL } = await import("./release.mjs?v=1");
+  const snapshot = fetch(snapshotURL, { cache: "no-store", signal: AbortSignal.timeout(5000) })
+    .then((response) => {
+      if (!response.ok) throw new Error("Release snapshot unavailable");
+      return response.json();
+    }).then(parseRelease);
+  const checkLive = Date.now() - lastLiveCheck >= 300000;
+  if (checkLive) lastLiveCheck = Date.now();
+  // Check GitHub on arrival and periodically, without consuming its public quota every minute.
+  const [live, saved] = await Promise.allSettled([checkLive ? fetchLatestRelease() : Promise.reject(), snapshot]);
   const versionLink = document.querySelector(".release-version");
-  versionLink.href = repo + "/tag/" + release.tag_name;
+  const release = releaseForPage(live.status === "fulfilled" ? live.value : null,
+    saved.status === "fulfilled" ? saved.value : null, versionLink.querySelector("span").textContent);
+  if (!release) return;
+  const version = release.tag_name.slice(1);
+  const links = [...downloadPage.querySelectorAll(".package-link")];
+  const assets = links.map((link) => release.assets.find((asset) => asset.name === `GoIM_${version}_${link.dataset.package}`));
+  if (!assets.every(Boolean)) return;
+  links.forEach((link, index) => { link.href = assets[index].browser_download_url; });
+  versionLink.href = release.html_url;
   versionLink.querySelector("span").textContent = release.tag_name;
 }
