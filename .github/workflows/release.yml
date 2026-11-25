@@ -368,6 +368,7 @@ jobs:
   release:
     name: Verify packages and checksums
     needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
@@ -524,7 +525,9 @@ jobs:
   update-feed:
     name: Sign stable update feed
     needs: release
-    if: github.event_name == 'push' && github.ref_type == 'tag' && !contains(github.ref_name, '-') && vars.GOIM_UPDATE_PUBLIC_KEY != ''
+    if: |
+      !cancelled() && needs.release.result == 'success' && github.event_name == 'push' &&
+      github.ref_type == 'tag' && !contains(github.ref_name, '-') && vars.GOIM_UPDATE_PUBLIC_KEY != ''
     timeout-minutes: 10
     runs-on: ubuntu-24.04
     environment: goim-release
