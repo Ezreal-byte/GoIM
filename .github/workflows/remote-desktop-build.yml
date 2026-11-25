@@ -1,0 +1,109 @@
+name: Build remote desktop helper
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: '1.96.0'
+  VCPKG_COMMIT_ID: '9e593bb18ea69cc5095e012465dcd675a822ed0d'
+  MACOSX_DEPLOYMENT_TARGET: '13.0'
+
+jobs:
+  helper:
+    name: Helper ${{ matrix.platform }}-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: windows-2025, platform: windows, arch: amd64, target: x86_64-pc-windows-msvc, triplet: x64-windows-static, features: goim-remote}
+          - {runner: windows-11-arm, platform: windows, arch: arm64, target: aarch64-pc-windows-msvc, triplet: arm64-windows-static, features: goim-remote}
+          - {runner: macos-15-intel, platform: darwin, arch: amd64, target: x86_64-apple-darwin, triplet: x64-osx, features: 'goim-remote,screencapturekit'}
+          - {runner: macos-15, platform: darwin, arch: arm64, target: aarch64-apple-darwin, triplet: arm64-osx, features: 'goim-remote,screencapturekit'}
+          - {runner: ubuntu-24.04, platform: linux, arch: amd64, target: x86_64-unknown-linux-gnu}
+          - {runner: ubuntu-24.04-arm, platform: linux, arch: arm64, target: aarch64-unknown-linux-gnu}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 55
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Restore pinned RustDesk source
+        run: bash packaging/remote-desktop/checkout.sh rustdesk
+      - name: Compile and verify on the GLIBC 2.31 baseline
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -e RUST_VERSION -v "$PWD:/work" -w /work ubuntu:20.04 \
+            bash packaging/remote-desktop/build-linux.sh '${{ matrix.target }}' '${{ matrix.arch }}'
+      - name: Install Rust
+        if: runner.os != 'Linux'
+        run: rustup toolchain install "$RUST_VERSION" --profile minimal --target '${{ matrix.target }}'
+      - name: Install Windows x64 LLVM
+        if: runner.os == 'Windows' && runner.arch == 'X64'
+        uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0
+        with:
+          version: '15.0.6'
+      - name: Select Windows Arm64 libclang
+        if: runner.os == 'Windows' && runner.arch == 'ARM64'
+        run: printf 'LIBCLANG_PATH=%s\n' "$(cygpath -w "$(dirname "$(command -v clang)")")" >> "$GITHUB_ENV"
+      - name: Install macOS assembler
+        if: runner.os == 'macOS'
+        run: command -v nasm || brew install nasm
+      - name: Select macOS SDK libclang
+        if: runner.os == 'macOS'
+        run: printf 'LIBCLANG_PATH=%s\n' "$(dirname "$(dirname "$(xcrun --find clang)")")/lib" >> "$GITHUB_ENV"
+      - name: Set up pinned vcpkg
+        if: runner.os != 'Linux'
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+      - name: Install pinned native libraries
+        if: runner.os != 'Linux'
+        env:
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+          VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.triplet }}
+        run: |
+          ports=(aom libvpx libyuv opus)
+          if [ "$VCPKG_DEFAULT_TRIPLET" = arm64-windows-static ]; then
+            ports+=(libsodium)
+            printf 'SODIUM_LIB_DIR=%s\n' "$VCPKG_ROOT/installed/$VCPKG_DEFAULT_TRIPLET/lib" >> "$GITHUB_ENV"
+          fi
+          "$VCPKG_ROOT/vcpkg" install --classic --triplet="$VCPKG_DEFAULT_TRIPLET" \
+            --overlay-ports="$GITHUB_WORKSPACE/rustdesk/res/vcpkg" \
+            --overlay-triplets="$GITHUB_WORKSPACE/rustdesk/res/vcpkg-triplets" "${ports[@]}"
+      - name: Build and stage native helper
+        if: runner.os != 'Linux'
+        working-directory: rustdesk
+        env:
+          RUST_TARGET: ${{ matrix.target }}
+          BUILD_FEATURES: ${{ matrix.features }}
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+          GOIM_PLATFORM: ${{ matrix.platform }}
+          GOIM_ARCH: ${{ matrix.arch }}
+        run: |
+          cargo +"$RUST_VERSION" build --locked --release --target "$RUST_TARGET" --bin goim-rd --features "$BUILD_FEATURES"
+          helper="target/$RUST_TARGET/release/goim-rd"
+          python_cmd=python3
+          if [ "$GOIM_PLATFORM" = windows ]; then
+            helper="$helper.exe"
+            python_cmd=python
+          fi
+          "$python_cmd" res/goim-stage-helper.py --binary "$helper" --platform "$GOIM_PLATFORM" --architecture "$GOIM_ARCH" --output ../goim-rd-bundle
+          printf '\nNative library recipes: https://github.com/microsoft/vcpkg/tree/%s\n' "$VCPKG_COMMIT_ID" >> ../goim-rd-bundle/NOTICE
+          for port in aom libvpx libyuv opus libsodium; do
+            license="$VCPKG_ROOT/installed/$VCPKG_DEFAULT_TRIPLET/share/$port/copyright"
+            if [[ -f "$license" ]]; then
+              printf '\n--- %s ---\n' "$port" >> ../goim-rd-bundle/NOTICE
+              cat "$license" >> ../goim-rd-bundle/NOTICE
+            fi
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: goim-rd-${{ matrix.platform }}-${{ matrix.arch }}
+          path: goim-rd-bundle
+          if-no-files-found: error
+          retention-days: 14

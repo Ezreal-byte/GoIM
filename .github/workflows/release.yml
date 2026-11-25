@@ -9,10 +9,7 @@ on:
         default: 0.2.1
         required: true
         type: string
-      remote_helper_run:
-        description: Reuse a helper workflow run with the same pinned sources and recipe
-        required: false
-        type: string
+
 permissions:
   contents: read
 env:
@@ -48,35 +45,19 @@ jobs:
             exit 1
           fi
           echo "Viva fork main $fork_main verified against $version"
-  verify-helper-run:
-    if: inputs.remote_helper_run != ''
+  verify-helper:
+    name: Verify pinned remote desktop component
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      actions: read
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with: {fetch-depth: 0, persist-credentials: false}
-      - name: Verify the selected helper run
+        with: {persist-credentials: false}
+      - name: Check the independently versioned helper pin
         env:
           GH_TOKEN: ${{ github.token }}
-          HELPER_RUN: ${{ inputs.remote_helper_run }}
         run: |
-          set -euo pipefail
-          [[ "$HELPER_RUN" =~ ^[0-9]+$ ]]
-          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$HELPER_RUN")
-          workflow=.github/workflows/remote-desktop.yml
-          head=$(jq -er --arg path "$workflow" --arg repo "$GITHUB_REPOSITORY" '
-            select(.path == $path and .head_repository.full_name == $repo and .event == "push").head_sha
-          ' <<< "$run")
-          for path in "$workflow" packaging/remote-desktop; do
-            [[ "$(git rev-parse "$head:$path")" == "$(git rev-parse "HEAD:$path")" ]]
-          done
-          gh run watch "$HELPER_RUN" --repo "$GITHUB_REPOSITORY" --exit-status --interval 20
-  remote-desktop:
-    if: inputs.remote_helper_run == ''
-    uses: ./.github/workflows/remote-desktop.yml
+          python3 scripts/remote-helper.py verify-lock
+          python3 scripts/remote-helper.py verify-release
   media:
     needs: verify-viva
     name: Media decoder ${{ matrix.os }}-${{ matrix.arch }}
@@ -105,10 +86,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
   build:
-    needs: [media, remote-desktop, verify-helper-run]
-    if: |
-      !cancelled() && needs.media.result == 'success' &&
-      (needs.remote-desktop.result == 'success' || needs.verify-helper-run.result == 'success')
+    needs: [media, verify-helper]
     permissions:
       contents: read
       actions: read
@@ -157,12 +135,11 @@ jobs:
         with:
           name: decoder-${{ matrix.os }}-${{ matrix.arch }}
           path: GoIM/.runtime/media-bundle
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: goim-rd-${{ matrix.os }}-${{ matrix.arch }}
-          path: GoIM/.runtime/remote-helper
-          github-token: ${{ github.token }}
-          run-id: ${{ inputs.remote_helper_run || github.run_id }}
+      - name: Fetch the pinned remote desktop helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HELPER_TARGET: ${{ matrix.os }}-${{ matrix.arch }}
+        run: python scripts/remote-helper.py fetch --target "$HELPER_TARGET" --output .runtime/remote-helper
       - name: Verify remote desktop helper
         run: |
           python - <<'PY'
