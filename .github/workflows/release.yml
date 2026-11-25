@@ -363,13 +363,14 @@ jobs:
           GOIM_UPDATE_PUBLIC_KEY: ${{ vars.GOIM_UPDATE_PUBLIC_KEY }}
         run: |
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, subprocess, tarfile, zipfile
+          import hashlib, json, os, pathlib, plistlib, subprocess, tarfile, zipfile
           root = pathlib.Path('release')
           version = os.environ['PACKAGE_VERSION'].removeprefix('v')
           formats = {'windows': ('.zip', '-Setup.exe'), 'linux': ('.tar.gz', '.deb'), 'darwin': ('.zip', '.dmg')}
           expected = {f'GoIM_{version}_{o}_{a}{ext}': (o,a) for o in formats for a in ('amd64','arm64') for ext in formats[o]}
           expected.update({f'GoIM_{version}_linux_{a}-file-dialog-sources.tar.xz': ('linux', a) for a in ('amd64', 'arm64')})
           found, sums, frameworks, toolchains, public_keys = set(), [], set(), set(), set()
+          helper_component = json.loads(pathlib.Path('packaging/remote-desktop/release.lock.json').read_text())
           helper_commit = subprocess.check_output([
               'git', 'bundle', 'list-heads', 'packaging/remote-desktop/rustdesk-goim.bundle',
               'refs/heads/codex/goim-headless'],
@@ -377,13 +378,19 @@ jobs:
           ).split()[0]
 
           def verify_helper(info, target, read, path, prefix=''):
-              assert info['remote_desktop_commit'] == helper_commit
+              assert info['remote_desktop_commit'] == helper_commit == helper_component['source_commit']
+              assert info['remote_desktop_version'] == helper_component['version']
               if '-rd-preview.' not in version:
                   assert not info.get('edition'), info.get('edition')
               source_root = prefix+'licenses/rustdesk/'
               manifest = json.loads(read(source_root+'manifest.json'))
               assert (manifest['platform'], manifest['architecture']) == target
-              assert manifest['commit'] == helper_commit and manifest['protocol'] == 1
+              assert manifest['commit'] == helper_commit and manifest['protocol'] == helper_component['protocol']
+              assert manifest['version'] == helper_component['version']
+              assert manifest['recipe_sha256'] == helper_component['recipe_sha256']
+              if target[0] == 'darwin':
+                  helper_plist = prefix+'Contents/Helpers/GoIMRemote.app/Contents/Info.plist'
+                  assert plistlib.loads(read(helper_plist))['CFBundleShortVersionString'] == helper_component['version']
               license = read(source_root+'LICENSE')
               assert b'GNU AFFERO GENERAL PUBLIC LICENSE' in license
               assert read(source_root+'NOTICE')
@@ -470,7 +477,7 @@ jobs:
               f'- 源码 `{os.environ["SOURCE_COMMIT"]}`\n'
               f'- Viva `{next(iter(frameworks))}`\n'
               f'- Go `{next(iter(toolchains))}`\n'
-              f'- RustDesk 助手 `{helper_commit}`\n'
+              f'- RustDesk 助手 `{helper_component["version"]}`（`{helper_commit}`）\n'
           )
           report = f'{body.rstrip()}\n\n{build_info}'
           if thanks_heading:

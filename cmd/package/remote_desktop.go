@@ -218,9 +218,13 @@ func (bundle *remoteDesktopBundle) stage(staging, platformVersion string) error 
 	if app == "" {
 		return nil
 	}
+	helperVersion := platformVersion
+	if remoteDesktopStableVersion(bundle.manifest.Version) {
+		helperVersion = bundle.manifest.Version
+	}
 	info := appbundle.Info{
 		Name: "GoIM Remote Desktop", ID: "dev.goim.desktop.remote-desktop",
-		Version: platformVersion, Executable: name, MinSystem: "13.0",
+		Version: helperVersion, Executable: name, MinSystem: "13.0",
 		Extra: []appbundle.KeyValue{{
 			Key: "NSAudioCaptureUsageDescription", Value: "GoIM Remote Desktop captures system audio when you choose to share it.",
 		}},

@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "version": "0.1.0",
+  "tag": "goim-rd-v0.1.0",
+  "protocol": 1,
+  "source_commit": "9c3e4d75f67e561bec93960a81473c4993842315",
+  "recipe_sha256": "439ded1fe56e86eda45542eab2486553a76bc930cc18a10006a1503363f46a90",
+  "build_run": "45556216427",
+  "assets": {
+    "windows-amd64": {
+      "name": "goim-rd_0.1.0_windows_amd64.zip",
+      "sha256": "4502e449161d301c0397e43b797ce439f582cccd93e21b96eff2c263ee2fe322",
+      "manifest_sha256": "30e34dbebb5bc3678307be8fb142021747d60862e1a1f344e409cc3f81d831b2"
+    },
+    "windows-arm64": {
+      "name": "goim-rd_0.1.0_windows_arm64.zip",
+      "sha256": "d36b21d7b4308c3e2cff841bf453c4d84e3be18a316caca106f6e94f5e1155a3",
+      "manifest_sha256": "146ab403143c84830587a560bde5cc9fd61f6d0ded7ddbd4c4f3969c56c2547b"
+    },
+    "darwin-amd64": {
+      "name": "goim-rd_0.1.0_darwin_amd64.zip",
+      "sha256": "ca5c7b6d9e20beed7fce6c90e135f670ec0f6c9617801f158f11ba506221d565",
+      "manifest_sha256": "08a5b0e3ff4b09c5b5639456deaaae3c93f15a60e3cc9b9ef1443ba54b78f028"
+    },
+    "darwin-arm64": {
+      "name": "goim-rd_0.1.0_darwin_arm64.zip",
+      "sha256": "cacf75b5fe5b505ce91b5376535de2ce49edca0723c28628f9feeac167dc059c",
+      "manifest_sha256": "be9e777dafc27a6c9e9a94d2bb7df01b6d9b379665e195e5470f1271c4b22f2d"
+    },
+    "linux-amd64": {
+      "name": "goim-rd_0.1.0_linux_amd64.zip",
+      "sha256": "0ff866d05cb401cfc3330a14b642f2a0edd95c1887f88ea014123cea28e34fd0",
+      "manifest_sha256": "800105f59d5daf69aaa459e5a9fd25cbba90a8700736f69c3b820cc98de1e183"
+    },
+    "linux-arm64": {
+      "name": "goim-rd_0.1.0_linux_arm64.zip",
+      "sha256": "e5a27ea7b4d92a2212854ff298b6610e8ef05c8363a1822ebb0cc242eb3cc461",
+      "manifest_sha256": "117601e31958d26b56498a87a7a12a2d8e5a05c9d7d1cedc2d0037964ace02fc"
+    }
+  }
+}

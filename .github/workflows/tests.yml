@@ -86,6 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: python3 -m unittest discover -s scripts -p 'test_remote_helper.py' -v
+      - run: python3 scripts/remote-helper.py verify-lock
 
   quality:
     name: Format and vet
