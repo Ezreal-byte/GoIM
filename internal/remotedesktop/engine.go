@@ -21,8 +21,8 @@ import (
 	"goim/internal/domain"
 )
 
-// ValidationBuild is enabled by the opt-in validation packager.
-var ValidationBuild string
+// BundledBuild is enabled when the packager includes a verified helper.
+var BundledBuild string
 
 const (
 	controlPacket = 1
@@ -68,7 +68,7 @@ func Reason(err error) string {
 	return "failed"
 }
 
-// Discover checks the opt-in install slot without starting a process.
+// Discover checks the bundled install slot without starting a process.
 func Discover() Engine {
 	if override := os.Getenv("GOIM_REMOTE_DESKTOP_HELPER"); override != "" {
 		if filepath.IsAbs(override) && helperFile(override) {
@@ -76,7 +76,7 @@ func Discover() Engine {
 		}
 		return nil
 	}
-	if ValidationBuild != "1" {
+	if BundledBuild != "1" {
 		return nil
 	}
 	exe, err := os.Executable()

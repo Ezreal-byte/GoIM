@@ -12,9 +12,10 @@ output=${4:-dist}
 output=$(cd "$output" && pwd)
 name="GoIM_${version}_${platform}_${arch}"
 payload="$output/$name"
-remote_preview=false
-if [[ $version == *-rd-preview.* ]]; then
-    remote_preview=true
+remote_commit=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("remote_desktop_commit", ""))' "$payload/build-info.json")
+remote_helper=false
+if [[ -n $remote_commit ]]; then
+    remote_helper=true
     test -s "$payload/licenses/rustdesk/LICENSE"
     test -s "$payload/licenses/rustdesk/manifest.json"
 fi
@@ -38,12 +39,17 @@ case "$platform" in
         test -x "$payload/lib/goim/file-dialog/bin/zenity"
         [[ $(cat "$payload/lib/goim/file-dialog/architecture") == "$arch" ]]
         cp -R "$payload/lib" "$root/usr/"
-        if $remote_preview; then
+        if $remote_helper; then
             test -x "$payload/lib/goim/remote/goim-rd"
         fi
         update_key=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["update_public_key"])' "$payload/build-info.json")
-        if $remote_preview; then
+        if [[ $version == *-rd-preview.* ]]; then
+            $remote_helper
             [[ -z $update_key ]]
+        fi
+        remote_recommends=
+        if $remote_helper; then
+            remote_recommends=', libpulse0, libgstreamer1.0-0, libgstreamer-plugins-base1.0-0, libxcb-randr0, libxcb-shm0, libxtst6, libxfixes3'
         fi
         (cd "$script_dir/.." && GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -trimpath \
             -ldflags "-s -w -X goim/internal/buildinfo.UpdatePublicKey=$update_key" \
@@ -66,7 +72,7 @@ Architecture: $arch
 Maintainer: GoIM maintainers <71426102+Ezreal-byte@users.noreply.github.com>
 Installed-Size: $(du -sk "$root/usr" | cut -f1)
 Depends: libc6, libx11-6, libx11-xcb1, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libvulkan1, libasound2
-Recommends: mesa-vulkan-drivers, fonts-noto-cjk
+Recommends: mesa-vulkan-drivers, fonts-noto-cjk$remote_recommends
 Homepage: https://ezreal-byte.github.io/GoIM/
 Description: Native LAN messenger and file sharing
  Direct and group chat, peer-to-peer transfers and browser file sharing.
@@ -80,7 +86,7 @@ EOF
         cmp "$payload/GoIM" "$work/check/usr/bin/GoIM"
         cmp "$payload/goim-media" "$work/check/usr/bin/goim-media"
         cmp "$payload/goim-snip" "$work/check/usr/bin/goim-snip"
-        if $remote_preview; then
+        if $remote_helper; then
             cmp "$payload/lib/goim/remote/goim-rd" "$work/check/usr/lib/goim/remote/goim-rd"
             test -x "$work/check/usr/lib/goim/remote/goim-rd"
             diff -r "$payload/licenses/rustdesk" "$work/check/usr/share/doc/goim/licenses/rustdesk"
@@ -100,7 +106,7 @@ EOF
         codesign --verify --deep --strict "$online"
         [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$online/Contents/Info.plist") == dev.goim.desktop ]]
         [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$online/Contents/Info.plist") == "${version%%-*}" ]]
-        if $remote_preview; then
+        if $remote_helper; then
             helper=Contents/Helpers/GoIMRemote.app
             codesign --verify --strict "$online/$helper"
             [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$online/$helper/Contents/Info.plist") == dev.goim.desktop.remote-desktop ]]
@@ -122,7 +128,7 @@ EOF
         shotlet=GoIM.app/Contents/Helpers/ShotletCapture.app/Contents/MacOS/ShotletCapture
         cmp "$payload/$shotlet" "$mounted/$shotlet"
         test -x "$mounted/$shotlet"
-        if $remote_preview; then
+        if $remote_helper; then
             remote=GoIM.app/$helper/Contents/MacOS/goim-rd
             cmp "$payload/$remote" "$mounted/$remote"
             test -x "$mounted/$remote"

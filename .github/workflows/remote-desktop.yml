@@ -55,6 +55,9 @@ jobs:
       - name: Select Windows Arm64 libclang
         if: runner.os == 'Windows' && runner.arch == 'ARM64'
         run: printf 'LIBCLANG_PATH=%s\n' "$(cygpath -w "$(dirname "$(command -v clang)")")" >> "$GITHUB_ENV"
+      - name: Install macOS assembler
+        if: runner.os == 'macOS'
+        run: command -v nasm || brew install nasm
       - name: Select macOS SDK libclang
         if: runner.os == 'macOS'
         run: printf 'LIBCLANG_PATH=%s\n' "$(dirname "$(dirname "$(xcrun --find clang)")")/lib" >> "$GITHUB_ENV"

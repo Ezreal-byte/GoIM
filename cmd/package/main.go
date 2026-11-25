@@ -64,11 +64,11 @@ func build() error {
 	stamp := flag.String("stamp-windows", "", "apply the Windows icon and metadata to an existing GoIM executable")
 	stageCapture := flag.String("stage-shotlet", "", "build and stage the Shotlet helper beside a Windows development build")
 	mediaDir := flag.String("stage-media", "", "stage the offline media decoder for a development build")
-	remoteDesktopDir := flag.String("remote-desktop-bundle", "", "include a local RustDesk helper bundle in an rd-preview package")
-	remoteDesktopSHA := flag.String("remote-desktop-manifest-sha256", "", "expected SHA-256 of the preview helper's manifest.json")
+	remoteDesktopDir := flag.String("remote-desktop-bundle", "", "include a verified RustDesk helper bundle")
+	remoteDesktopSHA := flag.String("remote-desktop-manifest-sha256", "", "expected SHA-256 of the helper's manifest.json")
 	flag.Parse()
 	if (*remoteDesktopDir != "" || *remoteDesktopSHA != "") && (*mediaDir != "" || *stamp != "" || *stageCapture != "") {
-		return fmt.Errorf("remote desktop preview requires a full package build")
+		return fmt.Errorf("remote desktop requires a full package build")
 	}
 	if *mediaDir != "" {
 		return stageMedia(*mediaDir, *mediaDir)
@@ -86,13 +86,13 @@ func build() error {
 	if *windowsSetup && runtime.GOOS != "windows" {
 		return fmt.Errorf("--windows-setup requires a native Windows build")
 	}
-	preview, err := openRemoteDesktopBundle(*remoteDesktopDir, *remoteDesktopSHA, *version)
+	remoteBundle, err := openRemoteDesktopBundle(*remoteDesktopDir, *remoteDesktopSHA, *version)
 	if err != nil {
 		return err
 	}
-	if preview != nil {
-		defer preview.root.Close()
-		if strings.TrimSpace(os.Getenv("GOIM_UPDATE_PUBLIC_KEY")) != "" {
+	if remoteBundle != nil {
+		defer remoteBundle.root.Close()
+		if remoteDesktopPreviewVersion(*version) && strings.TrimSpace(os.Getenv("GOIM_UPDATE_PUBLIC_KEY")) != "" {
 			return fmt.Errorf("unset GOIM_UPDATE_PUBLIC_KEY when building a remote desktop preview")
 		}
 	} else if remoteDesktopPreviewVersion(*version) {
@@ -138,19 +138,19 @@ func build() error {
 	}
 	name := "GoIM_" + *version + "_" + runtime.GOOS + "_" + runtime.GOARCH
 	staging := filepath.Join(*out, name)
-	if preview != nil {
+	if remoteBundle != nil {
 		if err := os.MkdirAll(*out, 0755); err != nil {
 			return err
 		}
 		if err := os.Mkdir(staging, 0755); err != nil {
-			return fmt.Errorf("create a fresh remote desktop preview staging directory: %w", err)
+			return fmt.Errorf("create a fresh staging directory for the remote desktop package: %w", err)
 		}
 	} else if err := os.MkdirAll(staging, 0755); err != nil {
 		return err
 	}
-	if preview != nil && runtime.GOOS != "darwin" {
-		if err := preview.stage(staging, platformVersion); err != nil {
-			return fmt.Errorf("stage remote desktop preview: %w", err)
+	if remoteBundle != nil && runtime.GOOS != "darwin" {
+		if err := remoteBundle.stage(staging, platformVersion); err != nil {
+			return fmt.Errorf("stage remote desktop helper: %w", err)
 		}
 	}
 	executable := filepath.Join(staging, "GoIM")
@@ -158,8 +158,8 @@ func build() error {
 		executable += ".exe"
 	}
 	ld := packageLinkerFlags(*version, sourceCommit, facts, runtime.GOOS == "windows")
-	if preview != nil {
-		ld += " -X goim/internal/remotedesktop.ValidationBuild=1"
+	if remoteBundle != nil {
+		ld += " -X goim/internal/remotedesktop.BundledBuild=1"
 	}
 	args := []string{"build", "-trimpath", "-ldflags", ld}
 	args = append(args, "-o", executable, "./cmd/goim")
@@ -232,9 +232,9 @@ func build() error {
 		if err = stageMedia(filepath.Join(bundle, "Contents", "Resources"), filepath.Join(bundle, "Contents", "MacOS")); err != nil {
 			return err
 		}
-		if preview != nil {
-			if err := preview.stage(staging, platformVersion); err != nil {
-				return fmt.Errorf("stage remote desktop preview: %w", err)
+		if remoteBundle != nil {
+			if err := remoteBundle.stage(staging, platformVersion); err != nil {
+				return fmt.Errorf("stage remote desktop helper: %w", err)
 			}
 		}
 		if err = run("codesign", "--force", "--sign", "-", bundle); err != nil {
@@ -287,8 +287,8 @@ func build() error {
 		"build_time": facts.buildTime, "ci_url": facts.ciURL, "update_public_key": facts.updateKey,
 		"desktop_validation": "Windows loopback and offscreen tests; native shortcut lifecycle tests; physical multi-device desktop validation pending",
 	}
-	if preview != nil {
-		if err := preview.recordProvenance(staging, info); err != nil {
+	if remoteBundle != nil {
+		if err := remoteBundle.recordProvenance(staging, info); err != nil {
 			return fmt.Errorf("record remote desktop helper provenance: %w", err)
 		}
 	}

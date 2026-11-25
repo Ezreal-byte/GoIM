@@ -53,10 +53,10 @@ func openRemoteDesktopBundle(dir, manifestSHA, version string) (*remoteDesktopBu
 		return nil, nil
 	}
 	if dir == "" || !exactHex(manifestSHA, sha256.Size*2) {
-		return nil, errors.New("remote desktop preview requires --remote-desktop-bundle and a pinned --remote-desktop-manifest-sha256")
+		return nil, errors.New("remote desktop requires --remote-desktop-bundle and a pinned --remote-desktop-manifest-sha256")
 	}
-	if !remoteDesktopPreviewVersion(version) {
-		return nil, errors.New("remote desktop preview requires --version like 0.2.5-rd-preview.1")
+	if !remoteDesktopStableVersion(version) && !remoteDesktopPreviewVersion(version) {
+		return nil, errors.New("remote desktop requires a stable version or an rd-preview version")
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
@@ -67,15 +67,20 @@ func openRemoteDesktopBundle(dir, manifestSHA, version string) (*remoteDesktopBu
 		root.Close()
 		return nil, fmt.Errorf("read remote desktop bundle: %w", err)
 	}
+	if remoteDesktopStableVersion(version) && bundle.manifest.SourceArchive == "" {
+		root.Close()
+		return nil, errors.New("stable remote desktop packages require an offline source archive")
+	}
 	return bundle, nil
 }
 
 func remoteDesktopPreviewVersion(version string) bool {
 	base, suffix, ok := strings.Cut(version, "-rd-preview.")
-	if !ok {
-		return false
-	}
-	parts := strings.Split(base, ".")
+	return ok && remoteDesktopStableVersion(base) && decimalVersionField(suffix, false)
+}
+
+func remoteDesktopStableVersion(version string) bool {
+	parts := strings.Split(version, ".")
 	if len(parts) != 3 {
 		return false
 	}
@@ -84,7 +89,7 @@ func remoteDesktopPreviewVersion(version string) bool {
 			return false
 		}
 	}
-	return decimalVersionField(suffix, false)
+	return true
 }
 
 func decimalVersionField(value string, allowZero bool) bool {
@@ -202,7 +207,7 @@ func (bundle *remoteDesktopBundle) stage(staging, platformVersion string) error 
 		app = filepath.Join(staging, "GoIM.app", "Contents", "Helpers", "GoIMRemote.app")
 		dir = filepath.Join(app, "Contents", "MacOS")
 	default:
-		return errors.New("remote desktop preview is unsupported on this build platform")
+		return errors.New("remote desktop helper is unsupported on this build platform")
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -308,8 +313,8 @@ func (bundle *remoteDesktopBundle) recordProvenance(staging string, info map[str
 			}
 		}
 	}
-	description := "\n## Remote desktop validation build\n\n" +
-		"This validation build includes the RustDesk-derived remote desktop helper under AGPL-3.0. " +
+	description := "\n## Remote desktop helper\n\n" +
+		"This package includes the RustDesk-derived remote desktop helper under AGPL-3.0. " +
 		"The helper license and build manifest are provided in `licenses/rustdesk/`. " +
 		"The source for the pinned helper commit is available at " + source + ".\n"
 	notices, err := os.OpenFile(filepath.Join(staging, "THIRD_PARTY_NOTICES.md"), os.O_WRONLY|os.O_APPEND, 0)
@@ -320,7 +325,9 @@ func (bundle *remoteDesktopBundle) recordProvenance(staging string, info map[str
 	if err := errors.Join(writeErr, notices.Close()); err != nil {
 		return err
 	}
-	info["edition"] = "remote-desktop-validation"
+	if info["version"] == "" || remoteDesktopPreviewVersion(info["version"]) {
+		info["edition"] = "remote-desktop-validation"
+	}
 	info["remote_desktop_protocol"] = strconv.Itoa(bundle.manifest.Protocol)
 	info["remote_desktop_version"] = bundle.manifest.Version
 	info["remote_desktop_commit"] = bundle.manifest.Commit

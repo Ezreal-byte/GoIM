@@ -35,12 +35,18 @@ fetch_archive() {
 
 fetch_archive vpx https://codeload.github.com/webmproject/libvpx/tar.gz/refs/tags/v1.15.2 \
   26fcd3db88045dee380e581862a6ef106f49b74b6396ee95c2993a260b4636aa 1
-fetch_archive aom https://aomedia.googlesource.com/aom/+archive/03087864cf4bea6abb0d28f95cf7843511413d8f.tar.gz \
-  64aee71795600c0216ff1a663ca37f0ac4e0eedb2c6ca1ab005b7dac4648996c 0
+
 fetch_archive opus https://codeload.github.com/xiph/opus/tar.gz/refs/tags/v1.5.2 \
   9480e329e989f70d69886ded470c7f8cfe6c0667cc4196d4837ac9e668fb7404 1
-fetch_archive yuv https://chromium.googlesource.com/libyuv/libyuv/+archive/0faf8dd0e004520a61a603a4d2996d5ecc80dc3f.tar.gz \
-  a3dd0545c0a48b66faa4991d727f9c30e1cc2c03931da8a798eb1075b0adebd1 0
+# Gitiles may regenerate archive bytes for the same source tree.
+fetch_revision() {
+  local name=$1 url=$2 revision=$3
+  git init -q "$deps/$name"
+  git -C "$deps/$name" -c http.version=HTTP/1.1 fetch --depth=1 --no-tags "$url" "$revision"
+  git -C "$deps/$name" checkout --detach "$revision"
+}
+fetch_revision aom https://aomedia.googlesource.com/aom 03087864cf4bea6abb0d28f95cf7843511413d8f
+fetch_revision yuv https://chromium.googlesource.com/libyuv/libyuv 0faf8dd0e004520a61a603a4d2996d5ecc80dc3f
 
 (
   cd "$deps/vpx"

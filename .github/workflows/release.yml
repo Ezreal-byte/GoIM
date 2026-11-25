@@ -9,6 +9,10 @@ on:
         default: 0.2.1
         required: true
         type: string
+      remote_helper_run:
+        description: Reuse a helper workflow run with the same pinned sources and recipe
+        required: false
+        type: string
 permissions:
   contents: read
 env:
@@ -44,6 +48,35 @@ jobs:
             exit 1
           fi
           echo "Viva fork main $fork_main verified against $version"
+  verify-helper-run:
+    if: inputs.remote_helper_run != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Verify the selected helper run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HELPER_RUN: ${{ inputs.remote_helper_run }}
+        run: |
+          set -euo pipefail
+          [[ "$HELPER_RUN" =~ ^[0-9]+$ ]]
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$HELPER_RUN")
+          workflow=.github/workflows/remote-desktop.yml
+          head=$(jq -er --arg path "$workflow" --arg repo "$GITHUB_REPOSITORY" '
+            select(.path == $path and .head_repository.full_name == $repo and .event == "push").head_sha
+          ' <<< "$run")
+          for path in "$workflow" packaging/remote-desktop; do
+            [[ "$(git rev-parse "$head:$path")" == "$(git rev-parse "HEAD:$path")" ]]
+          done
+          gh run watch "$HELPER_RUN" --repo "$GITHUB_REPOSITORY" --exit-status --interval 20
+  remote-desktop:
+    if: inputs.remote_helper_run == ''
+    uses: ./.github/workflows/remote-desktop.yml
   media:
     needs: verify-viva
     name: Media decoder ${{ matrix.os }}-${{ matrix.arch }}
@@ -72,7 +105,13 @@ jobs:
           if-no-files-found: error
           retention-days: 3
   build:
-    needs: media
+    needs: [media, remote-desktop, verify-helper-run]
+    if: |
+      !cancelled() && needs.media.result == 'success' &&
+      (needs.remote-desktop.result == 'success' || needs.verify-helper-run.result == 'success')
+    permissions:
+      contents: read
+      actions: read
     env:
       GOIM_MEDIA_BUNDLE: ${{ github.workspace }}/GoIM/.runtime/media-bundle
     name: ${{ matrix.os }}-${{ matrix.arch }}
@@ -113,11 +152,37 @@ jobs:
           # Keep bundled binaries at repository versions whose exact source
           # archives are available for the corresponding-source artifact.
           sudo apt-get "${apt_options[@]}" upgrade -y
-          sudo apt-get "${apt_options[@]}" install -y xclip libx11-6 libx11-xcb1 libxcb1 libxcb-shape0 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk xvfb xdotool libdigest-sha-perl build-essential meson ninja-build libgtk-3-dev gsettings-desktop-schemas gettext itstool curl xz-utils
+          sudo apt-get "${apt_options[@]}" install -y xclip libx11-6 libx11-xcb1 libxcb1 libxcb-shape0 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk xvfb xdotool libdigest-sha-perl build-essential meson ninja-build libgtk-3-dev gsettings-desktop-schemas gettext itstool curl xz-utils x11-utils dbus-x11 libpulse0 libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libxcb-randr0 libxcb-shm0 libxtst6 libxfixes3
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: decoder-${{ matrix.os }}-${{ matrix.arch }}
           path: GoIM/.runtime/media-bundle
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: goim-rd-${{ matrix.os }}-${{ matrix.arch }}
+          path: GoIM/.runtime/remote-helper
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.remote_helper_run || github.run_id }}
+      - name: Verify remote desktop helper
+        run: |
+          python - <<'PY'
+          import os, pathlib, subprocess
+          name = 'goim-rd.exe' if os.name == 'nt' else 'goim-rd'
+          helper = pathlib.Path('.runtime/remote-helper', name).resolve()
+          helper.chmod(0o755)
+          proc = subprocess.run([str(helper)], capture_output=True, timeout=15)
+          assert proc.returncode == 1, (proc.returncode, proc.stderr)
+          PY
+      - name: Verify an authorized remote desktop session on X11
+        if: runner.os == 'Linux'
+        env:
+          GOIM_TEST_REMOTE_DESKTOP_X11: '1'
+          XDG_SESSION_TYPE: x11
+          RUSTDESK_FORCED_DISPLAY_SERVER: x11
+        run: |
+          export GOIM_REMOTE_DESKTOP_HELPER="$PWD/.runtime/remote-helper/goim-rd"
+          env -u WAYLAND_DISPLAY dbus-run-session -- xvfb-run -a -s '-screen 0 1280x720x24 -noreset' \
+            go test ./internal/core -run '^TestRemoteDesktopNativeX11$' -v -count=1 -timeout=60s
       - name: Verify bundled video decoding
         run: |
           chmod +x .runtime/media-bundle/goim-media*
@@ -238,7 +303,10 @@ jobs:
           # to the runner's glibc and will not start on older Kylin/UOS hosts.
           CGO_ENABLED: ${{ matrix.os == 'linux' && '0' || '1' }}
         run: |
-          args=(--version "${PACKAGE_VERSION#v}" --commit "$GITHUB_SHA")
+          bundle="$PWD/.runtime/remote-helper"
+          manifest_sha=$(python -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$bundle/manifest.json")
+          args=(--version "${PACKAGE_VERSION#v}" --commit "$GITHUB_SHA"
+            --remote-desktop-bundle "$bundle" --remote-desktop-manifest-sha256 "$manifest_sha")
           if [ '${{ matrix.os }}' = windows ]; then args+=(--windows-setup); fi
           go run ./cmd/package "${args[@]}"
       - name: Verify Windows installers and shortcut icons
@@ -317,13 +385,36 @@ jobs:
           GOIM_UPDATE_PUBLIC_KEY: ${{ vars.GOIM_UPDATE_PUBLIC_KEY }}
         run: |
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, tarfile, zipfile
+          import hashlib, json, os, pathlib, subprocess, tarfile, zipfile
           root = pathlib.Path('release')
           version = os.environ['PACKAGE_VERSION'].removeprefix('v')
           formats = {'windows': ('.zip', '-Setup.exe'), 'linux': ('.tar.gz', '.deb'), 'darwin': ('.zip', '.dmg')}
           expected = {f'GoIM_{version}_{o}_{a}{ext}': (o,a) for o in formats for a in ('amd64','arm64') for ext in formats[o]}
           expected.update({f'GoIM_{version}_linux_{a}-file-dialog-sources.tar.xz': ('linux', a) for a in ('amd64', 'arm64')})
           found, sums, frameworks, toolchains, public_keys = set(), [], set(), set(), set()
+          helper_commit = subprocess.check_output([
+              'git', 'bundle', 'list-heads', 'packaging/remote-desktop/rustdesk-goim.bundle',
+              'refs/heads/codex/goim-headless'],
+              text=True,
+          ).split()[0]
+
+          def verify_helper(info, target, read, path, prefix=''):
+              assert info['remote_desktop_commit'] == helper_commit
+              if '-rd-preview.' not in version:
+                  assert not info.get('edition'), info.get('edition')
+              source_root = prefix+'licenses/rustdesk/'
+              manifest = json.loads(read(source_root+'manifest.json'))
+              assert (manifest['platform'], manifest['architecture']) == target
+              assert manifest['commit'] == helper_commit and manifest['protocol'] == 1
+              license = read(source_root+'LICENSE')
+              assert b'GNU AFFERO GENERAL PUBLIC LICENSE' in license
+              assert read(source_root+'NOTICE')
+              source = read(source_root+'source.tar.gz')
+              assert hashlib.sha256(source).hexdigest() == manifest['source_sha256']
+              binary = read(prefix+path)
+              assert binary, path
+              if target[0] != 'darwin':
+                  assert hashlib.sha256(binary).hexdigest() == manifest['sha256']
           for p in sorted(root.iterdir()):
               if p.suffix == '.sha256': continue
               assert p.name in expected and p.is_file() and p.stat().st_size > 0, p.name
@@ -356,6 +447,11 @@ jobs:
                               assert prefix+entry in names, entry
                           native = prefix+'shotlet/shotlet-capture.exe'
                       assert z.getinfo(native).file_size > 0
+                      remote = ('GoIM.app/Contents/Helpers/GoIMRemote.app/Contents/MacOS/goim-rd'
+                                if target[0] == 'darwin' else 'remote/goim-rd.exe')
+                      verify_helper(info, target, z.read, remote, prefix)
+                      if target[0] == 'darwin':
+                          assert (z.getinfo(remote).external_attr >> 16) & 0o111
                       for license in ('Apache-2.0.txt', 'THIRD_PARTY_NOTICES.md', 'SDL.txt', 'ImGui.txt', 'nlohmann-json.txt'):
                           assert prefix+'licenses/shotlet/'+license in names, license
               else:
@@ -364,6 +460,10 @@ jobs:
                       info=json.load(z.extractfile(next(n for n in names if n.endswith('/build-info.json'))))
                       exe=z.getmember(next(n for n in names if n.endswith('/GoIM')))
                       assert exe.mode & 0o111
+                      prefix = exe.name.rsplit('/', 1)[0]+'/'
+                      remote = 'lib/goim/remote/goim-rd'
+                      assert z.getmember(prefix+remote).mode & 0o111
+                      verify_helper(info, target, lambda name: z.extractfile(name).read(), remote, prefix)
                       assert z.getmember(next(n for n in names if n.endswith('/goim-media'))).mode & 0o111
                       assert z.getmember(next(n for n in names if n.endswith('/goim-snip'))).mode & 0o111
                       assert z.getmember(next(n for n in names if n.endswith('/lib/goim/file-dialog/bin/zenity'))).mode & 0o111
@@ -392,6 +492,7 @@ jobs:
               f'- 源码 `{os.environ["SOURCE_COMMIT"]}`\n'
               f'- Viva `{next(iter(frameworks))}`\n'
               f'- Go `{next(iter(toolchains))}`\n'
+              f'- RustDesk 助手 `{helper_commit}`\n'
           )
           report = f'{body.rstrip()}\n\n{build_info}'
           if thanks_heading:
