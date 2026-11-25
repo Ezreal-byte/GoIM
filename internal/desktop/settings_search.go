@@ -54,6 +54,7 @@ var searchableSettings = []settingSearchItem{
 	{panelSettingsTransfers, "网页上传需要确认", "网页接收 临时免确认 web upload approval"},
 	{panelSettingsTransfers, "自动接收聊天图片", "图片下载 image photo"},
 	{panelSettingsTransfers, "自动接收聊天视频", "视频下载 video"},
+	{panelSettingsShares, "统计共享文件下载次数", "被下载 计数 下载量 下载统计 download count statistics"},
 	{panelSettingsSecurity, "启动时锁定", "启动保护 lock"},
 	{panelSettingsSecurity, "使用系统验证解锁", "指纹 Windows Hello Touch ID biometrics"},
 	{panelSettingsSecurity, "锁定密码", "修改密码 password"},

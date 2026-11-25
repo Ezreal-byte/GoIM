@@ -41,6 +41,7 @@ const (
 	panelSettingsNetwork
 	panelSettingsTransfers
 	panelSettingsSecurity
+	panelSettingsShares
 	panelSettingsCount
 )
 
@@ -71,9 +72,9 @@ var transferFilters = [...]transferFilter{
 var shareFilters = [...]shareFilter{panelSharesRemote, panelSharesMine}
 
 var (
-	panelSettingsLabels = [...]string{"常规", "快捷键", "关于", "个人资料", "通知", "通话", "网络", "文件传输", "安全"}
+	panelSettingsLabels = [...]string{"常规", "快捷键", "关于", "个人资料", "通知", "通话", "网络", "文件传输", "安全", "文件共享"}
 	panelSettingsOrder  = [...]panelSettingsTab{panelSettingsProfile, panelSettingsGeneral, panelSettingsNotifications,
-		panelSettingsVoice, panelSettingsNetwork, panelSettingsTransfers, panelSettingsShortcuts, panelSettingsSecurity, panelSettingsAbout}
+		panelSettingsVoice, panelSettingsNetwork, panelSettingsTransfers, panelSettingsShares, panelSettingsShortcuts, panelSettingsSecurity, panelSettingsAbout}
 )
 
 type panelIDs struct {
@@ -244,6 +245,7 @@ type panelShareEntry struct {
 	size                                          string
 	sender                                        string
 	meta                                          string
+	downloads                                     string
 	state                                         string
 	own                                           bool
 	path                                          string
@@ -357,6 +359,7 @@ type Panels struct {
 	sharesMine            []panelShareEntry
 	sharesRemote          []panelShareEntry
 	shareLabels           [2]string
+	shareStats            shareStatsView
 
 	shareQRWorker shareQRWorker
 	shareMenu     shareMenuState
@@ -1079,6 +1082,9 @@ func panelETA(remaining int64, speed float64) string {
 }
 
 func (p *Panels) rebuildShares(state domain.State) {
+	if !state.Settings.ShareDownloadStats && p.shareSort.column == "下载次数" {
+		p.shareSort = panelTableSort{column: "分享时间", descending: true}
+	}
 	p.sharesAll = p.sharesAll[:0]
 	p.sharesMine = p.sharesMine[:0]
 	p.sharesRemote = p.sharesRemote[:0]
@@ -1103,6 +1109,9 @@ func (p *Panels) rebuildShares(state domain.State) {
 		entry.kind = i18n.T("文件")
 		entry.label = i18n.T("共享文件 ") + entry.title
 		entry.meta = panelFormatBytes(file.Size)
+		if own && state.Settings.ShareDownloadStats {
+			entry.downloads = strconv.FormatUint(file.ShareDownloadCount, 10)
+		}
 		if file.ShareFolder {
 			entry.kind = i18n.T("文件夹")
 			entry.label = i18n.T("共享文件夹 ") + entry.title
@@ -1163,6 +1172,14 @@ func (p *Panels) rebuildShares(state domain.State) {
 		}
 	}
 	p.sortShares()
+	if p.shareStats.projectID != "" {
+		entry, ok := p.shareEntry(p.shareStats.projectID)
+		if !state.Settings.ShareDownloadStats || !ok || !entry.own || !entry.file.ShareFolder {
+			p.shareStats = shareStatsView{}
+		} else {
+			p.shareStats.update(entry.file.ShareDownloadFiles)
+		}
+	}
 	p.shareLabels = [2]string{
 		panelSharesRemote: fmt.Sprintf(i18n.T("成员共享 %d"), len(p.sharesRemote)),
 		panelSharesMine:   fmt.Sprintf(i18n.T("我的分享 %d"), len(p.sharesMine)),
@@ -1449,6 +1466,8 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 			return settings.DisableAutoDiscovery == pending.boolean
 		case "auto_receive_videos":
 			return !settings.ManualVideoReceive == pending.boolean
+		case "share_download_stats":
+			return settings.ShareDownloadStats == pending.boolean
 		case "auto_accept_images":
 			return settings.AutoAcceptImages == pending.boolean
 		case "lock_on_startup":

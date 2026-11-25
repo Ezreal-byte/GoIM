@@ -87,6 +87,9 @@ func (n *Node) refreshShareIDsLocked(ids []string, view int) bool {
 			current.Modified, current.Entries, current.LastID, current.Unavailable = next.Modified, next.Entries, next.LastID, next.Unavailable
 			if visible {
 				current.Version++
+				// Keep per-file counts bounded by the live manifest. The
+				// share total remains cumulative for this project.
+				current.pruneEntryDownloads()
 			}
 			if p.BrowserShares == nil {
 				p.BrowserShares = make(map[string]browserShare)

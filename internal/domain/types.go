@@ -257,6 +257,15 @@ type File struct {
 	ShareProtected   bool   `json:"-"`
 	ShareQR          []byte `json:"-"`
 	ShareEntryCount  int    `json:"-"`
+
+	ShareDownloadCount uint64               `json:"-"`
+	ShareDownloadFiles []ShareFileDownloads `json:"-"`
+}
+
+// ShareFileDownloads is the owner's local statistics for a file in a shared folder.
+type ShareFileDownloads struct {
+	Path  string
+	Count uint64
 }
 
 // ShareSession carries an unlocked member session only between local commands.
@@ -486,6 +495,7 @@ type Settings struct {
 	VoiceAudioDefaultsVersion int `json:",omitempty"`
 	DownloadDir               string
 	DuplicatePolicy           string
+	ShareDownloadStats        bool `json:",omitempty"`
 	AutoAccept                bool
 	Network                   string
 	PendingNetwork            string

@@ -29,14 +29,16 @@ import (
 )
 
 type browserShare struct {
-	Token       string
-	Password    credential
-	Modified    time.Time
-	LastID      int
-	Version     uint64
-	MemberKey   string
-	Unavailable bool
-	Entries     []shareFolderEntry
+	Token          string
+	Password       credential
+	Modified       time.Time
+	LastID         int
+	Version        uint64
+	MemberKey      string
+	Unavailable    bool
+	Entries        []shareFolderEntry
+	Downloads      uint64         `json:",omitempty"`
+	EntryDownloads map[int]uint64 `json:",omitempty"`
 }
 
 type shareLink struct {
@@ -170,6 +172,19 @@ func (n *Node) attachShareLinks(s *domain.State, urls bool) {
 		}
 		f.ShareUnavailable = record.Unavailable
 		f.ShareProtected = record.Password.set()
+		if urls && s.Settings.ShareDownloadStats {
+			f.ShareDownloadCount = record.Downloads
+			if f.ShareFolder && len(record.Entries) > 0 {
+				f.ShareDownloadFiles = make([]domain.ShareFileDownloads, 0, len(record.Entries))
+				for i, entry := range record.Entries {
+					if !entry.Folder {
+						f.ShareDownloadFiles = append(f.ShareDownloadFiles, domain.ShareFileDownloads{
+							Path: entry.Path, Count: record.EntryDownloads[record.entryID(i)],
+						})
+					}
+				}
+			}
+		}
 		if !urls || n.webAddress == "" || record.Token == "" || record.Unavailable {
 			continue
 		}
@@ -610,7 +625,7 @@ func (n *Node) handleShare(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": f.Name}))
 	w.Header().Set("ETag", `"`+f.Hash+`"`)
-	http.ServeContent(w, r, f.Name, stat.ModTime(), source)
+	n.serveShareDownload(w, r, f.ID, 0, f.Name, stat.ModTime(), f.Size, source)
 }
 
 func webFileItem(name, mediaType string, size int64, date time.Time, url string) sharePageItem {

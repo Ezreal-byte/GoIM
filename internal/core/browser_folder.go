@@ -268,7 +268,7 @@ func (n *Node) downloadFolderFile(w http.ResponseWriter, r *http.Request, file d
 			name := path.Base(entry.Path)
 			w.Header().Set("Content-Type", "application/octet-stream")
 			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
-			http.ServeContent(w, r, name, entry.Modified, input)
+			n.serveShareDownload(w, r, file.ID, id, name, entry.Modified, entry.Size, input)
 			return
 		}
 	}

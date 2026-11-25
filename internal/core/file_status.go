@@ -34,6 +34,9 @@ func (n *Node) receiveFileStatus(peer string, e envelope) error {
 				return nil
 			}
 			t.Done = t.Size
+			if t.FromShare && !t.Revoked && publicSharedFile(p, p.State.File(t.FileID)) {
+				p.countShareDownloads(t.FileID, []int{0})
+			}
 		case "cancelled", "rejected":
 			if receiveAlreadyPublished(p, t.ID) {
 				return nil

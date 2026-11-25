@@ -18,25 +18,83 @@ import (
 )
 
 func BenchmarkSharePagePaint(b *testing.B) {
-	state := transferDesignState(b.TempDir())
-	state.Files = append(state.Files, domain.File{ID: "missing-share", Name: "reports", SenderID: state.Self.ID, Shared: true, ShareFolder: true, ShareUnavailable: true})
-	shell := New(newShellTestBackend(state))
-	defer shell.Close()
-	shell.section = sectionShares
-	shell.panels.shareFilter = panelSharesMine
-	cfg := shell.Config()
-	cfg.Width, cfg.Height = 1536, 1024
-	driver, err := app.NewDriver(cfg, nil)
-	if err != nil {
-		b.Fatal(err)
+	for _, mode := range []struct {
+		name    string
+		enabled bool
+	}{{"without_statistics", false}, {"with_statistics", true}} {
+		b.Run(mode.name, func(b *testing.B) {
+			state := transferDesignState(b.TempDir())
+			state.Settings.ShareDownloadStats = mode.enabled
+			state.Files = append(state.Files, domain.File{ID: "missing-share", Name: "reports", SenderID: state.Self.ID, Shared: true, ShareFolder: true, ShareUnavailable: true})
+			shell := New(newShellTestBackend(state))
+			defer shell.Close()
+			shell.section = sectionShares
+			shell.panels.shareFilter = panelSharesMine
+			cfg := shell.Config()
+			cfg.Width, cfg.Height = 1536, 1024
+			driver, err := app.NewDriver(cfg, nil)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer driver.Close()
+			b.ReportAllocs()
+			for b.Loop() {
+				shell.invalidator.Invalidate()
+				if err := driver.Pump(); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
-	defer driver.Close()
-	b.ReportAllocs()
-	for b.Loop() {
-		shell.invalidator.Invalidate()
-		if err := driver.Pump(); err != nil {
-			b.Fatal(err)
-		}
+}
+
+func TestShareDownloadStatsAreOptInAndShowFolderFiles(t *testing.T) {
+	state := panelTestDefaultState(t)
+	state.Files = []domain.File{
+		{ID: "folder", Name: "交付资料", SenderID: state.Self.ID, Shared: true, ShareFolder: true,
+			ShareDownloadCount: 12, ShareDownloadFiles: []domain.ShareFileDownloads{
+				{Path: "子目录/清单.txt", Count: 12},
+				{Path: "封面.png"},
+			}},
+		{ID: "file", Name: "交付稿.pdf", SenderID: state.Self.ID, Shared: true, ShareDownloadCount: 7},
+	}
+	h := panelTestNewHarness(t, panelModuleSettings, state)
+	p := h.panels
+	h.click(p.ids.settingsCategories.At(int(panelSettingsShares)))
+	h.clickLabelRole("统计共享文件下载次数", gfx.RoleSwitch)
+	if cmd := h.requireLastCommand(); cmd.Kind != domain.SetSetting || cmd.Setting != "share_download_stats" || !cmd.Bool {
+		t.Fatalf("unexpected statistics setting command: %+v", cmd)
+	}
+	h.showModule(panelModuleShares)
+	h.clickLabelRole(p.shareLabels[panelSharesMine], gfx.RoleTab)
+	if h.hasText("下载次数") {
+		t.Fatal("download column was shown without opt-in")
+	}
+	state.Settings.ShareDownloadStats = true
+	state.Revision++
+	h.publish(state)
+	if !h.hasText("下载次数") || !h.hasText("12") || !h.hasText("7") {
+		t.Fatal("My shares did not show download counts")
+	}
+	h.clickLabelRole("下载次数", gfx.RoleButton)
+	if p.sharesMine[0].file.ID != "file" {
+		t.Fatal("download column did not sort by its numeric value")
+	}
+	h.clickLabelRole("查看文件下载次数", gfx.RoleButton)
+	if !h.hasText("子目录/清单.txt") || !h.hasText("封面.png") || !h.hasText("0") {
+		t.Fatal("folder statistics did not show all files and their counts")
+	}
+	h.requireLayout()
+	state.Files[0].ShareDownloadFiles[0].Count = 13
+	state.Revision++
+	h.publish(state)
+	if !h.hasText("13") {
+		t.Fatal("folder statistics did not update")
+	}
+	h.clickLabelRole("返回", gfx.RoleButton)
+	h.clickLabelRole(p.shareLabels[panelSharesRemote], gfx.RoleTab)
+	if h.hasText("下载次数") {
+		t.Fatal("another member's totals were shown")
 	}
 }
 

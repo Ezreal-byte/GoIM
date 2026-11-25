@@ -600,6 +600,8 @@ func (n *Node) setting(c domain.Command) error {
 		settings.DNSDiscovery = cfg
 	case "auto_receive_videos":
 		settings.ManualVideoReceive = !c.Bool
+	case "share_download_stats":
+		settings.ShareDownloadStats = c.Bool
 	case "auto_accept_images":
 		settings.AutoAcceptImages = c.Bool
 	case "disable_auto_update_check":

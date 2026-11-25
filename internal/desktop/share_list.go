@@ -38,6 +38,7 @@ type shareToastState struct {
 
 type shareColumns struct {
 	size, access, date, actions float32
+	downloads                   float32
 }
 
 var shareHomeIcon = gfx.Icon{ViewBox: 24, Stroke: 2, Cap: gfx.CapRound, Join: gfx.JoinRound, Commands: []gfx.PathCommand{
@@ -56,12 +57,12 @@ var shareQRIcon = gfx.Icon{ViewBox: 24, Stroke: 2, Cap: gfx.CapRound, Join: gfx.
 
 func measureShareColumns(width float32) shareColumns {
 	if width >= 1020 {
-		return shareColumns{width * .16, width * .143, width * .17, 142}
+		return shareColumns{size: width * .16, access: width * .143, date: width * .17, actions: 142}
 	}
 	if width >= 740 {
-		return shareColumns{110, 105, 130, 140}
+		return shareColumns{size: 110, access: 105, date: 130, actions: 140}
 	}
-	return shareColumns{100, 88, 0, 135}
+	return shareColumns{size: 100, access: 88, actions: 135}
 }
 
 func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain.State, submit func(domain.Command)) {
@@ -74,10 +75,10 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 		}
 	}
 	pad := panelPageInset(bounds.Width)
-	columns := measureShareColumns(bounds.Width - 2*pad)
+	width := bounds.Width - 2*pad
 	ui.Column(f).Fill().PadSides(panelPageTop, pad, 18, pad).Children(func() {
 		p.drawShareToolbar(f, theme, state.DeviceShare, bounds.Width)
-		if p.memberProject == nil {
+		if p.memberProject == nil && p.shareStats.projectID == "" {
 			drawTableSearch(f, p.ids.shareSearch, &p.shareSearch, i18n.T("搜索文件"))
 		}
 		var entries []panelShareEntry
@@ -93,6 +94,7 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 				func(filter shareFilter) string { return p.shareLabels[filter] }).Line().
 				FontSize(textSize(f, panelTabFontSize)).Changed() {
 				p.closeMemberProject()
+				p.shareStats = shareStatsView{}
 				p.shareSelected = ""
 				clear(p.shareChecked)
 				p.shareMenu = shareMenuState{}
@@ -122,6 +124,17 @@ func (p *Panels) drawShares(f ui.C, theme ui.Theme, bounds ui.Rect, state domain
 			p.drawMemberProject(f, theme, bounds.Width-2*pad, project, submit)
 			p.drawShareDialogs(f, theme, submit)
 			return
+		}
+		if p.shareStats.projectID != "" && p.shareFilter == panelSharesMine {
+			if entry, ok := p.shareEntry(p.shareStats.projectID); ok {
+				p.drawShareStats(f, theme, entry, submit)
+				p.drawShareDialogs(f, theme, submit)
+				return
+			}
+		}
+		columns := measureShareColumns(width)
+		if state.Settings.ShareDownloadStats && p.shareFilter == panelSharesMine {
+			columns.downloads = shareDownloadColumnWidth(theme)
 		}
 		if len(entries) > 0 {
 			p.drawShareTableHead(f, columns)
@@ -228,6 +241,9 @@ func (p *Panels) drawShareTableHead(f ui.C, columns shareColumns) {
 		if columns.date > 0 {
 			p.shareSort.header(f, "分享时间", columns.date, p.sortShares)
 		}
+		if columns.downloads > 0 {
+			p.shareSort.header(f, "下载次数", columns.downloads, p.sortShares)
+		}
 		ui.Row(f).Width(columns.actions)
 	})
 }
@@ -297,7 +313,18 @@ func (p *Panels) drawShareProjectRow(f ui.C, theme ui.Theme, columns shareColumn
 		if columns.date > 0 {
 			ui.Text(f, entry.date).Width(columns.date).Muted().FontSize(textSize(f, 13)).Ellipsis()
 		}
+		if columns.downloads > 0 {
+			ui.Text(f, entry.downloads).Width(columns.downloads).
+				FontSize(textSize(f, 13)).Ellipsis()
+		}
 		ui.Row(f).Width(columns.actions).Gap(5).Items(ui.Center).Justify(ui.End).Children(func() {
+			if columns.downloads > 0 && entry.file.ShareFolder && !entry.file.ShareUnavailable {
+				id := ui.ID(f.Key(entry.file.ID).Part("download-stats"))
+				if panelActionIcon(f, theme, id, FolderOpen, i18n.T("查看文件下载次数"), false, false).Clicked() {
+					p.shareStats = shareStatsView{projectID: entry.file.ID}
+					p.shareStats.update(entry.file.ShareDownloadFiles)
+				}
+			}
 			if entry.memberWebProject() {
 				disabled := !entry.online || entry.file.MemberURL == ""
 				if panelActionIcon(f, theme, entry.copyID, FolderOpen, i18n.T("打开共享"), false, disabled).Clicked() && !disabled {

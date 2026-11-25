@@ -130,6 +130,8 @@ func (p *Panels) sortShares() {
 			order = cmp.Compare(a.access, b.access)
 		case "分享时间":
 			order = a.file.CreatedAt.Compare(b.file.CreatedAt)
+		case "下载次数":
+			order = cmp.Compare(a.file.ShareDownloadCount, b.file.ShareDownloadCount)
 		}
 		return cmp.Or(sort.order(order), b.file.CreatedAt.Compare(a.file.CreatedAt), cmp.Compare(a.file.ID, b.file.ID))
 	}

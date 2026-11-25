@@ -19,6 +19,9 @@ import (
 func TestMemberBatchDownloadKeepsFoldersAndTransferHistory(t *testing.T) {
 	owner, member := testNode(t, "owner"), testNode(t, "member")
 	connectNodes(t, owner, member)
+	if err := owner.execute(domain.Command{Kind: domain.SetSetting, Setting: "share_download_stats", Bool: true}); err != nil {
+		t.Fatal(err)
+	}
 	base := t.TempDir()
 	folder := filepath.Join(base, "资料")
 	if err := os.MkdirAll(filepath.Join(folder, "子目录", "空目录"), 0700); err != nil {
@@ -108,6 +111,18 @@ func TestMemberBatchDownloadKeepsFoldersAndTransferHistory(t *testing.T) {
 			}
 		}
 		return len(rows) == len(batch)
+	})
+	eventually(t, "owner counted every delivered file", func() bool {
+		state := owner.Snapshot()
+		counts := make(map[string]uint64)
+		for _, f := range state.Files {
+			counts[f.Name] = f.ShareDownloadCount
+			if f.ShareFolder && (len(f.ShareDownloadFiles) != 1 ||
+				f.ShareDownloadFiles[0] != (domain.ShareFileDownloads{Path: "子目录/明细.txt", Count: 2})) {
+				return false
+			}
+		}
+		return counts["公开.txt"] == 1 && counts["加密.txt"] == 1 && counts["资料"] == 2
 	})
 	for _, file := range []string{"公开.txt", "加密 (1).txt", "资料/子目录/明细.txt", "明细.txt"} {
 		got, err := os.ReadFile(filepath.Join(dest, file))

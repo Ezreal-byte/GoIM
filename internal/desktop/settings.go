@@ -98,6 +98,8 @@ func (p *Panels) drawSettings(f ui.C, theme ui.Theme, sidebar ui.Color, state do
 							p.drawSettingsNetwork(f, contentTheme, state, submit)
 						case panelSettingsTransfers:
 							p.drawSettingsTransfers(f, contentTheme, state, submit)
+						case panelSettingsShares:
+							p.drawSettingsShares(f, contentTheme, state, submit)
 						case panelSettingsSecurity:
 							p.drawSettingsSecurity(f, contentTheme, state, submit)
 						}
@@ -176,6 +178,8 @@ func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme, sidebar ui.Color
 					icon = Wifi
 				case panelSettingsTransfers:
 					icon = ArrowRightLeft
+				case panelSettingsShares:
+					icon = FolderOutput
 				case panelSettingsShortcuts:
 					icon = panelIconKeyboard
 				case panelSettingsAbout:
@@ -226,6 +230,8 @@ func (p *Panels) drawSettingsHeader(f ui.C, theme ui.Theme) {
 		description = i18n.T("选择语音通话使用的麦克风和扬声器")
 	case panelSettingsTransfers:
 		description = i18n.T("设置接收方式和文件保存位置")
+	case panelSettingsShares:
+		description = i18n.T("管理共享下载统计")
 	case panelSettingsSecurity:
 		description = i18n.T("设置锁定密码与启动保护")
 	}
@@ -437,6 +443,22 @@ func (p *Panels) drawSettingsTransfers(f ui.C, theme ui.Theme, state domain.Stat
 			if ui.Switch(f.Part("auto-receive-videos"), enabled, i18n.T("自动接收聊天视频")).Changed() {
 				p.submitBool(submit, state, "auto_receive_videos", *enabled)
 			}
+		})
+	})
+}
+
+func (p *Panels) drawSettingsShares(f ui.C, theme ui.Theme, state domain.State, submit func(domain.Command)) {
+	panelSection(f, i18n.T("下载统计"), "", func() {
+		label := i18n.T("统计共享文件下载次数")
+		description := i18n.T("开启后，在「我的分享」显示已完成的下载次数。关闭时暂停计数，保留已有记录。")
+		p.settingsRow(f, theme, label, description, func() {
+			p.settingsControl(f, 80, func() {
+				enabled := ui.State[bool](f, "share-download-stats")
+				*enabled = state.Settings.ShareDownloadStats
+				if ui.Switch(f.Part("share-download-stats"), enabled, label).Changed() {
+					p.submitBool(submit, state, "share_download_stats", *enabled)
+				}
+			})
 		})
 	})
 }

@@ -112,15 +112,22 @@ func (n *Node) downloadShareArchive(w http.ResponseWriter, r *http.Request, toke
 	out := &archiveResponse{Writer: w}
 	z := zip.NewWriter(out)
 	names := make(archiveNames)
+	var completed map[string][]int
+	if n.shareDownloadStatsEnabled() {
+		completed = make(map[string][]int)
+	}
 	var err error
 	for _, p := range projects {
 		active := func() bool { return r.Context().Err() == nil && n.archiveAccess(r, token, device, p.file.ID, p.record) }
-		if err = p.writeArchive(r, z, names, selected, dir, device, active); err != nil {
+		if err = p.writeArchive(r, z, names, selected, dir, device, active, completed); err != nil {
 			break
 		}
 	}
 	if err == nil {
 		err = z.Close()
+	}
+	if err == nil && r.Context().Err() == nil {
+		n.recordShareDownloads(completed)
 	}
 	if err != nil {
 		// A missing central directory or a short HTTP response must never
@@ -196,7 +203,7 @@ func (names archiveNames) next(parent, base string) string {
 	}
 }
 
-func (p archiveProject) writeArchive(r *http.Request, z *zip.Writer, names archiveNames, selected map[string]bool, dir int, whole bool, active func() bool) error {
+func (p archiveProject) writeArchive(r *http.Request, z *zip.Writer, names archiveNames, selected map[string]bool, dir int, whole bool, active func() bool, completed map[string][]int) error {
 	if !active() {
 		return os.ErrPermission
 	}
@@ -210,7 +217,11 @@ func (p archiveProject) writeArchive(r *http.Request, z *zip.Writer, names archi
 		if err != nil || !stat.Mode().IsRegular() || stat.Size() != p.file.Size || !verifyWebFile(r, file, p.file) || !active() {
 			return os.ErrInvalid
 		}
-		return writeArchiveFile(z, names.next("", p.file.Name), stat.ModTime(), file, p.file.Size, active)
+		err = writeArchiveFile(z, names.next("", p.file.Name), stat.ModTime(), file, p.file.Size, active)
+		if err == nil && completed != nil {
+			completed[p.file.ID] = []int{0}
+		}
+		return err
 	}
 	root, err := openSharedRoot(p.file.SourcePath)
 	if err != nil {
@@ -251,6 +262,9 @@ func (p archiveProject) writeArchive(r *http.Request, z *zip.Writer, names archi
 		file.Close()
 		if err != nil {
 			return err
+		}
+		if completed != nil {
+			completed[p.file.ID] = append(completed[p.file.ID], id)
 		}
 	}
 	return nil

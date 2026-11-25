@@ -44,6 +44,9 @@ func TestBrowserBatchDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = n.Close() })
+	if err := n.execute(domain.Command{Kind: domain.SetSetting, Setting: "share_download_stats", Bool: true}); err != nil {
+		t.Fatal(err)
+	}
 	for name, data := range map[string]string{
 		"资料/说明.txt": "notes", "资料/图片/图.png": "image", "资料/.hidden": "private",
 		"a/同名.txt": "first", "b/同名.txt": "second",
@@ -130,6 +133,16 @@ func TestBrowserBatchDownload(t *testing.T) {
 	selection.Set("dir", "0")
 	post(folder.ShareURL+"/archive", selection, 410, nil)
 	post(folder.ShareURL+"/archive", url.Values{}, 400, nil)
+	eventually(t, "archives counted each included file once", func() bool {
+		state := n.Snapshot()
+		f := state.File(folder.ID)
+		counts := make(map[string]uint64)
+		for _, stat := range f.ShareDownloadFiles {
+			counts[stat.Path] = stat.Count
+		}
+		return state.File(first.ID).ShareDownloadCount == 1 && state.File(second.ID).ShareDownloadCount == 1 &&
+			f.ShareDownloadCount == 5 && maps.Equal(counts, map[string]uint64{"说明.txt": 2, "图片/图.png": 3})
+	})
 	if err := n.setDeviceShare(false); err != nil {
 		t.Fatal(err)
 	}
