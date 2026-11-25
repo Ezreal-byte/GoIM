@@ -77,6 +77,7 @@ Libs: -L$prefix/lib -lyuv -lstdc++
 EOF
 
 export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
+export BINDGEN_EXTRA_CLANG_ARGS="-I$prefix/include"
 export VPX_STATIC=1 AOM_STATIC=1 OPUS_STATIC=1 LIBYUV_STATIC=1
 git config --global --add safe.directory "$source_dir"
 git config --global --add safe.directory "$source_dir/libs/hbb_common"
