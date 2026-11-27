@@ -30,6 +30,7 @@ var searchableSettings = []settingSearchItem{
 	{panelSettingsGeneral, "自定义背景", "聊天 壁纸 wallpaper"},
 	{panelSettingsGeneral, "背景透明度", "背景深浅 opacity transparency"},
 	{panelSettingsGeneral, "发送消息", "Enter Ctrl+Enter Shift+Enter 换行"},
+	{panelSettingsGeneral, "点击截图按钮时保留当前窗口", "截图 隐藏 窗口 screenshot hide capture"},
 	{panelSettingsGeneral, "开机自启", "启动 autostart launch"},
 	{panelSettingsGeneral, "关闭主窗口", "托盘 tray"},
 	{panelSettingsNotifications, "桌面通知", "消息提醒 notification"},

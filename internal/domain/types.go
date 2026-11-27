@@ -495,6 +495,7 @@ type Settings struct {
 	PendingNetwork            string
 	HideTitleGitHub           bool `json:",omitempty"`
 	CloseToTray               bool
+	KeepWindowOnScreenshot    bool `json:",omitempty"`
 	SendKey                   string
 	Shortcuts                 []Shortcut
 }

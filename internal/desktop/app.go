@@ -466,7 +466,9 @@ type UI struct {
 	chatDraftSequence    uint64
 	draftScroll          ui.Box
 	chatEditorField      ui.Field
-	requestScreenshot    func()
+	requestScreenshot    func(keepWindows bool)
+	screenshotMenuOpen   bool
+	screenshotMenuID     gfx.ID
 	wakeViewer           func()
 	forwardViewer        func(string)
 	presentViewer        func()
@@ -1251,6 +1253,7 @@ func (u *UI) initIDs() {
 	u.ids.emojiDismiss = u.tree.ID(u.ids.chat, "emoji-dismiss")
 
 	u.ids.chatScreenshot = u.tree.ID(u.ids.chat, "screenshot")
+	u.screenshotMenuID = u.tree.ID(u.ids.chat, "screenshot-options")
 	u.ids.chatSend = u.tree.ID(u.ids.chat, "send")
 	u.ids.chatImage = u.tree.ID(u.ids.chat, "send-image")
 	u.ids.chatFile = u.tree.ID(u.ids.chat, "send-file")

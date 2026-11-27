@@ -779,10 +779,30 @@ func (u *UI) drawComposerToolbar(f ui.C) {
 			u.chooseChatFolder(f.Canvas(), conversation.ID)
 		}
 		shortcut, _ := u.configuredShortcut(domain.ShortcutScreenshot)
-		snip := u.composerActionButton(f, u.ids.chatScreenshot, Scissors, i18n.T("截图标注"), shortcut)
+		busy := u.screenshotActive != nil && u.screenshotActive()
+		snip := u.composerActionButton(f, u.ids.chatScreenshot, Scissors, i18n.T("截图标注"), shortcut).Disabled(busy)
 		if snip.Clicked() && u.requestScreenshot != nil {
-			u.requestScreenshot()
+			u.requestScreenshot(u.state.Settings.KeepWindowOnScreenshot)
 		}
+		options := u.composerActionButton(f, u.screenshotMenuID, ChevronDown, i18n.T("截图选项"), "").Width(18).Disabled(busy)
+		if options.Clicked() {
+			u.screenshotMenuOpen = !u.screenshotMenuOpen
+		}
+		ui.Menu(f.Part("screenshot-menu"), options, &u.screenshotMenuOpen, func(menu *ui.MenuItems) {
+			label := i18n.T("隐藏窗口截图")
+			if !u.state.Settings.KeepWindowOnScreenshot {
+				label = i18n.T("保留窗口截图")
+			}
+			if menu.Item(label).Clicked() && u.requestScreenshot != nil {
+				u.requestScreenshot(!u.state.Settings.KeepWindowOnScreenshot)
+			}
+			menu.Separator()
+			if menu.Item(i18n.T("设置")).Clicked() {
+				u.setSection(sectionSettings)
+				u.panels.settingsTab = panelSettingsGeneral
+				u.panels.search.field.SetText("")
+			}
+		})
 		images := u.composerActionButton(f, u.ids.chatImage, u.iconImage, i18n.T("发送图片"), "")
 		if images.Clicked() {
 			u.chooseChatFiles(f.Canvas(), true)

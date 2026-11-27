@@ -85,6 +85,7 @@ type panelIDs struct {
 	settingsSound         gfx.ID
 	settingsAutoAccept    gfx.ID
 	settingsCloseToTray   gfx.ID
+	settingsScreenshot    gfx.ID
 	settingsShowGitHub    gfx.ID
 	settingsSearch        gfx.ID
 	settingsLaunchAtLogin gfx.ID
@@ -412,6 +413,7 @@ func (p *Panels) Init(tree *gfx.Tree, wake *app.Invalidator) {
 	p.ids.settingsShowGitHub = tree.ID(settings, "show-title-github")
 	p.ids.settingsSearch = tree.ID(settings, "search")
 	p.ids.settingsCloseToTray = tree.ID(settings, "close-to-tray")
+	p.ids.settingsScreenshot = tree.ID(settings, "keep-window-on-screenshot")
 	p.ids.settingsLaunchAtLogin = tree.ID(settings, "launch-at-login")
 	p.ids.settingsChooseDir = tree.ID(settings, "choose-download-directory")
 	p.ids.settingsOpenDir = tree.ID(settings, "open-download-directory")
@@ -1463,6 +1465,8 @@ func (pending *panelPendingSetting) matches(settings domain.Settings) bool {
 			return !settings.HideTitleGitHub == pending.boolean
 		case "close_to_tray":
 			return settings.CloseToTray == pending.boolean
+		case "keep_window_on_screenshot":
+			return settings.KeepWindowOnScreenshot == pending.boolean
 		case "hide_notification_text":
 			return settings.HideNotificationText == pending.boolean
 		case "hide_offline_contacts":

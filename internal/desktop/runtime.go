@@ -58,6 +58,8 @@ type desktopRuntime struct {
 	flashOn             bool
 	screenshotRunning   atomic.Bool
 	screenshotContext   context.Context
+	captureCancel       context.CancelFunc
+	captureDismissed    bool
 	viewerWindow        *app.Window
 	viewerWake          app.Invalidator
 	viewerPending       bool
@@ -157,7 +159,7 @@ func Run(backend domain.Backend, restartArguments []string, reopen <-chan struct
 		supported := app.SetInterfaceFontFamily(strings.TrimSpace(shell.state.Settings.InterfaceFont))
 		shell.panels.settingsExtra.interfaceFont.supportKnown = true
 		shell.panels.settingsExtra.interfaceFont.supported = supported
-		shell.requestScreenshot = r.launchScreenshot
+		shell.requestScreenshot = func(keep bool) { r.launchScreenshot(keep, r.window) }
 		shell.wakeViewer = r.viewerWake.Invalidate
 		shell.presentViewer = func() {
 			r.viewerPending = true
@@ -176,6 +178,7 @@ func Run(backend domain.Backend, restartArguments []string, reopen <-chan struct
 		config.OnMinimize = func(minimized bool) { shell.SetWindowVisible(!minimized && (r.window == nil || !r.window.Hidden())) }
 		closed := config.OnClosed
 		config.OnClosed = func() {
+			stopCaptures()
 			r.cancelSystemInvitation()
 			if r.messageSound != nil {
 				r.messageSound.stop()
@@ -214,6 +217,9 @@ func Run(backend domain.Backend, restartArguments []string, reopen <-chan struct
 		}
 		config.OnCloseRequest = func(allow func()) {
 			if shell.state.Settings.CloseToTray && r.tray != nil {
+				if r.screenshotRunning.Load() {
+					r.captureDismissed = true
+				}
 				shell.SetWindowVisible(false)
 				r.window.Hide()
 				return
@@ -298,6 +304,9 @@ func (r *desktopRuntime) observe() {
 	}
 	s := r.ui.state
 	locked := r.ui.lockVisible()
+	if locked && r.captureCancel != nil {
+		r.captureCancel()
+	}
 	if r.historyPending != "" {
 		id := r.historyPending
 		r.historyPending = ""
@@ -468,12 +477,15 @@ func (r *desktopRuntime) applyGlobal(s domain.State) {
 			r.window.Show()
 			r.ui.SetWindowVisible(true)
 		} else {
+			if r.screenshotRunning.Load() {
+				r.captureDismissed = true
+			}
 			r.window.Hide()
 			r.ui.SetWindowVisible(false)
 		}
 	})
 	r.applyGlobalShortcut(domain.ShortcutScreenshot, screenshot,
-		&r.screenshotGlobal, &r.screenshotRejected, &r.stopScreenshot, func() { r.launchScreenshot() })
+		&r.screenshotGlobal, &r.screenshotRejected, &r.stopScreenshot, func() { r.launchScreenshot(r.backend.Snapshot().Settings.KeepWindowOnScreenshot, r.window) })
 }
 
 func (r *desktopRuntime) applyGlobalShortcut(action, desired string, current, rejected *string,

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/vivaui/viva/app"
 
@@ -29,16 +30,51 @@ type screenshotTool struct {
 	fallback string
 }
 
-func (r *desktopRuntime) launchScreenshot() {
+func (r *desktopRuntime) launchScreenshot(keepWindows bool, origin *app.Window) {
+	if r.post == nil || r.screenshotContext == nil || r.screenshotContext.Err() != nil {
+		return
+	}
 	if !r.screenshotRunning.CompareAndSwap(false, true) {
 		return
 	}
-	go func() {
-		defer r.screenshotRunning.Store(false)
-		if err := r.captureScreenshot(r.screenshotContext); err != nil && r.screenshotContext.Err() == nil {
-			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: err.Error()})
+	r.post(func() {
+		if r.ui.lockVisible() || r.window == nil || r.window.Closed() || r.screenshotContext.Err() != nil {
+			r.screenshotRunning.Store(false)
+			return
 		}
-	}()
+		ctx, cancel := context.WithCancel(r.screenshotContext)
+		r.captureDismissed = false
+		r.captureCancel = cancel
+		r.ui.screenshotMenuOpen = false
+		r.ui.emojiOpen = false
+		r.ui.closeShellMenu()
+		r.closeUnreadTrayPanel()
+		var windows []screenshotWindow
+		if !keepWindows {
+			windows = hideScreenshotWindows(r.screenshotWindows())
+		}
+		r.ui.invalidator.Invalidate()
+		start := func() {
+			go func() {
+				var err error
+				if ctx.Err() == nil {
+					err = r.captureScreenshot(ctx)
+				}
+				r.post(func() {
+					r.restoreScreenshot(windows, origin)
+					r.screenshotRunning.Store(false)
+					r.captureCancel = nil
+					if err != nil && ctx.Err() == nil {
+						r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: err.Error()})
+					}
+					cancel()
+				})
+			}()
+		}
+		// Give the desktop compositor time to remove hidden windows and popup
+		// menus before the helper samples the screen. This is a one-shot delay.
+		r.application.PostAfter(200*time.Millisecond, start)
+	})
 }
 
 func (r *desktopRuntime) captureScreenshot(ctx context.Context) error {

@@ -192,6 +192,14 @@ func TestMixedDraftScreenshotQA(t *testing.T) {
 		if err := session.Screenshot(filepath.Join(directory, "mixed-composer-"+theme+".png")); err != nil {
 			t.Fatal(err)
 		}
+		u.screenshotMenuOpen = true
+		u.invalidator.Invalidate()
+		if err := session.Wait(50 * time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+		if err := session.Screenshot(filepath.Join(directory, "screenshot-options-"+theme+".png")); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
