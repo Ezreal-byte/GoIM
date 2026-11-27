@@ -28,7 +28,7 @@ func (r *desktopRuntime) openDetachedConversation(conversationID string) bool {
 	config.Icon = windowIcon()
 	config.Class = "GoIM.Conversation"
 	var window *app.Window
-	detached.requestScreenshot = func(keep bool) { r.launchScreenshot(keep, window) }
+	detached.requestScreenshot = func(keep bool) { r.launchScreenshot(keep, window, detached) }
 	detached.screenshotActive = r.screenshotRunning.Load
 	baseWake := config.OnWake
 	config.OnWake = func() {

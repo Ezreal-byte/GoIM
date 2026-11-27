@@ -156,6 +156,7 @@ type remoteDesktopView struct {
 	avatarID     uint64
 	avatarShell  *UI
 	theme        ui.Theme
+	textMenu     gfx.TextMenuLabels
 	tree         gfx.Tree
 	page         *ui.Page
 	wake         app.Invalidator
@@ -177,7 +178,7 @@ func newRemoteDesktopView(state domain.State) *remoteDesktopView {
 		mode:    remoteDesktopWindowFor(state.RemoteDesktop),
 	}
 	view.update(state)
-	view.page = ui.NewPage(ui.PageConfig{Root: "remote-desktop", Tree: &view.tree, Theme: &view.theme})
+	view.page = ui.NewPage(ui.PageConfig{Root: "remote-desktop", Tree: &view.tree, Theme: &view.theme, EditMenu: &view.textMenu})
 	actions := view.tree.Feature("remote-desktop-actions")
 	view.stopID = view.tree.ID(actions, "stop")
 	if view.mode == remoteDesktopWindowConsent {
@@ -202,6 +203,7 @@ func (v *remoteDesktopView) update(state domain.State) {
 	}
 	v.peerName = defaultIfEmpty(name, i18n.T("未知联系人"))
 	v.theme = themeForSettings(state.Settings)
+	v.textMenu = localizedTextMenuLabels()
 }
 
 func (v *remoteDesktopView) config() app.Config {
@@ -217,7 +219,7 @@ func (v *remoteDesktopView) config() app.Config {
 		WindowMode: app.WindowTitled, Tree: &v.tree, Invalidator: &v.wake,
 		ClearColor: colorToApp(v.theme.Background),
 		OnPointer:  v.page.Pointer, OnScroll: v.page.Wheel, OnKey: v.page.Key,
-		TextInput: v.page.TextInput, Paint: v.paintConnecting,
+		TextInput: v.page.TextInput, TextMenu: &v.textMenu, Paint: v.paintConnecting,
 	}
 	switch v.mode {
 	case remoteDesktopWindowProgress:

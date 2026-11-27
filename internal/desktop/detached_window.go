@@ -62,6 +62,7 @@ func (u *UI) DetachedConfig() app.Config {
 		Tree:           &u.tree,
 		Paint:          u.paintDetached,
 		TextInput:      u.textInput,
+		TextMenu:       &u.textMenu,
 		Invalidator:    &u.invalidator,
 		OnWake:         u.onWake,
 		OnActivate:     u.windowActivated,
@@ -81,6 +82,7 @@ func (u *UI) DetachedConfig() app.Config {
 func (u *UI) paintDetached(canvas *gfx.Canvas, size ui.Size) {
 	u.theme = themeForSettings(u.state.Settings)
 	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
+	u.textMenu = localizedTextMenuLabels()
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, u.palette.chat)
 	u.focusedID = canvas.Focused()

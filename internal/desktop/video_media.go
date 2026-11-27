@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -250,10 +251,10 @@ func (m *videoCallMedia) notify() {
 }
 
 func videoCameraErrorText(err error) string {
-	switch err {
-	case video.ErrNoDevice:
+	switch {
+	case errors.Is(err, video.ErrNoDevice):
 		return i18n.T("未检测到可用摄像头")
-	case video.ErrUnsupported:
+	case errors.Is(err, video.ErrUnsupported):
 		return i18n.T("当前环境不支持摄像头采集")
 	default:
 		return i18n.T("摄像头暂时不可用")

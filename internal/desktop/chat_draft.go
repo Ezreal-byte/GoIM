@@ -98,9 +98,14 @@ func (u *UI) stageChatFiles(paths []string) {
 		draft = &mixedChatDraft{texts: []*draftText{u.newDraftText(u.chatEditor.String())}}
 		u.chatDrafts[u.selected] = draft
 	}
+	if draft.active < 0 || draft.active >= len(draft.texts) {
+		draft.active = len(draft.texts) - 1
+	}
 	current := draft.texts[draft.active]
 	runes := []rune(current.editor.String())
-	left, right := string(runes[:selection.Start]), string(runes[selection.End:])
+	start := min(max(selection.Start, 0), len(runes))
+	end := min(max(selection.End, start), len(runes))
+	left, right := string(runes[:start]), string(runes[end:])
 	current.editor.SetSelection(text.Range{Start: 0, End: current.editor.RuneCount()})
 	current.editor.Insert(left)
 	current.editor.MoveTo(current.editor.RuneCount(), false)

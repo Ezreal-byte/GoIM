@@ -30,7 +30,7 @@ type screenshotTool struct {
 	fallback string
 }
 
-func (r *desktopRuntime) launchScreenshot(keepWindows bool, origin *app.Window) {
+func (r *desktopRuntime) launchScreenshot(keepWindows bool, origin *app.Window, pasteTarget *UI) {
 	if r.post == nil || r.screenshotContext == nil || r.screenshotContext.Err() != nil {
 		return
 	}
@@ -58,9 +58,10 @@ func (r *desktopRuntime) launchScreenshot(keepWindows bool, origin *app.Window) 
 		r.ui.invalidator.Invalidate()
 		start := func() {
 			go func() {
+				var data []byte
 				var err error
 				if ctx.Err() == nil {
-					err = r.captureScreenshot(ctx)
+					data, err = r.captureScreenshot(ctx)
 				}
 				r.post(func() {
 					r.restoreScreenshot(windows, origin)
@@ -68,6 +69,16 @@ func (r *desktopRuntime) launchScreenshot(keepWindows bool, origin *app.Window) 
 					r.captureCancel = nil
 					if err != nil && ctx.Err() == nil {
 						r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: err.Error()})
+					} else if len(data) > 0 && ctx.Err() == nil {
+						pasted := r.autoPasteScreenshot(pasteTarget, data)
+						body := i18n.T("截图已复制，可在当前聊天中直接粘贴发送。")
+						if pasted {
+							body = i18n.T("截图已粘贴到输入框并复制到剪贴板。")
+						}
+						_ = app.SendNotification(app.Notification{
+							Title: i18n.T("GoIM 截图"),
+							Body:  body,
+						})
 					}
 					cancel()
 				})
@@ -79,22 +90,40 @@ func (r *desktopRuntime) launchScreenshot(keepWindows bool, origin *app.Window) 
 	})
 }
 
-func (r *desktopRuntime) captureScreenshot(ctx context.Context) error {
+func (r *desktopRuntime) autoPasteScreenshot(target *UI, data []byte) bool {
+	if target == nil || len(data) == 0 || target.lockVisible() || target.modalOpen() {
+		return false
+	}
+	if !target.detachedWindow && target.section != sectionMessages {
+		return false
+	}
+	if target.detachedWindow && target.detachedConcealed {
+		return false
+	}
+	if !target.stageChatPNG(data) {
+		return false
+	}
+	target.focusChat = true
+	target.invalidator.Invalidate()
+	return true
+}
+
+func (r *desktopRuntime) captureScreenshot(ctx context.Context) ([]byte, error) {
 	tool, err := resolveScreenshotTool()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cache, err := os.UserCacheDir()
 	if err != nil {
-		return fmt.Errorf("%s%w", i18n.T("无法定位截图缓存目录："), err)
+		return nil, fmt.Errorf("%s%w", i18n.T("无法定位截图缓存目录："), err)
 	}
 	directory := filepath.Join(cache, "GoIM", "screenshots")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("%s%w", i18n.T("无法创建截图缓存目录："), err)
+		return nil, fmt.Errorf("%s%w", i18n.T("无法创建截图缓存目录："), err)
 	}
 	file, err := os.CreateTemp(directory, "goim-*.png")
 	if err != nil {
-		return fmt.Errorf("%s%w", i18n.T("无法创建截图文件："), err)
+		return nil, fmt.Errorf("%s%w", i18n.T("无法创建截图文件："), err)
 	}
 	output := file.Name()
 	keep := false
@@ -104,7 +133,7 @@ func (r *desktopRuntime) captureScreenshot(ctx context.Context) error {
 		}
 	}()
 	if err := file.Close(); err != nil {
-		return err
+		return nil, err
 	}
 	theme := ""
 	if tool.shotlet {
@@ -112,27 +141,23 @@ func (r *desktopRuntime) captureScreenshot(ctx context.Context) error {
 	}
 	completed, err := tool.run(ctx, output, theme)
 	if errors.Is(err, shotlet.ErrScreenRecordingPermission) {
-		return errors.New(i18n.T("请在系统设置的“隐私与安全性”中允许 GoIM 或 Shotlet 截图录制屏幕，然后重试。"))
+		return nil, errors.New(i18n.T("请在系统设置的“隐私与安全性”中允许 GoIM 或 Shotlet 截图录制屏幕，然后重试。"))
 	}
 	if err != nil {
-		return fmt.Errorf("%s%w", i18n.T("截图失败："), err)
+		return nil, fmt.Errorf("%s%w", i18n.T("截图失败："), err)
 	}
 	if !completed || ctx.Err() != nil {
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 	data, err := readScreenshot(output)
 	if err != nil {
-		return fmt.Errorf("%s%w", i18n.T("读取截图失败："), err)
+		return nil, fmt.Errorf("%s%w", i18n.T("读取截图失败："), err)
 	}
 	if err := setClipboardPNG(output, data); err != nil {
 		keep = true
-		return fmt.Errorf("%s%s%s%w", i18n.T("截图已保存在 "), output, i18n.T("，但写入剪贴板失败："), err)
+		return nil, fmt.Errorf("%s%s%s%w", i18n.T("截图已保存在 "), output, i18n.T("，但写入剪贴板失败："), err)
 	}
-	_ = app.SendNotification(app.Notification{
-		Title: i18n.T("GoIM 截图"),
-		Body:  i18n.T("截图已复制，可在当前聊天中直接粘贴发送。"),
-	})
-	return nil
+	return data, nil
 }
 
 func (tool screenshotTool) run(ctx context.Context, output, theme string) (bool, error) {

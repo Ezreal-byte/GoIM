@@ -27,6 +27,7 @@ type historyWindowView struct {
 	page, titlePage    *ui.Page
 	theme              ui.Theme
 	palette            palette
+	textMenu           gfx.TextMenuLabels
 	wake               app.Invalidator
 	search             ui.Field
 	input              app.TextInput
@@ -57,8 +58,9 @@ func newHistoryWindowView(backend domain.Backend, conversationID string) *histor
 	scope := v.tree.Feature("chat-history-window")
 	v.searchID = v.tree.ID(scope, "search")
 	v.locateID = v.tree.ID(scope, "locate-message")
-	v.page = ui.NewPage(ui.PageConfig{Root: "history-content", Tree: &v.tree, Theme: &v.theme})
-	v.titlePage = ui.NewPage(ui.PageConfig{Root: "history-title", Tree: &v.tree, Theme: &v.theme})
+	v.textMenu = localizedTextMenuLabels()
+	v.page = ui.NewPage(ui.PageConfig{Root: "history-content", Tree: &v.tree, Theme: &v.theme, EditMenu: &v.textMenu})
+	v.titlePage = ui.NewPage(ui.PageConfig{Root: "history-title", Tree: &v.tree, Theme: &v.theme, EditMenu: &v.textMenu})
 	v.list.Key = func(i int) int { return v.rows[i].key }
 	v.list.Label = func(i int) string { return v.rows[i].text }
 	v.input.OnEvent = func(event app.TextEvent) (app.TextState, error) {
@@ -78,7 +80,7 @@ func newHistoryWindowView(backend domain.Backend, conversationID string) *histor
 func (v *historyWindowView) Config() app.Config {
 	return app.Config{Title: v.title, Width: 820, Height: 880, MinWidth: 640, MinHeight: 560,
 		WindowMode: app.WindowCustomTitlebar, TitlebarHeight: 44, Tree: &v.tree, Invalidator: &v.wake,
-		Paint: v.paint, OnWake: v.refresh, TextInput: v.textInput, OnPointer: v.page.Pointer, OnScroll: v.page.Wheel,
+		Paint: v.paint, OnWake: v.refresh, TextInput: v.textInput, TextMenu: &v.textMenu, OnPointer: v.page.Pointer, OnScroll: v.page.Wheel,
 		OnKey: v.key, OnShortcut: v.key, WindowControls: func() app.WindowControlsStyle { return windowControlsFor(v.palette) },
 	}
 }
@@ -124,6 +126,7 @@ func (v *historyWindowView) refresh() {
 	v.state = next
 	v.theme = themeForSettings(v.state.Settings)
 	v.palette = paletteFor(v.theme, v.state.Settings.ColorScheme)
+	v.textMenu = localizedTextMenuLabels()
 	if unchanged {
 		return
 	}

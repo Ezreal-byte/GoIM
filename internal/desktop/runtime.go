@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"errors"
+	"log"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -146,6 +147,10 @@ func Run(backend domain.Backend, restartArguments []string, reopen <-chan struct
 			r.tray.Remove()
 		}
 	}()
+	app.SetFaultHandler(func(fault app.Fault) {
+		log.Printf("viva fault in %s: %s\n%s", fault.Where, fault.Message, string(fault.Stack))
+	})
+	defer app.SetFaultHandler(nil)
 	return app.RunApplication(func(application *app.Application) error {
 		r.application = application
 		r.post = application.Post
@@ -160,7 +165,7 @@ func Run(backend domain.Backend, restartArguments []string, reopen <-chan struct
 		supported := app.SetInterfaceFontFamily(strings.TrimSpace(shell.state.Settings.InterfaceFont))
 		shell.panels.settingsExtra.interfaceFont.supportKnown = true
 		shell.panels.settingsExtra.interfaceFont.supported = supported
-		shell.requestScreenshot = func(keep bool) { r.launchScreenshot(keep, r.window) }
+		shell.requestScreenshot = func(keep bool) { r.launchScreenshot(keep, r.window, shell) }
 		shell.wakeViewer = r.viewerWake.Invalidate
 		shell.presentViewer = func() {
 			r.viewerPending = true
@@ -488,7 +493,7 @@ func (r *desktopRuntime) applyGlobal(s domain.State) {
 		}
 	})
 	r.applyGlobalShortcut(domain.ShortcutScreenshot, screenshot,
-		&r.screenshotGlobal, &r.screenshotRejected, &r.stopScreenshot, func() { r.launchScreenshot(r.backend.Snapshot().Settings.KeepWindowOnScreenshot, r.window) })
+		&r.screenshotGlobal, &r.screenshotRejected, &r.stopScreenshot, func() { r.launchScreenshot(r.backend.Snapshot().Settings.KeepWindowOnScreenshot, r.window, nil) })
 }
 
 func (r *desktopRuntime) applyGlobalShortcut(action, desired string, current, rejected *string,

@@ -1246,6 +1246,16 @@ func (u *UI) pasteClipboardImage() {
 		u.reportClipboardFailure(i18n.T("剪贴板中没有可发送的图片"))
 		return
 	}
+	u.stageChatPNG(data)
+}
+
+func (u *UI) stageChatPNG(data []byte) bool {
+	if len(data) == 0 || !u.canStageChatFiles() || u.chatEditor == nil {
+		return false
+	}
+	if _, composing := u.chatEditor.Composition(); composing {
+		return false
+	}
 	cacheDir := u.clipboardCacheDir
 	if cacheDir == nil {
 		cacheDir = os.UserCacheDir
@@ -1253,19 +1263,20 @@ func (u *UI) pasteClipboardImage() {
 	cache, err := cacheDir()
 	if err != nil || cache == "" {
 		u.reportClipboardFailure(i18n.T("无法定位剪贴板图片缓存目录"))
-		return
+		return false
 	}
 	directory := filepath.Join(cache, "GoIM", "clipboard")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		u.reportClipboardFailure(i18n.T("无法创建剪贴板图片缓存目录：") + err.Error())
-		return
+		return false
 	}
 	path := filepath.Join(directory, fmt.Sprintf("clipboard-%d.png", time.Now().UnixNano()))
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		u.reportClipboardFailure(i18n.T("无法保存剪贴板图片：") + err.Error())
-		return
+		return false
 	}
 	u.stageChatFiles([]string{path})
+	return true
 }
 
 func (u *UI) reportClipboardFailure(message string) {

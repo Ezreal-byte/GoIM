@@ -53,7 +53,7 @@ func (u *UI) initSystemUnlock() {
 	s.systemAuth = systemauth.Verify
 	s.systemResults = make(chan systemAuthResult, 2)
 	s.methodResults = make(chan systemauth.VerificationMethod, 1)
-	s.page = ui.NewPage(ui.PageConfig{Root: "lock-screen", Tree: &u.tree, Theme: &s.theme})
+	s.page = ui.NewPage(ui.PageConfig{Root: "lock-screen", Tree: &u.tree, Theme: &s.theme, EditMenu: &u.textMenu})
 }
 
 // Capability checks may call the OS; run them once at startup and on explicit

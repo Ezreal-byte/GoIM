@@ -81,7 +81,7 @@ func (o *comObject) release() {
 }
 
 // IMFAttributes vtable offsets (IUnknown: 0..2, IMFAttributes: 3..32)
-// GetUINT32 = 7, GetUINT64 = 8, GetGUID = 10, GetAllocatedString = 14,
+// GetUINT32 = 7, GetUINT64 = 8, GetGUID = 10, GetAllocatedString = 13,
 // SetUINT32 = 21, SetUINT64 = 22, SetGUID = 24
 func mfAttrSetGUID(attr *comObject, key, value *windows.GUID) error {
 	hr, _, _ := syscall.SyscallN(attr.method(24), uintptr(unsafe.Pointer(attr)), uintptr(unsafe.Pointer(key)), uintptr(unsafe.Pointer(value)))
@@ -119,7 +119,7 @@ func mfAttrGetGUID(attr *comObject, key *windows.GUID) (windows.GUID, error) {
 func mfAttrGetString(attr *comObject, key *windows.GUID) (string, error) {
 	var ptr *uint16
 	var length uint32
-	hr, _, _ := syscall.SyscallN(attr.method(14), uintptr(unsafe.Pointer(attr)), uintptr(unsafe.Pointer(key)), uintptr(unsafe.Pointer(&ptr)), uintptr(unsafe.Pointer(&length)))
+	hr, _, _ := syscall.SyscallN(attr.method(13), uintptr(unsafe.Pointer(attr)), uintptr(unsafe.Pointer(key)), uintptr(unsafe.Pointer(&ptr)), uintptr(unsafe.Pointer(&length)))
 	if err := checkHR("GetAllocatedString", hr); err != nil {
 		return "", err
 	}
@@ -167,10 +167,10 @@ func mfReaderReadSample(reader *comObject, streamIndex uint32) (flags uint32, sa
 	return flags, sample, checkHR("ReadSample", hr)
 }
 
-// IMFSample inherits IMFAttributes (0..32): ConvertToContiguousBuffer = 43
+// IMFSample inherits IMFAttributes (0..32): ConvertToContiguousBuffer = 41
 func mfSampleConvertToContiguousBuffer(sample *comObject) (*comObject, error) {
 	var buf *comObject
-	hr, _, _ := syscall.SyscallN(sample.method(43), uintptr(unsafe.Pointer(sample)), uintptr(unsafe.Pointer(&buf)))
+	hr, _, _ := syscall.SyscallN(sample.method(41), uintptr(unsafe.Pointer(sample)), uintptr(unsafe.Pointer(&buf)))
 	return buf, checkHR("ConvertToContiguousBuffer", hr)
 }
 

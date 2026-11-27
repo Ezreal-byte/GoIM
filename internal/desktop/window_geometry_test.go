@@ -68,6 +68,10 @@ func TestVoiceInvitationRestoresCurrentCoordinatesAndKeepsItsSize(t *testing.T) 
 	store.remember("voice-invitation", &legacy)
 	legacy.OnFrameChange(gfx.Rect{X: -250, Y: 150, Width: 500, Height: 150})
 	legacy.OnClosed()
+	legacyV2 := app.Config{Width: 368, Height: 92}
+	store.remember("voice-invitation-windows-v2", &legacyV2)
+	legacyV2.OnFrameChange(gfx.Rect{X: 872, Y: 600, Width: 368, Height: 92})
+	legacyV2.OnClosed()
 
 	store = loadWindowGeometry(dir)
 	config := app.Config{Width: 336, Height: 136}

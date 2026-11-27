@@ -433,6 +433,7 @@ type UI struct {
 	previewPage *ui.Page
 	surface     *chatSurface
 	hover       components.HoverTooltip
+	textMenu    gfx.TextMenuLabels
 
 	ids appIDs
 
@@ -817,10 +818,11 @@ func newUIShell(backend domain.Backend, watch bool) *UI {
 	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
 	u.media = newMediaWorker(func() { u.invalidator.Invalidate() })
 	u.voiceAudio = newVoiceAudioRuntime(backend, u.submit, u.invalidator.Invalidate)
+	u.textMenu = localizedTextMenuLabels()
 	u.initSystemUnlock()
 	u.initIDs()
 	page := func(root string) *ui.Page {
-		return ui.NewPage(ui.PageConfig{Root: root, Tree: &u.tree, Theme: &u.theme})
+		return ui.NewPage(ui.PageConfig{Root: root, Tree: &u.tree, Theme: &u.theme, EditMenu: &u.textMenu})
 	}
 	u.titlePage, u.railPage, u.sidebarPage = page("title"), page("rail"), page("sidebar")
 	u.chatPage, u.drawerPage = page("chat"), page("drawer")
@@ -874,6 +876,7 @@ func (u *UI) Config() app.Config {
 		WindowControls: u.windowControls,
 		Paint:          u.paint,
 		TextInput:      u.textInput,
+		TextMenu:       &u.textMenu,
 		Invalidator:    &u.invalidator,
 		OnWake:         u.onWake,
 		OnActivate:     u.windowActivated,
@@ -993,6 +996,8 @@ func (u *UI) refresh() {
 	u.finishChatSubmissions()
 	u.lanEndpoint = displayLANEndpoint(u.state)
 	i18n.SetLanguage(u.state.Settings.Language)
+	u.textMenu = localizedTextMenuLabels()
+	u.panels.textMenu = u.textMenu
 	u.presentContactRefresh()
 	u.presentConnectionFeedback()
 	u.presentStateNotice()
@@ -1437,6 +1442,7 @@ func (u *UI) paint(canvas *gfx.Canvas, size ui.Size) {
 	}
 	u.theme = themeForSettings(u.state.Settings)
 	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
+	u.textMenu = localizedTextMenuLabels()
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	u.focusedID = canvas.Focused()
 	u.emojiButton, u.mentionEditor, u.composerBox = ui.Box{}, ui.Box{}, ui.Box{}
@@ -2325,6 +2331,7 @@ func (u *UI) rebuildPresentation(oldError string) {
 	u.ensureStateIDs()
 	u.theme = themeForSettings(u.state.Settings)
 	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
+	u.textMenu = localizedTextMenuLabels()
 
 	u.conversations = u.conversations[:0]
 	for _, conversation := range u.state.Conversations {
@@ -2768,6 +2775,7 @@ func (u *UI) toggleTheme() {
 	u.state.Settings.Theme = next
 	u.theme = themeForSettings(u.state.Settings)
 	u.palette = paletteFor(u.theme, u.state.Settings.ColorScheme)
+	u.textMenu = localizedTextMenuLabels()
 	u.submit(domain.Command{Kind: domain.SetSetting, Setting: "theme", Value: next})
 }
 
@@ -3294,16 +3302,31 @@ func (u *UI) fieldFocused(field *ui.Field) bool {
 	return field != nil && ui.Fields(field)(app.TextInputContext{ID: u.focusedID}) != nil
 }
 
+func localizedTextMenuLabels() gfx.TextMenuLabels {
+	return gfx.TextMenuLabels{
+		Cut:       i18n.T("剪切"),
+		Copy:      i18n.T("复制"),
+		Paste:     i18n.T("粘贴"),
+		SelectAll: i18n.T("全选"),
+	}
+}
+
 func (u *UI) onFileDrop(event gfx.FileDropEvent) gfx.EventResult {
 	if u.lockVisible() {
+		wasDragging := u.dragging
 		u.dragging = false
-		return gfx.EventResult{}
+		return gfx.EventResult{Repaint: wasDragging}
 	}
 	switch event.Phase {
 	case gfx.FileDropOver:
 		if u.chatDropReady() && pointInside(event.X, event.Y, u.lastChat) {
+			wasDragging := u.dragging
 			u.dragging = true
-			return gfx.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: !wasDragging}
+		}
+		if u.dragging {
+			u.dragging = false
+			return gfx.EventResult{Repaint: true}
 		}
 	case gfx.FileDropLeave:
 		if u.dragging {
@@ -3311,17 +3334,21 @@ func (u *UI) onFileDrop(event gfx.FileDropEvent) gfx.EventResult {
 			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 	case gfx.FileDropDrop:
+		wasDragging := u.dragging
 		u.dragging = false
 		if u.chatDropReady() && len(event.Paths) > 0 && pointInside(event.X, event.Y, u.lastChat) {
 			u.stageChatFiles(event.Paths)
 			return gfx.EventResult{Handled: true, Repaint: true}
+		}
+		if wasDragging {
+			return gfx.EventResult{Repaint: true}
 		}
 	}
 	return gfx.EventResult{}
 }
 
 func (u *UI) chatDropReady() bool {
-	if !u.canStageChatFiles() || u.isPanelSection() || u.drawer != "" || u.modalOpen() || u.shellMenu.open {
+	if !u.canStageChatFiles() || u.chatEditor == nil || u.isPanelSection() || u.drawer != "" || u.modalOpen() || u.shellMenu.open {
 		return false
 	}
 	_, composing := u.chatEditor.Composition()

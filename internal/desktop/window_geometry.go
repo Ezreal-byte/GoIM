@@ -39,9 +39,9 @@ func loadWindowGeometry(directory string) windowLayoutStore {
 func (g *windowLayoutStore) rememberVoiceInvitation(cfg *app.Config) {
 	kind := "voice-invitation"
 	if runtime.GOOS == "windows" {
-		// Older builds saved positions divided by the active monitor's DPI.
-		// That file lacks the monitor and DPI needed to recover the real point.
-		kind = "voice-invitation-windows-v2"
+		// Older builds (including v2 before Viva's reportFrame fix) saved
+		// positions divided by the active monitor's DPI, drifting on every open.
+		kind = "voice-invitation-windows-v3"
 	}
 	width, height := cfg.Width, cfg.Height
 	g.remember(kind, cfg)

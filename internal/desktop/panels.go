@@ -287,6 +287,7 @@ type Panels struct {
 	tree                  *gfx.Tree
 	page                  *ui.Page
 	theme                 ui.Theme
+	textMenu              gfx.TextMenuLabels
 	ids                   panelIDs
 
 	module string
@@ -395,7 +396,8 @@ func (p *Panels) Init(tree *gfx.Tree, wake *app.Invalidator) {
 	p.localSend.scope = tree.Feature("localsend")
 	p.localSend.recordSort = panelTableSort{column: "时间", descending: true}
 	p.shareSort = panelTableSort{column: "分享时间", descending: true}
-	p.page = ui.NewPage(ui.PageConfig{Root: "panels", Tree: tree, Theme: &p.theme, Invalidator: wake})
+	p.textMenu = localizedTextMenuLabels()
+	p.page = ui.NewPage(ui.PageConfig{Root: "panels", Tree: tree, Theme: &p.theme, Invalidator: wake, EditMenu: &p.textMenu})
 	p.invalidate = wake.Invalidate
 	p.shortcutEdit = -1
 	p.localActions = make(map[uint64]panelLocalAction)

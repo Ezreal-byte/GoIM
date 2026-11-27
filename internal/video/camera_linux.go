@@ -27,14 +27,23 @@ const (
 	v4l2PixFmtYUYV          = uint32('Y') | uint32('U')<<8 | uint32('Y')<<16 | uint32('V')<<24
 	v4l2PixFmtMJPEG         = uint32('M') | uint32('J')<<8 | uint32('P')<<16 | uint32('G')<<24
 
-	vidiocQueryCap  = 0x80685600
-	vidiocSFmt      = 0xC0CC5605
-	vidiocReqBufs   = 0xC0145608
-	vidiocQueryBuf  = 0xC0445609
-	vidiocQBuf      = 0xC044560F
-	vidiocDQBuf     = 0xC0445611
-	vidiocStreamOn  = 0x40045612
-	vidiocStreamOff = 0x40045613
+	iocWrite = 1
+	iocRead  = 2
+)
+
+func v4l2IOC(dir, nr uintptr, size uintptr) uintptr {
+	return (dir << 30) | (size << 16) | (uintptr('V') << 8) | nr
+}
+
+var (
+	vidiocQueryCap  = v4l2IOC(iocRead, 0, unsafe.Sizeof(v4l2Capability{}))
+	vidiocSFmt      = v4l2IOC(iocRead|iocWrite, 5, unsafe.Sizeof(v4l2Format{}))
+	vidiocReqBufs   = v4l2IOC(iocRead|iocWrite, 8, unsafe.Sizeof(v4l2RequestBuffers{}))
+	vidiocQueryBuf  = v4l2IOC(iocRead|iocWrite, 9, unsafe.Sizeof(v4l2Buffer{}))
+	vidiocQBuf      = v4l2IOC(iocRead|iocWrite, 15, unsafe.Sizeof(v4l2Buffer{}))
+	vidiocDQBuf     = v4l2IOC(iocRead|iocWrite, 17, unsafe.Sizeof(v4l2Buffer{}))
+	vidiocStreamOn  = v4l2IOC(iocWrite, 18, unsafe.Sizeof(uint32(0)))
+	vidiocStreamOff = v4l2IOC(iocWrite, 19, unsafe.Sizeof(uint32(0)))
 )
 
 type v4l2Capability struct {

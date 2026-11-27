@@ -178,7 +178,7 @@ func (u *UI) drawVideoCall(canvas *gfx.Canvas, viewport ui.Rect) {
 		f.Canvas().Block(viewport)
 		ui.Column(f).Fill().PadSides(12, 20, 20, 20).Children(func() {
 			// Top peer & timer pill
-			ui.Row(f).FillWidth().Justify(ui.Center).Children(func() {
+			ui.Column(f).FillWidth().Items(ui.Center).Gap(6).Children(func() {
 				ui.Row(f).PadSides(7, 14, 7, 14).Radius(18).Background(pillBg).Items(ui.Center).Gap(8).Children(func() {
 					ui.Text(f, name).FontSize(textSize(f, 13.5)).Weight(gfx.WeightSemibold).Color(lightText).Ellipsis()
 					if call.Status == domain.VoiceCallActive {
@@ -187,6 +187,11 @@ func (u *UI) drawVideoCall(canvas *gfx.Canvas, viewport ui.Rect) {
 						ui.Text(f, "· "+i18n.T("等待对方接听…")).FontSize(textSize(f, 12.5)).Color(mutedText)
 					}
 				})
+				if showMainVideo && cameraProblem != "" && !call.CameraOff {
+					ui.Row(f).PadSides(5, 12, 5, 12).Radius(14).Background(pillBg).Children(func() {
+						ui.Text(f, cameraProblem).FontSize(textSize(f, 11.5)).Color(ui.RGB(255, 210, 130))
+					})
+				}
 			})
 
 			// Center placeholder when no video stream is visible
@@ -199,11 +204,11 @@ func (u *UI) drawVideoCall(canvas *gfx.Canvas, viewport ui.Rect) {
 					ui.Text(f, name).FontSize(textSize(f, 22)).Weight(gfx.WeightSemibold).Color(lightText).TextCenter().Ellipsis()
 					placeholderStatus := u.videoCallStatus(call)
 					ui.Text(f, placeholderStatus).FontSize(textSize(f, 13.5)).Color(mutedText).TextCenter()
-				}
-				if cameraProblem != "" && !call.CameraOff {
-					ui.Row(f).PadSides(6, 12, 6, 12).Radius(14).Background(pillBg).Children(func() {
-						ui.Text(f, cameraProblem).FontSize(textSize(f, 12)).Color(ui.RGB(255, 210, 130))
-					})
+					if cameraProblem != "" && !call.CameraOff {
+						ui.Row(f).PadSides(6, 12, 6, 12).Radius(14).Background(pillBg).Children(func() {
+							ui.Text(f, cameraProblem).FontSize(textSize(f, 12)).Color(ui.RGB(255, 210, 130))
+						})
+					}
 				}
 			})
 

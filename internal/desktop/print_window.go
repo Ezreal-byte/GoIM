@@ -53,6 +53,7 @@ type printWindowView struct {
 	page      *ui.Page
 	theme     ui.Theme
 	palette   palette
+	textMenu  gfx.TextMenuLabels
 	wake      app.Invalidator
 	ids       printWindowIDs
 
@@ -89,8 +90,9 @@ func newPrintWindowView(backend domain.Backend, shareID string) *printWindowView
 	v.copies.SetText("1")
 	v.password.Secure = true
 	v.initIDs()
-	v.titlePage = ui.NewPage(ui.PageConfig{Root: "print-window-title", Tree: &v.tree, Theme: &v.theme})
-	v.page = ui.NewPage(ui.PageConfig{Root: "print-window", Tree: &v.tree, Theme: &v.theme})
+	v.textMenu = localizedTextMenuLabels()
+	v.titlePage = ui.NewPage(ui.PageConfig{Root: "print-window-title", Tree: &v.tree, Theme: &v.theme, EditMenu: &v.textMenu})
+	v.page = ui.NewPage(ui.PageConfig{Root: "print-window", Tree: &v.tree, Theme: &v.theme, EditMenu: &v.textMenu})
 	v.refresh()
 	return v
 }
@@ -114,6 +116,7 @@ func (v *printWindowView) refresh() {
 	}
 	v.state = v.backend.Snapshot()
 	i18n.SetLanguage(v.state.Settings.Language)
+	v.textMenu = localizedTextMenuLabels()
 	v.theme = themeForSettings(v.state.Settings)
 	v.palette = paletteFor(v.theme, v.state.Settings.ColorScheme)
 	v.normalizeOptions()
@@ -190,7 +193,7 @@ func (v *printWindowView) Config() app.Config {
 		Title: i18n.T("打印文档"), Width: printWindowWidth, Height: printWindowHeight,
 		MinWidth: printWindowMinWidth, MinHeight: printWindowMinHeight,
 		WindowMode: app.WindowCustomTitlebar, TitlebarHeight: printWindowTitlebar,
-		ClearColor: clear, Tree: &v.tree, Paint: v.paint, TextInput: v.textInput,
+		ClearColor: clear, Tree: &v.tree, Paint: v.paint, TextInput: v.textInput, TextMenu: &v.textMenu,
 		Invalidator: &v.wake, OnWake: v.refresh, OnPointer: v.pointer, OnScroll: v.scroll,
 		OnKey: v.key, OnShortcut: v.key, WindowControls: func() app.WindowControlsStyle {
 			return windowControlsFor(v.palette)
