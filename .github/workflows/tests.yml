@@ -234,9 +234,7 @@ jobs:
         run: go test ./internal/desktop -run '^TestNativeClipboardPNGRoundTrip$' -count=1
       - name: Windows Hello native probe
         shell: pwsh
-        env:
-          GOIM_SYSTEM_AUTH_NATIVE: '1'
-        run: go test ./internal/systemauth -run '^TestUserConsentVerifier' -count=1 -v
+        run: go test github.com/vivaui/viva/app/systemauth -count=1 -timeout=45s -v
       - name: Three-process desktop smoke
         shell: pwsh
         run: ./scripts/smoke-headless.ps1

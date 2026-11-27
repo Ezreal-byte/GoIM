@@ -13,8 +13,8 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
+	"github.com/vivaui/viva/app/systemauth"
 	"goim/internal/domain"
-	"goim/internal/systemauth"
 )
 
 func TestManualConnectionPublishesSuccessAndFailure(t *testing.T) {
@@ -126,10 +126,8 @@ func TestUserDataResetRecoversAfterInterruptedExit(t *testing.T) {
 }
 
 func TestUnsupportedSystemUnlockCannotBeEnabled(t *testing.T) {
-	if systemauth.Supported() {
-		t.Skip("this platform supports system unlock")
-	}
 	node := testNode(t, "User")
+	node.systemAuthMethod = func() systemauth.VerificationMethod { return systemauth.VerificationUnavailable }
 	if err := node.execute(domain.Command{Kind: domain.SetLockPassword, Text: "secret-0123"}); err != nil {
 		t.Fatal(err)
 	}

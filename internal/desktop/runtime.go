@@ -237,6 +237,8 @@ func Run(backend domain.Backend, restartArguments []string, reopen <-chan struct
 		}
 		r.window = window
 		shell.attachNativeWindow(window)
+		shell.refreshSystemUnlockMethod()
+		shell.panels.refreshSystemUnlock = shell.refreshSystemUnlockMethod
 		show := func() {
 			r.stopAttention()
 			window.Show()

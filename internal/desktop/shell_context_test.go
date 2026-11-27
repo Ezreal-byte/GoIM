@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"github.com/vivaui/viva/gfx"
 	"image"
 	"image/color"
@@ -11,8 +12,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/vivaui/viva/app/systemauth"
 	"goim/internal/domain"
-	"goim/internal/systemauth"
 )
 
 func (harness *shellTestHarness) rightClickID(id gfx.ID) {
@@ -832,13 +833,13 @@ func TestLockScreenUsesSystemVerificationWithPasswordFallback(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		h := newShellTestHarness(t, state)
-		h.ui.lockUI.method = systemauth.TouchID
+		h.ui.lockUI.method = systemauth.VerificationTouchID
 		h.ui.invalidator.Invalidate()
 		h.settle()
 		if !h.hasHit(h.ui.lockUI.systemButton) || !h.hasText("使用 Touch ID 解锁") {
 			t.Fatal("the lock screen did not offer Touch ID")
 		}
-		h.ui.lockUI.systemAuth = func(string) error { return nil }
+		h.ui.lockUI.systemAuth = func(context.Context, string) error { return nil }
 		h.clickID(h.ui.lockUI.systemButton)
 		h.waitFor(func() bool {
 			_, ok := findShellCommand(h.backend.commandLog(), domain.UnlockAppSystem)
@@ -852,13 +853,13 @@ func TestLockScreenUsesSystemVerificationWithPasswordFallback(t *testing.T) {
 
 	t.Run("failure keeps lock and password", func(t *testing.T) {
 		h := newShellTestHarness(t, state)
-		h.ui.lockUI.method = systemauth.WindowsHello
+		h.ui.lockUI.method = systemauth.VerificationWindowsHello
 		h.ui.invalidator.Invalidate()
 		h.settle()
 		if !h.hasHit(h.ui.lockUI.systemButton) || !h.hasText("使用 Windows Hello 解锁") {
 			t.Fatal("the lock screen did not offer Windows Hello")
 		}
-		h.ui.lockUI.systemAuth = func(string) error { return systemauth.ErrCanceled }
+		h.ui.lockUI.systemAuth = func(context.Context, string) error { return systemauth.ErrCanceled }
 		h.clickID(h.ui.lockUI.systemButton)
 		h.waitFor(func() bool { return !h.ui.lockUI.systemBusy && h.ui.lockUI.systemErr != "" })
 		if hasCommandKind(h.backend.commandLog(), domain.UnlockAppSystem) {
@@ -881,7 +882,7 @@ func TestLockScreenUsesSystemVerificationWithPasswordFallback(t *testing.T) {
 		disabled := state
 		disabled.Settings.SystemUnlock = false
 		h := newShellTestHarness(t, disabled)
-		h.ui.lockUI.method = systemauth.TouchID
+		h.ui.lockUI.method = systemauth.VerificationTouchID
 		h.ui.invalidator.Invalidate()
 		h.settle()
 		if h.hasHit(h.ui.lockUI.systemButton) {
@@ -891,7 +892,7 @@ func TestLockScreenUsesSystemVerificationWithPasswordFallback(t *testing.T) {
 
 	t.Run("unsupported platform", func(t *testing.T) {
 		h := newShellTestHarness(t, state)
-		h.ui.lockUI.method = systemauth.Unsupported
+		h.ui.lockUI.method = systemauth.VerificationUnavailable
 		h.ui.invalidator.Invalidate()
 		h.settle()
 		if h.hasHit(h.ui.lockUI.systemButton) || !h.hasHit(h.ui.lockUI.submit) {

@@ -182,6 +182,8 @@ jobs:
       - name: Windows notification area regression
         if: runner.os == 'Windows'
         run: go test github.com/vivaui/viva/internal/platform/windows -run '^Test(NotificationIconCarriesABalloonWithoutShowingATrayEntry|TaskbarCreatedInvalidatesTheNotificationCarrier|NotificationModifyFailureRetriesAdd|NotificationCarrierRecoversAfterAModifyAndAddFailure|StatusHover.*)$' -count=1
+      - name: Upstream system authentication contract
+        run: go test github.com/vivaui/viva/app/systemauth -count=1 -timeout=45s
       - name: macOS status item regression
         if: runner.os == 'macOS'
         run: go test github.com/vivaui/viva/internal/platform/darwin -run '^TestNativeStatusItemMenuDelegateAndSelection$' -count=1 -v
@@ -208,7 +210,7 @@ jobs:
           GOIM_SHARE_LIST_QA: ${{ github.workspace }}/GoIM/artifacts/screenshots/shares
           GOIM_TRANSFER_QA: ${{ github.workspace }}/GoIM/artifacts/screenshots/transfers
         run: |
-          go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestShareListDesignScreenshots|TestTransferDesignScreenshots|TestChatLayoutScreenshotQA|TestChatPolishQA|TestProfileAvatarEditorScreenshotQA|TestSettingsInterfaceFontScreenshotQA|TestDesktopFeatureRepairScreenshotQA|TestRelease013ScreenshotQA|TestVoiceCallScreenshotQA|TestFilePickerSupportScreenshotQA|TestRelease014ScreenshotQA' -count=1 -timeout=180s
+          go test -tags vivahead ./internal/desktop -run 'TestShellScreenshotQA|TestDesktopScaleMatrix|TestShellContextScreenshotQA|TestShareListDesignScreenshots|TestTransferDesignScreenshots|TestChatLayoutScreenshotQA|TestChatPolishQA|TestProfileAvatarEditorScreenshotQA|TestSettingsInterfaceFontScreenshotQA|TestDesktopFeatureRepairScreenshotQA|TestRelease013ScreenshotQA|TestVoiceCallScreenshotQA|TestFilePickerSupportScreenshotQA|TestRelease014ScreenshotQA|TestMixedDraftScreenshotQA' -count=1 -timeout=180s
           go test -tags vivahead ./cmd/goim-snip -run '^TestEditorScreenshots$' -count=1 -timeout=60s
       - name: Native content resize
         env:

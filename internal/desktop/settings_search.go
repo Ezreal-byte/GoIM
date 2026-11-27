@@ -132,6 +132,9 @@ func (p *Panels) selectSettingsTab(f ui.C, tab panelSettingsTab) {
 		p.settingsExtra.resetSecrets()
 	}
 	p.settingsTab = tab
+	if tab == panelSettingsSecurity && p.refreshSystemUnlock != nil {
+		f.After(p.refreshSystemUnlock)
+	}
 	if tab == panelSettingsVoice && !p.settingsExtra.voiceDevices.known && !p.settingsExtra.voiceDevices.refreshing {
 		p.settingsExtra.voiceDevices.refreshing = true
 		f.After(p.refreshVoiceDevices)

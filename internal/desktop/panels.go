@@ -278,6 +278,7 @@ type panelPendingSetting struct {
 // Panels owns the settings, transfers, and file-sharing surfaces. Init must be
 // called with the application's tree before Draw.
 type Panels struct {
+	refreshSystemUnlock   func()
 	localSend             localSendPanel
 	listLocalSendRevision uint64
 	firewall              firewallPanel

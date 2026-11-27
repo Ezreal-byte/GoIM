@@ -10,12 +10,13 @@ import (
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
+	"github.com/vivaui/viva/app/systemauth"
 	"goim/internal/domain"
 	"goim/internal/i18n"
-	"goim/internal/systemauth"
 )
 
 type panelSettingsExtra struct {
+	systemMethod                                                                                        systemauth.VerificationMethod
 	systemUnlockAvailable                                                                               bool
 	background, clearBackground, notificationPrivacy, offline, discovery, acceptImages                  gfx.ID
 	profile, connect, connectAddress, lockStartup, lockSystem, passwordOld, passwordNew, passwordRepeat gfx.ID
@@ -157,7 +158,6 @@ var panelSettingsBellIcon = gfx.Icon{ViewBox: 24, Stroke: 1.8, Cap: gfx.CapRound
 }}
 
 func (s *panelSettingsExtra) init(tree *gfx.Tree, scope gfx.Scope) {
-	s.systemUnlockAvailable = systemauth.Supported()
 	s.background = tree.ID(scope, "background-choose")
 	s.clearBackground = tree.ID(scope, "background-clear")
 	s.notificationPrivacy = tree.ID(scope, "notification-private")
@@ -307,15 +307,15 @@ func (p *Panels) drawSettingsSecurity(f ui.C, theme ui.Theme, state domain.State
 				}
 			})
 		})
-		description := systemauth.Description()
+		description := systemUnlockDescription(s.systemMethod)
 		if !s.systemUnlockAvailable {
-			description = "当前平台暂不支持系统验证解锁，请使用 GoIM 锁定密码。"
+			description = "系统验证当前不可用，请使用 GoIM 锁定密码。"
 		}
 		p.settingsRow(f, theme, i18n.T("使用系统验证解锁"), i18n.T(description), func() {
 			p.settingsControl(f, 80, func() {
 				enabled := ui.State[bool](f, "system-unlock")
-				*enabled = settings.SystemUnlock && s.systemUnlockAvailable
-				if ui.Switch(f, enabled, "").Hit(s.lockSystem, i18n.T("使用系统验证解锁")).Disabled(!settings.HasLockPassword || !s.systemUnlockAvailable).Changed() {
+				*enabled = settings.SystemUnlock
+				if ui.Switch(f, enabled, "").Hit(s.lockSystem, i18n.T("使用系统验证解锁")).Disabled(!settings.HasLockPassword || !s.systemUnlockAvailable && !settings.SystemUnlock).Changed() {
 					if *enabled {
 						s.resetSecrets()
 						s.passwordOpen, s.passwordSystem = true, true

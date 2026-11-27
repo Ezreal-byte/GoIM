@@ -47,12 +47,12 @@ func TestManualConnectDialogWaitsForResultAndAllowsRetry(t *testing.T) {
 
 func TestSecuritySettingsRejectsUnsupportedSystemUnlockUpfront(t *testing.T) {
 	state := shellMinimalState(t)
-	state.Settings.HasLockPassword, state.Settings.SystemUnlock = true, true
+	state.Settings.HasLockPassword, state.Settings.SystemUnlock = true, false
 	h := newShellTestHarness(t, state)
 	h.ui.panels.settingsExtra.systemUnlockAvailable = false
 	h.clickID(h.ui.ids.navSettings)
 	h.clickID(h.ui.panels.ids.settingsCategories.At(int(panelSettingsSecurity)))
-	if !h.hasText("当前平台暂不支持系统验证解锁") {
+	if !h.hasText("系统验证当前不可用") {
 		t.Fatal("unsupported system verification was not explained")
 	}
 	h.clickID(h.ui.panels.settingsExtra.lockSystem)

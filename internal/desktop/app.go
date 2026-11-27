@@ -889,6 +889,7 @@ func (u *UI) Config() app.Config {
 // intentionally safe to call both directly and from Config.OnClosed.
 func (u *UI) Close() {
 	u.closeOnce.Do(func() {
+		u.lockUI.cancelSystemUnlock()
 		u.panels.closeMemberProject()
 		u.surface.viewer.video.Stop()
 		u.voiceAudio.close()
