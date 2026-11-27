@@ -560,6 +560,7 @@ func (u *UI) insertMention() bool {
 		u.closeMention()
 		return false
 	}
+	defer u.beginDraftEdit()()
 	u.chatEditor.SetSelection(text.Range{Start: u.mention.start, End: end})
 	u.chatEditor.Insert("@" + choice.name + " ")
 	u.closeMention()

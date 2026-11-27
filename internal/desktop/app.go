@@ -460,6 +460,8 @@ type UI struct {
 	chatEditor           *text.Editor
 	chatPlainEditor      *text.Editor
 	chatDrafts           map[string]*mixedChatDraft
+	draftHistory         map[string]*draftEditHistory
+	draftEditDepth       int
 	pendingChatDrafts    map[string]pendingMixedChatDraft
 	chatDraftSequence    uint64
 	draftScroll          ui.Box
@@ -2588,6 +2590,7 @@ func (u *UI) loadDraft(conversationID string) {
 	u.chatEditor = u.chatPlainEditor
 	if conversationID == "" {
 		u.setChatEditorText("")
+		u.chatEditor.ClearHistory()
 		return
 	}
 	draft, ok := u.drafts[conversationID]
@@ -2605,6 +2608,9 @@ func (u *UI) loadDraft(conversationID string) {
 		return
 	}
 	u.setChatEditorText(draft)
+	// The plain editor is reused between conversations. Undo belongs to the
+	// conversation's application history, never to a previous editor binding.
+	u.chatEditor.ClearHistory()
 }
 
 func (u *UI) saveCurrentDraft() {
@@ -2958,6 +2964,22 @@ func (u *UI) textInput(context app.TextInputContext) *app.TextInput {
 	if input := u.sidebarPage.TextInput(context); input != nil {
 		return input
 	}
+	if draft := u.mixedDraft(u.selected); draft != nil {
+		if draft.preedit != nil && context.ID == u.activeChatFieldID() {
+			return u.chatTextInput()
+		}
+		if index := draft.selectedFile(); index >= 0 && context.ID == draft.files[index].id {
+			return u.chatTextInput()
+		}
+		if context.ID != u.activeChatFieldID() {
+			for _, segment := range draft.texts {
+				if context.ID == segment.id {
+					u.clearDraftSelection(draft)
+					break
+				}
+			}
+		}
+	}
 	input := u.chatPage.TextInput(context)
 	if input != nil {
 		if u.matchDraftEditor(input.Editor) {
@@ -3158,6 +3180,31 @@ func (u *UI) onKey(event gfx.KeyEvent) gfx.EventResult {
 			return result
 		}
 	}
+	if draft := u.mixedDraft(u.selected); draft != nil && draft.selected != nil && draft.preedit == nil &&
+		u.fieldFocused(u.activeChatField()) && !event.Release {
+		if event.Key == gfx.KeyHome || event.Key == gfx.KeyEnd {
+			command := app.TextMoveLineStart
+			if event.Key == gfx.KeyEnd {
+				command = app.TextMoveLineEnd
+			}
+			if event.Modifiers&gfx.ModifierShift != 0 {
+				command = app.TextMoveLineStartAndModifySelection
+				if event.Key == gfx.KeyEnd {
+					command = app.TextMoveLineEndAndModifySelection
+				}
+			}
+			u.draftSelectionCommand(command)
+			return gfx.EventResult{Handled: true, Repaint: true}
+		}
+		if event.Modifiers == 0 && (event.Key == gfx.KeyUp || event.Key == gfx.KeyDown || event.Key == gfx.KeyEscape) {
+			position, end := draft.selected.bounds()
+			if event.Key != gfx.KeyUp {
+				position = end
+			}
+			u.selectDraftRange(draft, draftSelection{position, position})
+			return gfx.EventResult{Handled: true, Repaint: true}
+		}
+	}
 	return u.chatPage.Key(event)
 }
 
@@ -3190,14 +3237,14 @@ func (u *UI) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 		if u.chatEditor == nil {
 			return gfx.EventResult{}
 		}
-		if _, composing := u.chatEditor.Composition(); composing {
+		if u.chatTextInput().State.Composing {
 			return gfx.EventResult{Handled: true}
 		}
 		if u.state.Settings.SendKey == "Ctrl+Enter" {
 			u.sendChatText()
 			return gfx.EventResult{Handled: true}
 		}
-		u.chatEditor.NewLine()
+		u.insertChatText("\n")
 		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if u.shortcutTriggered(shortcutActionOpenSettings, "Ctrl+,", event) {
@@ -3229,6 +3276,9 @@ func (u *UI) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 }
 
 func (u *UI) fieldFocused(field *ui.Field) bool {
+	if draft := u.mixedDraft(u.selected); draft != nil && draft.selectedFile() >= 0 && field == u.activeChatField() {
+		return u.focusedID == u.activeChatFieldID()
+	}
 	return field != nil && ui.Fields(field)(app.TextInputContext{ID: u.focusedID}) != nil
 }
 

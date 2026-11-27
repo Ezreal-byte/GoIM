@@ -930,6 +930,21 @@ func (u *UI) syncChatInput(redraw bool) {
 		return
 	}
 	u.chatInput.State = app.TextStateOf(u.chatEditor)
+	u.chatInput.CopyOverride = false
+	u.chatInput.CopyText = nil
+	u.chatInput.HideNativeOverlays = false
+	if draft := u.mixedDraft(u.selected); draft != nil && draft.selected != nil {
+		u.chatInput.CopyOverride = true
+		u.chatInput.CopyText = u.selectedDraftCopyText
+		if draft.selectedFile() >= 0 {
+			u.chatInput.State = app.TextState{}
+			u.chatInput.HideNativeOverlays = true
+		}
+		if draft.preedit != nil {
+			u.chatInput.State = app.TextStateOf(draft.preedit.editor)
+			u.chatInput.HideNativeOverlays = false
+		}
+	}
 	u.chatInput.State.Redraw = redraw
 }
 
@@ -941,28 +956,23 @@ func (u *UI) onChatTextEvent(event app.TextEvent) (app.TextState, error) {
 	if u.chatDraftPending() {
 		return app.TextStateOf(editor), nil
 	}
-	if event.Kind == app.TextPaste || event.Kind == app.TextPasteNoText {
+	if event.Kind == app.TextPaste && event.Text != "" || event.Kind == app.TextPasteNoText {
 		if u.canStageChatFiles() && !app.TextStateOf(editor).Composing {
 			if files, err := app.ClipboardFiles(); err == nil && len(files) > 0 {
 				u.stageChatFiles(files)
-				state := app.TextStateOf(editor)
+				state := u.chatTextInput().State
 				state.Redraw = true
 				return state, nil
 			}
 		}
 		if event.Kind == app.TextPasteNoText {
 			u.pasteClipboardImage()
-			state := app.TextStateOf(editor)
+			state := u.chatTextInput().State
 			state.Redraw = true
 			return state, nil
 		}
 	}
-	if event.Kind == app.TextCommandEvent && u.draftBoundaryCommand(event.Command) {
-		state := app.TextStateOf(editor)
-		state.Redraw = true
-		return state, nil
-	}
-	state := app.TextStateOf(editor)
+	state := u.chatTextInput().State
 	if event.Kind == app.TextCommandEvent && event.Command == app.TextInsertNewline {
 		if state.Composing {
 			return state, nil
@@ -980,6 +990,46 @@ func (u *UI) onChatTextEvent(event app.TextEvent) (app.TextState, error) {
 			next := app.TextStateOf(u.chatEditor)
 			next.Redraw = true
 			return next, nil
+		}
+	}
+	if !state.Composing && event.Kind == app.TextCommandEvent && u.draftUndo(event.Command) {
+		next := u.chatTextInput().State
+		next.Redraw = true
+		return next, nil
+	}
+	defer u.beginDraftEdit()()
+	if draft := u.mixedDraft(u.selected); draft != nil && draft.selected != nil {
+		if event.Kind == app.TextSetMarked || draft.preedit != nil {
+			if draft.preedit == nil {
+				draft.preedit = u.newDraftText("")
+			}
+			event.Apply(draft.preedit.editor)
+			if event.Kind == app.TextCancelComposition {
+				draft.preedit = nil
+			} else if _, composing := draft.preedit.editor.Composition(); !composing {
+				u.replaceDraftSelection(draft.preedit.editor.String())
+			}
+			next := u.chatTextInput().State
+			next.Redraw = true
+			return next, nil
+		}
+		if event.Kind == app.TextSetSelection {
+			if draft.selectedFile() >= 0 {
+				return u.chatTextInput().State, nil
+			}
+			u.clearDraftSelection(draft)
+		}
+	}
+	if !state.Composing && event.Kind == app.TextCommandEvent && u.draftBoundaryCommand(event.Command) {
+		next := u.chatTextInput().State
+		next.Redraw = true
+		return next, nil
+	}
+	if event.Kind == app.TextInsert || event.Kind == app.TextPaste ||
+		event.Kind == app.TextCommandEvent && (event.Command == app.TextInsertLineBreak || event.Command == app.TextInsertNewline) {
+		if u.replaceDraftSelection("") {
+			// Native replacement offsets belonged to the field that was selected.
+			event.HasReplacement, event.HasReplacementUTF16 = false, false
 		}
 	}
 	event.Apply(u.chatEditor)
@@ -1004,6 +1054,9 @@ func (u *UI) sendChatText() {
 		return
 	}
 	if draft := u.mixedDraft(u.selected); draft != nil {
+		if draft.preedit != nil {
+			return
+		}
 		u.sendMixedChatDraft(draft)
 		return
 	}
@@ -1043,6 +1096,7 @@ func (u *UI) finishChatSubmissions() {
 			if !accepted {
 				continue
 			}
+			delete(u.draftHistory, id)
 			if u.mixedDraft(id) != nil {
 				continue
 			}
@@ -1068,6 +1122,11 @@ func (u *UI) insertChatText(value string) {
 	if u.chatEditor == nil || u.selected == "" || u.chatDraftPending() {
 		return
 	}
+	if u.chatTextInput().State.Composing {
+		return
+	}
+	defer u.beginDraftEdit()()
+	u.replaceDraftSelection("")
 	u.chatEditor.Insert(value)
 	u.closeMention()
 	u.drafts[u.selected] = u.chatEditor.String()
