@@ -347,13 +347,22 @@ func (u *UI) drawMixedChatComposer(f ui.C, draft *mixedChatDraft) {
 					}
 				}
 				field := &segment.field
+				segmentEditor := segment.editor
 				if draft.preedit != nil && index == draft.active && draft.selectedFile() < 0 {
 					field = &draft.preedit.field
+					segmentEditor = draft.preedit.editor
 					fieldWidth, fieldHeight = draft.preedit.dimensions(f.Canvas(), size, width)
 				}
-				editor := ui.TextArea(f, field, i18n.T("消息输入框"), "", ui.WithID(segment.id)).
+				opts := []ui.Option{ui.WithID(segment.id)}
+				if !f.Canvas().NativeTextMenu() {
+					opts = append(opts, ui.WithoutEditMenu())
+				}
+				editor := ui.TextArea(f, field, i18n.T("消息输入框"), "", opts...).
 					Width(fieldWidth).Height(fieldHeight).MinHeight(fieldHeight).PadSides(2, 1, 2, 1).
 					Background(ui.Color{}).Border(0, ui.Color{}).Shadow(gfx.ShadowNone).Disabled(u.chatDraftPending())
+				if !f.Canvas().NativeTextMenu() {
+					u.attachComposerEditMenu(f.Part("draft-edit-"+strconv.Itoa(index)), editor, segment.id, segmentEditor, u.chatDraftPending())
+				}
 				if index == draft.active && draft.selectedFile() < 0 {
 					u.mentionEditor = editor
 				}

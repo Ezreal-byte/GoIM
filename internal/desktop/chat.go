@@ -752,10 +752,17 @@ func (u *UI) drawComposer(f ui.C) {
 		if draft := u.mixedDraft(u.selected); draft != nil {
 			u.drawMixedChatComposer(f, draft)
 		} else {
-			u.mentionEditor = ui.TextArea(f, &u.chatEditorField, i18n.T("消息输入框"), "", ui.WithID(u.ids.chatEditorField)).
+			opts := []ui.Option{ui.WithID(u.ids.chatEditorField)}
+			if !f.Canvas().NativeTextMenu() {
+				opts = append(opts, ui.WithoutEditMenu())
+			}
+			u.mentionEditor = ui.TextArea(f, &u.chatEditorField, i18n.T("消息输入框"), "", opts...).
 				FillWidth().Grow(1).Basis(0).MinHeight(chatEditorMinHeight).
 				PadSides(8, chatContentInset, 8, chatContentInset).
 				Background(ui.Color{}).Border(0, ui.Color{}).Shadow(gfx.ShadowNone)
+			if !f.Canvas().NativeTextMenu() {
+				u.attachComposerEditMenu(f.Part("composer-edit-menu"), u.mentionEditor, u.ids.chatEditorField, u.chatEditor, false)
+			}
 		}
 		u.drawComposerFooter(f)
 	})
@@ -950,6 +957,64 @@ func (u *UI) chatTextInput() *app.TextInput {
 	}
 	u.syncChatInput(false)
 	return &u.chatInput
+}
+
+// attachComposerEditMenu renders the non-native (Linux) right-click menu for a
+// chat composer field so Paste/Cut/Copy/SelectAll route through onChatTextEvent
+// and support pasting files and images into the mixed draft just like Ctrl+V.
+func (u *UI) attachComposerEditMenu(f ui.C, box ui.Box, id gfx.ID, targetEditor *text.Editor, disabled bool) {
+	if !box.Valid() || disabled {
+		return
+	}
+	labels := u.textMenu.WithDefaults()
+	ui.ContextMenu(f, box, func(menu *ui.MenuItems) {
+		composing := false
+		if targetEditor != nil {
+			_, composing = targetEditor.Composition()
+		}
+		var selectedText string
+		hasSelection := false
+		if draft := u.mixedDraft(u.selected); draft != nil && draft.selected != nil {
+			selectedText = u.selectedDraftCopyText()
+			hasSelection = selectedText != ""
+		} else if targetEditor != nil {
+			sel := targetEditor.Selection()
+			if sel.Start != sel.End && targetEditor.SelectionCount() == 1 {
+				selectedText = targetEditor.String()[targetEditor.ByteOffset(sel.Start):targetEditor.ByteOffset(sel.End)]
+				hasSelection = true
+			}
+		}
+		hasContent := u.mixedDraft(u.selected) != nil || (targetEditor != nil && targetEditor.RuneCount() > 0)
+		chosen := func() bool {
+			if targetEditor != nil {
+				u.matchDraftEditor(targetEditor)
+			}
+			u.focusChat = true
+			f.Canvas().RequestFocusOnce(id)
+			return true
+		}
+		if menu.Item(labels.Cut).Keys(ui.Primary, "x").Disabled(!hasSelection || composing).Clicked() && chosen() {
+			if selectedText != "" && app.SetClipboardText(selectedText) == nil {
+				_, _ = u.onChatTextEvent(app.TextEvent{Kind: app.TextPaste})
+			}
+		}
+		if menu.Item(labels.Copy).Keys(ui.Primary, "c").Disabled(!hasSelection || composing).Clicked() && chosen() {
+			if selectedText != "" {
+				_ = app.SetClipboardText(selectedText)
+			}
+		}
+		if menu.Item(labels.Paste).Keys(ui.Primary, "v").Disabled(composing).Clicked() && chosen() {
+			if value, err := app.ClipboardText(); err == nil && value != "" {
+				_, _ = u.onChatTextEvent(app.TextEvent{Kind: app.TextPaste, Text: value})
+			} else if err == nil || !strings.Contains(err.Error(), "did not respond") {
+				_, _ = u.onChatTextEvent(app.TextEvent{Kind: app.TextPasteNoText})
+			}
+		}
+		menu.Separator()
+		if menu.Item(labels.SelectAll).Keys(ui.Primary, "a").Disabled(composing || !hasContent).Clicked() && chosen() {
+			_, _ = u.onChatTextEvent(app.TextEvent{Kind: app.TextCommandEvent, Command: app.TextSelectAll})
+		}
+	})
 }
 
 func (u *UI) syncChatInput(redraw bool) {

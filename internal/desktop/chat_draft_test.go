@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 
 	"goim/internal/domain"
@@ -231,5 +232,82 @@ func TestMixedChatDraftKeepsAttachmentsCloseToEachOtherAndText(t *testing.T) {
 	}
 	if first.Bounds.Width >= 100 || second.Bounds.Width >= 100 {
 		t.Fatalf("compact file labels should size to their text: %v, %v", first.Bounds, second.Bounds)
+	}
+}
+
+func TestLinuxComposerContextMenuPastesFilesAndImages(t *testing.T) {
+	backend := newShellTestBackend(shellTestState(t))
+	shell := New(backend)
+	t.Cleanup(shell.Close)
+	config := shell.Config()
+	config.Width, config.Height = 1440, 960
+	// Clearing Config.TextMenu simulates Linux (NativeTextMenu() == false) so
+	// GoIM renders its non-native composer context menu.
+	config.TextMenu = nil
+	driver, err := app.NewDriver(config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(driver.Close)
+	h := &shellTestHarness{t: t, ui: shell, backend: backend, driver: driver}
+	h.ui.selectConversation("conv-alice")
+	h.settle()
+
+	cache := t.TempDir()
+	h.ui.clipboardCacheDir = func() (string, error) { return cache, nil }
+	image, err := os.ReadFile(writeExtraTestPNG(t, "linux-menu.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clickContextPaste := func(target gfx.ID) {
+		t.Helper()
+		hit, ok := h.findHit(target)
+		if !ok {
+			t.Fatalf("composer target %v not found", target)
+		}
+		cx, cy := hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2
+		if err := h.driver.Press(cx, cy, gfx.PointerButtonSecondary); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.driver.Release(cx, cy, gfx.PointerButtonSecondary); err != nil {
+			t.Fatal(err)
+		}
+		h.settle()
+		var pasteHit gfx.Hit
+		found := false
+		for _, candidate := range h.snapshot().Hits {
+			if candidate.Label == "粘贴" {
+				pasteHit = candidate
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("non-native composer context menu did not open with localized 粘贴 item")
+		}
+		if err := h.driver.Click(pasteHit.Bounds.X+pasteHit.Bounds.Width/2, pasteHit.Bounds.Y+pasteHit.Bounds.Height/2); err != nil {
+			t.Fatal(err)
+		}
+		h.settle()
+	}
+
+	// 1. Right-click Paste in plain composer stages clipboard files.
+	filePath := filepath.Join(t.TempDir(), "notes.pdf")
+	h.driver.SetClipboardFiles([]string{filePath})
+	clickContextPaste(h.ui.ids.chatEditorField)
+	draft := h.ui.mixedDraft("conv-alice")
+	if draft == nil || len(draft.files) != 1 || draft.files[0].file.SourcePath != filePath {
+		t.Fatalf("right-click Paste did not stage clipboard file: %+v", draft)
+	}
+
+	// 2. Right-click Paste in mixed composer stages clipboard image.
+	if err := h.driver.SetClipboardImage(image); err != nil {
+		t.Fatal(err)
+	}
+	clickContextPaste(draft.texts[draft.active].id)
+	draft = h.ui.mixedDraft("conv-alice")
+	if draft == nil || len(draft.files) != 2 {
+		t.Fatalf("right-click Paste in mixed composer did not stage clipboard image: %+v", draft)
 	}
 }
