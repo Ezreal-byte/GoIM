@@ -131,6 +131,10 @@ jobs:
           # archives are available for the corresponding-source artifact.
           sudo apt-get "${apt_options[@]}" upgrade -y
           sudo apt-get "${apt_options[@]}" install -y xclip libx11-6 libx11-xcb1 libxcb1 libxcb-shape0 libxkbcommon0 libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers fonts-noto-cjk xvfb xdotool libdigest-sha-perl build-essential meson ninja-build libgtk-3-dev gsettings-desktop-schemas gettext itstool curl xz-utils x11-utils dbus-x11 libpulse0 libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libxcb-randr0 libxcb-shm0 libxtst6 libxfixes3
+          sudo apt-get "${apt_options[@]}" install -y cmake pkg-config libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxfixes-dev libxext-dev libxss-dev libxtst-dev libxkbcommon-dev libdbus-1-dev libfontconfig1-dev python3-pil
+      - name: Install the portable Shotlet toolchain
+        if: runner.os == 'Linux'
+        run: bash packaging/shotlet/install-zig.sh "$RUNNER_TEMP/shotlet-toolchain"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: decoder-${{ matrix.os }}-${{ matrix.arch }}
@@ -275,7 +279,8 @@ jobs:
       - name: Native release package
         env:
           PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
-          GOIM_UPDATE_PUBLIC_KEY: ${{ vars.GOIM_UPDATE_PUBLIC_KEY }}
+          # Preview builds are isolated from the stable update channel.
+          GOIM_UPDATE_PUBLIC_KEY: ${{ !contains(inputs.version || github.ref_name, '-rd-preview.') && vars.GOIM_UPDATE_PUBLIC_KEY || '' }}
           # Linux desktop releases use Viva's pure-Go path. A cgo build binds
           # to the runner's glibc and will not start on older Kylin/UOS hosts.
           CGO_ENABLED: ${{ matrix.os == 'linux' && '0' || '1' }}
@@ -286,6 +291,19 @@ jobs:
             --remote-desktop-bundle "$bundle" --remote-desktop-manifest-sha256 "$manifest_sha")
           if [ '${{ matrix.os }}' = windows ]; then args+=(--windows-setup); fi
           go run ./cmd/package "${args[@]}"
+      - name: Verify the packaged Linux screenshot helper
+        if: runner.os == 'Linux'
+        env:
+          PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: |
+          helper="dist/GoIM_${PACKAGE_VERSION#v}_linux_${PACKAGE_ARCH}/lib/goim/shotlet/shotlet-capture"
+          source=.runtime/shotlet/shotlet-7841fc750b8828321a3d854df9046404146bd560
+          xvfb-run -a -s '-screen 0 1280x800x24 -noreset' python3 packaging/shotlet/test-sdk.py \
+            --helper "$helper" --source "$source" --artifacts artifacts/shotlet-sdk
+          VK_DRIVER_FILES=/nonexistent-goim-icd.json VK_ICD_FILENAMES=/nonexistent-goim-icd.json \
+            xvfb-run -a -s '-screen 0 1280x800x24 -noreset' python3 packaging/shotlet/test-sdk.py \
+            --helper "$helper" --source "$source" --artifacts artifacts/shotlet-software-sdk
       - name: Verify Windows installers and shortcut icons
         if: runner.os == 'Windows'
         shell: pwsh
@@ -360,7 +378,7 @@ jobs:
         env:
           SOURCE_COMMIT: ${{ github.sha }}
           PACKAGE_VERSION: ${{ inputs.version || github.ref_name }}
-          GOIM_UPDATE_PUBLIC_KEY: ${{ vars.GOIM_UPDATE_PUBLIC_KEY }}
+          GOIM_UPDATE_PUBLIC_KEY: ${{ !contains(inputs.version || github.ref_name, '-rd-preview.') && vars.GOIM_UPDATE_PUBLIC_KEY || '' }}
         run: |
           python3 - <<'PY'
           import hashlib, json, os, pathlib, plistlib, subprocess, tarfile, zipfile
@@ -453,7 +471,9 @@ jobs:
                       assert z.getmember(next(n for n in names if n.endswith('/goim-snip'))).mode & 0o111
                       assert z.getmember(next(n for n in names if n.endswith('/lib/goim/file-dialog/bin/zenity'))).mode & 0o111
                       assert any(n.endswith('/lib/goim/file-dialog/ld.so') for n in names)
-                      assert not any('/licenses/shotlet/' in n for n in names)
+                      assert z.getmember(prefix+'lib/goim/shotlet/shotlet-capture').mode & 0o111
+                      for license in ('Apache-2.0.txt', 'THIRD_PARTY_NOTICES.md', 'SDL.txt', 'ImGui.txt', 'nlohmann-json.txt', 'Zig-LICENSE.txt', 'LLVM-libcxx-LICENSE.txt', 'LLVM-libcxxabi-LICENSE.txt', 'LLVM-libunwind-LICENSE.txt'):
+                          assert prefix+'licenses/shotlet/'+license in names, license
                       assert any(n.endswith('/share/applications/dev.goim.desktop.desktop') for n in names)
                       assert any(n.endswith('/share/polkit-1/actions/dev.goim.desktop.policy') for n in names)
                       assert any(n.endswith('/share/icons/hicolor/256x256/apps/goim.png') for n in names)
@@ -498,7 +518,7 @@ jobs:
           test -x "$payload/goim-snip"
           test -x "$payload/goim-media"
           docker run --rm -v "$payload:/payload:ro" ubuntu:20.04 \
-            /bin/sh -eu -c '/payload/goim-media -version >/dev/null && /payload/GoIM -version && /payload/goim-snip -help >/dev/null'
+            /bin/sh -eu -c 'apt-get update -qq && apt-get install -y --no-install-recommends libx11-6 libxrandr2 libxinerama1 libfontconfig1 >/dev/null && /payload/goim-media -version >/dev/null && /payload/GoIM -version && /payload/goim-snip -help >/dev/null && /payload/lib/goim/shotlet/shotlet-capture --self-test >/dev/null'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: GoIM-checksums-and-report

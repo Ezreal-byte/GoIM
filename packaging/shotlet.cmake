@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # Build the capture SDK helper from immutable source revisions. The standalone
 # Shotlet release archives do not contain this host protocol executable.
-set(shotlet_revision d72ca9309539be2b7ce50ed43a43eae827727d91)
+set(shotlet_revision 7841fc750b8828321a3d854df9046404146bd560)
 set(sdl_revision 829a65d769d935c4852f8159e964312c0957260a) # release-3.4.18
 set(imgui_revision e05bd9deb9a73b67acb5c04b8a581e06a2d42657)
 
@@ -11,6 +11,7 @@ if(NOT DEFINED GOIM_SHOTLET_HELPER OR NOT DEFINED GOIM_SHOTLET_LICENSES OR
     message(FATAL_ERROR "Shotlet requires a helper path, license directory and native amd64 or arm64 target")
 endif()
 
+set(build_config Release)
 if(CMAKE_HOST_WIN32)
     set(platform windows)
     set(arch x64)
@@ -25,8 +26,22 @@ elseif(CMAKE_HOST_APPLE)
         set(arch x86_64)
     endif()
     set(platform_options -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=${arch}" -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3)
+elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+    set(platform linux)
+    set(arch x86_64)
+    if(GOIM_SHOTLET_ARCH STREQUAL "arm64")
+        set(arch aarch64)
+    endif()
+    set(build_config MinSizeRel)
+    find_program(shotlet_zig zig REQUIRED)
+    execute_process(COMMAND "${shotlet_zig}" version OUTPUT_VARIABLE zig_version OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    if(NOT zig_version STREQUAL "0.15.2")
+        message(FATAL_ERROR "Linux Shotlet requires pinned Zig 0.15.2 (packaging/shotlet/install-zig.sh)")
+    endif()
+    set(platform_options -G Ninja "-DCMAKE_BUILD_TYPE=${build_config}" "-DSHOTLET_LINUX_ARCH=${arch}"
+        "-DSHOTLET_ZIG=${shotlet_zig}" -DSHOTLET_LINUX_GLIBC=2.28)
 else()
-    message(FATAL_ERROR "Shotlet capture is only packaged on Windows and macOS")
+    message(FATAL_ERROR "Shotlet capture requires Windows, macOS or Linux")
 endif()
 
 find_package(Git REQUIRED)
@@ -58,15 +73,19 @@ fetch_source("${sdl}" https://github.com/libsdl-org/SDL.git "${sdl_revision}")
 # Shotlet's Metal backend includes ImGui from this source-tree path.
 fetch_source("${imgui}" https://github.com/ocornut/imgui.git "${imgui_revision}")
 
+if(platform STREQUAL "linux")
+    list(APPEND platform_options "-DCMAKE_TOOLCHAIN_FILE=${shotlet}/cmake/toolchains/linux-zig.cmake")
+endif()
+
 string(SHA256 revisions "${shotlet_revision}${sdl_revision}${imgui_revision}")
 string(SUBSTRING "${revisions}" 0 12 revisions)
 set(build "${cache}/build-${platform}-${GOIM_SHOTLET_ARCH}-${revisions}")
 run("${CMAKE_COMMAND}" -S "${shotlet}" -B "${build}" ${platform_options}
     "-DSDL3_DIR=${sdl}" "-DIMGUI_DIR=${imgui}" -DSHOTLET_BUILD_CAPTURE_SDK=ON
     -DSHOTLET_BUILD_NODE_ADDON=OFF -DSHOTLET_BUILD_TESTS=OFF)
-run("${CMAKE_COMMAND}" --build "${build}" --config Release --target shotlet_capture --parallel 4)
+run("${CMAKE_COMMAND}" --build "${build}" --config "${build_config}" --target shotlet_capture --parallel 4)
 
-file(READ "${build}/capture-sdk-Release.json" metadata)
+file(READ "${build}/capture-sdk-${build_config}.json" metadata)
 string(JSON source_helper GET "${metadata}" helper)
 get_filename_component(bin_dir "${GOIM_SHOTLET_HELPER}" DIRECTORY)
 if(CMAKE_HOST_APPLE)
@@ -97,3 +116,13 @@ stage_license("${shotlet}/THIRD_PARTY_NOTICES.md" THIRD_PARTY_NOTICES.md)
 stage_license("${sdl}/LICENSE.txt" SDL.txt)
 stage_license("${imgui}/LICENSE.txt" ImGui.txt)
 stage_license("${shotlet}/src/third_party/nlohmann/LICENSE.MIT" nlohmann-json.txt)
+if(platform STREQUAL "linux")
+    find_program(python python3 REQUIRED)
+    run("${python}" "${shotlet}/scripts/check-linux-abi.py" --arch "${arch}" --max-glibc 2.28 --static-cxx "${GOIM_SHOTLET_HELPER}")
+    get_filename_component(zig_real "${shotlet_zig}" REALPATH)
+    get_filename_component(zig_root "${zig_real}" DIRECTORY)
+    stage_license("${zig_root}/LICENSE" Zig-LICENSE.txt)
+    foreach(runtime libcxx libcxxabi libunwind)
+        stage_license("${zig_root}/lib/${runtime}/LICENSE.TXT" "LLVM-${runtime}-LICENSE.txt")
+    endforeach()
+endif()

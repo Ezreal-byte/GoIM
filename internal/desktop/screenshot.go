@@ -24,8 +24,9 @@ import (
 const maxScreenshotBytes = 128 << 20
 
 type screenshotTool struct {
-	path    string
-	shotlet bool
+	path     string
+	shotlet  bool
+	fallback string
 }
 
 func (r *desktopRuntime) launchScreenshot() {
@@ -102,6 +103,9 @@ func (tool screenshotTool) run(ctx context.Context, output, theme string) (bool,
 			theme = "light"
 		}
 		frame, err := shotlet.Capture(ctx, tool.path, i18n.Language(), theme)
+		if errors.Is(err, shotlet.ErrUnavailable) && tool.fallback != "" && ctx.Err() == nil {
+			return (screenshotTool{path: tool.fallback}).run(ctx, output, theme)
+		}
 		if err != nil || frame == nil {
 			return false, err
 		}
@@ -143,19 +147,22 @@ func resolveScreenshotTool() (screenshotTool, error) {
 }
 
 func packagedScreenshotTool(executable string) (screenshotTool, error) {
-	if shotlet.Supported() {
-		path := shotlet.HelperPath(executable)
-		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-			return screenshotTool{path: path, shotlet: true}, nil
-		}
-	}
 	name := "goim-snip"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	path := filepath.Join(filepath.Dir(executable), name)
-	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-		return screenshotTool{path: path}, nil
+	fallback := filepath.Join(filepath.Dir(executable), name)
+	if info, err := os.Stat(fallback); err != nil || !info.Mode().IsRegular() {
+		fallback = ""
+	}
+	if shotlet.Supported() {
+		path := shotlet.HelperPath(executable)
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			return screenshotTool{path: path, shotlet: true, fallback: fallback}, nil
+		}
+	}
+	if fallback != "" {
+		return screenshotTool{path: fallback}, nil
 	}
 	return screenshotTool{}, errors.New(i18n.T("找不到截图组件，请完整解压或重新安装 GoIM。"))
 }

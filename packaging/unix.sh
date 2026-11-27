@@ -37,6 +37,7 @@ case "$platform" in
         install -m 755 "$script_dir/linux/preinst" "$root/DEBIAN/preinst"
         install -m 755 "$payload/GoIM" "$payload/goim-snip" "$payload/goim-media" "$root/usr/bin/"
         test -x "$payload/lib/goim/file-dialog/bin/zenity"
+        test -x "$payload/lib/goim/shotlet/shotlet-capture"
         [[ $(cat "$payload/lib/goim/file-dialog/architecture") == "$arch" ]]
         cp -R "$payload/lib" "$root/usr/"
         if $remote_helper; then
@@ -71,7 +72,7 @@ Priority: optional
 Architecture: $arch
 Maintainer: GoIM maintainers <71426102+Ezreal-byte@users.noreply.github.com>
 Installed-Size: $(du -sk "$root/usr" | cut -f1)
-Depends: libc6, libx11-6, libx11-xcb1, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libvulkan1, libasound2
+Depends: libc6 (>= 2.31), libx11-6, libx11-xcb1, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libvulkan1, libasound2, libxrandr2, libxinerama1, libfontconfig1
 Recommends: mesa-vulkan-drivers, fonts-noto-cjk$remote_recommends
 Homepage: https://ezreal-byte.github.io/GoIM/
 Description: Native LAN messenger and file sharing
@@ -86,6 +87,9 @@ EOF
         cmp "$payload/GoIM" "$work/check/usr/bin/GoIM"
         cmp "$payload/goim-media" "$work/check/usr/bin/goim-media"
         cmp "$payload/goim-snip" "$work/check/usr/bin/goim-snip"
+        cmp "$payload/lib/goim/shotlet/shotlet-capture" "$work/check/usr/lib/goim/shotlet/shotlet-capture"
+        test -x "$work/check/usr/lib/goim/shotlet/shotlet-capture"
+        diff -r "$payload/licenses/shotlet" "$work/check/usr/share/doc/goim/licenses/shotlet"
         if $remote_helper; then
             cmp "$payload/lib/goim/remote/goim-rd" "$work/check/usr/lib/goim/remote/goim-rd"
             test -x "$work/check/usr/lib/goim/remote/goim-rd"

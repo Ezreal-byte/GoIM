@@ -250,6 +250,9 @@ func build() error {
 		if err := stageLinuxDialog(staging); err != nil {
 			return err
 		}
+		if err := stageShotlet(staging, executable); err != nil {
+			return err
+		}
 		if err := copyFile(filepath.Join(logoAssets, "goim.desktop"), filepath.Join(staging, "share", "applications", "dev.goim.desktop.desktop")); err != nil {
 			return err
 		}
