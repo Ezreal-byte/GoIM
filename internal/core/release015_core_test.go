@@ -23,7 +23,7 @@ func TestVoiceSignalsCannotControlAnotherPeersCall(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			n.mu.Lock()
 			n.closeVoiceLocked()
-			callID := n.newVoiceSessionLocked(caller, domain.VoiceCallOutgoing, newID()).call.ID
+			callID := n.newVoiceSessionLocked(caller, domain.VoiceCallOutgoing, newID(), false).call.ID
 			n.mu.Unlock()
 			if err := n.receiveVoiceSignal(other.ID, domain.VoiceSignal{CallID: callID, Action: action}); err != nil {
 				t.Fatal(err)

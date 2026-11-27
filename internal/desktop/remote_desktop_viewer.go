@@ -306,9 +306,10 @@ func (v *remoteDesktopViewer) drawTitlebarActions(f ui.C, compact bool) {
 		if button.Clicked() {
 			v.shortcutsOpen, v.audioOpen = !v.shortcutsOpen, false
 		}
-		ui.PopoverWith(f, button, &v.shortcutsOpen, v.toolPopover(f, 236), func() {
+		ui.Popover(f, button, &v.shortcutsOpen, v.toolPopover(f, 236), func() {
 			v.drawShortcuts(f)
 		})
+
 	}
 	if v.view.session.Audio {
 		icon := Volume2
@@ -322,9 +323,10 @@ func (v *remoteDesktopViewer) drawTitlebarActions(f ui.C, compact bool) {
 		if button.Clicked() {
 			v.audioOpen, v.shortcutsOpen = !v.audioOpen, false
 		}
-		ui.PopoverWith(f, button, &v.audioOpen, v.toolPopover(f, 272), func() {
+		ui.Popover(f, button, &v.audioOpen, v.toolPopover(f, 272), func() {
 			v.drawAudio(f)
 		})
+
 	}
 	fullscreen, icon := i18n.T("全屏"), viewerFullscreenIcon
 	if v.fullscreen {

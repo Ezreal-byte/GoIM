@@ -17,8 +17,10 @@ func (n *Node) recordRemoteDesktopHistoryLocked(session *remoteSession) {
 
 	now := time.Now()
 	record := domain.RemoteDesktopRecord{
-		Incoming: session.view.Incoming, Reason: session.view.Reason,
-		Connected: !session.connectedAt.IsZero(),
+		Incoming: session.view.Incoming, Host: session.view.Host,
+		RequestedHelp: !session.view.Incoming && session.view.Host,
+		Reason:        session.view.Reason,
+		Connected:     !session.connectedAt.IsZero(),
 	}
 	if record.Connected {
 		record.DurationSeconds = max(int(now.Sub(session.connectedAt).Seconds()), 0)

@@ -295,7 +295,7 @@ func (v *printWindowView) drawAuthorization(f ui.C, share domain.PrinterShare) {
 			ui.Text(f, label).Grow(1).FontSize(textSize(f, 13)).Weight(gfx.WeightMedium)
 		})
 		if v.needsPassword(share) {
-			ui.TextFieldID(f, v.ids.password, &v.password, i18n.T("打印密码"), i18n.T("输入共享人设置的密码")).FillWidth().MinHeight(printControlHeight(v.theme)).Disabled(v.pendingPrint)
+			ui.TextField(f, &v.password, i18n.T("打印密码"), i18n.T("输入共享人设置的密码"), ui.WithID(v.ids.password)).FillWidth().MinHeight(printControlHeight(v.theme)).Disabled(v.pendingPrint)
 		}
 		ui.Paragraph(f, i18n.T("仅首次使用或共享人修改密码后需要验证，不保存明文密码。"), 3).FillWidth().Muted().FontSize(textSize(f, 11.5))
 	})
@@ -402,8 +402,8 @@ func (v *printWindowView) drawOptions(f ui.C, share domain.PrinterShare) {
 						i18n.T("減少份数"), false, false).Clicked() {
 						v.changeCopies(-1)
 					}
-					ui.TextFieldID(f, v.ids.copiesField, &v.copies, i18n.T("份数"),
-						i18n.T("1-999")).Grow(1).MinHeight(printControlHeight(v.theme))
+					ui.TextField(f, &v.copies, i18n.T("份数"), i18n.T("1-999"), ui.WithID(v.ids.copiesField)).
+						Grow(1).MinHeight(printControlHeight(v.theme))
 					if panelActionIcon(f, v.theme, v.ids.copiesUp, Plus,
 						i18n.T("增加份数"), false, false).Clicked() {
 						v.changeCopies(1)
@@ -424,8 +424,8 @@ func (v *printWindowView) drawOptions(f ui.C, share domain.PrinterShare) {
 						return i18n.T("全部")
 					}).FillWidth().MinHeight(printControlHeight(v.theme)).Disabled(!capabilities.SupportsPageRange)
 				if v.pageMode == "custom" && capabilities.SupportsPageRange {
-					ui.TextFieldID(f, v.ids.rangeField, &v.pageRange,
-						i18n.T("页码范围"), i18n.T("例如：1-3,5")).FillWidth().MinHeight(printControlHeight(v.theme))
+					ui.TextField(f, &v.pageRange, i18n.T("页码范围"), i18n.T("例如：1-3,5"), ui.WithID(v.ids.rangeField)).
+						FillWidth().MinHeight(printControlHeight(v.theme))
 				}
 			})
 			v.drawOption(f, i18n.T("色彩"), func() {

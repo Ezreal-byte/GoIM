@@ -23,7 +23,7 @@ func (r *desktopRuntime) syncVoiceWindow(state domain.State, locked bool) {
 	}
 	// A close is asynchronous on native desktops. Release the old binding before
 	// opening the next surface so its close callback cannot erase a newer call.
-	if r.voiceView != nil && (!call.Live() || r.voiceView.voiceBoundID != call.ID || r.voiceView.voiceInvitation != invitation || (invitation && !state.Settings.DesktopNotifications)) {
+	if r.voiceView != nil && (!call.Live() || r.voiceView.voiceBoundID != call.ID || r.voiceView.voiceBoundVideo != call.Video || r.voiceView.voiceInvitation != invitation || (invitation && !state.Settings.DesktopNotifications)) {
 		old := r.voiceWindow
 		r.voiceWindow, r.voiceView = nil, nil
 		old.Close()
@@ -46,6 +46,9 @@ func (r *desktopRuntime) syncVoiceWindow(state domain.State, locked bool) {
 			r.ui.inlineVoiceID = ""
 		}
 		r.voiceView.voiceConcealed = locked
+		if r.voiceView.videoMedia != nil {
+			r.voiceView.videoMedia.sync(call)
+		}
 		r.voiceView.invalidator.Invalidate()
 		if !invitation {
 			if locked {
@@ -65,13 +68,19 @@ func (r *desktopRuntime) syncVoiceWindow(state domain.State, locked bool) {
 	}
 	view := newUIShell(nil, false)
 	view.backend = r.backend
-	view.voiceBoundID, view.voiceInvitation, view.voiceConcealed = call.ID, invitation, locked
+	view.voiceBoundID, view.voiceBoundVideo, view.voiceInvitation, view.voiceConcealed = call.ID, call.Video, invitation, locked
+	if call.Video && !invitation {
+		view.videoMedia = newVideoCallMedia(r.backend, view.invalidator.Invalidate)
+	}
 	view.refreshVoice()
 	view.unlockForVoice = func() {
 		r.window.Show()
 		r.ui.SetWindowVisible(true)
 	}
 	config := view.voiceConfig()
+	if call.Video {
+		config = view.videoConfig()
+	}
 	if invitation {
 		config = view.invitationConfig()
 	}
@@ -95,6 +104,8 @@ func (r *desktopRuntime) syncVoiceWindow(state domain.State, locked bool) {
 	}
 	if invitation {
 		r.geometry.rememberVoiceInvitation(&config)
+	} else if call.Video {
+		r.geometry.remember("video", &config)
 	} else {
 		r.geometry.remember("voice", &config)
 	}
@@ -140,6 +151,9 @@ func (view *UI) refreshVoice() {
 	}
 	view.applyMediaResults()
 	view.voicePicker.collect()
+	if view.videoMedia != nil {
+		view.videoMedia.sync(view.state.VoiceCall)
+	}
 }
 
 func voicePeerPresentation(state domain.State) (name, avatar string) {

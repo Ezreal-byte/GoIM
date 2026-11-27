@@ -17,7 +17,7 @@ import (
 func TestRemoteDesktopConsentOpensInDesktopNotification(t *testing.T) {
 	state := remoteDesktopTestState(t)
 	state.RemoteDesktop = domain.RemoteDesktopSession{
-		ID: "incoming", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopPending, Incoming: true,
+		ID: "incoming", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopPending, Incoming: true, Host: true,
 	}
 	view := newRemoteDesktopView(state)
 	t.Cleanup(view.dispose)
@@ -39,7 +39,7 @@ func TestRemoteDesktopConsentOpensInDesktopNotification(t *testing.T) {
 func TestRemoteDesktopConsentGrantsControlWithoutAudio(t *testing.T) {
 	state := remoteDesktopTestState(t)
 	state.RemoteDesktop = domain.RemoteDesktopSession{
-		ID: "incoming", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopPending, Incoming: true,
+		ID: "incoming", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopPending, Incoming: true, Host: true,
 	}
 	runtime := &desktopRuntime{backend: newShellTestBackend(state), ui: &UI{state: state}}
 	backend := runtime.backend.(*shellTestBackend)

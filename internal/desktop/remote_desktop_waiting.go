@@ -29,6 +29,9 @@ func (v *remoteDesktopView) paintWaiting(canvas *gfx.Canvas, size gfx.Size) {
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, v.theme.Background)
 	status := i18n.T("等待对方确认远程协助…")
+	if v.session.Host {
+		status = i18n.T("等待对方接受协助请求…")
+	}
 	if v.session.Status == domain.RemoteDesktopConnecting {
 		status = i18n.T("正在建立远程协助…")
 	}

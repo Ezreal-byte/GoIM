@@ -15,6 +15,7 @@ type Peer struct {
 	PrintCancelSupported bool   `json:"PrintCancelSupported,omitempty"`
 	PrintSupported       bool   `json:"PrintSupported,omitempty"`
 	VoiceSupported       bool   `json:",omitempty"`
+	VideoSupported       bool   `json:",omitempty"`
 	RelaySupported       bool   `json:",omitempty"`
 	ID                   string
 	Name                 string
@@ -32,7 +33,8 @@ type Peer struct {
 	ClientType           ClientType     `json:",omitempty"`
 	CompatibilityAliasOf string         `json:",omitempty"` // local contact linkage; never an authenticated identity
 
-	RemoteDesktopSupported bool `json:"-"`
+	RemoteDesktopSupported       bool `json:"-"`
+	RemoteDesktopAssistSupported bool `json:"-"`
 }
 
 func (p Peer) DisplayName() string {
@@ -180,6 +182,7 @@ type Message struct {
 
 // VoiceRecord retains call facts after the live call has been cleared.
 type VoiceRecord struct {
+	Video           bool `json:",omitempty"`
 	Direction       VoiceCallDirection
 	Reason          string
 	Connected       bool
@@ -524,6 +527,7 @@ const (
 	VoiceFrameBytes     = VoiceFrameSamples * 2
 	VoiceEncodedBytes   = VoiceFrameSamples
 	VoiceMaxEncodedSize = VoiceEncodedBytes * 4
+	VideoMaxFrameBytes  = 256 << 10
 )
 
 const (
@@ -564,18 +568,22 @@ func (s *Settings) EnsureVoiceDefaults() {
 // VoiceCall is a detached, UI-facing view of the live call. It is omitted from
 // persisted state and becomes zero once the final status has been presented.
 type VoiceCall struct {
-	ID           string
-	PeerID       string
-	PeerName     string
-	PeerAvatar   string
-	Direction    VoiceCallDirection
-	Status       VoiceCallStatus
-	StartedAt    time.Time
-	ConnectedAt  time.Time
-	Muted        bool
-	SpeakerMuted bool
-	Reason       string
-	Audio        CallAudioOptions
+	ID            string
+	PeerID        string
+	PeerName      string
+	PeerAvatar    string
+	Video         bool
+	Direction     VoiceCallDirection
+	Status        VoiceCallStatus
+	StartedAt     time.Time
+	ConnectedAt   time.Time
+	Muted         bool
+	SpeakerMuted  bool
+	CameraOff     bool
+	PeerCameraOff bool
+	Camera        string
+	Reason        string
+	Audio         CallAudioOptions
 }
 
 // CallAudioOptions contains only the local, temporary overrides for one call.
@@ -608,10 +616,12 @@ func (c VoiceCall) Live() bool {
 
 type VoiceSignal struct {
 	CallID       string
-	Action       string // invite, accept, reject, busy, end
+	Action       string // invite, accept, reject, busy, end, camera
 	Reason       string
 	Codec        string
 	SampleRate   int
+	Video        bool `json:",omitempty"`
+	CameraOff    bool `json:",omitempty"`
 	Muted        bool
 	SpeakerMuted bool
 }
@@ -861,11 +871,14 @@ const (
 	ClearError           CommandKind = "clear_error"
 	ResetUserData        CommandKind = "reset_user_data"
 	StartVoiceCall       CommandKind = "start_voice_call"
+	StartVideoCall       CommandKind = "start_video_call"
 	AcceptVoiceCall      CommandKind = "accept_voice_call"
 	RejectVoiceCall      CommandKind = "reject_voice_call"
 	EndVoiceCall         CommandKind = "end_voice_call"
 	SetVoiceMuted        CommandKind = "set_voice_muted"
 	SetVoiceSpeakerMuted CommandKind = "set_voice_speaker_muted"
+	SetVideoCameraOff    CommandKind = "set_video_camera_off"
+	SetCallCamera        CommandKind = "set_call_camera"
 
 	SetCallMicrophone       CommandKind = "set_call_microphone"
 	SetCallSpeaker          CommandKind = "set_call_speaker"
@@ -935,4 +948,11 @@ type Backend interface {
 type VoiceAudioBackend interface {
 	VoiceAudio(callID string) <-chan []byte
 	SendVoiceAudio(callID string, encoded []byte) error
+}
+
+// VideoCallBackend is implemented by backends that can carry live encoded
+// video frames for an active video call.
+type VideoCallBackend interface {
+	VideoFrames(callID string) <-chan []byte
+	SendVideoFrame(callID string, encoded []byte) error
 }

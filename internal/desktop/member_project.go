@@ -205,7 +205,7 @@ func (p *Panels) drawMemberProject(f ui.C, theme ui.Theme, width float32, entry 
 						ui.Paragraph(f, i18n.T("请输入分享密码"), 2).TextCenter().
 							FontSize(textSize(f, 26)).LineHeight(textSize(f, 34)).Weight(gfx.WeightSemibold)
 					})
-					field := ui.TextFieldID(f, p.ids.sharePasswordField, &v.password, i18n.T("分享密码"), i18n.T("分享密码")).
+					field := ui.TextField(f, &v.password, i18n.T("分享密码"), i18n.T("分享密码"), ui.WithID(p.ids.sharePasswordField)).
 						Icon(Lock).FillWidth().Height(max(48, textSize(f, 16)+20)).FontSize(textSize(f, 16)).AutoFocus()
 					if refocusPassword {
 						field.RequestFocus()

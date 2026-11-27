@@ -39,12 +39,12 @@ func (p *Panels) drawDNSDiscovery(f ui.C, theme ui.Theme, state domain.State, su
 		var save bool
 		p.settingsRow(f, theme, i18n.T("DNS 服务器"), i18n.T("仅供 GoIM 使用，清空并保存可关闭。"), func() {
 			p.settingsControl(f, 260, func() {
-				save = ui.TextFieldID(f, editor.serverID, &editor.server, i18n.T("DNS 服务器"), "10.0.0.53").FillWidth().Submitted()
+				save = ui.TextField(f, &editor.server, i18n.T("DNS 服务器"), "10.0.0.53", ui.WithID(editor.serverID)).FillWidth().Submitted()
 			})
 		})
 		p.settingsRow(f, theme, i18n.T("发现域名"), i18n.T("请管理员将该域的 _goim._tcp SRV 记录指向一台常在线的 GoIM，作为发现入口。"), func() {
 			p.settingsControl(f, 260, func() {
-				if ui.TextFieldID(f, editor.domainID, &editor.zone, i18n.T("发现域名"), domain.DefaultDiscoveryDomain).FillWidth().Submitted() {
+				if ui.TextField(f, &editor.zone, i18n.T("发现域名"), domain.DefaultDiscoveryDomain, ui.WithID(editor.domainID)).FillWidth().Submitted() {
 					save = true
 				}
 			})

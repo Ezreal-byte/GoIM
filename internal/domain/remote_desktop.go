@@ -3,10 +3,11 @@ package domain
 import "fmt"
 
 const (
-	StartRemoteDesktop  CommandKind = "start_remote_desktop"
-	AcceptRemoteDesktop CommandKind = "accept_remote_desktop"
-	RejectRemoteDesktop CommandKind = "reject_remote_desktop"
-	EndRemoteDesktop    CommandKind = "end_remote_desktop"
+	StartRemoteDesktop      CommandKind = "start_remote_desktop"
+	RequestRemoteAssistance CommandKind = "request_remote_assistance"
+	AcceptRemoteDesktop     CommandKind = "accept_remote_desktop"
+	RejectRemoteDesktop     CommandKind = "reject_remote_desktop"
+	EndRemoteDesktop        CommandKind = "end_remote_desktop"
 )
 
 type RemoteDesktopStatus string
@@ -25,6 +26,7 @@ type RemoteDesktopSession struct {
 	Reason        string
 	Status        RemoteDesktopStatus
 	Incoming      bool
+	Host          bool
 	Control       bool
 	Audio         bool
 	OutputDevices []string
@@ -33,6 +35,8 @@ type RemoteDesktopSession struct {
 // RemoteDesktopRecord is the local chat history of a finished session.
 type RemoteDesktopRecord struct {
 	Incoming        bool
+	Host            bool `json:",omitempty"`
+	RequestedHelp   bool `json:",omitempty"`
 	Reason          string
 	Connected       bool
 	DurationSeconds int

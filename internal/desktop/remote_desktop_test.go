@@ -17,6 +17,7 @@ func remoteDesktopTestState(t *testing.T) domain.State {
 	state.RemoteDesktopAvailable = true
 	state.Peers[0].Transport = domain.TransportGoIM
 	state.Peers[0].RemoteDesktopSupported = true
+	state.Peers[0].RemoteDesktopAssistSupported = true
 	state.Conversations[1].Opened = true
 	return state
 }
@@ -69,7 +70,7 @@ func TestRemoteDesktopConsentFitsLargeText(t *testing.T) {
 			state := remoteDesktopTestState(t)
 			state.Settings.InterfaceFontSize = 28
 			state.RemoteDesktop = domain.RemoteDesktopSession{
-				ID: "large-consent", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopPending, Incoming: true,
+				ID: "large-consent", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopPending, Incoming: true, Host: true,
 			}
 			view := newRemoteDesktopView(state)
 			view.avatarShell = &UI{theme: view.theme, palette: paletteFor(view.theme, state.Settings.ColorScheme)}
@@ -145,7 +146,7 @@ func TestRemoteDesktopWindowReflectsConnectionAndSharingState(t *testing.T) {
 		stop    string
 	}{
 		{name: "connecting", session: domain.RemoteDesktopSession{ID: "connecting", Status: domain.RemoteDesktopConnecting}, stop: "取消"},
-		{name: "sharing", session: domain.RemoteDesktopSession{ID: "sharing", Status: domain.RemoteDesktopActive, Incoming: true}, stop: "停止共享"},
+		{name: "sharing", session: domain.RemoteDesktopSession{ID: "sharing", Status: domain.RemoteDesktopActive, Incoming: true, Host: true}, stop: "停止共享"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := remoteDesktopTestState(t)

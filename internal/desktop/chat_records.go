@@ -17,8 +17,19 @@ func isVoiceRecord(m domain.Message) bool {
 
 func voiceRecordLabel(m domain.Message) string {
 	detail := strings.TrimPrefix(m.Text, "语音通话 · ")
+	detail = strings.TrimPrefix(detail, "视频通话 · ")
 	if m.Voice == nil {
+		if strings.HasPrefix(m.Text, "视频通话 · ") {
+			return i18n.T("视频通话") + " · " + detail
+		}
 		return i18n.T("语音通话") + " · " + detail
+	}
+	if m.Voice.Video {
+		direction := i18n.T("呼出视频通话")
+		if m.Voice.Direction == domain.VoiceCallIncoming {
+			direction = i18n.T("呼入视频通话")
+		}
+		return direction + " · " + detail
 	}
 	direction := i18n.T("呼出通话")
 	if m.Voice.Direction == domain.VoiceCallIncoming {
@@ -30,10 +41,17 @@ func voiceRecordLabel(m domain.Message) string {
 func (u *UI) drawVoiceRecord(f ui.C, message domain.Message) {
 	color := u.palette.secondaryText
 	icon := u.iconPhone
+	if message.Voice != nil && message.Voice.Video {
+		icon = videoCallIcon
+	}
 	if message.Voice != nil && message.Voice.Connected {
 		color = u.palette.success
 	} else if strings.Contains(message.Text, "拒绝") || strings.Contains(message.Text, "无人接听") {
-		icon = u.iconPhoneOff
+		if message.Voice != nil && message.Voice.Video {
+			icon = videoCallOffIcon
+		} else {
+			icon = u.iconPhoneOff
+		}
 	}
 	ui.Row(f).FillWidth().Justify(ui.Center).Children(func() {
 		card := ui.Row(f).MaxWidthPercent(90).PadSides(10, 14, 10, 14).Radius(10).Gap(10).Items(ui.Center).
@@ -75,7 +93,12 @@ func (u *UI) drawVoiceRecordDetail(f ui.C, message domain.Message) {
 
 func remoteDesktopRecordLabel(record domain.RemoteDesktopRecord) string {
 	direction := i18n.T("发起远程桌面")
-	if record.Incoming {
+	switch {
+	case record.RequestedHelp:
+		direction = i18n.T("请求对方协助")
+	case record.Incoming && !record.Host:
+		direction = i18n.T("协助对方电脑")
+	case record.Incoming:
 		direction = i18n.T("收到远程协助请求")
 	}
 	label := direction + " · " + i18n.T(record.Outcome())

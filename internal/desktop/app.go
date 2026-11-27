@@ -215,55 +215,55 @@ type appIDs struct {
 	emptyConnect    gfx.ID
 	emptyCompose    gfx.ID
 
-	chatScreenshot                                                         gfx.ID
-	chatSend                                                               gfx.ID
-	chatImage                                                              gfx.ID
-	chatFile, chatFolder, chatCurrentContact                               gfx.ID
-	chatEmoji                                                              gfx.ID
-	chatEditorField                                                        gfx.ID
-	mainPin                                                                gfx.ID
-	chatHeaderFile                                                         gfx.ID
-	chatHeaderSearch                                                       gfx.ID
-	chatHeaderMembers                                                      gfx.ID
-	chatHeaderMore                                                         gfx.ID
-	chatHeaderCall, chatRemoteDesktop                                      gfx.ID
-	chatSearchField                                                        gfx.ID
-	chatSearchClose                                                        gfx.ID
-	chatEmptyConnect                                                       gfx.ID
-	chatEmptyCompose                                                       gfx.ID
-	chatMenuDismiss                                                        gfx.ID
-	chatMenuPin                                                            gfx.ID
-	chatMenuMute                                                           gfx.ID
-	chatMenuRead                                                           gfx.ID
-	chatMenuLeave                                                          gfx.ID
-	chatNoticeDismiss                                                      gfx.ID
-	chatMenuScope                                                          gfx.ID
-	shellMenuDismiss                                                       gfx.ID
-	shellMenuPin                                                           gfx.ID
-	shellMenuMute                                                          gfx.ID
-	shellMenuRead                                                          gfx.ID
-	shellMenuDelete                                                        gfx.ID
-	shellMenuTalk                                                          gfx.ID
-	shellMenuOrganize                                                      gfx.ID
-	shellMenuHideContact                                                   gfx.ID
-	shellMenuDeleteContact                                                 gfx.ID
-	shellMenuRemark                                                        gfx.ID
-	shellMenuProfile                                                       gfx.ID
-	shellMenuNewGroup                                                      gfx.ID
-	shellMenuNewContactGroup                                               gfx.ID
-	shellMenuRenameContactGroup                                            gfx.ID
-	shellMenuDeleteContactGroup                                            gfx.ID
-	shellMenuConnect                                                       gfx.ID
-	shellMenuExpand                                                        gfx.ID
-	shellMenuCollapse                                                      gfx.ID
-	shellMenuScope                                                         gfx.ID
-	sidebarSurface                                                         gfx.ID
-	selfRow                                                                gfx.ID
-	mentionScope                                                           gfx.ID
-	mentionDismiss                                                         gfx.ID
-	emojiScope                                                             gfx.ID
-	messageMenuCopy, messageMenuSave, messageMenuRecall, messageMenuDelete gfx.ID
-	emojiDismiss                                                           gfx.ID
+	chatScreenshot                                                                gfx.ID
+	chatSend                                                                      gfx.ID
+	chatImage                                                                     gfx.ID
+	chatFile, chatFolder, chatCurrentContact                                      gfx.ID
+	chatEmoji                                                                     gfx.ID
+	chatEditorField                                                               gfx.ID
+	mainPin                                                                       gfx.ID
+	chatHeaderFile                                                                gfx.ID
+	chatHeaderSearch                                                              gfx.ID
+	chatHeaderMembers                                                             gfx.ID
+	chatHeaderMore                                                                gfx.ID
+	chatHeaderCall, chatHeaderVideoCall, chatRemoteDesktop, chatRemoteDesktopMore gfx.ID
+	chatSearchField                                                               gfx.ID
+	chatSearchClose                                                               gfx.ID
+	chatEmptyConnect                                                              gfx.ID
+	chatEmptyCompose                                                              gfx.ID
+	chatMenuDismiss                                                               gfx.ID
+	chatMenuPin                                                                   gfx.ID
+	chatMenuMute                                                                  gfx.ID
+	chatMenuRead                                                                  gfx.ID
+	chatMenuLeave                                                                 gfx.ID
+	chatNoticeDismiss                                                             gfx.ID
+	chatMenuScope                                                                 gfx.ID
+	shellMenuDismiss                                                              gfx.ID
+	shellMenuPin                                                                  gfx.ID
+	shellMenuMute                                                                 gfx.ID
+	shellMenuRead                                                                 gfx.ID
+	shellMenuDelete                                                               gfx.ID
+	shellMenuTalk                                                                 gfx.ID
+	shellMenuOrganize                                                             gfx.ID
+	shellMenuHideContact                                                          gfx.ID
+	shellMenuDeleteContact                                                        gfx.ID
+	shellMenuRemark                                                               gfx.ID
+	shellMenuProfile                                                              gfx.ID
+	shellMenuNewGroup                                                             gfx.ID
+	shellMenuNewContactGroup                                                      gfx.ID
+	shellMenuRenameContactGroup                                                   gfx.ID
+	shellMenuDeleteContactGroup                                                   gfx.ID
+	shellMenuConnect                                                              gfx.ID
+	shellMenuExpand                                                               gfx.ID
+	shellMenuCollapse                                                             gfx.ID
+	shellMenuScope                                                                gfx.ID
+	sidebarSurface                                                                gfx.ID
+	selfRow                                                                       gfx.ID
+	mentionScope                                                                  gfx.ID
+	mentionDismiss                                                                gfx.ID
+	emojiScope                                                                    gfx.ID
+	messageMenuCopy, messageMenuSave, messageMenuRecall, messageMenuDelete        gfx.ID
+	emojiDismiss                                                                  gfx.ID
 
 	connectScope         gfx.ID
 	titleLAN             gfx.ID
@@ -377,6 +377,7 @@ type appIDs struct {
 	voiceScope   gfx.Scope
 	voiceMute    gfx.ID
 	voiceSpeaker gfx.ID
+	videoCamera  gfx.ID
 	voiceAccept  gfx.ID
 	voiceReject  gfx.ID
 	voiceHangup  gfx.ID
@@ -388,15 +389,18 @@ type UI struct {
 	backend                       domain.Backend
 	state                         domain.State
 	voiceAudio                    *voiceAudioRuntime
+	videoMedia                    *videoCallMedia
 	voiceFocusedFor               string
 	voiceWindow                   bool
 	voiceBoundID                  string
+	voiceBoundVideo               bool
 	voiceInvitation               bool
 	voiceConcealed                bool
 	inlineVoiceID                 string
 	voiceFallbackPage             *ui.Page
 	voicePicker                   callDevicePicker
 	unlockForVoice                func()
+	remoteDesktopMenuOpen         bool
 	theme                         ui.Theme
 	palette                       palette
 	tree                          gfx.Tree
@@ -888,6 +892,7 @@ func (u *UI) Close() {
 		u.panels.closeMemberProject()
 		u.surface.viewer.video.Stop()
 		u.voiceAudio.close()
+		u.videoMedia.close()
 		for _, page := range []*ui.Page{
 			u.titlePage, u.railPage, u.sidebarPage, u.chatPage, u.drawerPage,
 			u.dialogPage, u.mentionPage, u.emojiPage, u.surface.workspace, u.panels.page, u.voiceFallbackPage, u.lockUI.page,
@@ -1262,7 +1267,9 @@ func (u *UI) initIDs() {
 	u.ids.chatHeaderMembers = u.tree.ID(u.ids.chat, "header-members")
 	u.ids.chatHeaderMore = u.tree.ID(u.ids.chat, "header-more")
 	u.ids.chatHeaderCall = u.tree.ID(u.ids.chat, "header-call")
+	u.ids.chatHeaderVideoCall = u.tree.ID(u.ids.chat, "header-video-call")
 	u.ids.chatRemoteDesktop = u.tree.ID(u.ids.chat, "remote-desktop")
+	u.ids.chatRemoteDesktopMore = u.tree.ID(u.ids.chat, "remote-desktop-more")
 	u.ids.chatSearchField = u.tree.ID(u.ids.chat, "find-field")
 	u.ids.chatSearchClose = u.tree.ID(u.ids.chat, "find-close")
 	u.ids.chatEmptyConnect = u.tree.ID(u.ids.chat, "empty-connect")
@@ -1406,6 +1413,7 @@ func (u *UI) initIDs() {
 	u.ids.voiceScope = u.tree.Sub(u.ids.dialog, u.tree.Name("voice-call"))
 	u.ids.voiceMute = u.tree.ID(u.ids.voiceScope, "mute")
 	u.ids.voiceSpeaker = u.tree.ID(u.ids.voiceScope, "speaker")
+	u.ids.videoCamera = u.tree.ID(u.ids.voiceScope, "camera")
 	u.ids.voiceAccept = u.tree.ID(u.ids.voiceScope, "accept")
 	u.ids.voiceReject = u.tree.ID(u.ids.voiceScope, "reject")
 	u.ids.voiceHangup = u.tree.ID(u.ids.voiceScope, "hangup")
@@ -1707,7 +1715,7 @@ func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	var list ui.Box
 	u.sidebarPage.Draw(canvas, bounds, func(f ui.C) {
 		ui.Column(f).Fill().PadSides(10, 8, 4, 8).Children(func() {
-			ui.TextFieldID(f, u.ids.sidebarSearch, &u.sidebarSearch, i18n.T("搜索"), u.searchPlaceholder()).
+			ui.TextField(f, &u.sidebarSearch, i18n.T("搜索"), u.searchPlaceholder(), ui.WithID(u.ids.sidebarSearch)).
 				Icon(u.iconSearch).FillWidth().Height(38)
 			ui.Row(f).Height(6)
 			if u.section == sectionContacts {

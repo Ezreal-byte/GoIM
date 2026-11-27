@@ -3,7 +3,7 @@ package desktop
 import (
 	"strings"
 
-	"github.com/vivaui/viva/components"
+	"github.com/vivaui/viva/base"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
@@ -13,7 +13,7 @@ import (
 type messageTextSelection struct {
 	id         gfx.ID
 	text       string
-	rangeState components.TextSelection
+	rangeState base.TextSelection
 	spans      []gfx.TextSpan
 }
 
@@ -98,14 +98,14 @@ func (u *UI) paintMessageSelection(d *ui.DrawContext) {
 		}
 		if input && i == pointerLine {
 			byteAt := c.TextOffsetAtStyle(label.Value, label.Style, event.X-label.Bounds.X)
-			point := components.TextPoint{Offset: offset + min(max(byteAt-markBytes, 0), end-offset)}
+			point := base.TextPoint{Offset: offset + min(max(byteAt-markBytes, 0), end-offset)}
 			if event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 				a, b := s.rangeState.Anchor.Offset, s.rangeState.Focus.Offset
 				if point.Offset < min(a, b) || point.Offset > max(a, b) {
 					s.rangeState.Clear()
 				}
 			}
-			if s.rangeState.Pointer(event, func(gfx.Point) (components.TextPoint, bool) { return point, true }).Handled {
+			if s.rangeState.Pointer(event, func(gfx.Point) (base.TextPoint, bool) { return point, true }).Handled {
 				c.Consume()
 			}
 		}

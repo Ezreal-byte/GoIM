@@ -14,18 +14,20 @@ const (
 	voiceRingTimeout = 45 * time.Second
 	voiceEndedLinger = 3 * time.Second
 	voiceAudioQueue  = 64
+	videoFrameQueue  = 2
 )
 
 type voiceSession struct {
 	call       domain.VoiceCall
 	audio      chan []byte
+	video      chan []byte
 	ringTimer  *time.Timer
 	clearTimer *time.Timer
 }
 
 func validVoiceAction(action string) bool {
 	switch action {
-	case "invite", "ringing", "accept", "reject", "busy", "end":
+	case "invite", "ringing", "accept", "reject", "busy", "end", "camera":
 		return true
 	default:
 		return false
@@ -60,25 +62,38 @@ func (n *Node) voicePeerLocked(id string) domain.Peer {
 	return domain.Peer{}
 }
 
-func (n *Node) newVoiceSessionLocked(peer domain.Peer, direction domain.VoiceCallDirection, id string) *voiceSession {
+func (n *Node) newVoiceSessionLocked(peer domain.Peer, direction domain.VoiceCallDirection, id string, video bool) *voiceSession {
 	now := time.Now()
-	n.voice = &voiceSession{
+	session := &voiceSession{
 		call: domain.VoiceCall{
 			ID:         id,
 			PeerID:     peer.ID,
 			PeerName:   peer.Name,
 			PeerAvatar: peer.Avatar,
+			Video:      video,
 			Direction:  direction,
 			Status:     domain.VoiceCallRinging,
 			StartedAt:  now,
 		},
 		audio: make(chan []byte, voiceAudioQueue),
 	}
+	if video {
+		session.video = make(chan []byte, videoFrameQueue)
+	}
+	n.voice = session
 	n.voice.ringTimer = time.AfterFunc(voiceRingTimeout, func() { n.expireVoice(id) })
 	return n.voice
 }
 
 func (n *Node) startVoiceCall(peerID string) error {
+	return n.startCall(peerID, false)
+}
+
+func (n *Node) startVideoCall(peerID string) error {
+	return n.startCall(peerID, true)
+}
+
+func (n *Node) startCall(peerID string, video bool) error {
 	n.mu.Lock()
 	if n.closing {
 		n.mu.Unlock()
@@ -86,6 +101,9 @@ func (n *Node) startVoiceCall(peerID string) error {
 	}
 	if n.voice != nil && n.voice.call.Live() {
 		n.mu.Unlock()
+		if video {
+			return errors.New("当前已有通话进行中")
+		}
 		return errors.New("当前已有语音通话")
 	}
 	if n.voice != nil {
@@ -98,20 +116,27 @@ func (n *Node) startVoiceCall(peerID string) error {
 	}
 	if peer.Transport != domain.TransportGoIM || n.connections[peerID] == nil {
 		n.mu.Unlock()
+		if video {
+			return errors.New("对方当前不在线，无法发起视频通话")
+		}
 		return errors.New("对方当前不在线，无法发起语音通话")
+	}
+	if video && !peer.VideoSupported {
+		n.mu.Unlock()
+		return errors.New("对方客户端版本不支持视频通话")
 	}
 	if !peer.VoiceSupported {
 		n.mu.Unlock()
 		return errors.New("对方客户端版本不支持语音通话")
 	}
-	call := n.newVoiceSessionLocked(peer, domain.VoiceCallOutgoing, newID())
+	call := n.newVoiceSessionLocked(peer, domain.VoiceCallOutgoing, newID(), video)
 	id := call.call.ID
 	n.mu.Unlock()
 	n.signal()
 
 	err := n.sendVoiceSignal(peerID, domain.VoiceSignal{
 		CallID: id, Action: "invite", Codec: domain.VoiceCodecPCMU,
-		SampleRate: domain.VoiceSampleRate,
+		SampleRate: domain.VoiceSampleRate, Video: video,
 	})
 	if err != nil {
 		n.finishVoice(id, "unavailable", false)
@@ -137,7 +162,8 @@ func (n *Node) acceptVoiceCall(callID string) error {
 	}
 	n.voice.activate(n.data.State.Settings)
 	peer, signal := call.PeerID, domain.VoiceSignal{
-		CallID: callID, Action: "accept", Muted: call.Muted, SpeakerMuted: call.SpeakerMuted,
+		CallID: callID, Action: "accept", Video: call.Video, CameraOff: call.CameraOff,
+		Muted: call.Muted, SpeakerMuted: call.SpeakerMuted,
 	}
 	n.mu.Unlock()
 	n.signal()
@@ -262,6 +288,32 @@ func (n *Node) setVoiceSpeakerMuted(callID string, muted bool) error {
 	return nil
 }
 
+func (n *Node) setVideoCameraOff(callID string, off bool) error {
+	n.mu.Lock()
+	if n.voice == nil || n.voice.call.ID != callID || !n.voice.call.Live() || !n.voice.call.Video {
+		n.mu.Unlock()
+		return nil
+	}
+	n.voice.call.CameraOff = off
+	peer := n.voice.call.PeerID
+	n.mu.Unlock()
+	n.signal()
+	_ = n.sendVoiceSignal(peer, domain.VoiceSignal{CallID: callID, Action: "camera", Video: true, CameraOff: off})
+	return nil
+}
+
+func (n *Node) setCallCamera(callID, device string) error {
+	n.mu.Lock()
+	if n.voice == nil || n.voice.call.ID != callID || !n.voice.call.Live() || !n.voice.call.Video {
+		n.mu.Unlock()
+		return nil
+	}
+	n.voice.call.Camera = device
+	n.mu.Unlock()
+	n.signal()
+	return nil
+}
+
 func (n *Node) receiveVoiceSignal(peer string, signal domain.VoiceSignal) error {
 	if !validVoiceAction(signal.Action) || !validVoiceID(signal.CallID) {
 		return nil
@@ -294,9 +346,9 @@ func (n *Node) receiveVoiceSignal(peer string, signal domain.VoiceSignal) error 
 			case cur.PeerID == peer && cur.Direction == domain.VoiceCallOutgoing &&
 				cur.Status == domain.VoiceCallRinging && n.data.State.Self.ID > peer:
 				n.closeVoiceLocked()
-				n.newVoiceSessionLocked(p, domain.VoiceCallIncoming, signal.CallID)
+				n.newVoiceSessionLocked(p, domain.VoiceCallIncoming, signal.CallID, signal.Video)
 				changed = true
-				replies = append(replies, domain.VoiceSignal{CallID: signal.CallID, Action: "ringing"})
+				replies = append(replies, domain.VoiceSignal{CallID: signal.CallID, Action: "ringing", Video: signal.Video})
 			default:
 				replies = append(replies, domain.VoiceSignal{CallID: signal.CallID, Action: "busy", Reason: "busy"})
 			}
@@ -307,9 +359,9 @@ func (n *Node) receiveVoiceSignal(peer string, signal domain.VoiceSignal) error 
 			if n.voicePeerLocked(peer).ID == "" {
 				replies = append(replies, domain.VoiceSignal{CallID: signal.CallID, Action: "busy", Reason: "unavailable"})
 			} else {
-				n.newVoiceSessionLocked(p, domain.VoiceCallIncoming, signal.CallID)
+				n.newVoiceSessionLocked(p, domain.VoiceCallIncoming, signal.CallID, signal.Video)
 				changed = true
-				replies = append(replies, domain.VoiceSignal{CallID: signal.CallID, Action: "ringing"})
+				replies = append(replies, domain.VoiceSignal{CallID: signal.CallID, Action: "ringing", Video: signal.Video})
 			}
 		}
 	} else if current != nil && current.call.ID == signal.CallID && current.call.PeerID == peer {
@@ -317,7 +369,15 @@ func (n *Node) receiveVoiceSignal(peer string, signal domain.VoiceSignal) error 
 		switch signal.Action {
 		case "accept":
 			if call.Status == domain.VoiceCallRinging && call.Direction == domain.VoiceCallOutgoing {
+				if call.Video {
+					call.PeerCameraOff = signal.CameraOff
+				}
 				current.activate(n.data.State.Settings)
+				changed = true
+			}
+		case "camera":
+			if call.Video && call.Live() {
+				call.PeerCameraOff = signal.CameraOff
 				changed = true
 			}
 		case "reject":
@@ -393,6 +453,10 @@ func (n *Node) endVoiceLocked(reason string) {
 		close(n.voice.audio)
 		n.voice.audio = nil
 	}
+	if n.voice.video != nil {
+		close(n.voice.video)
+		n.voice.video = nil
+	}
 	n.voice.call.Status = domain.VoiceCallEnded
 	n.voice.call.Reason = voiceReason(reason)
 	n.recordVoiceHistoryLocked(n.voice.call)
@@ -420,10 +484,14 @@ func (n *Node) recordVoiceHistoryLocked(call domain.VoiceCall) {
 		seconds = max(int(time.Since(call.ConnectedAt).Seconds()), 0)
 		detail = fmt.Sprintf("通话时长 %02d:%02d", seconds/60, seconds%60)
 	}
+	prefix := "语音通话 · "
+	if call.Video {
+		prefix = "视频通话 · "
+	}
 	addMessageState(state, domain.Message{
 		ID: messageID, ConversationID: conversationID, SenderID: state.Self.ID,
-		Kind: "system", Text: "语音通话 · " + detail, CreatedAt: time.Now(), Status: "delivered",
-		Voice: &domain.VoiceRecord{Direction: call.Direction, Reason: call.Reason,
+		Kind: "system", Text: prefix + detail, CreatedAt: time.Now(), Status: "delivered",
+		Voice: &domain.VoiceRecord{Video: call.Video, Direction: call.Direction, Reason: call.Reason,
 			Connected: !call.ConnectedAt.IsZero(), DurationSeconds: seconds},
 	})
 	state.Revision++
@@ -458,6 +526,10 @@ func (n *Node) closeVoiceLocked() {
 	if n.voice.audio != nil {
 		close(n.voice.audio)
 		n.voice.audio = nil
+	}
+	if n.voice.video != nil {
+		close(n.voice.video)
+		n.voice.video = nil
 	}
 	n.voice = nil
 }
@@ -524,6 +596,57 @@ func (n *Node) receiveVoiceAudio(peer string, e envelope) {
 		}
 		select {
 		case n.voice.audio <- payload:
+		default:
+		}
+	}
+}
+
+// VideoFrames returns the live encoded video receive stream for an active video call.
+func (n *Node) VideoFrames(callID string) <-chan []byte {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.voice == nil || n.voice.call.ID != callID || !n.voice.call.Video || n.voice.call.Status != domain.VoiceCallActive {
+		return nil
+	}
+	return n.voice.video
+}
+
+// SendVideoFrame forwards one encoded JPEG video frame over the peer TLS link.
+func (n *Node) SendVideoFrame(callID string, encoded []byte) error {
+	if !validVoiceID(callID) || len(encoded) == 0 || len(encoded) > domain.VideoMaxFrameBytes {
+		return errors.New("无效的视频帧数据")
+	}
+	n.mu.Lock()
+	if n.voice == nil || n.voice.call.ID != callID || !n.voice.call.Video || n.voice.call.Status != domain.VoiceCallActive {
+		n.mu.Unlock()
+		return errors.New("视频通话未接通")
+	}
+	peer := n.voice.call.PeerID
+	n.mu.Unlock()
+	payload := append([]byte(nil), encoded...)
+	return n.send(peer, envelope{Type: "video_frame", CallID: callID, VideoFrame: payload})
+}
+
+func (n *Node) receiveVideoFrame(peer string, e envelope) {
+	if len(e.VideoFrame) == 0 || len(e.VideoFrame) > domain.VideoMaxFrameBytes {
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.voice == nil || !n.voice.call.Video || n.voice.call.Status != domain.VoiceCallActive ||
+		n.voice.call.ID != e.CallID || n.voice.call.PeerID != peer || n.voice.video == nil {
+		return
+	}
+	payload := append([]byte(nil), e.VideoFrame...)
+	select {
+	case n.voice.video <- payload:
+	default:
+		select {
+		case <-n.voice.video:
+		default:
+		}
+		select {
+		case n.voice.video <- payload:
 		default:
 		}
 	}

@@ -41,10 +41,79 @@ func remoteDesktopUnavailable(state domain.State, peer domain.Peer) string {
 func (u *UI) drawRemoteDesktopButton(f ui.C, peer domain.Peer) {
 	label := i18n.T("远程桌面")
 	reason := remoteDesktopUnavailable(u.state, peer)
-	if u.composerActionButton(f, u.ids.chatRemoteDesktop, remoteDesktopIcon, label, reason).
-		Disabled(reason != "").Tooltip(defaultIfEmpty(reason, label)).Clicked() && reason == "" {
-		u.submit(domain.Command{Kind: domain.StartRemoteDesktop, PeerID: peer.ID})
+	if reason != "" {
+		u.remoteDesktopMenuOpen = false
 	}
+	ui.Row(f).Items(ui.Center).Gap(0).Children(func() {
+		if u.composerActionButton(f, u.ids.chatRemoteDesktop, remoteDesktopIcon, label, reason).
+			Disabled(reason != "").Tooltip(defaultIfEmpty(reason, label)).Clicked() && reason == "" {
+			u.remoteDesktopMenuOpen = false
+			u.submit(domain.Command{Kind: domain.StartRemoteDesktop, PeerID: peer.ID})
+		}
+		moreLabel := i18n.T("更多远程协助选项")
+		moreBg := ui.Color{}
+		if u.remoteDesktopMenuOpen {
+			moreBg = u.palette.selected
+		}
+		more := ui.Row(f).Size(20, 34).Radius(radiusControl).Background(moreBg).Center().
+			Hover(ui.Look{}.Background(u.palette.chat.Mix(u.theme.Foreground, 0.09))).
+			Focus(ui.Look{}.Ring(1.5, u.theme.Ring)).
+			Disabled(reason != "").
+			HitWith(u.ids.chatRemoteDesktopMore, moreLabel, gfx.HitOptions{
+				Role: gfx.RoleButton, Selected: u.remoteDesktopMenuOpen, Hint: defaultIfEmpty(reason, moreLabel),
+			}).
+			Tooltip(defaultIfEmpty(reason, moreLabel)).
+			Children(func() {
+				ui.Icon(f, ChevronDown).Size(14, 14).Color(u.theme.MutedForeground)
+			})
+		if more.Clicked() && reason == "" {
+			u.remoteDesktopMenuOpen = !u.remoteDesktopMenuOpen
+			if u.remoteDesktopMenuOpen {
+				u.emojiOpen = false
+			}
+		}
+		spec := ui.PopoverSpec{
+			Side: components.PopoverTop, Align: ui.End,
+			Width:               max(float32(236), textSize(f, 210)),
+			Padding:             8,
+			Offset:              6,
+			Instant:             true,
+			ConsumeOutsidePress: true,
+		}
+		ui.Popover(f, more, &u.remoteDesktopMenuOpen, spec, func() {
+			u.drawRemoteDesktopPopover(f, peer)
+		})
+	})
+}
+
+func (u *UI) drawRemoteDesktopPopover(f ui.C, peer domain.Peer) {
+	assistDisabled := !peer.RemoteDesktopAssistSupported
+	assistHint := i18n.T("允许对方控制当前电脑")
+	if assistDisabled {
+		assistHint = i18n.T("对方客户端版本不支持请求远程协助")
+	}
+	ui.Column(f).FillWidth().Gap(4).Children(func() {
+		if u.remoteDesktopMenuItem(f.Part("control-peer"), remoteDesktopIcon, i18n.T("控制对方电脑"), i18n.T("请求查看并控制对方屏幕"), false) {
+			u.remoteDesktopMenuOpen = false
+			u.submit(domain.Command{Kind: domain.StartRemoteDesktop, PeerID: peer.ID})
+		}
+		if u.remoteDesktopMenuItem(f.Part("request-assist"), remoteDesktopIcon, i18n.T("请求对方协助"), assistHint, assistDisabled) {
+			u.remoteDesktopMenuOpen = false
+			u.submit(domain.Command{Kind: domain.RequestRemoteAssistance, PeerID: peer.ID})
+		}
+	})
+}
+
+func (u *UI) remoteDesktopMenuItem(f ui.C, icon gfx.Icon, title, subtitle string, disabled bool) bool {
+	item := ui.Button(f, title).Ghost().FillWidth().PadSides(8, 10, 8, 10).Gap(10).
+		Items(ui.Center).Justify(ui.Start).Disabled(disabled).Children(func() {
+		ui.Icon(f, icon).Size(16, 16).Color(u.theme.MutedForeground)
+		ui.Column(f).Grow(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Text(f, title).FillWidth().FontSize(textSize(f, 13)).Weight(gfx.WeightMedium).Ellipsis()
+			ui.Text(f, subtitle).FillWidth().FontSize(textSize(f, 11.5)).Muted().Ellipsis()
+		})
+	})
+	return item.Clicked() && !disabled
 }
 
 type remoteDesktopWindowMode uint8
@@ -70,7 +139,7 @@ func remoteDesktopWindowFor(session domain.RemoteDesktopSession) remoteDesktopWi
 	case domain.RemoteDesktopConnecting:
 		return remoteDesktopWindowProgress
 	case domain.RemoteDesktopActive:
-		if session.Incoming {
+		if session.Host {
 			return remoteDesktopWindowSharing
 		}
 		return remoteDesktopWindowViewing
@@ -92,6 +161,9 @@ type remoteDesktopView struct {
 	wake         app.Invalidator
 	stopID       gfx.ID
 	acceptID     gfx.ID
+	collapseID   gfx.ID
+	collapsed    bool
+	resize       func(width, height int)
 	handle       *app.Window
 	accept       func()
 	stop         func()
@@ -110,6 +182,9 @@ func newRemoteDesktopView(state domain.State) *remoteDesktopView {
 	view.stopID = view.tree.ID(actions, "stop")
 	if view.mode == remoteDesktopWindowConsent {
 		view.acceptID = view.tree.ID(actions, "accept-control")
+	}
+	if view.mode == remoteDesktopWindowSharing {
+		view.collapseID = view.tree.ID(actions, "toggle-collapse")
 	}
 	return view
 }
@@ -332,7 +407,7 @@ func (r *desktopRuntime) remoteDesktopTrayItems() []app.MenuItem {
 	}
 	return []app.MenuItem{
 		{ID: "remote-stop-" + session.ID, Title: i18n.T("停止共享"), OnSelect: func() {
-			if current := r.backend.Snapshot().RemoteDesktop; current.ID == session.ID && current.Status == domain.RemoteDesktopActive && current.Incoming {
+			if current := r.backend.Snapshot().RemoteDesktop; current.ID == session.ID && current.Status == domain.RemoteDesktopActive && current.Host {
 				r.backend.Submit(domain.Command{Kind: domain.EndRemoteDesktop, RemoteDesktopID: session.ID})
 			}
 		}},

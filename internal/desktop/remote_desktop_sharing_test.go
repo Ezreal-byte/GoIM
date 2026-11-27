@@ -20,7 +20,7 @@ func TestRemoteDesktopSharingNotification(t *testing.T) {
 			state := remoteDesktopTestState(t)
 			state.Settings.InterfaceFontSize = 28
 			state.RemoteDesktop = domain.RemoteDesktopSession{
-				ID: "sharing", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopActive, Incoming: true,
+				ID: "sharing", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopActive, Incoming: true, Host: true,
 			}
 			view := newRemoteDesktopView(state)
 			view.avatarShell = &UI{theme: view.theme, palette: paletteFor(view.theme, state.Settings.ColorScheme)}
@@ -76,7 +76,7 @@ func TestRemoteDesktopSharingScreenshotQA(t *testing.T) {
 	state := remoteDesktopTestState(t)
 	state.Settings.Language, state.Settings.Theme, state.Settings.InterfaceFontSize = i18n.Chinese, "light", 15
 	state.RemoteDesktop = domain.RemoteDesktopSession{
-		ID: "sharing", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopActive, Incoming: true, Control: true,
+		ID: "sharing", PeerID: state.Peers[0].ID, Status: domain.RemoteDesktopActive, Incoming: true, Host: true, Control: true,
 	}
 	captureRemoteDesktopNotification(t, state, directory, "remote-sharing-light-zh.png")
 	state.Settings.Language, state.Settings.Theme, state.Settings.InterfaceFontSize = i18n.English, "dark", 28

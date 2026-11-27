@@ -167,11 +167,11 @@ func (u *UI) drawProfileDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			})
 			ui.Row(f).FillWidth().Gap(16).Children(func() {
 				profileFormColumn(f, i18n.T("昵称"), func() {
-					submitted = ui.TextFieldID(f, u.ids.profileField, &u.profile.nickname, i18n.T("昵称"), i18n.T("输入昵称")).
+					submitted = ui.TextField(f, &u.profile.nickname, i18n.T("昵称"), i18n.T("输入昵称"), ui.WithID(u.ids.profileField)).
 						Height(38).FillWidth().Submitted()
 				})
 				profileFormColumn(f, i18n.T("个性签名"), func() {
-					submitted = ui.TextFieldID(f, u.ids.profileSignature, &u.profile.signature, i18n.T("个性签名"), i18n.T("写一句介绍，最多 80 字")).
+					submitted = ui.TextField(f, &u.profile.signature, i18n.T("个性签名"), i18n.T("写一句介绍，最多 80 字"), ui.WithID(u.ids.profileSignature)).
 						Height(38).FillWidth().Submitted() || submitted
 				})
 			})
@@ -380,7 +380,7 @@ func (u *UI) drawProfileDetails(f ui.C) {
 	field := func(i int) {
 		label := i18n.T(profileDetailLabels[i])
 		profileFormColumn(f, label, func() {
-			ui.TextFieldID(f, u.ids.profileDetails[i], &u.profile.details[i], label, i18n.T("选填")).Height(34).FillWidth()
+			ui.TextField(f, &u.profile.details[i], label, i18n.T("选填"), ui.WithID(u.ids.profileDetails[i])).Height(34).FillWidth()
 		})
 	}
 	ui.Divider(f)
@@ -735,8 +735,8 @@ func (u *UI) drawGroupNicknameEditor(f ui.C, group domain.Group) {
 	}
 	ui.Column(f).FillWidth().Gap(5).Children(func() {
 		ui.Row(f).Height(36).Items(ui.Center).Gap(8).Children(func() {
-			field := ui.TextFieldID(f, u.ids.memberNickname, &u.nicknameField, i18n.T("我在群里的昵称"),
-				i18n.T("留空使用本名")).Height(36).Grow(1)
+			field := ui.TextField(f, &u.nicknameField, i18n.T("我在群里的昵称"), i18n.T("留空使用本名"), ui.WithID(u.ids.memberNickname)).
+				Height(36).Grow(1)
 			if namedButton(f, u.ids.memberCancelNickname, i18n.T("取消")).XSmall().Outline().Clicked() {
 				u.nicknameOpen = false
 				u.nicknameErr = ""

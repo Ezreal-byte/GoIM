@@ -21,11 +21,14 @@ const (
 	remoteDesktopVersion = 1
 	remoteInviteTimeout  = 60 * time.Second
 	remoteSetupTimeout   = 30 * time.Second
+	remoteModeControl    = "control"
+	remoteModeAssist     = "assist"
 )
 
 type remoteDesktopSignal struct {
 	ID      string
 	Action  string
+	Mode    string `json:",omitempty"`
 	Grant   string `json:",omitempty"`
 	Control bool   `json:",omitempty"`
 	Audio   bool   `json:",omitempty"`
@@ -58,18 +61,21 @@ func validRemoteID(s string) bool {
 	return err == nil
 }
 
-func (n *Node) newRemoteDesktopLocked(id string, peer *peerConn, incoming bool) *remoteSession {
+func (n *Node) newRemoteDesktopLocked(id string, peer *peerConn, incoming, host bool) *remoteSession {
 	name := peer.peer.Name
 	if remark := n.data.PeerRemarks[peer.peer.ID]; remark != "" {
 		name = remark
 	}
 	ctx, cancel := context.WithCancel(n.ctx)
 	s := &remoteSession{
-		view: domain.RemoteDesktopSession{ID: id, PeerID: peer.peer.ID, PeerName: name, Incoming: incoming, Status: domain.RemoteDesktopPending},
+		view: domain.RemoteDesktopSession{
+			ID: id, PeerID: peer.peer.ID, PeerName: name,
+			Incoming: incoming, Host: host, Status: domain.RemoteDesktopPending,
+		},
 		peer: peer, ctx: ctx, cancel: cancel,
 		frames: make(chan domain.RemoteDesktopFrame, 1),
 	}
-	if !incoming {
+	if !host {
 		s.cursors = make(chan domain.RemoteDesktopCursor, 1)
 		s.input = remotedesktop.NewInputQueue()
 	}
@@ -102,6 +108,14 @@ func remoteLive(s *remoteSession) bool {
 }
 
 func (n *Node) startRemoteDesktop(peerID string) error {
+	return n.initiateRemoteDesktop(peerID, false)
+}
+
+func (n *Node) requestRemoteAssistance(peerID string) error {
+	return n.initiateRemoteDesktop(peerID, true)
+}
+
+func (n *Node) initiateRemoteDesktop(peerID string, requestHelp bool) error {
 	n.mu.Lock()
 	if n.closing || n.remoteEngine == nil || n.data.State.Locked {
 		n.mu.Unlock()
@@ -112,12 +126,20 @@ func (n *Node) startRemoteDesktop(peerID string) error {
 		n.mu.Unlock()
 		return errors.New("远程桌面需要支持该功能的 GoIM 联系人直连")
 	}
+	if requestHelp && !peer.peer.RemoteDesktopAssistSupported {
+		n.mu.Unlock()
+		return errors.New("对方客户端版本不支持请求远程协助")
+	}
 	if remoteLive(n.remoteDesktop) {
 		n.mu.Unlock()
 		return errors.New("当前已有远程桌面会话")
 	}
-	s := n.newRemoteDesktopLocked(newID(), peer, false)
-	n.sendRemoteSetupLocked(s, remoteDesktopSignal{ID: s.view.ID, Action: "invite"})
+	s := n.newRemoteDesktopLocked(newID(), peer, false, requestHelp)
+	signal := remoteDesktopSignal{ID: s.view.ID, Action: "invite"}
+	if requestHelp {
+		signal.Mode = remoteModeAssist
+	}
+	n.sendRemoteSetupLocked(s, signal)
 	n.mu.Unlock()
 	n.signal()
 	return nil
@@ -131,11 +153,15 @@ func (n *Node) acceptRemoteDesktop(id string, control, audio bool) error {
 		n.mu.Unlock()
 		return errors.New("远程桌面邀请已失效")
 	}
-	s.grant = newID()
-	s.view.Control, s.view.Audio = control, audio
 	s.view.Status = domain.RemoteDesktopConnecting
 	n.remoteDeadlineLocked(s, remoteSetupTimeout, "failed")
-	n.sendRemoteSetupLocked(s, remoteDesktopSignal{ID: id, Action: "accept", Grant: s.grant, Control: control, Audio: audio})
+	if s.view.Host {
+		s.grant = newID()
+		s.view.Control, s.view.Audio = control, audio
+		n.sendRemoteSetupLocked(s, remoteDesktopSignal{ID: id, Action: "accept", Grant: s.grant, Control: control, Audio: audio})
+	} else {
+		n.sendRemoteSetupLocked(s, remoteDesktopSignal{ID: id, Action: "accept", Mode: remoteModeAssist})
+	}
 	n.mu.Unlock()
 	n.signal()
 	return nil
@@ -173,24 +199,59 @@ func (n *Node) receiveRemoteDesktop(peerID string, source *peerConn, msg *remote
 			n.mu.Unlock()
 			return
 		}
+		if msg.Mode != "" && msg.Mode != remoteModeControl && msg.Mode != remoteModeAssist {
+			n.mu.Unlock()
+			return
+		}
 		if remoteLive(s) {
 			n.mu.Unlock()
 			reply := remoteDesktopSignal{ID: msg.ID, Action: "stop", Reason: "busy"}
 			_ = source.send(envelope{Type: "remote_desktop_signal", RemoteDesktop: &reply})
 			return
 		}
-		n.newRemoteDesktopLocked(msg.ID, source, true)
+		host := msg.Mode != remoteModeAssist
+		n.newRemoteDesktopLocked(msg.ID, source, true, host)
 		n.mu.Unlock()
 		n.signal()
 	case "accept":
 		if s == nil || s.view.ID != msg.ID || s.peer != source || s.view.Incoming ||
-			s.view.Status != domain.RemoteDesktopPending || !validRemoteID(msg.Grant) || !time.Now().Before(s.expires) {
+			s.view.Status != domain.RemoteDesktopPending || !time.Now().Before(s.expires) {
+			n.mu.Unlock()
+			return
+		}
+		if s.view.Host {
+			// Reverse assistance: requester is the controlled host; issue one-time grant now.
+			s.grant = newID()
+			s.view.Control = true
+			s.view.Audio = false
+			s.view.Status = domain.RemoteDesktopConnecting
+			n.remoteDeadlineLocked(s, remoteSetupTimeout, "failed")
+			n.sendRemoteSetupLocked(s, remoteDesktopSignal{
+				ID: s.view.ID, Action: "grant", Mode: remoteModeAssist, Grant: s.grant, Control: true,
+			})
+			n.mu.Unlock()
+			n.signal()
+			return
+		}
+		if !validRemoteID(msg.Grant) {
 			n.mu.Unlock()
 			return
 		}
 		s.view.Status = domain.RemoteDesktopConnecting
 		s.view.Control, s.view.Audio = msg.Control, msg.Audio
 		n.remoteDeadlineLocked(s, remoteSetupTimeout, "failed")
+		n.mu.Unlock()
+		n.signal()
+		if !n.async(func() { n.dialRemoteDesktop(s, msg.Grant) }) {
+			n.finishRemoteDesktop(s, "disconnected", false)
+		}
+	case "grant":
+		if s == nil || s.view.ID != msg.ID || s.peer != source || !s.view.Incoming || s.view.Host ||
+			s.view.Status != domain.RemoteDesktopConnecting || !validRemoteID(msg.Grant) || !time.Now().Before(s.expires) {
+			n.mu.Unlock()
+			return
+		}
+		s.view.Control, s.view.Audio = msg.Control, msg.Audio
 		n.mu.Unlock()
 		n.signal()
 		if !n.async(func() { n.dialRemoteDesktop(s, msg.Grant) }) {
@@ -363,7 +424,7 @@ func (n *Node) serveRemoteDesktop(conn *tls.Conn, peerID string, msg *remoteDesk
 	}
 	n.mu.Lock()
 	s := n.remoteDesktop
-	if s == nil || s.view.ID != msg.ID || !s.view.Incoming || s.view.PeerID != peerID ||
+	if s == nil || s.view.ID != msg.ID || !s.view.Host || s.view.PeerID != peerID ||
 		s.view.Status != domain.RemoteDesktopConnecting || s.attached || n.closing || n.data.State.Locked ||
 		n.connections[peerID] != s.peer || !time.Now().Before(s.expires) ||
 		subtle.ConstantTimeCompare([]byte(msg.Grant), []byte(s.grant)) != 1 {
@@ -406,7 +467,7 @@ func (n *Node) runRemoteDesktop(s *remoteSession, conn net.Conn, role string) {
 	onFrame := func(frame domain.RemoteDesktopFrame) {
 		n.mu.Lock()
 		defer n.mu.Unlock()
-		if n.remoteDesktop != s || s.view.Status != domain.RemoteDesktopActive || s.view.Incoming {
+		if n.remoteDesktop != s || s.view.Status != domain.RemoteDesktopActive || s.view.Host {
 			return
 		}
 		select {
@@ -418,7 +479,7 @@ func (n *Node) runRemoteDesktop(s *remoteSession, conn net.Conn, role string) {
 	onCursor := func(cursor domain.RemoteDesktopCursor) {
 		n.mu.Lock()
 		defer n.mu.Unlock()
-		if n.remoteDesktop != s || s.view.Status != domain.RemoteDesktopActive || s.view.Incoming {
+		if n.remoteDesktop != s || s.view.Status != domain.RemoteDesktopActive || s.view.Host {
 			return
 		}
 		select {
@@ -430,7 +491,7 @@ func (n *Node) runRemoteDesktop(s *remoteSession, conn net.Conn, role string) {
 	onDevices := func(devices []string) {
 		n.mu.Lock()
 		defer n.mu.Unlock()
-		if n.remoteDesktop == s && s.view.Status == domain.RemoteDesktopActive && !s.view.Incoming && s.view.Audio {
+		if n.remoteDesktop == s && s.view.Status == domain.RemoteDesktopActive && !s.view.Host && s.view.Audio {
 			s.view.OutputDevices = slices.Clone(devices)
 			n.signal()
 		}
@@ -444,7 +505,7 @@ func (n *Node) runRemoteDesktop(s *remoteSession, conn net.Conn, role string) {
 func (n *Node) RemoteDesktopFrames(id string) <-chan domain.RemoteDesktopFrame {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if s := n.remoteDesktop; s != nil && s.view.ID == id && s.view.Status == domain.RemoteDesktopActive && !s.view.Incoming {
+	if s := n.remoteDesktop; s != nil && s.view.ID == id && s.view.Status == domain.RemoteDesktopActive && !s.view.Host {
 		return s.frames
 	}
 	return nil
@@ -453,7 +514,7 @@ func (n *Node) RemoteDesktopFrames(id string) <-chan domain.RemoteDesktopFrame {
 func (n *Node) RemoteDesktopCursors(id string) <-chan domain.RemoteDesktopCursor {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if s := n.remoteDesktop; s != nil && s.view.ID == id && s.view.Status == domain.RemoteDesktopActive && !s.view.Incoming {
+	if s := n.remoteDesktop; s != nil && s.view.ID == id && s.view.Status == domain.RemoteDesktopActive && !s.view.Host {
 		return s.cursors
 	}
 	return nil
@@ -463,7 +524,7 @@ func (n *Node) SendRemoteDesktopInput(id string, input domain.RemoteDesktopInput
 	n.mu.Lock()
 	s := n.remoteDesktop
 	if s == nil || s.view.ID != id || s.view.Status != domain.RemoteDesktopActive ||
-		s.view.Incoming || n.data.State.Locked || n.closing {
+		s.view.Host || n.data.State.Locked || n.closing {
 		n.mu.Unlock()
 		return errors.New("远程桌面会话未连接")
 	}

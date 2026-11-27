@@ -371,7 +371,7 @@ func (p *Panels) drawPasswordDialog(f ui.C, theme ui.Theme, state domain.State, 
 				var result ui.Box
 				ui.Column(f).FillWidth().Gap(4).Children(func() {
 					ui.Text(f, i18n.T(label)).FontSize(textSize(f, 13))
-					result = ui.TextFieldID(f, id, editor, i18n.T(label), i18n.T(hint)).FillWidth().Disabled(s.passwordPending)
+					result = ui.TextField(f, editor, i18n.T(label), i18n.T(hint), ui.WithID(id)).FillWidth().Disabled(s.passwordPending)
 				})
 				return result
 			}

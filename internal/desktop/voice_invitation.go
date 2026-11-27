@@ -23,8 +23,12 @@ func invitationSize(theme ui.Theme) (int, int) {
 func (u *UI) invitationConfig() app.Config {
 	u.voiceInvitation = true
 	width, height := u.voiceInvitationSize()
+	title := i18n.T("语音来电") + " · GoIM"
+	if u.state.VoiceCall.Video {
+		title = i18n.T("视频来电") + " · GoIM"
+	}
 	return app.Config{
-		Title: i18n.T("语音来电") + " · GoIM", Class: "GoIM.IncomingCall",
+		Title: title, Class: "GoIM.IncomingCall",
 		Width: width, Height: height, Icon: windowIcon(), WindowMode: app.WindowNotification,
 		Tree: &u.tree, Invalidator: &u.invalidator, ClearColor: colorToApp(u.theme.Background),
 		OnWake: u.refreshVoice, OnPointer: u.voiceFallbackPage.Pointer, OnKey: u.voiceFallbackPage.Key,
@@ -61,7 +65,11 @@ func (u *UI) drawVoiceInvitation(canvas *gfx.Canvas, card ui.Rect, id string) {
 			if locked {
 				label = i18n.T("解锁后接听")
 			}
-			if invitationButton(f, u.ids.voiceAccept, label, ui.RGB(20, 144, 83), 0).Clicked() {
+			acceptIcon := Phone
+			if call.Video {
+				acceptIcon = videoCallIcon
+			}
+			if invitationButtonWithIcon(f, u.ids.voiceAccept, label, ui.RGB(20, 144, 83), acceptIcon, 0).Clicked() {
 				u.respondToInvitation(id, true)
 			}
 		})
@@ -70,15 +78,25 @@ func (u *UI) drawVoiceInvitation(canvas *gfx.Canvas, card ui.Rect, id string) {
 
 func invitationCaller(state domain.State, locked bool) (name, avatar, body string) {
 	if locked {
+		if state.VoiceCall.Video {
+			return "GoIM", "", i18n.T("收到一个视频通话邀请")
+		}
 		return "GoIM", "", i18n.T("收到一个语音通话邀请")
 	}
 	name, avatar = voicePeerPresentation(state)
+	if state.VoiceCall.Video {
+		return name, avatar, i18n.T("邀请你进行视频通话")
+	}
 	return name, avatar, i18n.T("邀请你进行语音通话")
 }
 
 func invitationButton(f ui.C, id gfx.ID, label string, color ui.Color, rotation float32) ui.Box {
+	return invitationButtonWithIcon(f, id, label, color, Phone, rotation)
+}
+
+func invitationButtonWithIcon(f ui.C, id gfx.ID, label string, color ui.Color, icon gfx.Icon, rotation float32) ui.Box {
 	return invitationAction(f, id, label, color).Children(func() {
-		ui.Icon(f, Phone).Size(22, 22).Color(ui.RGB(255, 255, 255)).IconTransform(gfx.IconTransform{Rotate: rotation})
+		ui.Icon(f, icon).Size(22, 22).Color(ui.RGB(255, 255, 255)).IconTransform(gfx.IconTransform{Rotate: rotation})
 	})
 }
 

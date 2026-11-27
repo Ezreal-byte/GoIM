@@ -218,8 +218,8 @@ func (p *Panels) drawShareSendDialog(f ui.C, theme ui.Theme, submit func(domain.
 			}
 			ui.Text(f, strings.Join(names, "、")).FontSize(theme.Metrics.FontSizeS + 1).
 				Weight(gfx.WeightMedium).Ellipsis()
-			field := ui.TextFieldID(f, p.ids.shareDialogPassword, &p.shareDialog.password,
-				i18n.T("访问密码（可选）"), i18n.T("留空表示无需密码")).FillWidth()
+			field := ui.TextField(f, &p.shareDialog.password, i18n.T("访问密码（可选）"), i18n.T("留空表示无需密码"), ui.WithID(p.ids.shareDialogPassword)).
+				FillWidth()
 			submitted = field.Submitted()
 			ui.Text(f, i18n.T("不设密码时，持有链接的同网用户可下载。")).Muted().
 				FontSize(theme.Metrics.FontSizeS)
@@ -255,8 +255,8 @@ func (p *Panels) drawSharePasswordDialog(f ui.C, theme ui.Theme, submit func(dom
 	var submitted bool
 	dialog.Body(func() {
 		ui.Column(f).Fill().Gap(8).Children(func() {
-			field := ui.TextFieldID(f, p.ids.sharePasswordField, &p.sharePassword.field,
-				i18n.T("访问密码"), i18n.T("留空清除密码")).FillWidth()
+			field := ui.TextField(f, &p.sharePassword.field, i18n.T("访问密码"), i18n.T("留空清除密码"), ui.WithID(p.ids.sharePasswordField)).
+				FillWidth()
 			submitted = field.Submitted()
 			ui.Text(f, i18n.T("访问者打开分享链接或扫描二维码后需要输入此密码。")).Muted().
 				FontSize(theme.Metrics.FontSizeS)

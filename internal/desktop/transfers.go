@@ -134,7 +134,7 @@ func measureTransferColumns(width float32) panelTableColumns {
 
 func drawTableSearch(f ui.C, id gfx.ID, field *ui.Field, placeholder string) {
 	ui.Row(f).FillWidth().PadSides(9, 0, 0, 0).Children(func() {
-		box := ui.TextFieldID(f, id, field, placeholder, placeholder).Height(33).Width(220)
+		box := ui.TextField(f, field, placeholder, placeholder, ui.WithID(id)).Height(33).Width(220)
 		box.Addons().SetEnd(components.InputGroupSlot{Kind: components.InputGroupSlotIcon, Icon: Search})
 	})
 }

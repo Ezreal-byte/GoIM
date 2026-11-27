@@ -29,7 +29,13 @@ func (v *remoteDesktopView) notificationConfig(title, class string, paint func(*
 }
 
 func (v *remoteDesktopView) paintIncoming(canvas *gfx.Canvas, size gfx.Size) {
-	v.paintNotification(canvas, size, i18n.T("请求控制你的电脑"), "", func(f ui.C) {
+	status := i18n.T("请求控制你的电脑")
+	accept := i18n.T("允许控制")
+	if !v.session.Host {
+		status = i18n.T("请求你协助控制 TA 的电脑")
+		accept = i18n.T("同意协助")
+	}
+	v.paintNotification(canvas, size, status, "", func(f ui.C) {
 		reject := i18n.T("拒绝")
 		if invitationAction(f, v.stopID, reject, ui.RGB(211, 55, 65)).Tooltip(reject).
 			Children(func() {
@@ -37,7 +43,6 @@ func (v *remoteDesktopView) paintIncoming(canvas *gfx.Canvas, size gfx.Size) {
 			}).Clicked() {
 			f.After(v.stop)
 		}
-		accept := i18n.T("允许控制")
 		if invitationAction(f, v.acceptID, accept, ui.RGB(20, 144, 83)).Tooltip(accept).
 			Disabled(v.decisionSent).Children(func() {
 			ui.Icon(f, Check).Size(22, 22).Color(ui.RGB(255, 255, 255))

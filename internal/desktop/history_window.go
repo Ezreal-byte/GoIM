@@ -322,7 +322,7 @@ func (v *historyWindowView) paint(canvas *gfx.Canvas, size ui.Size) {
 	v.page.Draw(canvas, ui.Rect{Y: 44, Width: size.Width, Height: max(size.Height-44, 0)}, func(f ui.C) {
 		ui.Column(f).Fill().Children(func() {
 			ui.Column(f).FillWidth().PadSides(16, 24, 12, 24).Gap(14).Children(func() {
-				ui.TextFieldID(f, v.searchID, &v.search, i18n.T("搜索聊天记录"), i18n.T("搜索消息、文件名或打印记录")).FillWidth().Height(44).FontSize(textSize(f, 14))
+				ui.TextField(f, &v.search, i18n.T("搜索聊天记录"), i18n.T("搜索消息、文件名或打印记录"), ui.WithID(v.searchID)).FillWidth().Height(44).FontSize(textSize(f, 14))
 				ui.Flow(f).FillWidth().Gap(8).Children(func() {
 					for _, tab := range historyTabs {
 						button := ui.Button(f.Part(tab.value), i18n.T(tab.label)).Ghost().Height(36).FontSize(textSize(f, 13)).Radius(8)

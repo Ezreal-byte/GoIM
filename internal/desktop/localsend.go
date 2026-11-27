@@ -158,7 +158,7 @@ func (p *Panels) drawLocalSendSend(f ui.C, theme ui.Theme, width float32, status
 	if v.manual {
 		ui.Column(f).FillWidth().Pad(12).Gap(8).Radius(radiusControl).Border(1, theme.Border).Children(func() {
 			ui.Row(f).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-				ui.TextFieldID(f, p.tree.ID(v.scope, "device-address"), &v.address, i18n.T("设备 IP 地址"), "192.168.1.85:53317").Grow(1)
+				ui.TextField(f, &v.address, i18n.T("设备 IP 地址"), "192.168.1.85:53317", ui.WithID(p.tree.ID(v.scope, "device-address"))).Grow(1)
 				if namedButton(f, p.tree.ID(v.scope, "add-device"), i18n.T("添加设备")).Disabled(strings.TrimSpace(v.address.Text()) == "").Clicked() {
 					submit(domain.Command{Kind: domain.LocalSendAddDevice, Address: v.address.Text(), LocalSend: domain.LocalSendRequest{AllowHTTP: v.manualHTTP}})
 				}
@@ -251,7 +251,7 @@ func (p *Panels) drawLocalSendSend(f ui.C, theme ui.Theme, width float32, status
 		}
 	})
 	if v.composingText {
-		ui.TextAreaID(f, p.tree.ID(v.scope, "message"), &v.text, i18n.T("要发送的文字"), i18n.T("输入文字")).FillWidth().Height(95)
+		ui.TextArea(f, &v.text, i18n.T("要发送的文字"), i18n.T("输入文字"), ui.WithID(p.tree.ID(v.scope, "message"))).FillWidth().Height(95)
 	} else if len(v.draft) > 0 {
 		p.localSendTable(f, theme, "操作", func() {
 			for _, item := range v.draft {

@@ -373,8 +373,12 @@ func (n *Node) execute(c domain.Command) error {
 		n.change(func(s *domain.State) { s.Error = c.Text })
 	case domain.StartVoiceCall:
 		return n.startVoiceCall(c.PeerID)
+	case domain.StartVideoCall:
+		return n.startVideoCall(c.PeerID)
 	case domain.StartRemoteDesktop:
 		return n.startRemoteDesktop(c.PeerID)
+	case domain.RequestRemoteAssistance:
+		return n.requestRemoteAssistance(c.PeerID)
 	case domain.AcceptRemoteDesktop:
 		return n.acceptRemoteDesktop(c.RemoteDesktopID, c.AllowRemoteControl, c.ShareRemoteAudio)
 	case domain.RejectRemoteDesktop:
@@ -391,6 +395,10 @@ func (n *Node) execute(c domain.Command) error {
 		return n.setVoiceMuted(c.CallID, c.Bool)
 	case domain.SetVoiceSpeakerMuted:
 		return n.setVoiceSpeakerMuted(c.CallID, c.Bool)
+	case domain.SetVideoCameraOff:
+		return n.setVideoCameraOff(c.CallID, c.Bool)
+	case domain.SetCallCamera:
+		return n.setCallCamera(c.CallID, c.Text)
 	case domain.SetCallMicrophone, domain.SetCallSpeaker, domain.SetCallMicrophoneVolume, domain.SetCallSpeakerVolume:
 		return n.setCallAudio(c)
 	default:

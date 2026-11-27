@@ -230,7 +230,7 @@ func newNode(opts Options, remoteEngine remotedesktop.Engine) (*Node, error) {
 			n.data.State.Settings.Nickname = host
 		}
 	}
-	n.data.State.Self = domain.Peer{ID: keyID(key.Public().(ed25519.PublicKey)), Name: n.data.State.Settings.Nickname, Avatar: n.data.State.Settings.Avatar, PublicKey: append([]byte(nil), key.Public().(ed25519.PublicKey)...), Address: listener.Addr().String(), Online: true, VoiceSupported: true}
+	n.data.State.Self = domain.Peer{ID: keyID(key.Public().(ed25519.PublicKey)), Name: n.data.State.Settings.Nickname, Avatar: n.data.State.Settings.Avatar, PublicKey: append([]byte(nil), key.Public().(ed25519.PublicKey)...), Address: listener.Addr().String(), Online: true, VoiceSupported: true, VideoSupported: true}
 	n.data.State.Self.PrintSupported = true
 	n.data.State.Self.Signature = n.data.State.Settings.Signature
 	n.data.State.Self.Presence = n.data.State.Settings.Presence
@@ -341,6 +341,7 @@ func (n *Node) snapshot(urls bool) domain.State {
 		peer.ContactDeleted = n.data.ContactVisibility[id] == contactDeleted
 		if pc := n.connections[peer.ID]; pc != nil {
 			peer.RemoteDesktopSupported = pc.peer.RemoteDesktopSupported
+			peer.RemoteDesktopAssistSupported = pc.peer.RemoteDesktopAssistSupported
 		}
 	}
 	s.ContactRefresh = n.contactRefresh

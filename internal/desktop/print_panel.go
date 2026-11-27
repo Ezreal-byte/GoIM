@@ -901,8 +901,8 @@ func (p *Panels) drawPrinterShareDialog(f ui.C, theme ui.Theme, state domain.Sta
 				}
 			}
 			ui.Text(f, i18n.T("共享名称")).FontSize(textSize(f, 12.5)).Weight(gfx.WeightMedium)
-			field := ui.TextFieldID(f, p.print.ids.shareName, &p.print.shareName,
-				i18n.T("共享名称"), i18n.T("例如：陈晨-前台 HP")).FillWidth().MinHeight(printControlHeight(theme))
+			field := ui.TextField(f, &p.print.shareName, i18n.T("共享名称"), i18n.T("例如：陈晨-前台 HP"), ui.WithID(p.print.ids.shareName)).
+				FillWidth().MinHeight(printControlHeight(theme))
 			if field.Changed() {
 				p.print.shareNameManual = true
 			}
@@ -916,7 +916,7 @@ func (p *Panels) drawPrinterShareDialog(f ui.C, theme ui.Theme, state domain.Sta
 				if p.print.shareWasProtected {
 					hint = i18n.T("留空保留当前密码")
 				}
-				ui.TextFieldID(f, p.print.ids.sharePassword, &p.print.sharePassword, i18n.T("打印密码"), hint).FillWidth().MinHeight(printControlHeight(theme))
+				ui.TextField(f, &p.print.sharePassword, i18n.T("打印密码"), hint, ui.WithID(p.print.ids.sharePassword)).FillWidth().MinHeight(printControlHeight(theme))
 			}
 			ui.Paragraph(f, i18n.T("首次使用时验证一次；修改密码后，成员需要重新验证。"), 3).FillWidth().Muted().FontSize(textSize(f, 12))
 			if p.print.shareError != "" {

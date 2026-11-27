@@ -218,7 +218,7 @@ func TestRemoteDesktopGrantIsPeerBoundAndSingleUse(t *testing.T) {
 	id, grant := newID(), newID()
 	host.mu.Lock()
 	peer := host.connections[viewerID]
-	session := host.newRemoteDesktopLocked(id, peer, true)
+	session := host.newRemoteDesktopLocked(id, peer, true, true)
 	session.view.Status = domain.RemoteDesktopConnecting
 	session.grant = grant
 	host.remoteDeadlineLocked(session, remoteSetupTimeout, "failed")

@@ -234,7 +234,7 @@ func drawLockField(f ui.C, id gfx.ID, field *ui.Field, label, placeholder string
 		ui.Text(f, label).FontSize(22 * scale * zoom).Weight(gfx.WeightSemibold)
 	})
 	theme := f.Theme()
-	return ui.TextFieldID(f, id, field, label, placeholder).FillWidth().Height(66*scale).
+	return ui.TextField(f, field, label, placeholder, ui.WithID(id)).FillWidth().Height(66*scale).
 		FontSize(23*scale*zoom).Radius(13*scale).Background(theme.Card).
 		Border(1.5*scale, theme.Border).Disabled(disabled)
 }

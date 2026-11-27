@@ -52,6 +52,20 @@ func init() {
 		"全屏":                             "Full screen",
 		"退出全屏":                           "Exit full screen",
 		"结束协助":                           "End assistance",
+		"更多远程协助选项":                       "More remote assistance options",
+		"控制对方电脑":                         "Control their computer",
+		"请求查看并控制对方屏幕":                    "Request to view and control their screen",
+		"请求对方协助":                         "Request assistance",
+		"允许对方控制当前电脑":                     "Allow the contact to control this computer",
+		"对方客户端版本不支持请求远程协助":               "The other client does not support requesting assistance.",
+		"请求你协助控制 TA 的电脑":                 "Asks you to remotely control their computer",
+		"同意协助":                           "Assist now",
+		"等待对方接受协助请求…":                    "Waiting for the contact to accept assistance…",
+		"协助对方电脑":                         "Assisted peer computer",
+		"折叠浮窗":                           "Collapse overlay",
+		"展开远程协助状态":                       "Expand remote assistance status",
+		"%s 正在控制你的电脑 · 点击展开":             "%s is controlling your computer · Click to expand",
+		"%s 正在查看你的屏幕 · 点击展开":             "%s is viewing your screen · Click to expand",
 	} {
 		if _, exists := en[label]; !exists {
 			en[label] = english
