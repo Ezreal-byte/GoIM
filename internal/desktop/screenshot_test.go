@@ -2,16 +2,78 @@ package desktop
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 
 	"goim/internal/shotlet"
 )
+
+func TestScreenshotFallbackRequiresAnUnavailableHelper(t *testing.T) {
+	directory := t.TempDir()
+	helper := filepath.Join(directory, "capture-helper")
+	if runtime.GOOS == "windows" {
+		helper += ".exe"
+	}
+	build := exec.Command("go", "build", "-o", helper, "../shotlet/testdata/helper")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build fixture: %v\n%s", err, out)
+	}
+	for _, test := range []struct {
+		name                        string
+		broken, canceled            bool
+		result                      int
+		fallback, completed, failed bool
+	}{
+		{name: "shotlet completes", completed: true},
+		{name: "cannot load helper", broken: true, fallback: true, completed: true},
+		{name: "user cancels", result: 2},
+		{name: "saved inside shotlet", result: 4},
+		{name: "permission refused", result: 3, failed: true},
+		{name: "capture error", result: 1, failed: true},
+		{name: "application exits", canceled: true, failed: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := filepath.Join(t.TempDir(), "output.png")
+			if err := os.WriteFile(output, nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			marker := output + ".fallback"
+			t.Setenv("GOIM_SHOTLET_TEST_FALLBACK", marker)
+			t.Setenv("GOIM_SHOTLET_TEST_RESULT", strconv.Itoa(test.result))
+			broken := ""
+			if test.broken {
+				broken = "1"
+			}
+			t.Setenv("GOIM_SHOTLET_TEST_BROKEN", broken)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if test.canceled {
+				cancel()
+			}
+			completed, err := (screenshotTool{path: helper, shotlet: true, fallback: helper}).run(ctx, output, "light")
+			if completed != test.completed || (err != nil) != test.failed {
+				t.Fatalf("capture = %v, %v", completed, err)
+			}
+			_, fallbackErr := os.Stat(marker)
+			if (fallbackErr == nil) != test.fallback {
+				t.Fatalf("fallback used = %v", fallbackErr == nil)
+			}
+			if completed {
+				if _, err := readScreenshot(output); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
 
 func TestScreenshotToolPathHonorsOverride(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "goim-snip-test")
@@ -59,7 +121,7 @@ func TestPackagedScreenshotToolSelectsSupportedHelper(t *testing.T) {
 			t.Fatal(err)
 		}
 		if shotlet.Supported() {
-			want = screenshotTool{path: helper, shotlet: true}
+			want = screenshotTool{path: helper, shotlet: true, fallback: builtin}
 		}
 	}
 	if got, err := packagedScreenshotTool(executable); err != nil || got != want {

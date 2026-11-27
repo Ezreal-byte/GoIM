@@ -31,6 +31,7 @@ func TestLinuxDEBBundlesFileDialogFallback(t *testing.T) {
 				"GoIM", "goim-snip", "goim-media", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md", "build-info.json",
 				"licenses/fixture.txt", "share/applications/dev.goim.desktop.desktop", "share/polkit-1/actions/dev.goim.desktop.policy",
 				"lib/goim/file-dialog/bin/zenity", "lib/goim/file-dialog/xclip", "lib/goim/file-dialog/lib/libgtk-3.so.0",
+				"lib/goim/shotlet/shotlet-capture", "licenses/shotlet/Apache-2.0.txt",
 			} {
 				path := filepath.Join(output, name, filepath.FromSlash(entry))
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -79,6 +80,11 @@ func TestLinuxDEBBundlesFileDialogFallback(t *testing.T) {
 			for _, file := range []string{"bin/zenity", "xclip", "lib/libgtk-3.so.0", "architecture"} {
 				if _, err := os.Stat(filepath.Join(extracted, "usr/lib/goim/file-dialog", file)); err != nil {
 					t.Fatal(err)
+				}
+			}
+			for _, file := range []string{"usr/lib/goim/shotlet/shotlet-capture", "usr/share/doc/goim/licenses/shotlet/Apache-2.0.txt"} {
+				if data, err := os.ReadFile(filepath.Join(extracted, filepath.FromSlash(file))); err != nil || string(data) != "fixture" {
+					t.Fatalf("missing Shotlet payload %s: %v", file, err)
 				}
 			}
 			control := filepath.Join(t.TempDir(), "control")

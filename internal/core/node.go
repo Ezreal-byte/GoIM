@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/vivaui/viva/app/systemauth"
 	bolt "go.etcd.io/bbolt"
 	"goim/internal/domain"
 	ipmsgproto "goim/internal/ipmsg"
@@ -24,7 +25,6 @@ import (
 	"goim/internal/neiwangtong"
 	"goim/internal/printing"
 	"goim/internal/remotedesktop"
-	"goim/internal/systemauth"
 )
 
 type Options struct {
@@ -87,6 +87,7 @@ type Node struct {
 	webUploadMu           sync.Mutex
 	shareFeedback         domain.ShareFeedback
 	unlockAfter           time.Time
+	systemAuthMethod      func() systemauth.VerificationMethod
 	lockResult            domain.LockResult
 	legacy                *ipmsgproto.Service
 	legacyLive            *atomic.Bool
@@ -197,9 +198,6 @@ func newNode(opts Options, remoteEngine remotedesktop.Engine) (*Node, error) {
 		n.data.State.Settings.EnsureDefaultShortcuts()
 	}
 	settings := &n.data.State.Settings
-	if !systemauth.Supported() {
-		settings.SystemUnlock = false
-	}
 	settings.InterfaceFontSize = domain.NormalizeInterfaceFontSize(settings.InterfaceFontSize)
 	settings.EnsureVoiceDefaults()
 	if settings.IPMSG.Port == 0 {

@@ -322,6 +322,15 @@ func (p *Panels) drawSettingsGeneral(f ui.C, theme ui.Theme, state domain.State,
 	p.drawBackgroundSettings(f, theme, state, submit)
 	panelSectionGap(f)
 	panelSection(f, i18n.T("发送"), "", func() {
+		p.settingsRow(f, theme, i18n.T("点击截图按钮时保留当前窗口"), i18n.T("关闭后，截图按钮与快捷键会临时隐藏 GoIM 窗口。下拉菜单可选择相反操作。"), func() {
+			p.settingsControl(f, 80, func() {
+				enabled := ui.State[bool](f, "keep-window-on-screenshot")
+				*enabled = settings.KeepWindowOnScreenshot
+				if ui.Switch(f, enabled, "").Hit(p.ids.settingsScreenshot, i18n.T("点击截图按钮时保留当前窗口")).Changed() {
+					p.submitBool(submit, state, "keep_window_on_screenshot", *enabled)
+				}
+			})
+		})
 		p.settingsRow(f, theme, i18n.T("发送消息"), i18n.T("Shift+Enter 始终换行"), func() {
 			p.settingsControl(f, 250, func() {
 				key := settings.SendKey

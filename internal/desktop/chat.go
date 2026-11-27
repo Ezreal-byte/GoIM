@@ -779,10 +779,30 @@ func (u *UI) drawComposerToolbar(f ui.C) {
 			u.chooseChatFolder(f.Canvas(), conversation.ID)
 		}
 		shortcut, _ := u.configuredShortcut(domain.ShortcutScreenshot)
-		snip := u.composerActionButton(f, u.ids.chatScreenshot, Scissors, i18n.T("截图标注"), shortcut)
+		busy := u.screenshotActive != nil && u.screenshotActive()
+		snip := u.composerActionButton(f, u.ids.chatScreenshot, Scissors, i18n.T("截图标注"), shortcut).Disabled(busy)
 		if snip.Clicked() && u.requestScreenshot != nil {
-			u.requestScreenshot()
+			u.requestScreenshot(u.state.Settings.KeepWindowOnScreenshot)
 		}
+		options := u.composerActionButton(f, u.screenshotMenuID, ChevronDown, i18n.T("截图选项"), "").Width(18).Disabled(busy)
+		if options.Clicked() {
+			u.screenshotMenuOpen = !u.screenshotMenuOpen
+		}
+		ui.Menu(f.Part("screenshot-menu"), options, &u.screenshotMenuOpen, func(menu *ui.MenuItems) {
+			label := i18n.T("隐藏窗口截图")
+			if !u.state.Settings.KeepWindowOnScreenshot {
+				label = i18n.T("保留窗口截图")
+			}
+			if menu.Item(label).Clicked() && u.requestScreenshot != nil {
+				u.requestScreenshot(!u.state.Settings.KeepWindowOnScreenshot)
+			}
+			menu.Separator()
+			if menu.Item(i18n.T("设置")).Clicked() {
+				u.setSection(sectionSettings)
+				u.panels.settingsTab = panelSettingsGeneral
+				u.panels.search.field.SetText("")
+			}
+		})
 		images := u.composerActionButton(f, u.ids.chatImage, u.iconImage, i18n.T("发送图片"), "")
 		if images.Clicked() {
 			u.chooseChatFiles(f.Canvas(), true)
@@ -937,6 +957,21 @@ func (u *UI) syncChatInput(redraw bool) {
 		return
 	}
 	u.chatInput.State = app.TextStateOf(u.chatEditor)
+	u.chatInput.CopyOverride = false
+	u.chatInput.CopyText = nil
+	u.chatInput.HideNativeOverlays = false
+	if draft := u.mixedDraft(u.selected); draft != nil && draft.selected != nil {
+		u.chatInput.CopyOverride = true
+		u.chatInput.CopyText = u.selectedDraftCopyText
+		if draft.selectedFile() >= 0 {
+			u.chatInput.State = app.TextState{}
+			u.chatInput.HideNativeOverlays = true
+		}
+		if draft.preedit != nil {
+			u.chatInput.State = app.TextStateOf(draft.preedit.editor)
+			u.chatInput.HideNativeOverlays = false
+		}
+	}
 	u.chatInput.State.Redraw = redraw
 }
 
@@ -948,28 +983,23 @@ func (u *UI) onChatTextEvent(event app.TextEvent) (app.TextState, error) {
 	if u.chatDraftPending() {
 		return app.TextStateOf(editor), nil
 	}
-	if event.Kind == app.TextPaste || event.Kind == app.TextPasteNoText {
+	if event.Kind == app.TextPaste && event.Text != "" || event.Kind == app.TextPasteNoText {
 		if u.canStageChatFiles() && !app.TextStateOf(editor).Composing {
 			if files, err := app.ClipboardFiles(); err == nil && len(files) > 0 {
 				u.stageChatFiles(files)
-				state := app.TextStateOf(editor)
+				state := u.chatTextInput().State
 				state.Redraw = true
 				return state, nil
 			}
 		}
 		if event.Kind == app.TextPasteNoText {
 			u.pasteClipboardImage()
-			state := app.TextStateOf(editor)
+			state := u.chatTextInput().State
 			state.Redraw = true
 			return state, nil
 		}
 	}
-	if event.Kind == app.TextCommandEvent && u.draftBoundaryCommand(event.Command) {
-		state := app.TextStateOf(editor)
-		state.Redraw = true
-		return state, nil
-	}
-	state := app.TextStateOf(editor)
+	state := u.chatTextInput().State
 	if event.Kind == app.TextCommandEvent && event.Command == app.TextInsertNewline {
 		if state.Composing {
 			return state, nil
@@ -987,6 +1017,46 @@ func (u *UI) onChatTextEvent(event app.TextEvent) (app.TextState, error) {
 			next := app.TextStateOf(u.chatEditor)
 			next.Redraw = true
 			return next, nil
+		}
+	}
+	if !state.Composing && event.Kind == app.TextCommandEvent && u.draftUndo(event.Command) {
+		next := u.chatTextInput().State
+		next.Redraw = true
+		return next, nil
+	}
+	defer u.beginDraftEdit()()
+	if draft := u.mixedDraft(u.selected); draft != nil && draft.selected != nil {
+		if event.Kind == app.TextSetMarked || draft.preedit != nil {
+			if draft.preedit == nil {
+				draft.preedit = u.newDraftText("")
+			}
+			event.Apply(draft.preedit.editor)
+			if event.Kind == app.TextCancelComposition {
+				draft.preedit = nil
+			} else if _, composing := draft.preedit.editor.Composition(); !composing {
+				u.replaceDraftSelection(draft.preedit.editor.String())
+			}
+			next := u.chatTextInput().State
+			next.Redraw = true
+			return next, nil
+		}
+		if event.Kind == app.TextSetSelection {
+			if draft.selectedFile() >= 0 {
+				return u.chatTextInput().State, nil
+			}
+			u.clearDraftSelection(draft)
+		}
+	}
+	if !state.Composing && event.Kind == app.TextCommandEvent && u.draftBoundaryCommand(event.Command) {
+		next := u.chatTextInput().State
+		next.Redraw = true
+		return next, nil
+	}
+	if event.Kind == app.TextInsert || event.Kind == app.TextPaste ||
+		event.Kind == app.TextCommandEvent && (event.Command == app.TextInsertLineBreak || event.Command == app.TextInsertNewline) {
+		if u.replaceDraftSelection("") {
+			// Native replacement offsets belonged to the field that was selected.
+			event.HasReplacement, event.HasReplacementUTF16 = false, false
 		}
 	}
 	event.Apply(u.chatEditor)
@@ -1011,6 +1081,9 @@ func (u *UI) sendChatText() {
 		return
 	}
 	if draft := u.mixedDraft(u.selected); draft != nil {
+		if draft.preedit != nil {
+			return
+		}
 		u.sendMixedChatDraft(draft)
 		return
 	}
@@ -1050,6 +1123,7 @@ func (u *UI) finishChatSubmissions() {
 			if !accepted {
 				continue
 			}
+			delete(u.draftHistory, id)
 			if u.mixedDraft(id) != nil {
 				continue
 			}
@@ -1075,6 +1149,11 @@ func (u *UI) insertChatText(value string) {
 	if u.chatEditor == nil || u.selected == "" || u.chatDraftPending() {
 		return
 	}
+	if u.chatTextInput().State.Composing {
+		return
+	}
+	defer u.beginDraftEdit()()
+	u.replaceDraftSelection("")
 	u.chatEditor.Insert(value)
 	u.closeMention()
 	u.drafts[u.selected] = u.chatEditor.String()

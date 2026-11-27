@@ -53,6 +53,14 @@ func TestMixedChatDraftPreviewBackspaceAndSendOrder(t *testing.T) {
 	}
 	h.waitFor(func() bool { return bitmapReady(h.ui.fileBitmap(path)) })
 	h.clickID(draft.files[0].id)
+	if h.ui.imageViewerOpen() || draft.selectedFile() != 0 {
+		t.Fatal("a single click must select the attachment without opening it")
+	}
+	hit, _ := h.findHit(draft.files[0].id)
+	if err := h.driver.DoubleClick(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
 	if !h.ui.imageViewerOpen() || h.ui.viewerPath() != path {
 		t.Fatal("draft image did not open in the viewer")
 	}

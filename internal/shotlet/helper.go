@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/color"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -24,14 +25,32 @@ const (
 
 var ErrScreenRecordingPermission = errors.New("Shotlet needs macOS screen recording permission")
 
+// ErrUnavailable is returned before capture when the installed helper cannot
+// provide its protocol. Capture errors and a user's cancellation are distinct.
+var ErrUnavailable = errors.New("Shotlet capture helper is unavailable")
+
 // HelperPath is relative to the installed GoIM executable, including inside its app bundle.
 func HelperPath(goExecutable string) string {
+	return helperPath(goExecutable, runtime.GOOS)
+}
+
+func helperPath(goExecutable, platform string) string {
 	dir := filepath.Dir(goExecutable)
-	switch runtime.GOOS {
+	switch platform {
 	case "windows":
 		return filepath.Join(dir, "shotlet", "shotlet-capture.exe")
 	case "darwin":
 		return filepath.Join(dir, "..", "Helpers", "ShotletCapture.app", "Contents", "MacOS", "ShotletCapture")
+	case "linux":
+		// Tarballs keep GoIM at their root; DEBs install it in /usr/bin.
+		portable := filepath.Join(dir, "lib", "goim", "shotlet", "shotlet-capture")
+		if info, err := os.Stat(portable); err == nil && info.Mode().IsRegular() {
+			return portable // The extraction directory itself may be named bin.
+		}
+		if filepath.Base(dir) == "bin" {
+			dir = filepath.Dir(dir)
+		}
+		return filepath.Join(dir, "lib", "goim", "shotlet", "shotlet-capture")
 	default:
 		return ""
 	}
@@ -40,6 +59,9 @@ func HelperPath(goExecutable string) string {
 // Capture returns nil without an error when the user cancels or completes an
 // action that Shotlet handles itself, such as saving or pinning.
 func Capture(ctx context.Context, path, language, theme string) (*image.NRGBA, error) {
+	if err := checkHelper(ctx, path); err != nil {
+		return nil, err
+	}
 	args := []string{"--language", language, "--theme", theme}
 	if runtime.GOOS == "darwin" {
 		if err := authorizeScreenRecording(ctx, path); err != nil {
@@ -63,14 +85,25 @@ func Capture(ctx context.Context, path, language, theme string) (*image.NRGBA, e
 // SelfTest verifies the actual packaged executable and wire format with a
 // synthetic pixel. It never starts a desktop capture or requests permission.
 func SelfTest(path string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	return checkHelper(context.Background(), path)
+}
+
+func checkHelper(ctx context.Context, path string) error {
+	probe, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	result, err := captureFrame(ctx, path, "--self-test")
-	if err != nil {
+	result, err := captureFrame(probe, path, "--self-test")
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	// Do not use another executable to bypass an execution policy refusal.
+	if errors.Is(err, os.ErrPermission) {
 		return err
 	}
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
 	if result.Bounds() != image.Rect(0, 0, 1, 1) || result.NRGBAAt(0, 0) != (color.NRGBA{R: 255, A: 255}) {
-		return errors.New("unexpected Shotlet self-test image")
+		return fmt.Errorf("%w: unexpected self-test image", ErrUnavailable)
 	}
 	return nil
 }

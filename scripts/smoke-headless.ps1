@@ -158,7 +158,7 @@ try {
     [System.IO.File]::WriteAllText($taskSamplePath,'GoIM independent-process file transfer: 中文 '+[guid]::NewGuid().ToString(),[System.Text.UTF8Encoding]::new($false))
     Send-Command $taskAlice ('openfiles "'+$taskSamplePath.Replace('\','/')+'"')
     Send-Command $taskAlice 'click "发送文件"'
-    Send-Command $taskAlice 'expect exists "button:草稿附件 · 真实文件.txt" within 10000'
+    Send-Command $taskAlice 'expect exists "textfield:草稿附件 · 真实文件.txt" within 10000'
     Send-Command $taskAlice 'key enter'
     Send-Command $taskBob 'waitfor "真实文件.txt" 10000'
     Send-Command $taskBob 'waitfor "查看详情" 10000'
@@ -194,7 +194,7 @@ try {
     } finally { $taskGraphics.Dispose(); $taskPicture.Dispose() }
     Send-Command $taskAlice ('openfiles "'+$taskPicturePath.Replace('\','/')+'"')
     Send-Command $taskAlice 'click "发送图片"'
-    Send-Command $taskAlice 'expect exists "button:草稿附件 · 真实图片.png" within 10000'
+    Send-Command $taskAlice 'expect exists "textfield:草稿附件 · 真实图片.png" within 10000'
     Send-Command $taskAlice 'click "button:发送"'
     Wait-Control $taskBob '查看图片 真实图片.png'
     $taskImages=@(Get-ChildItem -LiteralPath (Join-Path $taskRunDir '林晓/chat-images') -Filter '*.png')
@@ -296,6 +296,7 @@ try {
             Send-Command $taskAlice 'type 不存在的成员'
             Send-Command $taskAlice 'expect text "没有匹配的成员"'
             Send-Command $taskAlice 'expect layout clean'
+            Send-Command $taskAlice 'expect state "button:关闭详情" reachable within 6000'
             Send-Command $taskAlice 'click "关闭详情"'
         } else {
             Send-Command $taskAlice 'expect exists "搜索群成员"'
@@ -304,6 +305,7 @@ try {
             Send-Command $taskAlice 'click "查看资料"'
             Send-Command $taskAlice 'expect text "成员资料"'
             Send-Command $taskAlice 'key esc'
+            Send-Command $taskAlice 'expect state "button:关闭详情" reachable within 6000'
             Send-Command $taskAlice 'click "关闭详情"'
         }
     }

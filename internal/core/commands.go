@@ -683,6 +683,8 @@ func (n *Node) setting(c domain.Command) error {
 		settings.HideTitleGitHub = !c.Bool
 	case "close_to_tray":
 		settings.CloseToTray = c.Bool
+	case "keep_window_on_screenshot":
+		settings.KeepWindowOnScreenshot = c.Bool
 	case "download_dir", "localsend_download_dir":
 		if c.Value == "" {
 			return errors.New("请选择保存目录")

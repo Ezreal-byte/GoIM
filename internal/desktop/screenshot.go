@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/vivaui/viva/app"
 
@@ -24,20 +25,58 @@ import (
 const maxScreenshotBytes = 128 << 20
 
 type screenshotTool struct {
-	path    string
-	shotlet bool
+	path     string
+	shotlet  bool
+	fallback string
 }
 
-func (r *desktopRuntime) launchScreenshot() {
+func (r *desktopRuntime) launchScreenshot(keepWindows bool, origin *app.Window) {
+	if r.post == nil || r.screenshotContext == nil || r.screenshotContext.Err() != nil {
+		return
+	}
 	if !r.screenshotRunning.CompareAndSwap(false, true) {
 		return
 	}
-	go func() {
-		defer r.screenshotRunning.Store(false)
-		if err := r.captureScreenshot(r.screenshotContext); err != nil && r.screenshotContext.Err() == nil {
-			r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: err.Error()})
+	r.post(func() {
+		if r.ui.lockVisible() || r.window == nil || r.window.Closed() || r.screenshotContext.Err() != nil {
+			r.screenshotRunning.Store(false)
+			return
 		}
-	}()
+		ctx, cancel := context.WithCancel(r.screenshotContext)
+		r.captureDismissed = false
+		r.captureCancel = cancel
+		r.screenshotConcealed = !keepWindows
+		r.ui.screenshotMenuOpen = false
+		r.ui.remoteDesktopMenuOpen = false
+		r.ui.emojiOpen = false
+		r.ui.closeShellMenu()
+		r.closeUnreadTrayPanel()
+		var windows []screenshotWindow
+		if !keepWindows {
+			windows = hideScreenshotWindows(r.screenshotWindows())
+		}
+		r.ui.invalidator.Invalidate()
+		start := func() {
+			go func() {
+				var err error
+				if ctx.Err() == nil {
+					err = r.captureScreenshot(ctx)
+				}
+				r.post(func() {
+					r.restoreScreenshot(windows, origin)
+					r.screenshotRunning.Store(false)
+					r.captureCancel = nil
+					if err != nil && ctx.Err() == nil {
+						r.backend.Submit(domain.Command{Kind: domain.ReportError, Text: err.Error()})
+					}
+					cancel()
+				})
+			}()
+		}
+		// Give the desktop compositor time to remove hidden windows and popup
+		// menus before the helper samples the screen. This is a one-shot delay.
+		r.application.PostAfter(200*time.Millisecond, start)
+	})
 }
 
 func (r *desktopRuntime) captureScreenshot(ctx context.Context) error {
@@ -102,6 +141,9 @@ func (tool screenshotTool) run(ctx context.Context, output, theme string) (bool,
 			theme = "light"
 		}
 		frame, err := shotlet.Capture(ctx, tool.path, i18n.Language(), theme)
+		if errors.Is(err, shotlet.ErrUnavailable) && tool.fallback != "" && ctx.Err() == nil {
+			return (screenshotTool{path: tool.fallback}).run(ctx, output, theme)
+		}
 		if err != nil || frame == nil {
 			return false, err
 		}
@@ -143,19 +185,22 @@ func resolveScreenshotTool() (screenshotTool, error) {
 }
 
 func packagedScreenshotTool(executable string) (screenshotTool, error) {
-	if shotlet.Supported() {
-		path := shotlet.HelperPath(executable)
-		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-			return screenshotTool{path: path, shotlet: true}, nil
-		}
-	}
 	name := "goim-snip"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	path := filepath.Join(filepath.Dir(executable), name)
-	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-		return screenshotTool{path: path}, nil
+	fallback := filepath.Join(filepath.Dir(executable), name)
+	if info, err := os.Stat(fallback); err != nil || !info.Mode().IsRegular() {
+		fallback = ""
+	}
+	if shotlet.Supported() {
+		path := shotlet.HelperPath(executable)
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			return screenshotTool{path: path, shotlet: true, fallback: fallback}, nil
+		}
+	}
+	if fallback != "" {
+		return screenshotTool{path: fallback}, nil
 	}
 	return screenshotTool{}, errors.New(i18n.T("找不到截图组件，请完整解压或重新安装 GoIM。"))
 }

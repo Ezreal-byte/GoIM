@@ -20,10 +20,12 @@ import (
 // Each attachment sits between two native editing fields. Empty fields keep
 // both sides of adjacent attachments reachable with the keyboard.
 type mixedChatDraft struct {
-	texts  []*draftText
-	files  []draftFile
-	active int
-	saved  []domain.ChatDraftPart
+	texts    []*draftText
+	files    []draftFile
+	active   int
+	selected *draftSelection
+	preedit  *draftText
+	saved    []domain.ChatDraftPart
 }
 
 type draftText struct {
@@ -85,6 +87,11 @@ func (u *UI) stageChatFiles(paths []string) {
 	if _, composing := u.chatEditor.Composition(); composing {
 		return
 	}
+	if draft := u.mixedDraft(u.selected); draft != nil && draft.preedit != nil {
+		return
+	}
+	defer u.beginDraftEdit()()
+	u.replaceDraftSelection("")
 	draft := u.mixedDraft(u.selected)
 	selection := u.chatEditor.Selection()
 	if draft == nil {
@@ -117,6 +124,7 @@ func (u *UI) stageChatFiles(paths []string) {
 }
 
 func (u *UI) selectDraftText(draft *mixedChatDraft, index int) {
+	u.clearDraftSelection(draft)
 	draft.active = index
 	u.chatEditor = draft.texts[index].editor
 	u.closeMention()
@@ -134,6 +142,9 @@ func (u *UI) activeChatField() *ui.Field {
 
 func (u *UI) activeChatFieldID() gfx.ID {
 	if draft := u.mixedDraft(u.selected); draft != nil {
+		if index := draft.selectedFile(); index >= 0 {
+			return draft.files[index].id
+		}
 		return draft.texts[draft.active].id
 	}
 	return u.ids.chatEditorField
@@ -148,6 +159,7 @@ func (u *UI) matchDraftEditor(editor *text.Editor) bool {
 		if segment.editor == editor {
 			if u.chatEditor != editor {
 				u.closeMention()
+				u.clearDraftSelection(draft)
 			}
 			draft.active, u.chatEditor = index, editor
 			return true
@@ -160,6 +172,9 @@ func (u *UI) draftBoundaryCommand(command app.TextCommand) bool {
 	draft := u.mixedDraft(u.selected)
 	if draft == nil || u.chatDraftPending() {
 		return false
+	}
+	if u.draftSelectionCommand(command) {
+		return true
 	}
 	selection := u.chatEditor.Selection()
 	if selection.Start != selection.End {
@@ -175,12 +190,9 @@ func (u *UI) draftBoundaryCommand(command app.TextCommand) bool {
 	case caret == u.chatEditor.RuneCount() && index < len(draft.files) && command == app.TextDeleteForward:
 		u.removeDraftFile(draft, index)
 	case caret == 0 && index > 0 && command == app.TextMoveLeft:
-		previous := draft.texts[index-1].editor
-		previous.MoveTo(previous.RuneCount(), false)
-		u.selectDraftText(draft, index-1)
+		u.selectDraftFile(draft, index-1)
 	case caret == u.chatEditor.RuneCount() && index < len(draft.files) && command == app.TextMoveRight:
-		draft.texts[index+1].editor.MoveTo(0, false)
-		u.selectDraftText(draft, index+1)
+		u.selectDraftFile(draft, index)
 	default:
 		return false
 	}
@@ -188,6 +200,7 @@ func (u *UI) draftBoundaryCommand(command app.TextCommand) bool {
 }
 
 func (u *UI) removeDraftFile(draft *mixedChatDraft, index int) {
+	defer u.beginDraftEdit()()
 	left, right := draft.texts[index].editor, draft.texts[index+1].editor
 	caret := left.RuneCount()
 	left.MoveTo(caret, false)
@@ -290,6 +303,7 @@ func (u *UI) finishMixedChatSubmissions() {
 				continue
 			}
 			remaining := pending.parts[accepted:]
+			delete(u.draftHistory, id)
 			delete(u.chatDrafts, id)
 			u.drafts[id] = domain.ChatDraftText(remaining)
 			u.draftSaved[id] = u.drafts[id]
@@ -308,15 +322,34 @@ func (u *UI) drawMixedChatComposer(f ui.C, draft *mixedChatDraft) {
 	u.mentionEditor = ui.Box{}
 	u.draftScroll = ui.Scroll(f.Part("draft-scroll")).FillWidth().Grow(1).Basis(0).MinHeight(chatEditorMinHeight).Scrollbars().Children(func() {
 		ui.Flow(f.Part("draft-flow")).FillWidth().Items(ui.End).
-			PadSides(6, chatContentInset, 6, chatContentInset).Gap(2).LineGap(5).Children(func() {
+			PadSides(6, chatContentInset, 6, chatContentInset).Gap(0).LineGap(5).Children(func() {
 			width := max(float32(40), u.lastChat.Width-2*chatContentInset-16)
 			size := textSize(f, 14)
 			for index, segment := range draft.texts {
 				fieldWidth, fieldHeight := segment.dimensions(f.Canvas(), size, width)
-				editor := ui.TextArea(f, &segment.field, i18n.T("消息输入框"), "", ui.WithID(segment.id)).
+				if segment.editor.RuneCount() == 0 {
+					fieldWidth = 12
+					for _, neighbor := range []int{index - 1, index} {
+						if neighbor >= 0 && neighbor < len(draft.files) {
+							file := draft.files[neighbor].file
+							bitmap := u.fileBitmap(file.SourcePath)
+							if fileIsImage(file) && bitmapReady(bitmap) {
+								fieldHeight = max(fieldHeight, max(24, fitDraftBitmap(bitmap, gfx.Rect{Width: 138, Height: 82}).Height))
+							} else {
+								fieldHeight = max(fieldHeight, u.textExtent(28, 14))
+							}
+						}
+					}
+				}
+				field := &segment.field
+				if draft.preedit != nil && index == draft.active && draft.selectedFile() < 0 {
+					field = &draft.preedit.field
+					fieldWidth, fieldHeight = draft.preedit.dimensions(f.Canvas(), size, width)
+				}
+				editor := ui.TextArea(f, field, i18n.T("消息输入框"), "", ui.WithID(segment.id)).
 					Width(fieldWidth).Height(fieldHeight).MinHeight(fieldHeight).PadSides(2, 1, 2, 1).
 					Background(ui.Color{}).Border(0, ui.Color{}).Shadow(gfx.ShadowNone).Disabled(u.chatDraftPending())
-				if index == draft.active {
+				if index == draft.active && draft.selectedFile() < 0 {
 					u.mentionEditor = editor
 				}
 				if index < len(draft.files) {
@@ -382,6 +415,8 @@ func (segment *draftText) dimensions(canvas *gfx.Canvas, size, limit float32) (w
 }
 
 func (u *UI) drawDraftFile(f ui.C, attachment draftFile, right int) {
+	draft := u.mixedDraft(u.selected)
+	selected := draft.fileSelected(right - 1)
 	file := attachment.file
 	image := fileIsImage(file)
 	bitmap := u.fileBitmap(file.SourcePath)
@@ -390,11 +425,19 @@ func (u *UI) drawDraftFile(f ui.C, attachment draftFile, right int) {
 		Background(u.palette.fileCard).Border(1, u.palette.fileBorder).
 		Hover(ui.Look{}.Background(u.palette.selected)).
 		Focus(ui.Look{}.Ring(1.5, u.theme.Ring)).
-		HitWith(attachment.id, label, gfx.HitOptions{Role: gfx.RoleButton}).Tooltip(file.Name)
+		HitWith(attachment.id, label, gfx.HitOptions{Role: gfx.RoleTextField, Multiline: true, Selected: selected, Disabled: u.chatDraftPending()}).Tooltip(file.Name)
+	if selected {
+		box.Background(u.palette.selected).Border(2, u.theme.Ring)
+	}
 	if image && bitmapReady(bitmap) {
 		fitted := fitDraftBitmap(bitmap, gfx.Rect{Width: 138, Height: 82})
 		box.Size(max(30, fitted.Width), max(24, fitted.Height)).Draw(func(d *ui.DrawContext) {
-			d.Canvas.DrawBitmap(bitmap, fitDraftBitmap(bitmap, d.Rect))
+			rect := d.Rect
+			if selected {
+				rect.X, rect.Y = rect.X+2, rect.Y+2
+				rect.Width, rect.Height = max(1, rect.Width-4), max(1, rect.Height-4)
+			}
+			d.Canvas.DrawBitmap(bitmap, fitDraftBitmap(bitmap, rect))
 		})
 	} else {
 		box.PadX(5).Gap(4).Children(func() {
@@ -402,16 +445,15 @@ func (u *UI) drawDraftFile(f ui.C, attachment draftFile, right int) {
 			ui.Text(f, file.Name).MinWidth(0).FontSize(textSize(f, 12)).Ellipsis()
 		})
 	}
-	if box.Clicked() {
-		draft := u.mixedDraft(u.selected)
-		draft.active = right
+	if draft.selectedFile() == right-1 {
+		u.mentionEditor = box
+	}
+	if box.DoubleClicked() && image {
+		u.selectDraftText(draft, right)
 		draft.texts[right].editor.MoveTo(0, false)
-		u.chatEditor = draft.texts[right].editor
-		if image {
-			u.openMediaViewer(imageViewerState{fileID: file.ID, conversationID: u.selected, fromDraft: true, images: []domain.File{file}})
-		} else {
-			u.selectDraftText(draft, right)
-		}
+		u.openMediaViewer(imageViewerState{fileID: file.ID, conversationID: u.selected, fromDraft: true, images: []domain.File{file}})
+	} else if box.Clicked() {
+		u.selectDraftFile(draft, right-1)
 	}
 }
 

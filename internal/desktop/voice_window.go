@@ -53,13 +53,13 @@ func (r *desktopRuntime) syncVoiceWindow(state domain.State, locked bool) {
 		if !invitation {
 			if locked {
 				r.voiceWindow.Hide()
-			} else if r.voiceWindow.Hidden() {
+			} else if r.voiceWindow.Hidden() && !r.screenshotConcealed {
 				r.voiceWindow.Show()
 			}
 		}
 		return
 	}
-	if r.application == nil || r.voiceDismissedID == call.ID || (locked && !invitation) {
+	if r.application == nil || r.voiceDismissedID == call.ID || (locked && !invitation) || r.screenshotConcealed {
 		return
 	}
 	if invitation && (!state.Settings.DesktopNotifications || r.voicePopupFailed == call.ID) {

@@ -296,6 +296,9 @@ func (r *desktopRuntime) syncRemoteDesktop(state domain.State, locked bool) {
 		return
 	}
 
+	if r.screenshotConcealed {
+		return
+	}
 	view := newRemoteDesktopView(state)
 	if mode == remoteDesktopWindowConsent {
 		view.accept = func() { r.acceptRemoteDesktopInvitation(session.ID) }

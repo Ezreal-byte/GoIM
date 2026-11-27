@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"sync/atomic"
@@ -10,9 +11,9 @@ import (
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
+	"github.com/vivaui/viva/app/systemauth"
 	"goim/internal/domain"
 	"goim/internal/i18n"
-	"goim/internal/systemauth"
 )
 
 var lockRequests atomic.Uint64
@@ -32,10 +33,14 @@ type lockUIState struct {
 	err                               string
 	systemBusy                        bool
 	systemRequest                     uint64
+	systemLockRequest                 uint64
 	systemErr                         string
 	systemResults                     chan systemAuthResult
-	systemAuth                        func(string) error
-	method                            systemauth.Kind
+	systemAuth                        func(context.Context, string) error
+	systemCancel                      context.CancelFunc
+	methodResults                     chan systemauth.VerificationMethod
+	methodBusy                        bool
+	method                            systemauth.VerificationMethod
 }
 
 type systemAuthResult struct {
@@ -47,13 +52,43 @@ func (u *UI) initSystemUnlock() {
 	s := &u.lockUI
 	s.systemAuth = systemauth.Verify
 	s.systemResults = make(chan systemAuthResult, 2)
-	s.method = systemauth.Method()
+	s.methodResults = make(chan systemauth.VerificationMethod, 1)
 	s.page = ui.NewPage(ui.PageConfig{Root: "lock-screen", Tree: &u.tree, Theme: &s.theme})
+}
+
+// Capability checks may call the OS; run them once at startup and on explicit
+// security/lock navigation, never during paint or on an idle timer.
+func (u *UI) refreshSystemUnlockMethod() {
+	s := &u.lockUI
+	if s.methodBusy {
+		return
+	}
+	s.methodBusy = true
+	go func() {
+		method := systemauth.Method()
+		select {
+		case s.methodResults <- method:
+			u.invalidator.Invalidate()
+		case <-u.done:
+		}
+	}()
+}
+
+func (s *lockUIState) cancelSystemUnlock() {
+	if s.systemCancel != nil {
+		s.systemCancel()
+		s.systemCancel = nil
+	}
+	s.systemRequest++
+	s.systemBusy = false
 }
 
 func (u *UI) requestLock() {
 	if u.state.Locked || u.lockUI.pending || u.lockUI.setup {
 		return
+	}
+	if u.panels.refreshSystemUnlock != nil {
+		u.refreshSystemUnlockMethod()
 	}
 	u.saveCurrentDraft()
 	u.closeChatPickers()
@@ -63,9 +98,7 @@ func (u *UI) requestLock() {
 	s.setup, s.pending, s.focused, s.err = !u.state.Settings.HasLockPassword, u.state.Settings.HasLockPassword, false, ""
 	s.revealed = false
 	s.field, s.confirmation = ui.Field{Secure: true}, ui.Field{Secure: true}
-	if s.systemBusy {
-		s.systemRequest++
-	}
+	s.cancelSystemUnlock()
 	s.systemBusy, s.systemErr = false, ""
 	if u.state.Settings.HasLockPassword {
 		s.request = nextLockRequest()
@@ -86,7 +119,7 @@ func (u *UI) lockVisible() bool {
 		s.setup = false
 	}
 	if !u.state.Locked && s.systemBusy {
-		s.systemRequest++
+		s.cancelSystemUnlock()
 		s.systemBusy, s.systemErr = false, ""
 	}
 	if !u.state.Locked && !s.setup && !s.pending {
@@ -174,7 +207,7 @@ func (u *UI) drawLockForm(f ui.C, scale, zoom float32, busy bool) {
 	if s.pending {
 		action = i18n.T("正在验证…")
 	}
-	hasSystem := !s.setup && u.state.Settings.SystemUnlock && s.method != systemauth.Unsupported
+	hasSystem := !s.setup && u.state.Settings.SystemUnlock && s.method != systemauth.VerificationUnavailable
 	if hasSystem {
 		u.drawLockSystemAction(f, scale, zoom, busy)
 		ui.Row(f).FillWidth().Height(96 * scale).Gap(26 * scale).Items(ui.Center).Children(func() {
@@ -239,12 +272,14 @@ func drawLockField(f ui.C, id gfx.ID, field *ui.Field, label, placeholder string
 		Border(1.5*scale, theme.Border).Disabled(disabled)
 }
 
-func lockSystemAction(method systemauth.Kind) (string, gfx.Icon) {
+func lockSystemAction(method systemauth.VerificationMethod) (string, gfx.Icon) {
 	switch method {
-	case systemauth.TouchID:
+	case systemauth.VerificationTouchID:
 		return i18n.T("使用 Touch ID 解锁"), lockTouchIDIcon
-	case systemauth.WindowsHello:
+	case systemauth.VerificationWindowsHello:
 		return i18n.T("使用 Windows Hello 解锁"), lockWindowsHelloIcon
+	case systemauth.VerificationDevicePassword:
+		return i18n.T("使用系统密码解锁"), panelSettingsLockIcon
 	default:
 		return "", gfx.Icon{}
 	}
@@ -328,7 +363,7 @@ func (u *UI) submitLock() {
 
 func (u *UI) beginSystemUnlock() {
 	s := &u.lockUI
-	if s.setup || s.pending || s.systemBusy || !u.state.Locked || !u.state.Settings.SystemUnlock || s.method == systemauth.Unsupported {
+	if s.setup || s.pending || s.systemBusy || !u.state.Locked || !u.state.Settings.SystemUnlock || s.method == systemauth.VerificationUnavailable {
 		return
 	}
 	auth := s.systemAuth
@@ -340,28 +375,54 @@ func (u *UI) beginSystemUnlock() {
 		return
 	}
 	s.systemRequest++
+	s.systemLockRequest = u.state.LockResult.Request
 	request := s.systemRequest
+	ctx, cancel := context.WithCancel(context.Background())
+	s.systemCancel = cancel
 	s.systemBusy, s.systemErr, s.err, s.focused = true, "", "", false
 	s.hidePassword()
 	reason := i18n.T("验证身份以解锁 GoIM")
 	go func() {
-		results <- systemAuthResult{request: request, err: auth(reason)}
-		u.invalidator.Invalidate()
+		defer cancel()
+		err := auth(ctx, reason)
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		select {
+		case results <- systemAuthResult{request: request, err: err}:
+			u.invalidator.Invalidate()
+		case <-u.done:
+		}
 	}()
 }
 
 func (u *UI) collectSystemUnlock() {
 	s := &u.lockUI
+	select {
+	case method := <-s.methodResults:
+		s.methodBusy = false
+		s.method = method
+		u.panels.settingsExtra.systemMethod = method
+		u.panels.settingsExtra.systemUnlockAvailable = method != systemauth.VerificationUnavailable
+	default:
+	}
+	if s.systemBusy && (!u.state.Locked || !u.state.Settings.SystemUnlock || s.systemLockRequest != u.state.LockResult.Request) {
+		s.cancelSystemUnlock()
+	}
 	if s.systemResults == nil {
 		return
 	}
 	for {
 		select {
 		case result := <-s.systemResults:
-			if result.request != s.systemRequest || !u.state.Locked {
+			if result.request != s.systemRequest || !s.systemBusy || !u.state.Locked || !u.state.Settings.SystemUnlock {
 				continue
 			}
 			s.systemBusy = false
+			if s.systemCancel != nil {
+				s.systemCancel()
+				s.systemCancel = nil
+			}
 			if result.err != nil {
 				s.systemErr = systemUnlockMessage(result.err)
 				s.focused = false
@@ -379,22 +440,31 @@ func (u *UI) collectSystemUnlock() {
 
 func systemUnlockMessage(err error) string {
 	switch {
-	case errors.Is(err, systemauth.ErrCanceled):
+	case errors.Is(err, systemauth.ErrCanceled), errors.Is(err, context.Canceled):
 		return i18n.T("已取消系统验证")
-	case errors.Is(err, systemauth.ErrNotConfigured):
-		return i18n.T("系统尚未设置可用的验证方式")
-	case errors.Is(err, systemauth.ErrDisabledByPolicy):
-		return i18n.T("系统验证已被管理员禁用")
-	case errors.Is(err, systemauth.ErrBusy):
-		return i18n.T("验证设备正忙，请稍后重试")
-	case errors.Is(err, systemauth.ErrRetriesExhausted):
-		return i18n.T("系统验证失败次数过多，请稍后重试")
+	case errors.Is(err, systemauth.ErrForegroundRequired):
+		return i18n.T("请先激活 GoIM 窗口，再进行系统验证")
+	case errors.Is(err, context.DeadlineExceeded):
+		return i18n.T("系统验证超时，请重试或使用 GoIM 密码")
 	case errors.Is(err, systemauth.ErrFailed):
 		return i18n.T("系统验证未通过")
 	case errors.Is(err, systemauth.ErrUnavailable):
 		return i18n.T("当前系统无法完成验证")
 	default:
 		return i18n.T("系统验证失败，请改用 GoIM 密码")
+	}
+}
+
+func systemUnlockDescription(method systemauth.VerificationMethod) string {
+	switch method {
+	case systemauth.VerificationWindowsHello:
+		return "Windows Hello（PIN、指纹或人脸）"
+	case systemauth.VerificationTouchID:
+		return "Touch ID 或 macOS 登录密码"
+	case systemauth.VerificationDevicePassword:
+		return "macOS 登录密码"
+	default:
+		return "系统验证当前不可用，请使用 GoIM 锁定密码。"
 	}
 }
 
