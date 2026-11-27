@@ -94,8 +94,9 @@ func (e *editor) paintActions(c *gfx.Canvas, theme gfx.Theme, bounds gfx.Rect) {
 		})
 		var submitted, canceled bool
 		dialog.Body(func() {
-			submitted = ui.TextFieldID(f, textFieldID, &e.text.field,
-				i18n.T("标注文字"), i18n.T("输入标注文字…")).FillWidth().Submitted()
+			submitted = ui.TextField(f, &e.text.field,
+				i18n.T("标注文字"), i18n.T("输入标注文字…"), ui.WithID(textFieldID),
+			).FillWidth().Submitted()
 		})
 		dialog.Footer(func() {
 			canceled = ui.Button(f, i18n.T("取消")).Hit(textCancelID, i18n.T("取消")).Outline().Clicked()

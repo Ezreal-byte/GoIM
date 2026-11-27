@@ -313,7 +313,7 @@ func (u *UI) drawMixedChatComposer(f ui.C, draft *mixedChatDraft) {
 			size := textSize(f, 14)
 			for index, segment := range draft.texts {
 				fieldWidth, fieldHeight := segment.dimensions(f.Canvas(), size, width)
-				editor := ui.TextAreaID(f, segment.id, &segment.field, i18n.T("消息输入框"), "").
+				editor := ui.TextArea(f, &segment.field, i18n.T("消息输入框"), "", ui.WithID(segment.id)).
 					Width(fieldWidth).Height(fieldHeight).MinHeight(fieldHeight).PadSides(2, 1, 2, 1).
 					Background(ui.Color{}).Border(0, ui.Color{}).Shadow(gfx.ShadowNone).Disabled(u.chatDraftPending())
 				if index == draft.active {

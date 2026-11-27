@@ -752,7 +752,7 @@ func (u *UI) drawComposer(f ui.C) {
 		if draft := u.mixedDraft(u.selected); draft != nil {
 			u.drawMixedChatComposer(f, draft)
 		} else {
-			u.mentionEditor = ui.TextAreaID(f, u.ids.chatEditorField, &u.chatEditorField, i18n.T("消息输入框"), "").
+			u.mentionEditor = ui.TextArea(f, &u.chatEditorField, i18n.T("消息输入框"), "", ui.WithID(u.ids.chatEditorField)).
 				FillWidth().Grow(1).Basis(0).MinHeight(chatEditorMinHeight).
 				PadSides(8, chatContentInset, 8, chatContentInset).
 				Background(ui.Color{}).Border(0, ui.Color{}).Shadow(gfx.ShadowNone)

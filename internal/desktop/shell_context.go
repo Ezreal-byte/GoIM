@@ -473,7 +473,7 @@ func (u *UI) drawOrganizeDialog(canvas *gfx.Canvas, viewport ui.Rect) {
 			if mode == domain.SetContactRemark {
 				label, placeholder = i18n.T("备注"), i18n.T("输入备注，最多 40 个字符")
 			}
-			field := ui.TextFieldID(f, u.ids.organizeField, &u.organize.field, label, placeholder).Height(38).FillWidth()
+			field := ui.TextField(f, &u.organize.field, label, placeholder, ui.WithID(u.ids.organizeField)).Height(38).FillWidth()
 			submitted = field.Submitted()
 			if u.organize.errText != "" {
 				ui.Text(f, u.organize.errText).FontSize(textSize(f, 10.5)).Color(u.palette.danger)

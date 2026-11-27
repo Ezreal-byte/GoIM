@@ -296,6 +296,7 @@ try {
             Send-Command $taskAlice 'type 不存在的成员'
             Send-Command $taskAlice 'expect text "没有匹配的成员"'
             Send-Command $taskAlice 'expect layout clean'
+            Send-Command $taskAlice 'expect state "button:关闭详情" reachable within 6000'
             Send-Command $taskAlice 'click "关闭详情"'
         } else {
             Send-Command $taskAlice 'expect exists "搜索群成员"'
@@ -304,6 +305,7 @@ try {
             Send-Command $taskAlice 'click "查看资料"'
             Send-Command $taskAlice 'expect text "成员资料"'
             Send-Command $taskAlice 'key esc'
+            Send-Command $taskAlice 'expect state "button:关闭详情" reachable within 6000'
             Send-Command $taskAlice 'click "关闭详情"'
         }
     }

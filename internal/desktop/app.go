@@ -1707,7 +1707,7 @@ func (u *UI) drawSidebar(canvas *gfx.Canvas, bounds ui.Rect) {
 	var list ui.Box
 	u.sidebarPage.Draw(canvas, bounds, func(f ui.C) {
 		ui.Column(f).Fill().PadSides(10, 8, 4, 8).Children(func() {
-			ui.TextFieldID(f, u.ids.sidebarSearch, &u.sidebarSearch, i18n.T("搜索"), u.searchPlaceholder()).
+			ui.TextField(f, &u.sidebarSearch, i18n.T("搜索"), u.searchPlaceholder(), ui.WithID(u.ids.sidebarSearch)).
 				Icon(u.iconSearch).FillWidth().Height(38)
 			ui.Row(f).Height(6)
 			if u.section == sectionContacts {

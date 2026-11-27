@@ -158,7 +158,7 @@ func (p *Panels) drawLocalSendPINDialog(f ui.C, entry *panelTransferEntry, submi
 	dialog, scope := p.localSendDialog(f, "pin-dialog", i18n.T("输入对方 PIN"), entry.peer, 410, fieldID)
 	var submitted bool
 	dialog.Body(func() {
-		field := ui.TextFieldID(f, fieldID, &v.sendPIN, i18n.T("对方 PIN"), "PIN").FillWidth()
+		field := ui.TextField(f, &v.sendPIN, i18n.T("对方 PIN"), "PIN", ui.WithID(fieldID)).FillWidth()
 		submitted = field.Submitted()
 	})
 	pin := strings.TrimSpace(v.sendPIN.Text())

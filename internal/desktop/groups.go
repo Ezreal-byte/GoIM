@@ -92,7 +92,7 @@ func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation do
 			})
 			if owner && u.renameOpen {
 				ui.Row(f).Height(38).Items(ui.Center).Gap(8).Children(func() {
-					field := ui.TextFieldID(f, u.ids.memberRename, &u.renameField, i18n.T("群名称"), i18n.T("群名称")).Height(36).Grow(1)
+					field := ui.TextField(f, &u.renameField, i18n.T("群名称"), i18n.T("群名称"), ui.WithID(u.ids.memberRename)).Height(36).Grow(1)
 					if namedButton(f, u.ids.memberCancelRename, i18n.T("取消")).XSmall().Outline().Clicked() {
 						u.resetGroupRename()
 					}
@@ -118,7 +118,7 @@ func (u *UI) drawMemberContent(canvas *gfx.Canvas, body ui.Rect, conversation do
 					}
 				}
 			})
-			ui.TextFieldID(f, u.ids.memberSearch, &u.memberSearch, i18n.T("搜索群成员"), i18n.T("搜索群成员")).Height(36)
+			ui.TextField(f, &u.memberSearch, i18n.T("搜索群成员"), i18n.T("搜索群成员"), ui.WithID(u.ids.memberSearch)).Height(36)
 			ui.Scroll(f.Part("members")).Grow(1).Gap(3).Children(func() {
 				query := strings.TrimSpace(u.memberSearch.Text())
 				members := orderedMembers(u, group)
@@ -844,7 +844,7 @@ func (u *UI) drawFileList(f ui.C) {
 			ui.Spacer(f)
 			ui.Icon(f, u.iconSearch).Size(14, 14).Color(u.palette.secondaryText)
 		})
-		ui.TextFieldID(f, u.ids.fileSearch, &u.fileSearch, i18n.T("搜索聊天文件"), i18n.T("按文件名搜索")).Height(36)
+		ui.TextField(f, &u.fileSearch, i18n.T("搜索聊天文件"), i18n.T("按文件名搜索"), ui.WithID(u.ids.fileSearch)).Height(36)
 		ui.Scroll(f.Part("conversation-files")).Grow(1).Gap(4).Children(func() {
 			query := strings.TrimSpace(u.fileSearch.Text())
 			shown := 0
@@ -1384,11 +1384,11 @@ func (u *UI) drawComposeBody(f ui.C, create bool, group domain.Group) {
 		if create {
 			ui.Row(f).Height(36).Items(ui.Center).Gap(12).Children(func() {
 				ui.Text(f, i18n.T("群名称（可选）")).Width(96).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium)
-				ui.TextFieldID(f, u.ids.composeName, &u.compose.name, i18n.T("群名称"), i18n.T("留空将按成员昵称生成")).
+				ui.TextField(f, &u.compose.name, i18n.T("群名称"), i18n.T("留空将按成员昵称生成"), ui.WithID(u.ids.composeName)).
 					Height(36).Grow(1)
 			})
 		}
-		ui.TextFieldID(f, u.ids.composeSearch, &u.compose.search, i18n.T("搜索联系人"), i18n.T("搜索昵称或分组")).
+		ui.TextField(f, &u.compose.search, i18n.T("搜索联系人"), i18n.T("搜索昵称或分组"), ui.WithID(u.ids.composeSearch)).
 			Height(36)
 		ui.Divider(f)
 		ui.Row(f).Grow(1).Gap(18).Children(func() {

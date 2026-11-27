@@ -282,7 +282,7 @@ func (p *Panels) drawInterfaceFontPicker(f ui.C, theme ui.Theme, state domain.St
 	var canceled, confirmed bool
 	dialog.Body(func() {
 		ui.Column(f).FillWidth().Gap(interfaceFontDialogListGap).Children(func() {
-			ui.TextFieldID(f, font.search, &font.searchText, i18n.T("界面字体"), i18n.T("搜索已安装的字体")).
+			ui.TextField(f, &font.searchText, i18n.T("界面字体"), i18n.T("搜索已安装的字体"), ui.WithID(font.search)).
 				Height(38).FillWidth()
 			ui.Column(f).Height(interfaceFontListHeight).Shrink(0).Children(func() {
 				switch {

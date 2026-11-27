@@ -103,7 +103,7 @@ func (p *Panels) drawLocalSendSettingsDialog(f ui.C, theme ui.Theme, state domai
 		ui.Column(f).FillWidth().Gap(13).Children(func() {
 			ui.Column(f).FillWidth().Gap(5).Children(func() {
 				ui.Text(f, i18n.T("LocalSend 端口")).Weight(gfx.WeightSemibold)
-				field := ui.TextFieldID(f, portID, &v.port, i18n.T("LocalSend 端口"), "53317").Width(135)
+				field := ui.TextField(f, &v.port, i18n.T("LocalSend 端口"), "53317", ui.WithID(portID)).Width(135)
 				submitted = field.Submitted()
 				ui.Wrap(f, i18n.T("默认 TCP 端口 53317。发现使用 UDP 53317。")).Muted()
 			})
@@ -119,7 +119,7 @@ func (p *Panels) drawLocalSendSettingsDialog(f ui.C, theme ui.Theme, state domai
 			ui.Column(f).FillWidth().Gap(6).Children(func() {
 				ui.Text(f, i18n.T("LocalSend 接收 PIN")).Weight(gfx.WeightSemibold)
 				ui.Row(f).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-					field := ui.TextFieldID(f, p.tree.ID(v.scope, "receive-pin"), &v.receivePIN, i18n.T("LocalSend 接收 PIN"), i18n.T("输入新 PIN")).Width(135).Disabled(v.clearPIN)
+					field := ui.TextField(f, &v.receivePIN, i18n.T("LocalSend 接收 PIN"), i18n.T("输入新 PIN"), ui.WithID(p.tree.ID(v.scope, "receive-pin"))).Width(135).Disabled(v.clearPIN)
 					submitted = field.Submitted() || submitted
 					if state.LocalSend.HasPIN {
 						ui.Checkbox(f.Part("clear-pin"), &v.clearPIN, i18n.T("清除当前 PIN"))

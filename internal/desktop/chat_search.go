@@ -172,8 +172,9 @@ func (u *UI) drawChatSearchBar(f ui.C) {
 	ui.Row(f).FillWidth().Height(chatSearchExtent).PadX(chatContentInset).
 		Items(ui.Center).Gap(10).Children(func() {
 		ui.Icon(f, u.iconSearch).Size(16, 16).Color(u.palette.secondaryText)
-		ui.TextFieldID(f, u.ids.chatSearchField, &u.chatFind.field,
-			i18n.T("搜索当前会话"), i18n.T("搜索消息文字或文件名")).Height(34).Grow(1)
+		ui.TextField(f, &u.chatFind.field,
+			i18n.T("搜索当前会话"), i18n.T("搜索消息文字或文件名"), ui.WithID(u.ids.chatSearchField),
+		).Height(34).Grow(1)
 		ui.Text(f, intString(u.chatFind.matchCount)+i18n.T(" 条匹配")).FontSize(textSize(f, 11)).Muted()
 		close := u.iconButton(f, u.ids.chatSearchClose, u.iconX, i18n.T("关闭会话内搜索"), 28)
 		if close.Clicked() {

@@ -114,7 +114,7 @@ func connectionFields(f ui.C, state domain.State, form panelConnectionFields) (s
 			ui.Text(f, i18n.T("对方 IP 地址")).FontSize(textSize(f, 12)).Weight(gfx.WeightMedium)
 			ui.Row(f).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				available := connectionAvailable(state, *form.route) && !state.ConnectionFeedback.Pending
-				field := ui.TextFieldID(f, form.addressID, form.address, i18n.T("对方 IP 地址"), connectionHint(state, *form.route)).Grow(1)
+				field := ui.TextField(f, form.address, i18n.T("对方 IP 地址"), connectionHint(state, *form.route), ui.WithID(form.addressID)).Grow(1)
 				submitted = available && field.Submitted()
 				if !form.connectID.IsZero() && namedButton(f, form.connectID, i18n.T("连接")).Small().Outline().Disabled(!available).Clicked() {
 					submitted = true
@@ -198,7 +198,7 @@ func (p *Panels) compatibilitySection(f ui.C, theme ui.Theme, editor *compatibil
 					valid := err == nil && port >= 1 && port <= 65535
 					next := domain.CompatibilityConfig{Enabled: cfg.Enabled, Port: port}
 					changed := next != cfg || cfg.Enabled && !status.Active || status.Pending != nil
-					field := ui.TextFieldID(f, editor.portID, &editor.field, i18n.T(title)+" · "+i18n.T("端口"), strconv.Itoa(defaultPort)).Grow(1)
+					field := ui.TextField(f, &editor.field, i18n.T(title)+" · "+i18n.T("端口"), strconv.Itoa(defaultPort), ui.WithID(editor.portID)).Grow(1)
 					if namedButton(f, editor.saveID, i18n.T("保存")).Small().Outline().Disabled(!valid || !changed || status.Unavailable && transport == domain.TransportIPMSG).Clicked() ||
 						field.Submitted() && valid && changed && !(status.Unavailable && transport == domain.TransportIPMSG) {
 						p.localError = ""

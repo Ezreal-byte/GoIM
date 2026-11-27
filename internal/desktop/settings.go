@@ -156,7 +156,7 @@ func (p *Panels) settingsControl(f ui.C, width float32, body func()) {
 func (p *Panels) drawSettingsCategories(f ui.C, theme ui.Theme, sidebar ui.Color, state domain.State) {
 	ui.Column(f).Width(panelSettingsWidth).FillHeight().Background(sidebar).PadSides(22, 20, 14, 20).Gap(3).Children(func() {
 		ui.Text(f, i18n.T("设置")).FontSize(textSize(f, 26)).Weight(gfx.WeightSemibold)
-		field := ui.TextFieldID(f, p.ids.settingsSearch, &p.search.field, i18n.T("搜索设置"), i18n.T("搜索设置")).FillWidth().Height(34).Icon(Search)
+		field := ui.TextField(f, &p.search.field, i18n.T("搜索设置"), i18n.T("搜索设置"), ui.WithID(p.ids.settingsSearch)).FillWidth().Height(34).Icon(Search)
 		p.search.update(state)
 		if field.Submitted() && len(p.search.results) > 0 && p.search.query != "" {
 			p.openSettingResult(f, p.search.results[0], state)
